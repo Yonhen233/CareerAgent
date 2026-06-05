@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <div class="panel-heading compact">
+    <div>
+      <p class="eyebrow">Application packet</p>
+      <h1>投递包</h1>
+    </div>
+  </div>
+  <form id="quick-apply-form" class="form-grid">
+    <label>Profile ID<input name="profile_id" type="number" min="1" required></label>
+    <label>Job ID<input name="job_id" type="number" min="1" required></label>
+    <label>Resume Version ID<input name="resume_version_id" type="number" min="1"></label>
+    <label class="checkline"><input name="browser_assist" type="checkbox"> 浏览器辅助</label>
+    <button class="primary" type="submit"><i data-lucide="send"></i> 生成投递包</button>
+  </form>
+</section>
+<section class="panel">
+  <div class="panel-heading compact">
+    <div>
+      <p class="eyebrow">Tracker</p>
+      <h2>投递记录</h2>
+    </div>
+    <button class="ghost" data-refresh="applications"><i data-lucide="refresh-cw"></i> 刷新</button>
+  </div>
+  <div id="applications-list" class="result-list"></div>
+</section>
+{% endblock %}

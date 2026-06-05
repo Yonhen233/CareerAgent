@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="workspace-grid">
+  <div class="panel span-7">
+    <div class="panel-heading">
+      <div>
+        <p class="eyebrow">Agent workflow</p>
+        <h1>从简历到岗位到投递包</h1>
+      </div>
+      <span id="health-pill" class="status-pill">Checking</span>
+    </div>
+    <form id="dashboard-run-form" class="form-grid">
+      <label>
+        Profile ID
+        <input name="profile_id" type="number" min="1" placeholder="1" required>
+      </label>
+      <label>
+        Query
+        <input name="query" value="Agent Development Intern" required>
+      </label>
+      <label>
+        Location
+        <input name="location" placeholder="Shanghai / Remote">
+      </label>
+      <label>
+        Limit
+        <input name="limit" type="number" min="1" max="80" value="12">
+      </label>
+      <button class="primary" type="submit"><i data-lucide="radar"></i> 搜索并排序岗位</button>
+    </form>
+    <div id="dashboard-results" class="result-list"></div>
+  </div>
+
+  <aside class="panel span-5">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">Next actions</p>
+        <h2>高频操作</h2>
+      </div>
+    </div>
+    <div class="quick-actions">
+      <a class="action-row" href="/ui/profiles"><i data-lucide="file-up"></i><span>上传 PDF 或问答生成简历</span></a>
+      <a class="action-row" href="/ui/jobs"><i data-lucide="search"></i><span>搜索腾讯/Lever 真实岗位</span></a>
+      <a class="action-row" href="/ui/agent-runs"><i data-lucide="route"></i><span>执行可追踪 Agent 工作流</span></a>
+      <a class="action-row" href="/ui/applications"><i data-lucide="send"></i><span>查看投递包与状态</span></a>
+    </div>
+  </aside>
+</section>
+
+<section class="panel">
+  <div class="panel-heading compact">
+    <div>
+      <p class="eyebrow">Recent runs</p>
+      <h2>执行记录</h2>
+    </div>
+    <button class="ghost" data-refresh="runs"><i data-lucide="refresh-cw"></i> 刷新</button>
+  </div>
+  <div id="recent-runs" class="table-wrap"></div>
+</section>
+{% endblock %}

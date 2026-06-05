@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="workspace-grid">
+  <div class="panel span-6">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">Real sources</p>
+        <h1>搜索岗位</h1>
+      </div>
+    </div>
+    <form id="job-search-form" class="form-grid">
+      <label class="wide">关键词<input name="query" value="Agent Development Intern" required></label>
+      <label>城市<input name="location" placeholder="Shanghai"></label>
+      <label>数量<input name="limit" type="number" min="1" max="80" value="20"></label>
+      <label class="checkline"><input name="internship_only" type="checkbox" checked> 只看实习/校招</label>
+      <button class="primary" type="submit"><i data-lucide="search"></i> 搜索并入库</button>
+    </form>
+    <div id="job-search-errors" class="notice"></div>
+  </div>
+  <div class="panel span-6">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">Manual JD</p>
+        <h1>粘贴岗位 JD</h1>
+      </div>
+    </div>
+    <form id="manual-job-form" class="form-grid">
+      <label>标题<input name="title" placeholder="Agent 开发实习生"></label>
+      <label>公司<input name="company" placeholder="Company"></label>
+      <label class="wide">投递链接<input name="apply_url" placeholder="https://..."></label>
+      <label class="wide">JD<textarea name="jd_text" rows="7" required></textarea></label>
+      <button class="primary" type="submit"><i data-lucide="plus"></i> 创建岗位</button>
+    </form>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-heading compact">
+    <div>
+      <p class="eyebrow">Jobs</p>
+      <h2>岗位列表</h2>
+    </div>
+    <button class="ghost" data-refresh="jobs"><i data-lucide="refresh-cw"></i> 刷新</button>
+  </div>
+  <div id="jobs-list" class="result-list"></div>
+</section>
+{% endblock %}

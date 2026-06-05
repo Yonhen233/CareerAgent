@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CareerAgent</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  </head>
+  <body data-page="{{ page }}">
+    <header class="topbar">
+      <a class="brand" href="/">
+        <span class="brand-mark">CA</span>
+        <span>CareerAgent</span>
+      </a>
+      <nav class="nav">
+        <a href="/" class="{{ 'active' if page == 'dashboard' else '' }}">工作台</a>
+        <a href="/ui/profiles" class="{{ 'active' if page == 'profiles' else '' }}">简历</a>
+        <a href="/ui/jobs" class="{{ 'active' if page == 'jobs' else '' }}">岗位</a>
+        <a href="/ui/agent-runs" class="{{ 'active' if page == 'agent_runs' else '' }}">Agent Runs</a>
+        <a href="/ui/resumes" class="{{ 'active' if page == 'resumes' else '' }}">定制版本</a>
+        <a href="/ui/applications" class="{{ 'active' if page == 'applications' else '' }}">投递</a>
+        <a href="/docs">API</a>
+      </nav>
+    </header>
+    <main class="shell">
+      {% block content %}{% endblock %}
+    </main>
+    <div id="toast" class="toast" hidden></div>
+    <script src="/static/js/main.js"></script>
+  </body>
+</html>
