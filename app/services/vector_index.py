@@ -13,6 +13,19 @@ from app.services.text_splitter import TextChunk
 
 TOKEN_RE = re.compile(r"[a-zA-Z0-9_\-\+#\.]{2,}|[\u4e00-\u9fff]{1,}")
 
+QUERY_ALIASES = {
+    "retrieval augmented generation": "RAG",
+    "python api service": "FastAPI",
+    "embedded relational storage": "SQLite",
+    "autonomous workflow orchestration": "Agent",
+    "model quality measurement": "Evaluation",
+    "safety checks": "Guardrails",
+    "component based user interface": "React",
+    "typed frontend code": "TypeScript",
+    "deep learning framework": "PyTorch",
+    "scheduled data pipelines": "Airflow",
+}
+
 
 @dataclass
 class RetrievedChunk:
@@ -38,6 +51,18 @@ class RetrievedChunk:
 
 def tokenize(text: str) -> list[str]:
     return [token.lower() for token in TOKEN_RE.findall(text or "")]
+
+
+def expand_query_text(text: str) -> str:
+    expanded = text or ""
+    lowered = expanded.lower()
+    additions = []
+    for phrase, alias in QUERY_ALIASES.items():
+        if phrase in lowered and alias.lower() not in lowered:
+            additions.append(alias)
+    if additions:
+        expanded = expanded + "\n" + " ".join(additions)
+    return expanded
 
 
 def hash_embedding(text: str, dimensions: int) -> list[float]:
@@ -104,15 +129,17 @@ class SQLiteVectorIndex:
         if not query_text:
             return []
 
-        query_vec = hash_embedding(query_text, self.dimensions)
+        expanded_query = expand_query_text(query_text)
+        query_vec = hash_embedding(expanded_query, self.dimensions)
         rows = db.query(ResumeChunk).filter(ResumeChunk.profile_id == profile_id).all()
         scored: list[RetrievedChunk] = []
-        query_tokens = set(tokenize(query_text))
+        query_tokens = set(tokenize(expanded_query))
         for row in rows:
             vector_score = cosine_similarity(query_vec, row.embedding_json or [])
             chunk_tokens = set(tokenize(row.text))
             lexical_score = len(query_tokens & chunk_tokens) / max(len(query_tokens), 1)
-            score = round(vector_score * 0.7 + lexical_score * 0.3, 6)
+            type_boost = 0.05 if row.chunk_type in {"project", "experience", "skill"} else 0.0
+            score = round(vector_score * 0.15 + lexical_score * 0.80 + type_boost, 6)
             scored.append(
                 RetrievedChunk(
                     chunk_id=row.id,
@@ -161,15 +188,17 @@ class SQLiteVectorIndex:
         if not query_text:
             return []
 
-        query_vec = hash_embedding(query_text, self.dimensions)
+        expanded_query = expand_query_text(query_text)
+        query_vec = hash_embedding(expanded_query, self.dimensions)
         rows = db.query(JobChunk).filter(JobChunk.job_id == job_id).all()
         scored: list[RetrievedChunk] = []
-        query_tokens = set(tokenize(query_text))
+        query_tokens = set(tokenize(expanded_query))
         for row in rows:
             vector_score = cosine_similarity(query_vec, row.embedding_json or [])
             chunk_tokens = set(tokenize(row.text))
             lexical_score = len(query_tokens & chunk_tokens) / max(len(query_tokens), 1)
-            score = round(vector_score * 0.68 + lexical_score * 0.32, 6)
+            type_boost = 0.05 if row.chunk_type in {"required_skills", "responsibilities", "qualifications"} else 0.0
+            score = round(vector_score * 0.15 + lexical_score * 0.80 + type_boost, 6)
             scored.append(
                 RetrievedChunk(
                     chunk_id=row.id,

@@ -1,0 +1,2258 @@
+[
+  {
+    "name": "rag_case_00_agent_rag",
+    "query": "Agent Development Intern. Responsibilities include Python, Python API service, retrieval augmented generation, embedded relational storage, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "0_target_project",
+        "chunk_type": "project",
+        "text": "CareerAgent: Built a traceable job-search agent with PDF chunking, SQLite RAG, JD matching, evaluation and resume tailoring. Improved application workflow from resume upload to tailored application packet.",
+        "expected": true
+      },
+      {
+        "chunk_id": "0_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, FastAPI, RAG, SQLite, Agent, Evaluation, Guardrails",
+        "expected": true
+      },
+      {
+        "chunk_id": "0_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported FastAPI delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "0_distractor_a",
+        "chunk_type": "project",
+        "text": "EvalHarness: Created a prompt regression harness with scoring rules, SQL analytics and weekly model quality reports.",
+        "expected": false
+      },
+      {
+        "chunk_id": "0_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around React, TypeScript and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "0_noise",
+        "chunk_type": "education",
+        "text": "Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "0_target_project",
+      "0_target_skills",
+      "0_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_01_llm_eval",
+    "query": "LLM Evaluation Intern. Responsibilities include Python, Evaluation, Prompt Regression, LLM, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "1_target_project",
+        "chunk_type": "project",
+        "text": "EvalHarness: Created a prompt regression harness with scoring rules, SQL analytics and weekly model quality reports. Reduced manual review effort and caught response-format regressions.",
+        "expected": true
+      },
+      {
+        "chunk_id": "1_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, Evaluation, Prompt Regression, LLM, SQL, Dashboards",
+        "expected": true
+      },
+      {
+        "chunk_id": "1_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported Evaluation delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "1_distractor_a",
+        "chunk_type": "project",
+        "text": "ServiceMeshLab: Implemented FastAPI services with PostgreSQL persistence, Redis caching, structured logs and Docker deployment.",
+        "expected": false
+      },
+      {
+        "chunk_id": "1_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, PyTorch and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "1_noise",
+        "chunk_type": "education",
+        "text": "Awards: university scholarship, programming contest finalist, open-source contribution certificate.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "1_target_project",
+      "1_target_skills",
+      "1_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_02_backend_platform",
+    "query": "Backend Platform Intern. Responsibilities include Python, Python API service, PostgreSQL, Redis, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "2_target_project",
+        "chunk_type": "project",
+        "text": "ServiceMeshLab: Implemented FastAPI services with PostgreSQL persistence, Redis caching, structured logs and Docker deployment. Improved API latency and local developer setup.",
+        "expected": true
+      },
+      {
+        "chunk_id": "2_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, FastAPI, PostgreSQL, Redis, Docker, Observability",
+        "expected": true
+      },
+      {
+        "chunk_id": "2_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported FastAPI delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "2_distractor_a",
+        "chunk_type": "project",
+        "text": "DashboardStudio: Built reusable React components, accessibility checks and Playwright tests for an operations dashboard.",
+        "expected": false
+      },
+      {
+        "chunk_id": "2_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, SQL and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "2_noise",
+        "chunk_type": "education",
+        "text": "Activities: reading group organizer, AI product club member, technical blog author.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "2_target_project",
+      "2_target_skills",
+      "2_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_03_frontend_tools",
+    "query": "Frontend Engineering Intern. Responsibilities include React, TypeScript, CSS, Design System, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "3_target_project",
+        "chunk_type": "project",
+        "text": "DashboardStudio: Built reusable React components, accessibility checks and Playwright tests for an operations dashboard. Improved consistency across internal tools.",
+        "expected": true
+      },
+      {
+        "chunk_id": "3_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: React, TypeScript, CSS, Design System, Playwright, Accessibility",
+        "expected": true
+      },
+      {
+        "chunk_id": "3_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported TypeScript delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "3_distractor_a",
+        "chunk_type": "project",
+        "text": "ModelLab: Trained transformer baselines, logged experiments with MLflow and compared model metrics across datasets.",
+        "expected": false
+      },
+      {
+        "chunk_id": "3_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, FastAPI and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "3_noise",
+        "chunk_type": "education",
+        "text": "Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "3_target_project",
+      "3_target_skills",
+      "3_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_04_ml_platform",
+    "query": "Machine Learning Intern. Responsibilities include Python, deep learning framework, Transformers, Feature Store, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "4_target_project",
+        "chunk_type": "project",
+        "text": "ModelLab: Trained transformer baselines, logged experiments with MLflow and compared model metrics across datasets. Established a repeatable model evaluation workflow.",
+        "expected": true
+      },
+      {
+        "chunk_id": "4_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, PyTorch, Transformers, Feature Store, Model Evaluation, MLflow",
+        "expected": true
+      },
+      {
+        "chunk_id": "4_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported PyTorch delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "4_distractor_a",
+        "chunk_type": "project",
+        "text": "PipelineMonitor: Built Airflow DAGs, dbt transformations and data quality checks for warehouse tables.",
+        "expected": false
+      },
+      {
+        "chunk_id": "4_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, Evaluation and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "4_noise",
+        "chunk_type": "education",
+        "text": "Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "4_target_project",
+      "4_target_skills",
+      "4_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_05_data_engineering",
+    "query": "Data Engineering Intern. Responsibilities include Python, SQL, Airflow, dbt, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "5_target_project",
+        "chunk_type": "project",
+        "text": "PipelineMonitor: Built Airflow DAGs, dbt transformations and data quality checks for warehouse tables. Reduced stale-table incidents in analytics workflows.",
+        "expected": true
+      },
+      {
+        "chunk_id": "5_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, SQL, Airflow, dbt, Data Quality, Warehouse",
+        "expected": true
+      },
+      {
+        "chunk_id": "5_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported SQL delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "5_distractor_a",
+        "chunk_type": "project",
+        "text": "CareerAgent: Built a traceable job-search agent with PDF chunking, SQLite RAG, JD matching, evaluation and resume tailoring.",
+        "expected": false
+      },
+      {
+        "chunk_id": "5_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, FastAPI and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "5_noise",
+        "chunk_type": "education",
+        "text": "Awards: university scholarship, programming contest finalist, open-source contribution certificate.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "5_target_project",
+      "5_target_skills",
+      "5_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_06_agent_rag",
+    "query": "Agent Development Intern. Responsibilities include Python, Python API service, retrieval augmented generation, embedded relational storage, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "6_target_project",
+        "chunk_type": "project",
+        "text": "CareerAgent: Built a traceable job-search agent with PDF chunking, SQLite RAG, JD matching, evaluation and resume tailoring. Improved application workflow from resume upload to tailored application packet.",
+        "expected": true
+      },
+      {
+        "chunk_id": "6_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, FastAPI, RAG, SQLite, Agent, Evaluation, Guardrails",
+        "expected": true
+      },
+      {
+        "chunk_id": "6_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported FastAPI delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "6_distractor_a",
+        "chunk_type": "project",
+        "text": "EvalHarness: Created a prompt regression harness with scoring rules, SQL analytics and weekly model quality reports.",
+        "expected": false
+      },
+      {
+        "chunk_id": "6_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around React, TypeScript and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "6_noise",
+        "chunk_type": "education",
+        "text": "Activities: reading group organizer, AI product club member, technical blog author.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "6_target_project",
+      "6_target_skills",
+      "6_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_07_llm_eval",
+    "query": "LLM Evaluation Intern. Responsibilities include Python, Evaluation, Prompt Regression, LLM, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "7_target_project",
+        "chunk_type": "project",
+        "text": "EvalHarness: Created a prompt regression harness with scoring rules, SQL analytics and weekly model quality reports. Reduced manual review effort and caught response-format regressions.",
+        "expected": true
+      },
+      {
+        "chunk_id": "7_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, Evaluation, Prompt Regression, LLM, SQL, Dashboards",
+        "expected": true
+      },
+      {
+        "chunk_id": "7_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported Evaluation delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "7_distractor_a",
+        "chunk_type": "project",
+        "text": "ServiceMeshLab: Implemented FastAPI services with PostgreSQL persistence, Redis caching, structured logs and Docker deployment.",
+        "expected": false
+      },
+      {
+        "chunk_id": "7_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, PyTorch and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "7_noise",
+        "chunk_type": "education",
+        "text": "Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "7_target_project",
+      "7_target_skills",
+      "7_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_08_backend_platform",
+    "query": "Backend Platform Intern. Responsibilities include Python, Python API service, PostgreSQL, Redis, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "8_target_project",
+        "chunk_type": "project",
+        "text": "ServiceMeshLab: Implemented FastAPI services with PostgreSQL persistence, Redis caching, structured logs and Docker deployment. Improved API latency and local developer setup.",
+        "expected": true
+      },
+      {
+        "chunk_id": "8_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, FastAPI, PostgreSQL, Redis, Docker, Observability",
+        "expected": true
+      },
+      {
+        "chunk_id": "8_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported FastAPI delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "8_distractor_a",
+        "chunk_type": "project",
+        "text": "DashboardStudio: Built reusable React components, accessibility checks and Playwright tests for an operations dashboard.",
+        "expected": false
+      },
+      {
+        "chunk_id": "8_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, SQL and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "8_noise",
+        "chunk_type": "education",
+        "text": "Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "8_target_project",
+      "8_target_skills",
+      "8_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_09_frontend_tools",
+    "query": "Frontend Engineering Intern. Responsibilities include React, TypeScript, CSS, Design System, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "9_target_project",
+        "chunk_type": "project",
+        "text": "DashboardStudio: Built reusable React components, accessibility checks and Playwright tests for an operations dashboard. Improved consistency across internal tools.",
+        "expected": true
+      },
+      {
+        "chunk_id": "9_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: React, TypeScript, CSS, Design System, Playwright, Accessibility",
+        "expected": true
+      },
+      {
+        "chunk_id": "9_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported TypeScript delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "9_distractor_a",
+        "chunk_type": "project",
+        "text": "ModelLab: Trained transformer baselines, logged experiments with MLflow and compared model metrics across datasets.",
+        "expected": false
+      },
+      {
+        "chunk_id": "9_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, FastAPI and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "9_noise",
+        "chunk_type": "education",
+        "text": "Awards: university scholarship, programming contest finalist, open-source contribution certificate.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "9_target_project",
+      "9_target_skills",
+      "9_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_10_ml_platform",
+    "query": "Machine Learning Intern. Responsibilities include Python, deep learning framework, Transformers, Feature Store, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "10_target_project",
+        "chunk_type": "project",
+        "text": "ModelLab: Trained transformer baselines, logged experiments with MLflow and compared model metrics across datasets. Established a repeatable model evaluation workflow.",
+        "expected": true
+      },
+      {
+        "chunk_id": "10_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, PyTorch, Transformers, Feature Store, Model Evaluation, MLflow",
+        "expected": true
+      },
+      {
+        "chunk_id": "10_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported PyTorch delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "10_distractor_a",
+        "chunk_type": "project",
+        "text": "PipelineMonitor: Built Airflow DAGs, dbt transformations and data quality checks for warehouse tables.",
+        "expected": false
+      },
+      {
+        "chunk_id": "10_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, Evaluation and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "10_noise",
+        "chunk_type": "education",
+        "text": "Activities: reading group organizer, AI product club member, technical blog author.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "10_target_project",
+      "10_target_skills",
+      "10_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_11_data_engineering",
+    "query": "Data Engineering Intern. Responsibilities include Python, SQL, Airflow, dbt, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "11_target_project",
+        "chunk_type": "project",
+        "text": "PipelineMonitor: Built Airflow DAGs, dbt transformations and data quality checks for warehouse tables. Reduced stale-table incidents in analytics workflows.",
+        "expected": true
+      },
+      {
+        "chunk_id": "11_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, SQL, Airflow, dbt, Data Quality, Warehouse",
+        "expected": true
+      },
+      {
+        "chunk_id": "11_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported SQL delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "11_distractor_a",
+        "chunk_type": "project",
+        "text": "CareerAgent: Built a traceable job-search agent with PDF chunking, SQLite RAG, JD matching, evaluation and resume tailoring.",
+        "expected": false
+      },
+      {
+        "chunk_id": "11_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, FastAPI and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "11_noise",
+        "chunk_type": "education",
+        "text": "Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "11_target_project",
+      "11_target_skills",
+      "11_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_12_agent_rag",
+    "query": "Agent Development Intern. Responsibilities include Python, Python API service, retrieval augmented generation, embedded relational storage, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "12_target_project",
+        "chunk_type": "project",
+        "text": "CareerAgent: Built a traceable job-search agent with PDF chunking, SQLite RAG, JD matching, evaluation and resume tailoring. Improved application workflow from resume upload to tailored application packet.",
+        "expected": true
+      },
+      {
+        "chunk_id": "12_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, FastAPI, RAG, SQLite, Agent, Evaluation, Guardrails",
+        "expected": true
+      },
+      {
+        "chunk_id": "12_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported FastAPI delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "12_distractor_a",
+        "chunk_type": "project",
+        "text": "EvalHarness: Created a prompt regression harness with scoring rules, SQL analytics and weekly model quality reports.",
+        "expected": false
+      },
+      {
+        "chunk_id": "12_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around React, TypeScript and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "12_noise",
+        "chunk_type": "education",
+        "text": "Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "12_target_project",
+      "12_target_skills",
+      "12_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_13_llm_eval",
+    "query": "LLM Evaluation Intern. Responsibilities include Python, Evaluation, Prompt Regression, LLM, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "13_target_project",
+        "chunk_type": "project",
+        "text": "EvalHarness: Created a prompt regression harness with scoring rules, SQL analytics and weekly model quality reports. Reduced manual review effort and caught response-format regressions.",
+        "expected": true
+      },
+      {
+        "chunk_id": "13_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, Evaluation, Prompt Regression, LLM, SQL, Dashboards",
+        "expected": true
+      },
+      {
+        "chunk_id": "13_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported Evaluation delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "13_distractor_a",
+        "chunk_type": "project",
+        "text": "ServiceMeshLab: Implemented FastAPI services with PostgreSQL persistence, Redis caching, structured logs and Docker deployment.",
+        "expected": false
+      },
+      {
+        "chunk_id": "13_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, PyTorch and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "13_noise",
+        "chunk_type": "education",
+        "text": "Awards: university scholarship, programming contest finalist, open-source contribution certificate.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "13_target_project",
+      "13_target_skills",
+      "13_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_14_backend_platform",
+    "query": "Backend Platform Intern. Responsibilities include Python, Python API service, PostgreSQL, Redis, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "14_target_project",
+        "chunk_type": "project",
+        "text": "ServiceMeshLab: Implemented FastAPI services with PostgreSQL persistence, Redis caching, structured logs and Docker deployment. Improved API latency and local developer setup.",
+        "expected": true
+      },
+      {
+        "chunk_id": "14_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, FastAPI, PostgreSQL, Redis, Docker, Observability",
+        "expected": true
+      },
+      {
+        "chunk_id": "14_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported FastAPI delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "14_distractor_a",
+        "chunk_type": "project",
+        "text": "DashboardStudio: Built reusable React components, accessibility checks and Playwright tests for an operations dashboard.",
+        "expected": false
+      },
+      {
+        "chunk_id": "14_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, SQL and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "14_noise",
+        "chunk_type": "education",
+        "text": "Activities: reading group organizer, AI product club member, technical blog author.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "14_target_project",
+      "14_target_skills",
+      "14_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_15_frontend_tools",
+    "query": "Frontend Engineering Intern. Responsibilities include React, TypeScript, CSS, Design System, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "15_target_project",
+        "chunk_type": "project",
+        "text": "DashboardStudio: Built reusable React components, accessibility checks and Playwright tests for an operations dashboard. Improved consistency across internal tools.",
+        "expected": true
+      },
+      {
+        "chunk_id": "15_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: React, TypeScript, CSS, Design System, Playwright, Accessibility",
+        "expected": true
+      },
+      {
+        "chunk_id": "15_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported TypeScript delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "15_distractor_a",
+        "chunk_type": "project",
+        "text": "ModelLab: Trained transformer baselines, logged experiments with MLflow and compared model metrics across datasets.",
+        "expected": false
+      },
+      {
+        "chunk_id": "15_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, FastAPI and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "15_noise",
+        "chunk_type": "education",
+        "text": "Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "15_target_project",
+      "15_target_skills",
+      "15_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_16_ml_platform",
+    "query": "Machine Learning Intern. Responsibilities include Python, deep learning framework, Transformers, Feature Store, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "16_target_project",
+        "chunk_type": "project",
+        "text": "ModelLab: Trained transformer baselines, logged experiments with MLflow and compared model metrics across datasets. Established a repeatable model evaluation workflow.",
+        "expected": true
+      },
+      {
+        "chunk_id": "16_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, PyTorch, Transformers, Feature Store, Model Evaluation, MLflow",
+        "expected": true
+      },
+      {
+        "chunk_id": "16_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported PyTorch delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "16_distractor_a",
+        "chunk_type": "project",
+        "text": "PipelineMonitor: Built Airflow DAGs, dbt transformations and data quality checks for warehouse tables.",
+        "expected": false
+      },
+      {
+        "chunk_id": "16_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, Evaluation and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "16_noise",
+        "chunk_type": "education",
+        "text": "Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "16_target_project",
+      "16_target_skills",
+      "16_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_17_data_engineering",
+    "query": "Data Engineering Intern. Responsibilities include Python, SQL, Airflow, dbt, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "17_target_project",
+        "chunk_type": "project",
+        "text": "PipelineMonitor: Built Airflow DAGs, dbt transformations and data quality checks for warehouse tables. Reduced stale-table incidents in analytics workflows.",
+        "expected": true
+      },
+      {
+        "chunk_id": "17_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, SQL, Airflow, dbt, Data Quality, Warehouse",
+        "expected": true
+      },
+      {
+        "chunk_id": "17_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported SQL delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "17_distractor_a",
+        "chunk_type": "project",
+        "text": "CareerAgent: Built a traceable job-search agent with PDF chunking, SQLite RAG, JD matching, evaluation and resume tailoring.",
+        "expected": false
+      },
+      {
+        "chunk_id": "17_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, FastAPI and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "17_noise",
+        "chunk_type": "education",
+        "text": "Awards: university scholarship, programming contest finalist, open-source contribution certificate.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "17_target_project",
+      "17_target_skills",
+      "17_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_18_agent_rag",
+    "query": "Agent Development Intern. Responsibilities include Python, Python API service, retrieval augmented generation, embedded relational storage, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "18_target_project",
+        "chunk_type": "project",
+        "text": "CareerAgent: Built a traceable job-search agent with PDF chunking, SQLite RAG, JD matching, evaluation and resume tailoring. Improved application workflow from resume upload to tailored application packet.",
+        "expected": true
+      },
+      {
+        "chunk_id": "18_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, FastAPI, RAG, SQLite, Agent, Evaluation, Guardrails",
+        "expected": true
+      },
+      {
+        "chunk_id": "18_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported FastAPI delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "18_distractor_a",
+        "chunk_type": "project",
+        "text": "EvalHarness: Created a prompt regression harness with scoring rules, SQL analytics and weekly model quality reports.",
+        "expected": false
+      },
+      {
+        "chunk_id": "18_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around React, TypeScript and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "18_noise",
+        "chunk_type": "education",
+        "text": "Activities: reading group organizer, AI product club member, technical blog author.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "18_target_project",
+      "18_target_skills",
+      "18_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_19_llm_eval",
+    "query": "LLM Evaluation Intern. Responsibilities include Python, Evaluation, Prompt Regression, LLM, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "19_target_project",
+        "chunk_type": "project",
+        "text": "EvalHarness: Created a prompt regression harness with scoring rules, SQL analytics and weekly model quality reports. Reduced manual review effort and caught response-format regressions.",
+        "expected": true
+      },
+      {
+        "chunk_id": "19_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, Evaluation, Prompt Regression, LLM, SQL, Dashboards",
+        "expected": true
+      },
+      {
+        "chunk_id": "19_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported Evaluation delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "19_distractor_a",
+        "chunk_type": "project",
+        "text": "ServiceMeshLab: Implemented FastAPI services with PostgreSQL persistence, Redis caching, structured logs and Docker deployment.",
+        "expected": false
+      },
+      {
+        "chunk_id": "19_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, PyTorch and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "19_noise",
+        "chunk_type": "education",
+        "text": "Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "19_target_project",
+      "19_target_skills",
+      "19_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_20_backend_platform",
+    "query": "Backend Platform Intern. Responsibilities include Python, Python API service, PostgreSQL, Redis, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "20_target_project",
+        "chunk_type": "project",
+        "text": "ServiceMeshLab: Implemented FastAPI services with PostgreSQL persistence, Redis caching, structured logs and Docker deployment. Improved API latency and local developer setup.",
+        "expected": true
+      },
+      {
+        "chunk_id": "20_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, FastAPI, PostgreSQL, Redis, Docker, Observability",
+        "expected": true
+      },
+      {
+        "chunk_id": "20_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported FastAPI delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "20_distractor_a",
+        "chunk_type": "project",
+        "text": "DashboardStudio: Built reusable React components, accessibility checks and Playwright tests for an operations dashboard.",
+        "expected": false
+      },
+      {
+        "chunk_id": "20_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, SQL and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "20_noise",
+        "chunk_type": "education",
+        "text": "Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "20_target_project",
+      "20_target_skills",
+      "20_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_21_frontend_tools",
+    "query": "Frontend Engineering Intern. Responsibilities include React, TypeScript, CSS, Design System, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "21_target_project",
+        "chunk_type": "project",
+        "text": "DashboardStudio: Built reusable React components, accessibility checks and Playwright tests for an operations dashboard. Improved consistency across internal tools.",
+        "expected": true
+      },
+      {
+        "chunk_id": "21_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: React, TypeScript, CSS, Design System, Playwright, Accessibility",
+        "expected": true
+      },
+      {
+        "chunk_id": "21_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported TypeScript delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "21_distractor_a",
+        "chunk_type": "project",
+        "text": "ModelLab: Trained transformer baselines, logged experiments with MLflow and compared model metrics across datasets.",
+        "expected": false
+      },
+      {
+        "chunk_id": "21_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, FastAPI and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "21_noise",
+        "chunk_type": "education",
+        "text": "Awards: university scholarship, programming contest finalist, open-source contribution certificate.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "21_target_project",
+      "21_target_skills",
+      "21_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_22_ml_platform",
+    "query": "Machine Learning Intern. Responsibilities include Python, deep learning framework, Transformers, Feature Store, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "22_target_project",
+        "chunk_type": "project",
+        "text": "ModelLab: Trained transformer baselines, logged experiments with MLflow and compared model metrics across datasets. Established a repeatable model evaluation workflow.",
+        "expected": true
+      },
+      {
+        "chunk_id": "22_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, PyTorch, Transformers, Feature Store, Model Evaluation, MLflow",
+        "expected": true
+      },
+      {
+        "chunk_id": "22_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported PyTorch delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "22_distractor_a",
+        "chunk_type": "project",
+        "text": "PipelineMonitor: Built Airflow DAGs, dbt transformations and data quality checks for warehouse tables.",
+        "expected": false
+      },
+      {
+        "chunk_id": "22_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, Evaluation and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "22_noise",
+        "chunk_type": "education",
+        "text": "Activities: reading group organizer, AI product club member, technical blog author.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "22_target_project",
+      "22_target_skills",
+      "22_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_23_data_engineering",
+    "query": "Data Engineering Intern. Responsibilities include Python, SQL, Airflow, dbt, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "23_target_project",
+        "chunk_type": "project",
+        "text": "PipelineMonitor: Built Airflow DAGs, dbt transformations and data quality checks for warehouse tables. Reduced stale-table incidents in analytics workflows.",
+        "expected": true
+      },
+      {
+        "chunk_id": "23_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, SQL, Airflow, dbt, Data Quality, Warehouse",
+        "expected": true
+      },
+      {
+        "chunk_id": "23_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported SQL delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "23_distractor_a",
+        "chunk_type": "project",
+        "text": "CareerAgent: Built a traceable job-search agent with PDF chunking, SQLite RAG, JD matching, evaluation and resume tailoring.",
+        "expected": false
+      },
+      {
+        "chunk_id": "23_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, FastAPI and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "23_noise",
+        "chunk_type": "education",
+        "text": "Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "23_target_project",
+      "23_target_skills",
+      "23_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_24_agent_rag",
+    "query": "Agent Development Intern. Responsibilities include Python, Python API service, retrieval augmented generation, embedded relational storage, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "24_target_project",
+        "chunk_type": "project",
+        "text": "CareerAgent: Built a traceable job-search agent with PDF chunking, SQLite RAG, JD matching, evaluation and resume tailoring. Improved application workflow from resume upload to tailored application packet.",
+        "expected": true
+      },
+      {
+        "chunk_id": "24_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, FastAPI, RAG, SQLite, Agent, Evaluation, Guardrails",
+        "expected": true
+      },
+      {
+        "chunk_id": "24_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported FastAPI delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "24_distractor_a",
+        "chunk_type": "project",
+        "text": "EvalHarness: Created a prompt regression harness with scoring rules, SQL analytics and weekly model quality reports.",
+        "expected": false
+      },
+      {
+        "chunk_id": "24_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around React, TypeScript and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "24_noise",
+        "chunk_type": "education",
+        "text": "Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "24_target_project",
+      "24_target_skills",
+      "24_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_25_llm_eval",
+    "query": "LLM Evaluation Intern. Responsibilities include Python, Evaluation, Prompt Regression, LLM, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "25_target_project",
+        "chunk_type": "project",
+        "text": "EvalHarness: Created a prompt regression harness with scoring rules, SQL analytics and weekly model quality reports. Reduced manual review effort and caught response-format regressions.",
+        "expected": true
+      },
+      {
+        "chunk_id": "25_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, Evaluation, Prompt Regression, LLM, SQL, Dashboards",
+        "expected": true
+      },
+      {
+        "chunk_id": "25_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported Evaluation delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "25_distractor_a",
+        "chunk_type": "project",
+        "text": "ServiceMeshLab: Implemented FastAPI services with PostgreSQL persistence, Redis caching, structured logs and Docker deployment.",
+        "expected": false
+      },
+      {
+        "chunk_id": "25_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, PyTorch and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "25_noise",
+        "chunk_type": "education",
+        "text": "Awards: university scholarship, programming contest finalist, open-source contribution certificate.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "25_target_project",
+      "25_target_skills",
+      "25_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_26_backend_platform",
+    "query": "Backend Platform Intern. Responsibilities include Python, Python API service, PostgreSQL, Redis, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "26_target_project",
+        "chunk_type": "project",
+        "text": "ServiceMeshLab: Implemented FastAPI services with PostgreSQL persistence, Redis caching, structured logs and Docker deployment. Improved API latency and local developer setup.",
+        "expected": true
+      },
+      {
+        "chunk_id": "26_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, FastAPI, PostgreSQL, Redis, Docker, Observability",
+        "expected": true
+      },
+      {
+        "chunk_id": "26_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported FastAPI delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "26_distractor_a",
+        "chunk_type": "project",
+        "text": "DashboardStudio: Built reusable React components, accessibility checks and Playwright tests for an operations dashboard.",
+        "expected": false
+      },
+      {
+        "chunk_id": "26_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, SQL and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "26_noise",
+        "chunk_type": "education",
+        "text": "Activities: reading group organizer, AI product club member, technical blog author.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "26_target_project",
+      "26_target_skills",
+      "26_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_27_frontend_tools",
+    "query": "Frontend Engineering Intern. Responsibilities include React, TypeScript, CSS, Design System, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "27_target_project",
+        "chunk_type": "project",
+        "text": "DashboardStudio: Built reusable React components, accessibility checks and Playwright tests for an operations dashboard. Improved consistency across internal tools.",
+        "expected": true
+      },
+      {
+        "chunk_id": "27_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: React, TypeScript, CSS, Design System, Playwright, Accessibility",
+        "expected": true
+      },
+      {
+        "chunk_id": "27_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported TypeScript delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "27_distractor_a",
+        "chunk_type": "project",
+        "text": "ModelLab: Trained transformer baselines, logged experiments with MLflow and compared model metrics across datasets.",
+        "expected": false
+      },
+      {
+        "chunk_id": "27_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, FastAPI and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "27_noise",
+        "chunk_type": "education",
+        "text": "Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "27_target_project",
+      "27_target_skills",
+      "27_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_28_ml_platform",
+    "query": "Machine Learning Intern. Responsibilities include Python, deep learning framework, Transformers, Feature Store, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "28_target_project",
+        "chunk_type": "project",
+        "text": "ModelLab: Trained transformer baselines, logged experiments with MLflow and compared model metrics across datasets. Established a repeatable model evaluation workflow.",
+        "expected": true
+      },
+      {
+        "chunk_id": "28_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, PyTorch, Transformers, Feature Store, Model Evaluation, MLflow",
+        "expected": true
+      },
+      {
+        "chunk_id": "28_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported PyTorch delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "28_distractor_a",
+        "chunk_type": "project",
+        "text": "PipelineMonitor: Built Airflow DAGs, dbt transformations and data quality checks for warehouse tables.",
+        "expected": false
+      },
+      {
+        "chunk_id": "28_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, Evaluation and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "28_noise",
+        "chunk_type": "education",
+        "text": "Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "28_target_project",
+      "28_target_skills",
+      "28_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_29_data_engineering",
+    "query": "Data Engineering Intern. Responsibilities include Python, SQL, Airflow, dbt, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "29_target_project",
+        "chunk_type": "project",
+        "text": "PipelineMonitor: Built Airflow DAGs, dbt transformations and data quality checks for warehouse tables. Reduced stale-table incidents in analytics workflows.",
+        "expected": true
+      },
+      {
+        "chunk_id": "29_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, SQL, Airflow, dbt, Data Quality, Warehouse",
+        "expected": true
+      },
+      {
+        "chunk_id": "29_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported SQL delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "29_distractor_a",
+        "chunk_type": "project",
+        "text": "CareerAgent: Built a traceable job-search agent with PDF chunking, SQLite RAG, JD matching, evaluation and resume tailoring.",
+        "expected": false
+      },
+      {
+        "chunk_id": "29_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, FastAPI and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "29_noise",
+        "chunk_type": "education",
+        "text": "Awards: university scholarship, programming contest finalist, open-source contribution certificate.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "29_target_project",
+      "29_target_skills",
+      "29_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_30_agent_rag",
+    "query": "Agent Development Intern. Responsibilities include Python, Python API service, retrieval augmented generation, embedded relational storage, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "30_target_project",
+        "chunk_type": "project",
+        "text": "CareerAgent: Built a traceable job-search agent with PDF chunking, SQLite RAG, JD matching, evaluation and resume tailoring. Improved application workflow from resume upload to tailored application packet.",
+        "expected": true
+      },
+      {
+        "chunk_id": "30_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, FastAPI, RAG, SQLite, Agent, Evaluation, Guardrails",
+        "expected": true
+      },
+      {
+        "chunk_id": "30_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported FastAPI delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "30_distractor_a",
+        "chunk_type": "project",
+        "text": "EvalHarness: Created a prompt regression harness with scoring rules, SQL analytics and weekly model quality reports.",
+        "expected": false
+      },
+      {
+        "chunk_id": "30_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around React, TypeScript and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "30_noise",
+        "chunk_type": "education",
+        "text": "Activities: reading group organizer, AI product club member, technical blog author.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "30_target_project",
+      "30_target_skills",
+      "30_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_31_llm_eval",
+    "query": "LLM Evaluation Intern. Responsibilities include Python, Evaluation, Prompt Regression, LLM, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "31_target_project",
+        "chunk_type": "project",
+        "text": "EvalHarness: Created a prompt regression harness with scoring rules, SQL analytics and weekly model quality reports. Reduced manual review effort and caught response-format regressions.",
+        "expected": true
+      },
+      {
+        "chunk_id": "31_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, Evaluation, Prompt Regression, LLM, SQL, Dashboards",
+        "expected": true
+      },
+      {
+        "chunk_id": "31_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported Evaluation delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "31_distractor_a",
+        "chunk_type": "project",
+        "text": "ServiceMeshLab: Implemented FastAPI services with PostgreSQL persistence, Redis caching, structured logs and Docker deployment.",
+        "expected": false
+      },
+      {
+        "chunk_id": "31_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, PyTorch and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "31_noise",
+        "chunk_type": "education",
+        "text": "Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "31_target_project",
+      "31_target_skills",
+      "31_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_32_backend_platform",
+    "query": "Backend Platform Intern. Responsibilities include Python, Python API service, PostgreSQL, Redis, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "32_target_project",
+        "chunk_type": "project",
+        "text": "ServiceMeshLab: Implemented FastAPI services with PostgreSQL persistence, Redis caching, structured logs and Docker deployment. Improved API latency and local developer setup.",
+        "expected": true
+      },
+      {
+        "chunk_id": "32_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, FastAPI, PostgreSQL, Redis, Docker, Observability",
+        "expected": true
+      },
+      {
+        "chunk_id": "32_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported FastAPI delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "32_distractor_a",
+        "chunk_type": "project",
+        "text": "DashboardStudio: Built reusable React components, accessibility checks and Playwright tests for an operations dashboard.",
+        "expected": false
+      },
+      {
+        "chunk_id": "32_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, SQL and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "32_noise",
+        "chunk_type": "education",
+        "text": "Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "32_target_project",
+      "32_target_skills",
+      "32_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_33_frontend_tools",
+    "query": "Frontend Engineering Intern. Responsibilities include React, TypeScript, CSS, Design System, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "33_target_project",
+        "chunk_type": "project",
+        "text": "DashboardStudio: Built reusable React components, accessibility checks and Playwright tests for an operations dashboard. Improved consistency across internal tools.",
+        "expected": true
+      },
+      {
+        "chunk_id": "33_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: React, TypeScript, CSS, Design System, Playwright, Accessibility",
+        "expected": true
+      },
+      {
+        "chunk_id": "33_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported TypeScript delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "33_distractor_a",
+        "chunk_type": "project",
+        "text": "ModelLab: Trained transformer baselines, logged experiments with MLflow and compared model metrics across datasets.",
+        "expected": false
+      },
+      {
+        "chunk_id": "33_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, FastAPI and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "33_noise",
+        "chunk_type": "education",
+        "text": "Awards: university scholarship, programming contest finalist, open-source contribution certificate.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "33_target_project",
+      "33_target_skills",
+      "33_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_34_ml_platform",
+    "query": "Machine Learning Intern. Responsibilities include Python, deep learning framework, Transformers, Feature Store, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "34_target_project",
+        "chunk_type": "project",
+        "text": "ModelLab: Trained transformer baselines, logged experiments with MLflow and compared model metrics across datasets. Established a repeatable model evaluation workflow.",
+        "expected": true
+      },
+      {
+        "chunk_id": "34_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, PyTorch, Transformers, Feature Store, Model Evaluation, MLflow",
+        "expected": true
+      },
+      {
+        "chunk_id": "34_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported PyTorch delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "34_distractor_a",
+        "chunk_type": "project",
+        "text": "PipelineMonitor: Built Airflow DAGs, dbt transformations and data quality checks for warehouse tables.",
+        "expected": false
+      },
+      {
+        "chunk_id": "34_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, Evaluation and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "34_noise",
+        "chunk_type": "education",
+        "text": "Activities: reading group organizer, AI product club member, technical blog author.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "34_target_project",
+      "34_target_skills",
+      "34_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_35_data_engineering",
+    "query": "Data Engineering Intern. Responsibilities include Python, SQL, Airflow, dbt, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "35_target_project",
+        "chunk_type": "project",
+        "text": "PipelineMonitor: Built Airflow DAGs, dbt transformations and data quality checks for warehouse tables. Reduced stale-table incidents in analytics workflows.",
+        "expected": true
+      },
+      {
+        "chunk_id": "35_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, SQL, Airflow, dbt, Data Quality, Warehouse",
+        "expected": true
+      },
+      {
+        "chunk_id": "35_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported SQL delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "35_distractor_a",
+        "chunk_type": "project",
+        "text": "CareerAgent: Built a traceable job-search agent with PDF chunking, SQLite RAG, JD matching, evaluation and resume tailoring.",
+        "expected": false
+      },
+      {
+        "chunk_id": "35_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, FastAPI and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "35_noise",
+        "chunk_type": "education",
+        "text": "Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "35_target_project",
+      "35_target_skills",
+      "35_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_36_agent_rag",
+    "query": "Agent Development Intern. Responsibilities include Python, Python API service, retrieval augmented generation, embedded relational storage, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "36_target_project",
+        "chunk_type": "project",
+        "text": "CareerAgent: Built a traceable job-search agent with PDF chunking, SQLite RAG, JD matching, evaluation and resume tailoring. Improved application workflow from resume upload to tailored application packet.",
+        "expected": true
+      },
+      {
+        "chunk_id": "36_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, FastAPI, RAG, SQLite, Agent, Evaluation, Guardrails",
+        "expected": true
+      },
+      {
+        "chunk_id": "36_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported FastAPI delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "36_distractor_a",
+        "chunk_type": "project",
+        "text": "EvalHarness: Created a prompt regression harness with scoring rules, SQL analytics and weekly model quality reports.",
+        "expected": false
+      },
+      {
+        "chunk_id": "36_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around React, TypeScript and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "36_noise",
+        "chunk_type": "education",
+        "text": "Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "36_target_project",
+      "36_target_skills",
+      "36_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_37_llm_eval",
+    "query": "LLM Evaluation Intern. Responsibilities include Python, Evaluation, Prompt Regression, LLM, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "37_target_project",
+        "chunk_type": "project",
+        "text": "EvalHarness: Created a prompt regression harness with scoring rules, SQL analytics and weekly model quality reports. Reduced manual review effort and caught response-format regressions.",
+        "expected": true
+      },
+      {
+        "chunk_id": "37_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, Evaluation, Prompt Regression, LLM, SQL, Dashboards",
+        "expected": true
+      },
+      {
+        "chunk_id": "37_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported Evaluation delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "37_distractor_a",
+        "chunk_type": "project",
+        "text": "ServiceMeshLab: Implemented FastAPI services with PostgreSQL persistence, Redis caching, structured logs and Docker deployment.",
+        "expected": false
+      },
+      {
+        "chunk_id": "37_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, PyTorch and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "37_noise",
+        "chunk_type": "education",
+        "text": "Awards: university scholarship, programming contest finalist, open-source contribution certificate.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "37_target_project",
+      "37_target_skills",
+      "37_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_38_backend_platform",
+    "query": "Backend Platform Intern. Responsibilities include Python, Python API service, PostgreSQL, Redis, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "38_target_project",
+        "chunk_type": "project",
+        "text": "ServiceMeshLab: Implemented FastAPI services with PostgreSQL persistence, Redis caching, structured logs and Docker deployment. Improved API latency and local developer setup.",
+        "expected": true
+      },
+      {
+        "chunk_id": "38_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, FastAPI, PostgreSQL, Redis, Docker, Observability",
+        "expected": true
+      },
+      {
+        "chunk_id": "38_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported FastAPI delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "38_distractor_a",
+        "chunk_type": "project",
+        "text": "DashboardStudio: Built reusable React components, accessibility checks and Playwright tests for an operations dashboard.",
+        "expected": false
+      },
+      {
+        "chunk_id": "38_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, SQL and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "38_noise",
+        "chunk_type": "education",
+        "text": "Activities: reading group organizer, AI product club member, technical blog author.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "38_target_project",
+      "38_target_skills",
+      "38_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_39_frontend_tools",
+    "query": "Frontend Engineering Intern. Responsibilities include React, TypeScript, CSS, Design System, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "39_target_project",
+        "chunk_type": "project",
+        "text": "DashboardStudio: Built reusable React components, accessibility checks and Playwright tests for an operations dashboard. Improved consistency across internal tools.",
+        "expected": true
+      },
+      {
+        "chunk_id": "39_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: React, TypeScript, CSS, Design System, Playwright, Accessibility",
+        "expected": true
+      },
+      {
+        "chunk_id": "39_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported TypeScript delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "39_distractor_a",
+        "chunk_type": "project",
+        "text": "ModelLab: Trained transformer baselines, logged experiments with MLflow and compared model metrics across datasets.",
+        "expected": false
+      },
+      {
+        "chunk_id": "39_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, FastAPI and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "39_noise",
+        "chunk_type": "education",
+        "text": "Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "39_target_project",
+      "39_target_skills",
+      "39_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_40_ml_platform",
+    "query": "Machine Learning Intern. Responsibilities include Python, deep learning framework, Transformers, Feature Store, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "40_target_project",
+        "chunk_type": "project",
+        "text": "ModelLab: Trained transformer baselines, logged experiments with MLflow and compared model metrics across datasets. Established a repeatable model evaluation workflow.",
+        "expected": true
+      },
+      {
+        "chunk_id": "40_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, PyTorch, Transformers, Feature Store, Model Evaluation, MLflow",
+        "expected": true
+      },
+      {
+        "chunk_id": "40_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported PyTorch delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "40_distractor_a",
+        "chunk_type": "project",
+        "text": "PipelineMonitor: Built Airflow DAGs, dbt transformations and data quality checks for warehouse tables.",
+        "expected": false
+      },
+      {
+        "chunk_id": "40_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, Evaluation and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "40_noise",
+        "chunk_type": "education",
+        "text": "Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "40_target_project",
+      "40_target_skills",
+      "40_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_41_data_engineering",
+    "query": "Data Engineering Intern. Responsibilities include Python, SQL, Airflow, dbt, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "41_target_project",
+        "chunk_type": "project",
+        "text": "PipelineMonitor: Built Airflow DAGs, dbt transformations and data quality checks for warehouse tables. Reduced stale-table incidents in analytics workflows.",
+        "expected": true
+      },
+      {
+        "chunk_id": "41_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, SQL, Airflow, dbt, Data Quality, Warehouse",
+        "expected": true
+      },
+      {
+        "chunk_id": "41_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported SQL delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "41_distractor_a",
+        "chunk_type": "project",
+        "text": "CareerAgent: Built a traceable job-search agent with PDF chunking, SQLite RAG, JD matching, evaluation and resume tailoring.",
+        "expected": false
+      },
+      {
+        "chunk_id": "41_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, FastAPI and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "41_noise",
+        "chunk_type": "education",
+        "text": "Awards: university scholarship, programming contest finalist, open-source contribution certificate.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "41_target_project",
+      "41_target_skills",
+      "41_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_42_agent_rag",
+    "query": "Agent Development Intern. Responsibilities include Python, Python API service, retrieval augmented generation, embedded relational storage, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "42_target_project",
+        "chunk_type": "project",
+        "text": "CareerAgent: Built a traceable job-search agent with PDF chunking, SQLite RAG, JD matching, evaluation and resume tailoring. Improved application workflow from resume upload to tailored application packet.",
+        "expected": true
+      },
+      {
+        "chunk_id": "42_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, FastAPI, RAG, SQLite, Agent, Evaluation, Guardrails",
+        "expected": true
+      },
+      {
+        "chunk_id": "42_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported FastAPI delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "42_distractor_a",
+        "chunk_type": "project",
+        "text": "EvalHarness: Created a prompt regression harness with scoring rules, SQL analytics and weekly model quality reports.",
+        "expected": false
+      },
+      {
+        "chunk_id": "42_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around React, TypeScript and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "42_noise",
+        "chunk_type": "education",
+        "text": "Activities: reading group organizer, AI product club member, technical blog author.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "42_target_project",
+      "42_target_skills",
+      "42_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_43_llm_eval",
+    "query": "LLM Evaluation Intern. Responsibilities include Python, Evaluation, Prompt Regression, LLM, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "43_target_project",
+        "chunk_type": "project",
+        "text": "EvalHarness: Created a prompt regression harness with scoring rules, SQL analytics and weekly model quality reports. Reduced manual review effort and caught response-format regressions.",
+        "expected": true
+      },
+      {
+        "chunk_id": "43_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, Evaluation, Prompt Regression, LLM, SQL, Dashboards",
+        "expected": true
+      },
+      {
+        "chunk_id": "43_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported Evaluation delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "43_distractor_a",
+        "chunk_type": "project",
+        "text": "ServiceMeshLab: Implemented FastAPI services with PostgreSQL persistence, Redis caching, structured logs and Docker deployment.",
+        "expected": false
+      },
+      {
+        "chunk_id": "43_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, PyTorch and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "43_noise",
+        "chunk_type": "education",
+        "text": "Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "43_target_project",
+      "43_target_skills",
+      "43_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_44_backend_platform",
+    "query": "Backend Platform Intern. Responsibilities include Python, Python API service, PostgreSQL, Redis, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "44_target_project",
+        "chunk_type": "project",
+        "text": "ServiceMeshLab: Implemented FastAPI services with PostgreSQL persistence, Redis caching, structured logs and Docker deployment. Improved API latency and local developer setup.",
+        "expected": true
+      },
+      {
+        "chunk_id": "44_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, FastAPI, PostgreSQL, Redis, Docker, Observability",
+        "expected": true
+      },
+      {
+        "chunk_id": "44_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported FastAPI delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "44_distractor_a",
+        "chunk_type": "project",
+        "text": "DashboardStudio: Built reusable React components, accessibility checks and Playwright tests for an operations dashboard.",
+        "expected": false
+      },
+      {
+        "chunk_id": "44_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, SQL and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "44_noise",
+        "chunk_type": "education",
+        "text": "Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "44_target_project",
+      "44_target_skills",
+      "44_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_45_frontend_tools",
+    "query": "Frontend Engineering Intern. Responsibilities include React, TypeScript, CSS, Design System, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "45_target_project",
+        "chunk_type": "project",
+        "text": "DashboardStudio: Built reusable React components, accessibility checks and Playwright tests for an operations dashboard. Improved consistency across internal tools.",
+        "expected": true
+      },
+      {
+        "chunk_id": "45_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: React, TypeScript, CSS, Design System, Playwright, Accessibility",
+        "expected": true
+      },
+      {
+        "chunk_id": "45_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported TypeScript delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "45_distractor_a",
+        "chunk_type": "project",
+        "text": "ModelLab: Trained transformer baselines, logged experiments with MLflow and compared model metrics across datasets.",
+        "expected": false
+      },
+      {
+        "chunk_id": "45_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, FastAPI and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "45_noise",
+        "chunk_type": "education",
+        "text": "Awards: university scholarship, programming contest finalist, open-source contribution certificate.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "45_target_project",
+      "45_target_skills",
+      "45_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_46_ml_platform",
+    "query": "Machine Learning Intern. Responsibilities include Python, deep learning framework, Transformers, Feature Store, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "46_target_project",
+        "chunk_type": "project",
+        "text": "ModelLab: Trained transformer baselines, logged experiments with MLflow and compared model metrics across datasets. Established a repeatable model evaluation workflow.",
+        "expected": true
+      },
+      {
+        "chunk_id": "46_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, PyTorch, Transformers, Feature Store, Model Evaluation, MLflow",
+        "expected": true
+      },
+      {
+        "chunk_id": "46_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported PyTorch delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "46_distractor_a",
+        "chunk_type": "project",
+        "text": "PipelineMonitor: Built Airflow DAGs, dbt transformations and data quality checks for warehouse tables.",
+        "expected": false
+      },
+      {
+        "chunk_id": "46_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, Evaluation and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "46_noise",
+        "chunk_type": "education",
+        "text": "Activities: reading group organizer, AI product club member, technical blog author.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "46_target_project",
+      "46_target_skills",
+      "46_target_experience"
+    ]
+  },
+  {
+    "name": "rag_case_47_data_engineering",
+    "query": "Data Engineering Intern. Responsibilities include Python, SQL, Airflow, dbt, evidence-backed delivery, measurable quality and production-ready documentation.",
+    "evidence_chunks": [
+      {
+        "chunk_id": "47_target_project",
+        "chunk_type": "project",
+        "text": "PipelineMonitor: Built Airflow DAGs, dbt transformations and data quality checks for warehouse tables. Reduced stale-table incidents in analytics workflows.",
+        "expected": true
+      },
+      {
+        "chunk_id": "47_target_skills",
+        "chunk_type": "skill",
+        "text": "Skills: Python, SQL, Airflow, dbt, Data Quality, Warehouse",
+        "expected": true
+      },
+      {
+        "chunk_id": "47_target_experience",
+        "chunk_type": "experience",
+        "text": "Experience: supported SQL delivery, tests, monitoring and documentation.",
+        "expected": true
+      },
+      {
+        "chunk_id": "47_distractor_a",
+        "chunk_type": "project",
+        "text": "CareerAgent: Built a traceable job-search agent with PDF chunking, SQLite RAG, JD matching, evaluation and resume tailoring.",
+        "expected": false
+      },
+      {
+        "chunk_id": "47_distractor_b",
+        "chunk_type": "experience",
+        "text": "Experience: built prototypes around Python, FastAPI and reporting.",
+        "expected": false
+      },
+      {
+        "chunk_id": "47_noise",
+        "chunk_type": "education",
+        "text": "Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.",
+        "expected": false
+      }
+    ],
+    "expected_chunk_ids": [
+      "47_target_project",
+      "47_target_skills",
+      "47_target_experience"
+    ]
+  }
+]

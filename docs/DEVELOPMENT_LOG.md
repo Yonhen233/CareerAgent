@@ -1,5 +1,47 @@
 # 开发日志
 
+## 2026-06-05 21:18 +08:00：补充 PDF Chunk、RAG 与 LLM 实景评测
+
+### 这次做了什么
+
+- 新增 `scripts/generate_eval_datasets.py`，可重复生成较大规模评测数据。
+- 生成 `evals/pdf_chunk_cases.json`：30 个 PDF 简历案例、120 条 chunk 查询。
+- 生成 `evals/rag_cases.json`：48 个 RAG 检索案例，每个案例 6 个候选证据 chunk。
+- 新增 PDF Chunk 多策略评测：固定窗口、页内段落窗口、大窗口、section-aware。
+- 新增 RAG 多策略评测：纯向量、纯词法、词法优先混合、不同混合权重和类型加权。
+- 根据评测结果将生产检索权重调整为 `lexical_score * 0.80 + vector_score * 0.15 + type_boost * 0.05`。
+- 新增 query alias expansion，例如 `retrieval augmented generation` -> `RAG`。
+- 新增 `/evaluations/pdf-chunk-strategies`、`/evaluations/rag-strategies`、`/evaluations/llm-workflow`。
+- 使用真实 LLM 接口运行岗位适配判断和 JD 定制简历流程。
+- 更新 `docs/EVALUATION.md`、`docs/PDF_CHUNKING.md`、`docs/API.md` 和 README。
+
+### 发现了什么问题
+
+- 第一版 PDF Chunk 评测数据页文本太短，几个策略几乎打平，无法支撑策略选择。
+- 第一版 RAG 数据过于精确关键词匹配，`lexical_only` 明显占优，不能体现同义表达和向量重排的价值。
+- 第一轮 LLM 实景评测中，模型把 `LLM Evaluation Intern` 错判为 `strong_fit`，说明 strong/partial 边界不够清楚。
+
+### 怎么修复的
+
+- 扩大并加长 PDF 评测数据，在页面中加入噪声段落和上下文关键词要求。
+- 在 RAG 数据中加入同义表达查询，测试 query expansion 能力。
+- 增加 `lexical_80_vector_15_type_5` 策略，保留词法召回优势，同时加入向量重排和 chunk 类型加权。
+- 收紧 LLM 岗位适配 prompt：只有直接需要 Agent/RAG/FastAPI/SQLite 实现的岗位才能标为 `strong_fit`。
+- 重新运行 LLM 实景评测后，`fit_label_accuracy=1.0`、`tailor_pass_rate=1.0`。
+
+### 未修复的问题及原因
+
+- 当前评测数据仍是合成数据，不是真实用户 PDF 和真实招聘 JD；原因是需要人工标注真实数据才能可靠评估。
+- 当前 embedding 仍是 hash embedding，不是真实语义 embedding；原因是项目需要保持离线可测和无外部依赖可运行。
+- 当前没有 reranker；原因是现阶段先用轻量混合检索建立 baseline，后续再增加二阶段排序。
+
+### 下一步怎么做
+
+- 收集真实 PDF 简历和真实 JD，构建人工标注评测集。
+- 接入真实 embedding 模型后重新跑 RAG 权重评测。
+- 增加 reranker，对 Top20 chunk 做二阶段排序。
+- 将 LLM 实景评测纳入可选 CI，设置最低准确率阈值。
+
 ## 2026-06-05 20:40 +08:00：开发日志补充时间精度
 
 ### 这次做了什么

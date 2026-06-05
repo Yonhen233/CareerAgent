@@ -15,6 +15,24 @@ async def run_evaluation(db: Session = Depends(get_db)) -> EvaluationRunResponse
     return EvaluationRunResponse.model_validate(run)
 
 
+@router.post("/pdf-chunk-strategies", response_model=EvaluationRunResponse, status_code=status.HTTP_201_CREATED)
+def run_pdf_chunk_strategy_evaluation(db: Session = Depends(get_db)) -> EvaluationRunResponse:
+    run = EvaluationService().run_pdf_chunk_strategy_evaluation(db)
+    return EvaluationRunResponse.model_validate(run)
+
+
+@router.post("/rag-strategies", response_model=EvaluationRunResponse, status_code=status.HTTP_201_CREATED)
+def run_rag_strategy_evaluation(db: Session = Depends(get_db)) -> EvaluationRunResponse:
+    run = EvaluationService().run_rag_strategy_evaluation(db)
+    return EvaluationRunResponse.model_validate(run)
+
+
+@router.post("/llm-workflow", response_model=EvaluationRunResponse, status_code=status.HTTP_201_CREATED)
+async def run_llm_workflow_evaluation(db: Session = Depends(get_db)) -> EvaluationRunResponse:
+    run = await EvaluationService().run_llm_workflow_evaluation(db)
+    return EvaluationRunResponse.model_validate(run)
+
+
 @router.get("/results", response_model=list[EvaluationRunResponse])
 def list_evaluation_runs(db: Session = Depends(get_db)) -> list[EvaluationRunResponse]:
     rows = db.query(EvaluationRun).order_by(EvaluationRun.created_at.desc()).limit(50).all()

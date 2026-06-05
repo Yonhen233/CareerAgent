@@ -239,10 +239,28 @@ GET /llm/debug/logs?limit=50
 
 ## 量化评测
 
-运行内置样例集：
+运行基础匹配样例集：
 
 ```http
 POST /evaluations/run
+```
+
+运行 PDF Chunk 策略评测：
+
+```http
+POST /evaluations/pdf-chunk-strategies
+```
+
+运行 RAG 策略评测：
+
+```http
+POST /evaluations/rag-strategies
+```
+
+运行真实 LLM 工作流评测：
+
+```http
+POST /evaluations/llm-workflow
 ```
 
 查询历史评测：
@@ -259,6 +277,10 @@ GET /evaluations/results
 - `avg_required_skill_recall`
 - `avg_missing_skill_precision`
 - `avg_evidence_hit_rate`
+- `top3_context_hit_rate`
+- `avg_top3_recall`
+- `fit_label_accuracy`
+- `tailor_pass_rate`
 
 ## 投递包
 

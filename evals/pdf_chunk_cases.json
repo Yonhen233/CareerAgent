@@ -1,0 +1,1712 @@
+[
+  {
+    "name": "pdf_chunk_case_00_agent_rag",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 00\n\nTarget Role: Agent Development Intern\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nSkills: Python, FastAPI, RAG, SQLite, Agent, Evaluation, Guardrails\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.\n\nCareerAgent: Built a traceable job-search agent with PDF chunking, SQLite RAG, JD matching, evaluation and resume tailoring. Improved application workflow from resume upload to tailored application packet.\n\nImplementation Details: Used Python with FastAPI and RAG. Used Python with FastAPI and RAG. Used Python with FastAPI and RAG. Used Python with FastAPI and RAG.\n\nServiceMeshLab: Assisted with Python and documentation for a classroom prototype.\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nInternship: supported FastAPI implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified FastAPI behavior and documented RAG tradeoffs. Verified FastAPI behavior and documented RAG tradeoffs. Verified FastAPI behavior and documented RAG tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Agent Development Intern Python FastAPI",
+        "expected_keyword": "FastAPI",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "FastAPI"
+        ]
+      },
+      {
+        "query": "project evidence for CareerAgent RAG",
+        "expected_keyword": "CareerAgent",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "CareerAgent",
+          "RAG",
+          "Improved"
+        ]
+      },
+      {
+        "query": "impact of CareerAgent",
+        "expected_keyword": "Improved",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "CareerAgent",
+          "Improved"
+        ]
+      },
+      {
+        "query": "internship implementation FastAPI tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "FastAPI",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_01_llm_eval",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 01\n\nTarget Role: LLM Evaluation Intern\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.\n\nSkills: Python, Evaluation, Prompt Regression, LLM, SQL, Dashboards\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nEvalHarness: Created a prompt regression harness with scoring rules, SQL analytics and weekly model quality reports. Reduced manual review effort and caught response-format regressions.\n\nImplementation Details: Used Python with Evaluation and Prompt Regression. Used Python with Evaluation and Prompt Regression. Used Python with Evaluation and Prompt Regression. Used Python with Evaluation and Prompt Regression.\n\nDashboardStudio: Assisted with React and documentation for a classroom prototype.\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nInternship: supported Evaluation implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified Evaluation behavior and documented Prompt Regression tradeoffs. Verified Evaluation behavior and documented Prompt Regression tradeoffs. Verified Evaluation behavior and documented Prompt Regression tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation."
+      }
+    ],
+    "queries": [
+      {
+        "query": "LLM Evaluation Intern Python Evaluation",
+        "expected_keyword": "Evaluation",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "Evaluation"
+        ]
+      },
+      {
+        "query": "project evidence for EvalHarness Prompt Regression",
+        "expected_keyword": "EvalHarness",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "EvalHarness",
+          "Prompt Regression",
+          "Reduced"
+        ]
+      },
+      {
+        "query": "impact of EvalHarness",
+        "expected_keyword": "Reduced",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "EvalHarness",
+          "Reduced"
+        ]
+      },
+      {
+        "query": "internship implementation Evaluation tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "Evaluation",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_02_backend_platform",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 02\n\nTarget Role: Backend Platform Intern\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.\n\nSkills: Python, FastAPI, PostgreSQL, Redis, Docker, Observability\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nServiceMeshLab: Implemented FastAPI services with PostgreSQL persistence, Redis caching, structured logs and Docker deployment. Improved API latency and local developer setup.\n\nImplementation Details: Used Python with FastAPI and PostgreSQL. Used Python with FastAPI and PostgreSQL. Used Python with FastAPI and PostgreSQL. Used Python with FastAPI and PostgreSQL.\n\nModelLab: Assisted with Python and documentation for a classroom prototype.\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.\n\nInternship: supported FastAPI implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified FastAPI behavior and documented PostgreSQL tradeoffs. Verified FastAPI behavior and documented PostgreSQL tradeoffs. Verified FastAPI behavior and documented PostgreSQL tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Backend Platform Intern Python FastAPI",
+        "expected_keyword": "FastAPI",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "FastAPI"
+        ]
+      },
+      {
+        "query": "project evidence for ServiceMeshLab PostgreSQL",
+        "expected_keyword": "ServiceMeshLab",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "ServiceMeshLab",
+          "PostgreSQL",
+          "Improved"
+        ]
+      },
+      {
+        "query": "impact of ServiceMeshLab",
+        "expected_keyword": "Improved",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "ServiceMeshLab",
+          "Improved"
+        ]
+      },
+      {
+        "query": "internship implementation FastAPI tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "FastAPI",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_03_frontend_tools",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 03\n\nTarget Role: Frontend Engineering Intern\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nSkills: React, TypeScript, CSS, Design System, Playwright, Accessibility\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.\n\nDashboardStudio: Built reusable React components, accessibility checks and Playwright tests for an operations dashboard. Improved consistency across internal tools.\n\nImplementation Details: Used React with TypeScript and CSS. Used React with TypeScript and CSS. Used React with TypeScript and CSS. Used React with TypeScript and CSS.\n\nPipelineMonitor: Assisted with Python and documentation for a classroom prototype.\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.\n\nInternship: supported TypeScript implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified TypeScript behavior and documented CSS tradeoffs. Verified TypeScript behavior and documented CSS tradeoffs. Verified TypeScript behavior and documented CSS tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Frontend Engineering Intern React TypeScript",
+        "expected_keyword": "TypeScript",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "React",
+          "TypeScript"
+        ]
+      },
+      {
+        "query": "project evidence for DashboardStudio CSS",
+        "expected_keyword": "DashboardStudio",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "DashboardStudio",
+          "CSS",
+          "Improved"
+        ]
+      },
+      {
+        "query": "impact of DashboardStudio",
+        "expected_keyword": "Improved",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "DashboardStudio",
+          "Improved"
+        ]
+      },
+      {
+        "query": "internship implementation TypeScript tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "TypeScript",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_04_ml_platform",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 04\n\nTarget Role: Machine Learning Intern\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nSkills: Python, PyTorch, Transformers, Feature Store, Model Evaluation, MLflow\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.\n\nModelLab: Trained transformer baselines, logged experiments with MLflow and compared model metrics across datasets. Established a repeatable model evaluation workflow.\n\nImplementation Details: Used Python with PyTorch and Transformers. Used Python with PyTorch and Transformers. Used Python with PyTorch and Transformers. Used Python with PyTorch and Transformers.\n\nCareerAgent: Assisted with Python and documentation for a classroom prototype.\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nInternship: supported PyTorch implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified PyTorch behavior and documented Transformers tradeoffs. Verified PyTorch behavior and documented Transformers tradeoffs. Verified PyTorch behavior and documented Transformers tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Machine Learning Intern Python PyTorch",
+        "expected_keyword": "PyTorch",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "PyTorch"
+        ]
+      },
+      {
+        "query": "project evidence for ModelLab Transformers",
+        "expected_keyword": "ModelLab",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "ModelLab",
+          "Transformers",
+          "Established"
+        ]
+      },
+      {
+        "query": "impact of ModelLab",
+        "expected_keyword": "Established",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "ModelLab",
+          "Established"
+        ]
+      },
+      {
+        "query": "internship implementation PyTorch tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "PyTorch",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_05_data_engineering",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 05\n\nTarget Role: Data Engineering Intern\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.\n\nSkills: Python, SQL, Airflow, dbt, Data Quality, Warehouse\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nPipelineMonitor: Built Airflow DAGs, dbt transformations and data quality checks for warehouse tables. Reduced stale-table incidents in analytics workflows.\n\nImplementation Details: Used Python with SQL and Airflow. Used Python with SQL and Airflow. Used Python with SQL and Airflow. Used Python with SQL and Airflow.\n\nEvalHarness: Assisted with Python and documentation for a classroom prototype.\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nInternship: supported SQL implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified SQL behavior and documented Airflow tradeoffs. Verified SQL behavior and documented Airflow tradeoffs. Verified SQL behavior and documented Airflow tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Data Engineering Intern Python SQL",
+        "expected_keyword": "SQL",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "SQL"
+        ]
+      },
+      {
+        "query": "project evidence for PipelineMonitor Airflow",
+        "expected_keyword": "PipelineMonitor",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "PipelineMonitor",
+          "Airflow",
+          "Reduced"
+        ]
+      },
+      {
+        "query": "impact of PipelineMonitor",
+        "expected_keyword": "Reduced",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "PipelineMonitor",
+          "Reduced"
+        ]
+      },
+      {
+        "query": "internship implementation SQL tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "SQL",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_06_agent_rag",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 06\n\nTarget Role: Agent Development Intern\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.\n\nSkills: Python, FastAPI, RAG, SQLite, Agent, Evaluation, Guardrails\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nCareerAgent: Built a traceable job-search agent with PDF chunking, SQLite RAG, JD matching, evaluation and resume tailoring. Improved application workflow from resume upload to tailored application packet.\n\nImplementation Details: Used Python with FastAPI and RAG. Used Python with FastAPI and RAG. Used Python with FastAPI and RAG. Used Python with FastAPI and RAG.\n\nServiceMeshLab: Assisted with Python and documentation for a classroom prototype.\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.\n\nInternship: supported FastAPI implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified FastAPI behavior and documented RAG tradeoffs. Verified FastAPI behavior and documented RAG tradeoffs. Verified FastAPI behavior and documented RAG tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Agent Development Intern Python FastAPI",
+        "expected_keyword": "FastAPI",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "FastAPI"
+        ]
+      },
+      {
+        "query": "project evidence for CareerAgent RAG",
+        "expected_keyword": "CareerAgent",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "CareerAgent",
+          "RAG",
+          "Improved"
+        ]
+      },
+      {
+        "query": "impact of CareerAgent",
+        "expected_keyword": "Improved",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "CareerAgent",
+          "Improved"
+        ]
+      },
+      {
+        "query": "internship implementation FastAPI tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "FastAPI",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_07_llm_eval",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 07\n\nTarget Role: LLM Evaluation Intern\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nSkills: Python, Evaluation, Prompt Regression, LLM, SQL, Dashboards\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.\n\nEvalHarness: Created a prompt regression harness with scoring rules, SQL analytics and weekly model quality reports. Reduced manual review effort and caught response-format regressions.\n\nImplementation Details: Used Python with Evaluation and Prompt Regression. Used Python with Evaluation and Prompt Regression. Used Python with Evaluation and Prompt Regression. Used Python with Evaluation and Prompt Regression.\n\nDashboardStudio: Assisted with React and documentation for a classroom prototype.\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.\n\nInternship: supported Evaluation implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified Evaluation behavior and documented Prompt Regression tradeoffs. Verified Evaluation behavior and documented Prompt Regression tradeoffs. Verified Evaluation behavior and documented Prompt Regression tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      }
+    ],
+    "queries": [
+      {
+        "query": "LLM Evaluation Intern Python Evaluation",
+        "expected_keyword": "Evaluation",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "Evaluation"
+        ]
+      },
+      {
+        "query": "project evidence for EvalHarness Prompt Regression",
+        "expected_keyword": "EvalHarness",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "EvalHarness",
+          "Prompt Regression",
+          "Reduced"
+        ]
+      },
+      {
+        "query": "impact of EvalHarness",
+        "expected_keyword": "Reduced",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "EvalHarness",
+          "Reduced"
+        ]
+      },
+      {
+        "query": "internship implementation Evaluation tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "Evaluation",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_08_backend_platform",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 08\n\nTarget Role: Backend Platform Intern\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nSkills: Python, FastAPI, PostgreSQL, Redis, Docker, Observability\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.\n\nServiceMeshLab: Implemented FastAPI services with PostgreSQL persistence, Redis caching, structured logs and Docker deployment. Improved API latency and local developer setup.\n\nImplementation Details: Used Python with FastAPI and PostgreSQL. Used Python with FastAPI and PostgreSQL. Used Python with FastAPI and PostgreSQL. Used Python with FastAPI and PostgreSQL.\n\nModelLab: Assisted with Python and documentation for a classroom prototype.\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nInternship: supported FastAPI implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified FastAPI behavior and documented PostgreSQL tradeoffs. Verified FastAPI behavior and documented PostgreSQL tradeoffs. Verified FastAPI behavior and documented PostgreSQL tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Backend Platform Intern Python FastAPI",
+        "expected_keyword": "FastAPI",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "FastAPI"
+        ]
+      },
+      {
+        "query": "project evidence for ServiceMeshLab PostgreSQL",
+        "expected_keyword": "ServiceMeshLab",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "ServiceMeshLab",
+          "PostgreSQL",
+          "Improved"
+        ]
+      },
+      {
+        "query": "impact of ServiceMeshLab",
+        "expected_keyword": "Improved",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "ServiceMeshLab",
+          "Improved"
+        ]
+      },
+      {
+        "query": "internship implementation FastAPI tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "FastAPI",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_09_frontend_tools",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 09\n\nTarget Role: Frontend Engineering Intern\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.\n\nSkills: React, TypeScript, CSS, Design System, Playwright, Accessibility\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nDashboardStudio: Built reusable React components, accessibility checks and Playwright tests for an operations dashboard. Improved consistency across internal tools.\n\nImplementation Details: Used React with TypeScript and CSS. Used React with TypeScript and CSS. Used React with TypeScript and CSS. Used React with TypeScript and CSS.\n\nPipelineMonitor: Assisted with Python and documentation for a classroom prototype.\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nInternship: supported TypeScript implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified TypeScript behavior and documented CSS tradeoffs. Verified TypeScript behavior and documented CSS tradeoffs. Verified TypeScript behavior and documented CSS tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Frontend Engineering Intern React TypeScript",
+        "expected_keyword": "TypeScript",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "React",
+          "TypeScript"
+        ]
+      },
+      {
+        "query": "project evidence for DashboardStudio CSS",
+        "expected_keyword": "DashboardStudio",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "DashboardStudio",
+          "CSS",
+          "Improved"
+        ]
+      },
+      {
+        "query": "impact of DashboardStudio",
+        "expected_keyword": "Improved",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "DashboardStudio",
+          "Improved"
+        ]
+      },
+      {
+        "query": "internship implementation TypeScript tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "TypeScript",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_10_ml_platform",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 10\n\nTarget Role: Machine Learning Intern\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.\n\nSkills: Python, PyTorch, Transformers, Feature Store, Model Evaluation, MLflow\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nModelLab: Trained transformer baselines, logged experiments with MLflow and compared model metrics across datasets. Established a repeatable model evaluation workflow.\n\nImplementation Details: Used Python with PyTorch and Transformers. Used Python with PyTorch and Transformers. Used Python with PyTorch and Transformers. Used Python with PyTorch and Transformers.\n\nCareerAgent: Assisted with Python and documentation for a classroom prototype.\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.\n\nInternship: supported PyTorch implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified PyTorch behavior and documented Transformers tradeoffs. Verified PyTorch behavior and documented Transformers tradeoffs. Verified PyTorch behavior and documented Transformers tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Machine Learning Intern Python PyTorch",
+        "expected_keyword": "PyTorch",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "PyTorch"
+        ]
+      },
+      {
+        "query": "project evidence for ModelLab Transformers",
+        "expected_keyword": "ModelLab",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "ModelLab",
+          "Transformers",
+          "Established"
+        ]
+      },
+      {
+        "query": "impact of ModelLab",
+        "expected_keyword": "Established",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "ModelLab",
+          "Established"
+        ]
+      },
+      {
+        "query": "internship implementation PyTorch tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "PyTorch",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_11_data_engineering",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 11\n\nTarget Role: Data Engineering Intern\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nSkills: Python, SQL, Airflow, dbt, Data Quality, Warehouse\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.\n\nPipelineMonitor: Built Airflow DAGs, dbt transformations and data quality checks for warehouse tables. Reduced stale-table incidents in analytics workflows.\n\nImplementation Details: Used Python with SQL and Airflow. Used Python with SQL and Airflow. Used Python with SQL and Airflow. Used Python with SQL and Airflow.\n\nEvalHarness: Assisted with Python and documentation for a classroom prototype.\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.\n\nInternship: supported SQL implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified SQL behavior and documented Airflow tradeoffs. Verified SQL behavior and documented Airflow tradeoffs. Verified SQL behavior and documented Airflow tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Data Engineering Intern Python SQL",
+        "expected_keyword": "SQL",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "SQL"
+        ]
+      },
+      {
+        "query": "project evidence for PipelineMonitor Airflow",
+        "expected_keyword": "PipelineMonitor",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "PipelineMonitor",
+          "Airflow",
+          "Reduced"
+        ]
+      },
+      {
+        "query": "impact of PipelineMonitor",
+        "expected_keyword": "Reduced",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "PipelineMonitor",
+          "Reduced"
+        ]
+      },
+      {
+        "query": "internship implementation SQL tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "SQL",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_12_agent_rag",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 12\n\nTarget Role: Agent Development Intern\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nSkills: Python, FastAPI, RAG, SQLite, Agent, Evaluation, Guardrails\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.\n\nCareerAgent: Built a traceable job-search agent with PDF chunking, SQLite RAG, JD matching, evaluation and resume tailoring. Improved application workflow from resume upload to tailored application packet.\n\nImplementation Details: Used Python with FastAPI and RAG. Used Python with FastAPI and RAG. Used Python with FastAPI and RAG. Used Python with FastAPI and RAG.\n\nServiceMeshLab: Assisted with Python and documentation for a classroom prototype.\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nInternship: supported FastAPI implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified FastAPI behavior and documented RAG tradeoffs. Verified FastAPI behavior and documented RAG tradeoffs. Verified FastAPI behavior and documented RAG tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Agent Development Intern Python FastAPI",
+        "expected_keyword": "FastAPI",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "FastAPI"
+        ]
+      },
+      {
+        "query": "project evidence for CareerAgent RAG",
+        "expected_keyword": "CareerAgent",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "CareerAgent",
+          "RAG",
+          "Improved"
+        ]
+      },
+      {
+        "query": "impact of CareerAgent",
+        "expected_keyword": "Improved",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "CareerAgent",
+          "Improved"
+        ]
+      },
+      {
+        "query": "internship implementation FastAPI tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "FastAPI",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_13_llm_eval",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 13\n\nTarget Role: LLM Evaluation Intern\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.\n\nSkills: Python, Evaluation, Prompt Regression, LLM, SQL, Dashboards\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nEvalHarness: Created a prompt regression harness with scoring rules, SQL analytics and weekly model quality reports. Reduced manual review effort and caught response-format regressions.\n\nImplementation Details: Used Python with Evaluation and Prompt Regression. Used Python with Evaluation and Prompt Regression. Used Python with Evaluation and Prompt Regression. Used Python with Evaluation and Prompt Regression.\n\nDashboardStudio: Assisted with React and documentation for a classroom prototype.\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nInternship: supported Evaluation implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified Evaluation behavior and documented Prompt Regression tradeoffs. Verified Evaluation behavior and documented Prompt Regression tradeoffs. Verified Evaluation behavior and documented Prompt Regression tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation."
+      }
+    ],
+    "queries": [
+      {
+        "query": "LLM Evaluation Intern Python Evaluation",
+        "expected_keyword": "Evaluation",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "Evaluation"
+        ]
+      },
+      {
+        "query": "project evidence for EvalHarness Prompt Regression",
+        "expected_keyword": "EvalHarness",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "EvalHarness",
+          "Prompt Regression",
+          "Reduced"
+        ]
+      },
+      {
+        "query": "impact of EvalHarness",
+        "expected_keyword": "Reduced",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "EvalHarness",
+          "Reduced"
+        ]
+      },
+      {
+        "query": "internship implementation Evaluation tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "Evaluation",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_14_backend_platform",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 14\n\nTarget Role: Backend Platform Intern\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.\n\nSkills: Python, FastAPI, PostgreSQL, Redis, Docker, Observability\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nServiceMeshLab: Implemented FastAPI services with PostgreSQL persistence, Redis caching, structured logs and Docker deployment. Improved API latency and local developer setup.\n\nImplementation Details: Used Python with FastAPI and PostgreSQL. Used Python with FastAPI and PostgreSQL. Used Python with FastAPI and PostgreSQL. Used Python with FastAPI and PostgreSQL.\n\nModelLab: Assisted with Python and documentation for a classroom prototype.\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.\n\nInternship: supported FastAPI implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified FastAPI behavior and documented PostgreSQL tradeoffs. Verified FastAPI behavior and documented PostgreSQL tradeoffs. Verified FastAPI behavior and documented PostgreSQL tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Backend Platform Intern Python FastAPI",
+        "expected_keyword": "FastAPI",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "FastAPI"
+        ]
+      },
+      {
+        "query": "project evidence for ServiceMeshLab PostgreSQL",
+        "expected_keyword": "ServiceMeshLab",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "ServiceMeshLab",
+          "PostgreSQL",
+          "Improved"
+        ]
+      },
+      {
+        "query": "impact of ServiceMeshLab",
+        "expected_keyword": "Improved",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "ServiceMeshLab",
+          "Improved"
+        ]
+      },
+      {
+        "query": "internship implementation FastAPI tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "FastAPI",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_15_frontend_tools",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 15\n\nTarget Role: Frontend Engineering Intern\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nSkills: React, TypeScript, CSS, Design System, Playwright, Accessibility\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.\n\nDashboardStudio: Built reusable React components, accessibility checks and Playwright tests for an operations dashboard. Improved consistency across internal tools.\n\nImplementation Details: Used React with TypeScript and CSS. Used React with TypeScript and CSS. Used React with TypeScript and CSS. Used React with TypeScript and CSS.\n\nPipelineMonitor: Assisted with Python and documentation for a classroom prototype.\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.\n\nInternship: supported TypeScript implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified TypeScript behavior and documented CSS tradeoffs. Verified TypeScript behavior and documented CSS tradeoffs. Verified TypeScript behavior and documented CSS tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Frontend Engineering Intern React TypeScript",
+        "expected_keyword": "TypeScript",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "React",
+          "TypeScript"
+        ]
+      },
+      {
+        "query": "project evidence for DashboardStudio CSS",
+        "expected_keyword": "DashboardStudio",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "DashboardStudio",
+          "CSS",
+          "Improved"
+        ]
+      },
+      {
+        "query": "impact of DashboardStudio",
+        "expected_keyword": "Improved",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "DashboardStudio",
+          "Improved"
+        ]
+      },
+      {
+        "query": "internship implementation TypeScript tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "TypeScript",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_16_ml_platform",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 16\n\nTarget Role: Machine Learning Intern\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nSkills: Python, PyTorch, Transformers, Feature Store, Model Evaluation, MLflow\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.\n\nModelLab: Trained transformer baselines, logged experiments with MLflow and compared model metrics across datasets. Established a repeatable model evaluation workflow.\n\nImplementation Details: Used Python with PyTorch and Transformers. Used Python with PyTorch and Transformers. Used Python with PyTorch and Transformers. Used Python with PyTorch and Transformers.\n\nCareerAgent: Assisted with Python and documentation for a classroom prototype.\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nInternship: supported PyTorch implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified PyTorch behavior and documented Transformers tradeoffs. Verified PyTorch behavior and documented Transformers tradeoffs. Verified PyTorch behavior and documented Transformers tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Machine Learning Intern Python PyTorch",
+        "expected_keyword": "PyTorch",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "PyTorch"
+        ]
+      },
+      {
+        "query": "project evidence for ModelLab Transformers",
+        "expected_keyword": "ModelLab",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "ModelLab",
+          "Transformers",
+          "Established"
+        ]
+      },
+      {
+        "query": "impact of ModelLab",
+        "expected_keyword": "Established",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "ModelLab",
+          "Established"
+        ]
+      },
+      {
+        "query": "internship implementation PyTorch tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "PyTorch",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_17_data_engineering",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 17\n\nTarget Role: Data Engineering Intern\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.\n\nSkills: Python, SQL, Airflow, dbt, Data Quality, Warehouse\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nPipelineMonitor: Built Airflow DAGs, dbt transformations and data quality checks for warehouse tables. Reduced stale-table incidents in analytics workflows.\n\nImplementation Details: Used Python with SQL and Airflow. Used Python with SQL and Airflow. Used Python with SQL and Airflow. Used Python with SQL and Airflow.\n\nEvalHarness: Assisted with Python and documentation for a classroom prototype.\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nInternship: supported SQL implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified SQL behavior and documented Airflow tradeoffs. Verified SQL behavior and documented Airflow tradeoffs. Verified SQL behavior and documented Airflow tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Data Engineering Intern Python SQL",
+        "expected_keyword": "SQL",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "SQL"
+        ]
+      },
+      {
+        "query": "project evidence for PipelineMonitor Airflow",
+        "expected_keyword": "PipelineMonitor",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "PipelineMonitor",
+          "Airflow",
+          "Reduced"
+        ]
+      },
+      {
+        "query": "impact of PipelineMonitor",
+        "expected_keyword": "Reduced",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "PipelineMonitor",
+          "Reduced"
+        ]
+      },
+      {
+        "query": "internship implementation SQL tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "SQL",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_18_agent_rag",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 18\n\nTarget Role: Agent Development Intern\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.\n\nSkills: Python, FastAPI, RAG, SQLite, Agent, Evaluation, Guardrails\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nCareerAgent: Built a traceable job-search agent with PDF chunking, SQLite RAG, JD matching, evaluation and resume tailoring. Improved application workflow from resume upload to tailored application packet.\n\nImplementation Details: Used Python with FastAPI and RAG. Used Python with FastAPI and RAG. Used Python with FastAPI and RAG. Used Python with FastAPI and RAG.\n\nServiceMeshLab: Assisted with Python and documentation for a classroom prototype.\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.\n\nInternship: supported FastAPI implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified FastAPI behavior and documented RAG tradeoffs. Verified FastAPI behavior and documented RAG tradeoffs. Verified FastAPI behavior and documented RAG tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Agent Development Intern Python FastAPI",
+        "expected_keyword": "FastAPI",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "FastAPI"
+        ]
+      },
+      {
+        "query": "project evidence for CareerAgent RAG",
+        "expected_keyword": "CareerAgent",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "CareerAgent",
+          "RAG",
+          "Improved"
+        ]
+      },
+      {
+        "query": "impact of CareerAgent",
+        "expected_keyword": "Improved",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "CareerAgent",
+          "Improved"
+        ]
+      },
+      {
+        "query": "internship implementation FastAPI tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "FastAPI",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_19_llm_eval",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 19\n\nTarget Role: LLM Evaluation Intern\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nSkills: Python, Evaluation, Prompt Regression, LLM, SQL, Dashboards\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.\n\nEvalHarness: Created a prompt regression harness with scoring rules, SQL analytics and weekly model quality reports. Reduced manual review effort and caught response-format regressions.\n\nImplementation Details: Used Python with Evaluation and Prompt Regression. Used Python with Evaluation and Prompt Regression. Used Python with Evaluation and Prompt Regression. Used Python with Evaluation and Prompt Regression.\n\nDashboardStudio: Assisted with React and documentation for a classroom prototype.\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.\n\nInternship: supported Evaluation implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified Evaluation behavior and documented Prompt Regression tradeoffs. Verified Evaluation behavior and documented Prompt Regression tradeoffs. Verified Evaluation behavior and documented Prompt Regression tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      }
+    ],
+    "queries": [
+      {
+        "query": "LLM Evaluation Intern Python Evaluation",
+        "expected_keyword": "Evaluation",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "Evaluation"
+        ]
+      },
+      {
+        "query": "project evidence for EvalHarness Prompt Regression",
+        "expected_keyword": "EvalHarness",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "EvalHarness",
+          "Prompt Regression",
+          "Reduced"
+        ]
+      },
+      {
+        "query": "impact of EvalHarness",
+        "expected_keyword": "Reduced",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "EvalHarness",
+          "Reduced"
+        ]
+      },
+      {
+        "query": "internship implementation Evaluation tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "Evaluation",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_20_backend_platform",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 20\n\nTarget Role: Backend Platform Intern\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nSkills: Python, FastAPI, PostgreSQL, Redis, Docker, Observability\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.\n\nServiceMeshLab: Implemented FastAPI services with PostgreSQL persistence, Redis caching, structured logs and Docker deployment. Improved API latency and local developer setup.\n\nImplementation Details: Used Python with FastAPI and PostgreSQL. Used Python with FastAPI and PostgreSQL. Used Python with FastAPI and PostgreSQL. Used Python with FastAPI and PostgreSQL.\n\nModelLab: Assisted with Python and documentation for a classroom prototype.\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nInternship: supported FastAPI implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified FastAPI behavior and documented PostgreSQL tradeoffs. Verified FastAPI behavior and documented PostgreSQL tradeoffs. Verified FastAPI behavior and documented PostgreSQL tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Backend Platform Intern Python FastAPI",
+        "expected_keyword": "FastAPI",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "FastAPI"
+        ]
+      },
+      {
+        "query": "project evidence for ServiceMeshLab PostgreSQL",
+        "expected_keyword": "ServiceMeshLab",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "ServiceMeshLab",
+          "PostgreSQL",
+          "Improved"
+        ]
+      },
+      {
+        "query": "impact of ServiceMeshLab",
+        "expected_keyword": "Improved",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "ServiceMeshLab",
+          "Improved"
+        ]
+      },
+      {
+        "query": "internship implementation FastAPI tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "FastAPI",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_21_frontend_tools",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 21\n\nTarget Role: Frontend Engineering Intern\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.\n\nSkills: React, TypeScript, CSS, Design System, Playwright, Accessibility\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nDashboardStudio: Built reusable React components, accessibility checks and Playwright tests for an operations dashboard. Improved consistency across internal tools.\n\nImplementation Details: Used React with TypeScript and CSS. Used React with TypeScript and CSS. Used React with TypeScript and CSS. Used React with TypeScript and CSS.\n\nPipelineMonitor: Assisted with Python and documentation for a classroom prototype.\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nInternship: supported TypeScript implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified TypeScript behavior and documented CSS tradeoffs. Verified TypeScript behavior and documented CSS tradeoffs. Verified TypeScript behavior and documented CSS tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Frontend Engineering Intern React TypeScript",
+        "expected_keyword": "TypeScript",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "React",
+          "TypeScript"
+        ]
+      },
+      {
+        "query": "project evidence for DashboardStudio CSS",
+        "expected_keyword": "DashboardStudio",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "DashboardStudio",
+          "CSS",
+          "Improved"
+        ]
+      },
+      {
+        "query": "impact of DashboardStudio",
+        "expected_keyword": "Improved",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "DashboardStudio",
+          "Improved"
+        ]
+      },
+      {
+        "query": "internship implementation TypeScript tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "TypeScript",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_22_ml_platform",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 22\n\nTarget Role: Machine Learning Intern\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.\n\nSkills: Python, PyTorch, Transformers, Feature Store, Model Evaluation, MLflow\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nModelLab: Trained transformer baselines, logged experiments with MLflow and compared model metrics across datasets. Established a repeatable model evaluation workflow.\n\nImplementation Details: Used Python with PyTorch and Transformers. Used Python with PyTorch and Transformers. Used Python with PyTorch and Transformers. Used Python with PyTorch and Transformers.\n\nCareerAgent: Assisted with Python and documentation for a classroom prototype.\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.\n\nInternship: supported PyTorch implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified PyTorch behavior and documented Transformers tradeoffs. Verified PyTorch behavior and documented Transformers tradeoffs. Verified PyTorch behavior and documented Transformers tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Machine Learning Intern Python PyTorch",
+        "expected_keyword": "PyTorch",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "PyTorch"
+        ]
+      },
+      {
+        "query": "project evidence for ModelLab Transformers",
+        "expected_keyword": "ModelLab",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "ModelLab",
+          "Transformers",
+          "Established"
+        ]
+      },
+      {
+        "query": "impact of ModelLab",
+        "expected_keyword": "Established",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "ModelLab",
+          "Established"
+        ]
+      },
+      {
+        "query": "internship implementation PyTorch tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "PyTorch",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_23_data_engineering",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 23\n\nTarget Role: Data Engineering Intern\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nSkills: Python, SQL, Airflow, dbt, Data Quality, Warehouse\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.\n\nPipelineMonitor: Built Airflow DAGs, dbt transformations and data quality checks for warehouse tables. Reduced stale-table incidents in analytics workflows.\n\nImplementation Details: Used Python with SQL and Airflow. Used Python with SQL and Airflow. Used Python with SQL and Airflow. Used Python with SQL and Airflow.\n\nEvalHarness: Assisted with Python and documentation for a classroom prototype.\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.\n\nInternship: supported SQL implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified SQL behavior and documented Airflow tradeoffs. Verified SQL behavior and documented Airflow tradeoffs. Verified SQL behavior and documented Airflow tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Data Engineering Intern Python SQL",
+        "expected_keyword": "SQL",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "SQL"
+        ]
+      },
+      {
+        "query": "project evidence for PipelineMonitor Airflow",
+        "expected_keyword": "PipelineMonitor",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "PipelineMonitor",
+          "Airflow",
+          "Reduced"
+        ]
+      },
+      {
+        "query": "impact of PipelineMonitor",
+        "expected_keyword": "Reduced",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "PipelineMonitor",
+          "Reduced"
+        ]
+      },
+      {
+        "query": "internship implementation SQL tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "SQL",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_24_agent_rag",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 24\n\nTarget Role: Agent Development Intern\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nSkills: Python, FastAPI, RAG, SQLite, Agent, Evaluation, Guardrails\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.\n\nCareerAgent: Built a traceable job-search agent with PDF chunking, SQLite RAG, JD matching, evaluation and resume tailoring. Improved application workflow from resume upload to tailored application packet.\n\nImplementation Details: Used Python with FastAPI and RAG. Used Python with FastAPI and RAG. Used Python with FastAPI and RAG. Used Python with FastAPI and RAG.\n\nServiceMeshLab: Assisted with Python and documentation for a classroom prototype.\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nInternship: supported FastAPI implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified FastAPI behavior and documented RAG tradeoffs. Verified FastAPI behavior and documented RAG tradeoffs. Verified FastAPI behavior and documented RAG tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Agent Development Intern Python FastAPI",
+        "expected_keyword": "FastAPI",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "FastAPI"
+        ]
+      },
+      {
+        "query": "project evidence for CareerAgent RAG",
+        "expected_keyword": "CareerAgent",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "CareerAgent",
+          "RAG",
+          "Improved"
+        ]
+      },
+      {
+        "query": "impact of CareerAgent",
+        "expected_keyword": "Improved",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "CareerAgent",
+          "Improved"
+        ]
+      },
+      {
+        "query": "internship implementation FastAPI tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "FastAPI",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_25_llm_eval",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 25\n\nTarget Role: LLM Evaluation Intern\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.\n\nSkills: Python, Evaluation, Prompt Regression, LLM, SQL, Dashboards\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nEvalHarness: Created a prompt regression harness with scoring rules, SQL analytics and weekly model quality reports. Reduced manual review effort and caught response-format regressions.\n\nImplementation Details: Used Python with Evaluation and Prompt Regression. Used Python with Evaluation and Prompt Regression. Used Python with Evaluation and Prompt Regression. Used Python with Evaluation and Prompt Regression.\n\nDashboardStudio: Assisted with React and documentation for a classroom prototype.\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nInternship: supported Evaluation implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified Evaluation behavior and documented Prompt Regression tradeoffs. Verified Evaluation behavior and documented Prompt Regression tradeoffs. Verified Evaluation behavior and documented Prompt Regression tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation."
+      }
+    ],
+    "queries": [
+      {
+        "query": "LLM Evaluation Intern Python Evaluation",
+        "expected_keyword": "Evaluation",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "Evaluation"
+        ]
+      },
+      {
+        "query": "project evidence for EvalHarness Prompt Regression",
+        "expected_keyword": "EvalHarness",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "EvalHarness",
+          "Prompt Regression",
+          "Reduced"
+        ]
+      },
+      {
+        "query": "impact of EvalHarness",
+        "expected_keyword": "Reduced",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "EvalHarness",
+          "Reduced"
+        ]
+      },
+      {
+        "query": "internship implementation Evaluation tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "Evaluation",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_26_backend_platform",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 26\n\nTarget Role: Backend Platform Intern\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.\n\nSkills: Python, FastAPI, PostgreSQL, Redis, Docker, Observability\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nServiceMeshLab: Implemented FastAPI services with PostgreSQL persistence, Redis caching, structured logs and Docker deployment. Improved API latency and local developer setup.\n\nImplementation Details: Used Python with FastAPI and PostgreSQL. Used Python with FastAPI and PostgreSQL. Used Python with FastAPI and PostgreSQL. Used Python with FastAPI and PostgreSQL.\n\nModelLab: Assisted with Python and documentation for a classroom prototype.\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.\n\nInternship: supported FastAPI implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified FastAPI behavior and documented PostgreSQL tradeoffs. Verified FastAPI behavior and documented PostgreSQL tradeoffs. Verified FastAPI behavior and documented PostgreSQL tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Backend Platform Intern Python FastAPI",
+        "expected_keyword": "FastAPI",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "FastAPI"
+        ]
+      },
+      {
+        "query": "project evidence for ServiceMeshLab PostgreSQL",
+        "expected_keyword": "ServiceMeshLab",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "ServiceMeshLab",
+          "PostgreSQL",
+          "Improved"
+        ]
+      },
+      {
+        "query": "impact of ServiceMeshLab",
+        "expected_keyword": "Improved",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "ServiceMeshLab",
+          "Improved"
+        ]
+      },
+      {
+        "query": "internship implementation FastAPI tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "FastAPI",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_27_frontend_tools",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 27\n\nTarget Role: Frontend Engineering Intern\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nSkills: React, TypeScript, CSS, Design System, Playwright, Accessibility\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.\n\nDashboardStudio: Built reusable React components, accessibility checks and Playwright tests for an operations dashboard. Improved consistency across internal tools.\n\nImplementation Details: Used React with TypeScript and CSS. Used React with TypeScript and CSS. Used React with TypeScript and CSS. Used React with TypeScript and CSS.\n\nPipelineMonitor: Assisted with Python and documentation for a classroom prototype.\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.\n\nInternship: supported TypeScript implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified TypeScript behavior and documented CSS tradeoffs. Verified TypeScript behavior and documented CSS tradeoffs. Verified TypeScript behavior and documented CSS tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Frontend Engineering Intern React TypeScript",
+        "expected_keyword": "TypeScript",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "React",
+          "TypeScript"
+        ]
+      },
+      {
+        "query": "project evidence for DashboardStudio CSS",
+        "expected_keyword": "DashboardStudio",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "DashboardStudio",
+          "CSS",
+          "Improved"
+        ]
+      },
+      {
+        "query": "impact of DashboardStudio",
+        "expected_keyword": "Improved",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "DashboardStudio",
+          "Improved"
+        ]
+      },
+      {
+        "query": "internship implementation TypeScript tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "TypeScript",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_28_ml_platform",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 28\n\nTarget Role: Machine Learning Intern\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nSkills: Python, PyTorch, Transformers, Feature Store, Model Evaluation, MLflow\n\nCoursework: operating systems, database systems, distributed systems, software engineering and product analytics."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics.\n\nModelLab: Trained transformer baselines, logged experiments with MLflow and compared model metrics across datasets. Established a repeatable model evaluation workflow.\n\nImplementation Details: Used Python with PyTorch and Transformers. Used Python with PyTorch and Transformers. Used Python with PyTorch and Transformers. Used Python with PyTorch and Transformers.\n\nCareerAgent: Assisted with Python and documentation for a classroom prototype.\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nInternship: supported PyTorch implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified PyTorch behavior and documented Transformers tradeoffs. Verified PyTorch behavior and documented Transformers tradeoffs. Verified PyTorch behavior and documented Transformers tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Machine Learning Intern Python PyTorch",
+        "expected_keyword": "PyTorch",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "PyTorch"
+        ]
+      },
+      {
+        "query": "project evidence for ModelLab Transformers",
+        "expected_keyword": "ModelLab",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "ModelLab",
+          "Transformers",
+          "Established"
+        ]
+      },
+      {
+        "query": "impact of ModelLab",
+        "expected_keyword": "Established",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "ModelLab",
+          "Established"
+        ]
+      },
+      {
+        "query": "internship implementation PyTorch tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "PyTorch",
+          "tests"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "pdf_chunk_case_29_data_engineering",
+    "pages": [
+      {
+        "page_no": 1,
+        "text": "Candidate 29\n\nTarget Role: Data Engineering Intern\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation.\n\nSkills: Python, SQL, Airflow, dbt, Data Quality, Warehouse\n\nAwards: university scholarship, programming contest finalist, open-source contribution certificate."
+      },
+      {
+        "page_no": 2,
+        "text": "Projects\n\nActivities: reading group organizer, AI product club member, technical blog author. Tools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate.\n\nPipelineMonitor: Built Airflow DAGs, dbt transformations and data quality checks for warehouse tables. Reduced stale-table incidents in analytics workflows.\n\nImplementation Details: Used Python with SQL and Airflow. Used Python with SQL and Airflow. Used Python with SQL and Airflow. Used Python with SQL and Airflow.\n\nEvalHarness: Assisted with Python and documentation for a classroom prototype.\n\nActivities: reading group organizer, AI product club member, technical blog author."
+      },
+      {
+        "page_no": 3,
+        "text": "Experience\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation. Coursework: operating systems, database systems, distributed systems, software engineering and product analytics. Awards: university scholarship, programming contest finalist, open-source contribution certificate. Activities: reading group organizer, AI product club member, technical blog author.\n\nInternship: supported SQL implementation, wrote tests and documented release notes.\n\nDelivery Notes: Verified SQL behavior and documented Airflow tradeoffs. Verified SQL behavior and documented Airflow tradeoffs. Verified SQL behavior and documented Airflow tradeoffs.\n\nEducation: Computer Science, expected graduation 2027.\n\nTools: Git, Linux, VS Code, REST APIs, JSON, Markdown, CI checks and command-line automation."
+      }
+    ],
+    "queries": [
+      {
+        "query": "Data Engineering Intern Python SQL",
+        "expected_keyword": "SQL",
+        "expected_page": 1,
+        "expected_context_keywords": [
+          "Python",
+          "SQL"
+        ]
+      },
+      {
+        "query": "project evidence for PipelineMonitor Airflow",
+        "expected_keyword": "PipelineMonitor",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "PipelineMonitor",
+          "Airflow",
+          "Reduced"
+        ]
+      },
+      {
+        "query": "impact of PipelineMonitor",
+        "expected_keyword": "Reduced",
+        "expected_page": 2,
+        "expected_context_keywords": [
+          "PipelineMonitor",
+          "Reduced"
+        ]
+      },
+      {
+        "query": "internship implementation SQL tests",
+        "expected_keyword": "Internship",
+        "expected_page": 3,
+        "expected_context_keywords": [
+          "Internship",
+          "SQL",
+          "tests"
+        ]
+      }
+    ]
+  }
+]

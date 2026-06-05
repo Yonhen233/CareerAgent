@@ -100,6 +100,9 @@ LLM_MODEL=DeepSeek-V4-Pro
 - `POST /resumes/tailor`
 - `GET /llm/debug/logs`
 - `POST /evaluations/run`
+- `POST /evaluations/pdf-chunk-strategies`
+- `POST /evaluations/rag-strategies`
+- `POST /evaluations/llm-workflow`
 - `GET /evaluations/results`
 
 更完整的接口说明见 [docs/API.md](docs/API.md)。
