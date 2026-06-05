@@ -12,7 +12,7 @@ from app.models.schemas import GuidedProfileRequest
 from app.services.guardrails import ResumeGuardrailService
 from app.services.jd_parser import JDParserService
 from app.services.resume_tailor import ResumeTailorService
-from app.core.llm import LLMClient
+from app.core.llm import LLMClient, LLMConfigurationError
 from app.services.embedding_service import EmbeddingService
 from app.services.matcher import MatcherService
 from app.services.reranker import RerankerService
@@ -64,7 +64,14 @@ class EvaluationService:
                 pages = [PDFPageText(page_no=page["page_no"], text=page["text"]) for page in case["pages"]]
                 chunks = splitter(pages, case_name=case["name"])
                 for query in case["queries"]:
-                    ranked = self._rank_text_chunks(query["query"], chunks, vector_weight=0.65, lexical_weight=0.35)
+                    ranked = self._rank_text_chunks(
+                        query["query"],
+                        chunks,
+                        vector_weight=self.settings.retrieval_vector_weight,
+                        lexical_weight=self.settings.retrieval_lexical_weight,
+                        type_boost=True,
+                        embedding_service=self.embedding_service,
+                    )
                     top_k = ranked[:3]
                     hit = any(query["expected_keyword"].lower() in item["text"].lower() for item in top_k)
                     page_hit = any(item["metadata"].get("page_no") == query["expected_page"] for item in top_k)
@@ -77,6 +84,8 @@ class EvaluationService:
                         {
                             "case": case["name"],
                             "query": query["query"],
+                            "difficulty": query.get("difficulty") or case.get("difficulty") or "unknown",
+                            "noise_profile": query.get("noise_profile") or "unknown",
                             "hit": hit,
                             "page_hit": page_hit,
                             "context_hit": context_hit,
@@ -96,6 +105,12 @@ class EvaluationService:
             "query_count": sum(len(case["queries"]) for case in cases),
             "selected_strategy": selected["strategy"],
             "selection_reason": selected["reason"],
+            "embedding_model_selection": {
+                "configured_provider": self.settings.embedding_provider,
+                "configured_model": self.settings.embedding_model_name,
+                "fallback": self.settings.embedding_provider_fallback,
+                "reason": "PDF chunk 策略评测使用与生产检索相同的 embedding 和检索权重，避免只在离线 hash ranker 上优化。",
+            },
             "strategy_results": strategy_results,
         }
         run = EvaluationRun(
@@ -161,8 +176,8 @@ class EvaluationService:
             },
             "real_embedding_top20_rerank": {
                 "embedding_provider": "configured",
-                "vector_weight": 0.55,
-                "lexical_weight": 0.4,
+                "vector_weight": 0.45,
+                "lexical_weight": 0.5,
                 "type_boost": True,
                 "query_expansion": True,
                 "reranker": True,
@@ -204,6 +219,8 @@ class EvaluationService:
                 per_case.append(
                     {
                         "case": case["name"],
+                        "difficulty": case.get("difficulty", "unknown"),
+                        "noise_profiles": case.get("noise_profiles", []),
                         "top3_recall": self._recall({item["uid"] for item in top3}, expected_ids),
                         "top5_recall": self._recall({item["uid"] for item in top5}, expected_ids),
                         "mrr": self._mrr(ranked, expected_ids),
@@ -244,7 +261,7 @@ class EvaluationService:
                 "fallback": self.settings.embedding_provider_fallback,
                 "reason": (
                     "默认使用多语言 SentenceTransformer 作为本地真实 embedding 模型，能覆盖中文简历、"
-                    "英文 JD 和中英混合技术词；模型不可用时才降级到 hash embedding，并在评测结果记录原因。"
+                    "英文 JD 和中英混合技术词；默认不做静默降级，模型不可用时直接报错并由 trace 记录。"
                 ),
             },
             "reranker_selection": {
@@ -279,19 +296,7 @@ class EvaluationService:
 
     async def run_llm_workflow_evaluation(self, db: Session) -> EvaluationRun:
         if not self.llm.available:
-            run = EvaluationRun(
-                name="llm_workflow_evaluation",
-                summary_json={
-                    "evaluation_type": "llm_workflow",
-                    "status": "skipped",
-                    "reason": "LLM_API_KEY/LLM_BASE_URL 未配置，无法进行真实 LLM 调用评测。",
-                },
-                case_results_json=[],
-            )
-            db.add(run)
-            db.commit()
-            db.refresh(run)
-            return run
+            raise LLMConfigurationError("LLM_API_KEY/LLM_BASE_URL 未配置，无法进行真实 LLM 调用评测。")
 
         profile = ResumeParserService().create_profile_from_guided_answers(
             db,
@@ -720,6 +725,8 @@ Job:
             "top3_context_hit_rate": round(sum(1 for item in per_query if item["context_hit"]) / count, 4),
             "avg_top1_chars": round(sum(item["top1_chars"] for item in per_query) / count, 2),
             "avg_chunk_count": round(sum(item["chunk_count"] for item in per_query) / count, 2),
+            "difficulty_breakdown": self._summarize_pdf_by_key(per_query, "difficulty"),
+            "noise_breakdown": self._summarize_pdf_by_key(per_query, "noise_profile"),
         }
 
     def _select_pdf_strategy(self, strategy_results: list[dict[str, Any]]) -> dict[str, str]:
@@ -769,7 +776,40 @@ Job:
             "actual_embedding_models": embedding_models,
             "actual_reranker_providers": reranker_providers,
             "fallback_reasons": fallback_reasons[:3],
+            "difficulty_breakdown": self._summarize_rag_by_key(per_case, "difficulty"),
         }
+
+    def _summarize_pdf_by_key(self, rows: list[dict[str, Any]], key: str) -> dict[str, Any]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            grouped.setdefault(str(row.get(key) or "unknown"), []).append(row)
+        result = {}
+        for group_key, items in sorted(grouped.items()):
+            count = max(len(items), 1)
+            result[group_key] = {
+                "query_count": len(items),
+                "top3_keyword_hit_rate": round(sum(1 for item in items if item["hit"]) / count, 4),
+                "top3_page_hit_rate": round(sum(1 for item in items if item["page_hit"]) / count, 4),
+                "top3_context_hit_rate": round(sum(1 for item in items if item["context_hit"]) / count, 4),
+            }
+        return result
+
+    def _summarize_rag_by_key(self, rows: list[dict[str, Any]], key: str) -> dict[str, Any]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            grouped.setdefault(str(row.get(key) or "unknown"), []).append(row)
+        result = {}
+        for group_key, items in sorted(grouped.items()):
+            count = max(len(items), 1)
+            result[group_key] = {
+                "case_count": len(items),
+                "top1_accuracy": round(sum(1 for item in items if item["top1_expected"]) / count, 4),
+                "avg_top3_recall": round(sum(item["top3_recall"] for item in items) / count, 4),
+                "avg_top5_recall": round(sum(item["top5_recall"] for item in items) / count, 4),
+                "avg_mrr": round(sum(item["mrr"] for item in items) / count, 4),
+                "avg_ndcg_at_5": round(sum(item["ndcg_at_5"] for item in items) / count, 4),
+            }
+        return result
 
     def _select_rag_strategy(self, strategy_results: list[dict[str, Any]]) -> dict[str, str]:
         real_embedding_results = [
@@ -795,8 +835,10 @@ Job:
         selected = ranked[0]
         provider_note = ", ".join(selected.get("actual_embedding_providers") or [])
         reranker_note = ", ".join(selected.get("actual_reranker_providers") or []) or "none"
+        hash_results = [item for item in strategy_results if str(item["strategy"]).startswith("hash_")]
+        baseline_candidates = hash_results or strategy_results
         baseline_best = sorted(
-            strategy_results,
+            baseline_candidates,
             key=lambda item: (item["avg_top3_recall"], item["avg_mrr"], item["avg_ndcg_at_5"], item["top1_accuracy"]),
             reverse=True,
         )[0]

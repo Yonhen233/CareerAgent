@@ -16,7 +16,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - 每个岗位的 JD 会入库为 `jobs`。
   - JD 会切分为 `job_chunks`，包括 required skills、responsibilities、qualifications、raw JD 等。
   - SQLite 保存权威数据和 embedding；Chroma 作为可选向量库镜像。
-  - 默认接入 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` 真实 embedding，失败时记录原因并降级到 hash fallback。
+  - 默认接入 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` 真实 embedding，模型失败时直接报错，便于通过 Trace 定位问题。
   - 支持对一阶段 Top20 chunk 使用 CrossEncoder reranker，默认 Top5 作为召回锚点。
 - 岗位来源：
   - 腾讯招聘公开职位接口。
@@ -74,7 +74,7 @@ uvicorn app.main:app --reload
 
 ## LLM 配置
 
-不配置 LLM 时，系统会使用规则解析和确定性 fallback，测试与核心链路仍可运行。启用 DeepSeek 兼容接口时，在本地 `.env` 中填写：
+默认开发模式要求配置 LLM；LLM 缺失或调用失败会直接报错，并写入调用日志。测试时可以显式设置 `LLM_FALLBACK_ENABLED=true` 使用规则路径。启用 DeepSeek 兼容接口时，在本地 `.env` 中填写：
 
 ```env
 LLM_API_KEY=your_key_here

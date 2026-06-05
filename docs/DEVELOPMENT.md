@@ -19,14 +19,16 @@ DATABASE_URL=sqlite:///./data/career_agent.db
 LLM_API_KEY=
 LLM_BASE_URL=https://llmapi.paratera.com
 LLM_MODEL=DeepSeek-V4-Pro
+LLM_FALLBACK_ENABLED=false
 VECTOR_BACKEND=hybrid
 CHROMA_DIR=data/chroma
 EMBEDDING_PROVIDER=sentence_transformers
 EMBEDDING_MODEL_NAME=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
-EMBEDDING_PROVIDER_FALLBACK=hash
+EMBEDDING_PROVIDER_FALLBACK=error
 RERANKER_ENABLED=true
 RERANKER_PROVIDER=cross_encoder
 RERANKER_MODEL_NAME=cross-encoder/ms-marco-MiniLM-L-6-v2
+RERANKER_PROVIDER_FALLBACK=error
 RERANKER_TOP_N=20
 RERANKER_ANCHOR_TOP_N=5
 JOB_INGEST_CONCURRENCY=6
@@ -36,9 +38,12 @@ JOB_INGEST_CONCURRENCY=6
 
 - `VECTOR_BACKEND=sqlite`：只使用 SQLite。
 - `VECTOR_BACKEND=hybrid`：SQLite + 可选 Chroma 镜像。
+- `LLM_FALLBACK_ENABLED=false`：开发默认严格失败；设置为 `true` 才使用规则解析/生成路径。
 - `EMBEDDING_PROVIDER=sentence_transformers`：使用真实 SentenceTransformer embedding。
 - `EMBEDDING_PROVIDER=hash`：使用离线 hash embedding，适合快速测试。
+- `EMBEDDING_PROVIDER_FALLBACK=error`：真实 embedding 加载失败时直接报错。
 - `RERANKER_ENABLED=true`：对一阶段 Top20 chunk 做二阶段排序。
+- `RERANKER_PROVIDER_FALLBACK=error`：真实 reranker 加载失败时直接报错。
 - `RERANKER_ANCHOR_TOP_N=5`：保留前 5 条一阶段证据顺序，降低 reranker 牺牲召回的风险。
 - `JOB_INGEST_CONCURRENCY`：并发解析 JD 的最大并发数。
 
@@ -129,9 +134,11 @@ GET /llm/debug/logs?limit=50
 ```powershell
 $env:EMBEDDING_PROVIDER='sentence_transformers'
 $env:EMBEDDING_MODEL_NAME='sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'
+$env:EMBEDDING_PROVIDER_FALLBACK='error'
 $env:RERANKER_ENABLED='true'
 $env:RERANKER_PROVIDER='cross_encoder'
 $env:RERANKER_MODEL_NAME='cross-encoder/ms-marco-MiniLM-L-6-v2'
+$env:RERANKER_PROVIDER_FALLBACK='error'
 pytest tests/test_evaluation_service.py -q
 ```
 
@@ -140,9 +147,10 @@ pytest tests/test_evaluation_service.py -q
 ```env
 EMBEDDING_PROVIDER=hash
 RERANKER_ENABLED=false
+LLM_FALLBACK_ENABLED=true
 ```
 
-这样可以保证普通回归测试不依赖模型下载；真实评测需要显式打开环境变量。
+这样可以保证普通回归测试不依赖模型下载和外部 LLM；真实评测需要显式打开环境变量。
 
 ## 测试
 

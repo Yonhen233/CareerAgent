@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.llm import LLMClient
+from app.core.llm import LLMConfigurationError
 from app.models.entities import Profile
 from app.models.schemas import GuidedProfileRequest, ProfileStructured
 from app.services.text_splitter import PDFPageText, ResumeTextSplitter
@@ -107,6 +108,10 @@ class ResumeParserService:
     async def parse_structured_resume(self, raw_text: str, db=None) -> dict:
         heuristic = self._heuristic_parse(raw_text)
         if not self.llm.available:
+            if not self.settings.llm_fallback_enabled:
+                raise LLMConfigurationError(
+                    "LLM is required for resume parsing. Set LLM_FALLBACK_ENABLED=true for tests."
+                )
             return heuristic
 
         system_prompt = (
@@ -148,6 +153,8 @@ Resume:
             parsed["raw_text"] = raw_text
             return ProfileStructured.model_validate({**heuristic, **parsed}).model_dump()
         except Exception:
+            if not self.settings.llm_fallback_enabled:
+                raise
             return heuristic
 
     def _create_profile(

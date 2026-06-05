@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://llmapi.paratera.com"
     llm_model: str = "DeepSeek-V4-Pro"
     llm_timeout_seconds: float = 60.0
+    llm_fallback_enabled: bool = False
 
     openai_api_key: str | None = None
     openai_base_url: str | None = None
@@ -33,10 +34,10 @@ class Settings(BaseSettings):
     embedding_cache_dir: str = "data/models"
     embedding_batch_size: int = 32
     embedding_normalize: bool = True
-    embedding_provider_fallback: str = "hash"
+    embedding_provider_fallback: str = "error"
     vector_backend: str = "hybrid"
-    retrieval_vector_weight: float = 0.55
-    retrieval_lexical_weight: float = 0.40
+    retrieval_vector_weight: float = 0.45
+    retrieval_lexical_weight: float = 0.50
     retrieval_type_boost: float = 0.05
     reranker_enabled: bool = True
     reranker_provider: str = "cross_encoder"
@@ -46,6 +47,7 @@ class Settings(BaseSettings):
     reranker_score_weight: float = 0.30
     reranker_promotion_gap: float = 0.02
     reranker_anchor_top_n: int = 5
+    reranker_provider_fallback: str = "error"
     job_ingest_concurrency: int = 6
 
     job_search_timeout_seconds: float = 18.0

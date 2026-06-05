@@ -112,6 +112,8 @@ class RerankerService:
                     "reranker_model": self.model_name,
                 }
             except Exception as exc:  # noqa: BLE001
+                if self.settings.reranker_provider_fallback.lower() != "heuristic":
+                    raise
                 return self._heuristic_scores(
                     query,
                     texts,
@@ -122,12 +124,14 @@ class RerankerService:
         if self.provider in {"heuristic", "lexical"}:
             return self._heuristic_scores(query, texts, chunk_types)
 
-        return self._heuristic_scores(
-            query,
-            texts,
-            chunk_types,
-            fallback_reason=f"Unsupported reranker provider: {self.provider}",
-        )
+        if self.settings.reranker_provider_fallback.lower() == "heuristic":
+            return self._heuristic_scores(
+                query,
+                texts,
+                chunk_types,
+                fallback_reason=f"Unsupported reranker provider: {self.provider}",
+            )
+        raise ValueError(f"Unsupported reranker provider: {self.provider}")
 
     def _load_cross_encoder(self) -> Any:
         cache_key = self.model_name

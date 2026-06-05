@@ -25,16 +25,18 @@ evals/pdf_chunk_cases.json
 
 规模：
 
-- 30 个合成 PDF 简历案例。
-- 每个案例 3 页。
-- 每个案例 4 个查询。
-- 共 120 条 PDF chunk 查询。
+- 96 个合成 PDF 简历案例。
+- 每个案例 5 页。
+- 每个案例 6 个查询。
+- 共 576 条 PDF chunk 查询。
 
 数据设计：
 
 - 覆盖 Agent/RAG、LLM Eval、后端平台、前端工具、ML 平台、数据工程等候选人类型。
-- 每页包含目标证据和噪声段落。
+- 每页包含目标证据、相邻岗位项目、课程噪声、计划学习、废弃 prototype 和重复技术词。
 - 查询要求同时命中关键词、页码和上下文关键词。
+- 查询按 `easy`、`medium`、`hard`、`adversarial` 分桶。
+- 噪声类型包括 `coursework_vs_shipped`、`hard_negative_project_same_page`、`planned_learning_negative`、`cross_page_distractor`、`late_page_appendix` 等。
 
 ### RAG 策略数据
 
@@ -44,14 +46,17 @@ evals/rag_cases.json
 
 规模：
 
-- 48 个 RAG 检索案例。
-- 每个案例 6 个候选证据 chunk。
-- 每个案例 3 个期望命中的 evidence chunk。
+- 180 个 RAG 检索案例。
+- 每个案例 12 个候选证据 chunk。
+- 每个案例 4 个期望命中的 evidence chunk。
+- 共 2160 个候选 chunk。
 
 数据设计：
 
-- 一半查询使用精确技术关键词。
-- 一半查询使用同义表达，例如 `retrieval augmented generation` -> `RAG`。
+- 覆盖 12 类技术岗位：Agent/RAG、LLM Eval、后端平台、前端工具、ML 平台、数据工程、DevOps、AI 安全、移动 AI、推荐算法、产品分析、计算机视觉。
+- 一部分查询使用精确技术关键词，一部分使用同义表达，例如 `retrieval augmented generation` -> `RAG`。
+- 每个 case 包含 hard negative、planned learning、coursework、adjacent domain、generic tools、rejected prototype、long noise 等噪声 chunk。
+- 按 `easy`、`medium`、`hard`、`adversarial` 分桶统计。
 
 ## 运行方式
 
@@ -82,10 +87,10 @@ GET /evaluations/results
 
 | 策略 | Top3 关键词 | Top3 页码 | Top3 上下文 | Top1 平均字符 | 平均 Chunk 数 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| fixed_window_450_overlap80 | 1.0000 | 1.0000 | 0.9583 | 438.49 | 7.90 |
-| paragraph_page_900_overlap160 | 1.0000 | 1.0000 | 1.0000 | 755.93 | 3.90 |
-| paragraph_page_1200_overlap200 | 1.0000 | 1.0000 | 1.0000 | 808.98 | 3.00 |
-| section_aware_700_overlap120 | 0.9417 | 0.9667 | 0.9417 | 507.02 | 10.70 |
+| fixed_window_450_overlap80 | 0.8472 | 0.7951 | 0.6771 | 449.89 | 20.96 |
+| paragraph_page_900_overlap160 | 0.9479 | 0.8299 | 0.7760 | 772.77 | 10.00 |
+| paragraph_page_1200_overlap200 | 0.9358 | 0.8403 | 0.8316 | 1054.09 | 9.00 |
+| section_aware_700_overlap120 | 0.9479 | 0.8281 | 0.7865 | 534.33 | 16.57 |
 
 选择：
 
@@ -95,11 +100,17 @@ paragraph_page_900_overlap160
 
 理由：
 
-- Top3 关键词命中率和页码命中率均为 1.0。
-- Top3 上下文命中率为 1.0，优于固定窗口。
-- 相比 1200 大窗口，900 字符 chunk 更少引入无关噪声。
-- 平均 Top1 长度约 756 字符，能保留项目/经历上下文，又不会过长。
-- 平均 chunk 数 3.9，检索成本低于 section-aware 的 10.7。
+- 900 窗口与 section-aware 的 Top3 关键词命中率并列最高，为 0.9479。
+- 900 窗口 Top3 页码命中率 0.8299，略高于 section-aware 的 0.8281。
+- 1200 窗口上下文命中率最高，但平均 Top1 长度超过 1054 字符，更容易把 hard negative 和课程噪声一起带入上下文。
+- section-aware 上下文表现略高于 900，但平均 chunk 数 16.57，检索和 rerank 成本更高。
+- 因此当前选择 `paragraph_page_900_overlap160`，作为上下文保留、噪声控制和检索成本之间的折中。
+
+暴露的问题：
+
+- `coursework_vs_shipped` 噪声最难。900 窗口在这个噪声下 Top3 context hit 只有 0.0521。
+- 说明仅靠 chunk 切分和向量/词法检索，仍难区分“课程里提到某技术”和“真实项目里交付某技术”。
+- 下一步需要在 RAG ranking 中加入 evidence type 识别，例如 shipped/project/metric 比 coursework/planned learning 权重更高。
 
 ## RAG 策略评测
 
@@ -125,14 +136,14 @@ paragraph_page_900_overlap160
 
 | 策略 | Embedding | Reranker | Top1 Acc | Top3 Recall | Top5 Recall | MRR | nDCG@5 |
 | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |
-| hash_vector_only | hash | none | 1.0000 | 0.8333 | 0.9444 | 1.0000 | 0.9501 |
-| hash_lexical_only | hash | none | 1.0000 | 0.9444 | 1.0000 | 1.0000 | 0.9912 |
-| hash_lexical_80_vector_15_type_5 | hash | none | 1.0000 | 0.9444 | 1.0000 | 1.0000 | 0.9912 |
-| real_embedding_vector_only | sentence-transformers | none | 1.0000 | 0.7778 | 1.0000 | 1.0000 | 0.9664 |
-| real_embedding_70_vector_30_lexical | sentence-transformers | none | 1.0000 | 0.8611 | 1.0000 | 1.0000 | 0.9745 |
-| real_embedding_55_vector_40_lexical_5_type | sentence-transformers | none | 1.0000 | 0.9444 | 1.0000 | 1.0000 | 0.9843 |
-| real_embedding_45_vector_50_lexical_5_type | sentence-transformers | none | 1.0000 | 0.9444 | 1.0000 | 1.0000 | 0.9843 |
-| real_embedding_top20_rerank | sentence-transformers | cross-encoder | 1.0000 | 0.9444 | 1.0000 | 1.0000 | 0.9843 |
+| hash_vector_only | hash | none | 0.7500 | 0.4792 | 0.6875 | 0.8750 | 0.6734 |
+| hash_lexical_only | hash | none | 0.7500 | 0.4792 | 0.7500 | 0.8333 | 0.7296 |
+| hash_lexical_80_vector_15_type_5 | hash | none | 1.0000 | 0.5625 | 0.7292 | 1.0000 | 0.7748 |
+| real_embedding_vector_only | sentence-transformers | none | 0.8333 | 0.4681 | 0.6014 | 0.9167 | 0.6415 |
+| real_embedding_70_vector_30_lexical | sentence-transformers | none | 1.0000 | 0.4694 | 0.6403 | 1.0000 | 0.6968 |
+| real_embedding_55_vector_40_lexical_5_type | sentence-transformers | none | 1.0000 | 0.5958 | 0.7292 | 1.0000 | 0.7830 |
+| real_embedding_45_vector_50_lexical_5_type | sentence-transformers | none | 1.0000 | 0.6125 | 0.7292 | 1.0000 | 0.7862 |
+| real_embedding_top20_rerank | sentence-transformers | cross-encoder | 1.0000 | 0.6125 | 0.7292 | 1.0000 | 0.7862 |
 
 选择：
 
@@ -142,16 +153,27 @@ real_embedding_top20_rerank
 
 理由：
 
-- 真实 embedding 策略中，`vector=0.55 / lexical=0.40 / type=0.05` 达到最高 Top3 Recall。
+- 强噪声评测后，真实 embedding 策略中 `vector=0.45 / lexical=0.50 / type=0.05` 达到最高 Top3 Recall。
 - `real_embedding_top20_rerank` 在 Top5 anchor 保护下与最佳一阶段真实 embedding 策略持平，同时保留 CrossEncoder 对 Top20 尾部证据的二阶段排序能力。
-- hash baseline 的 nDCG@5 更高，说明当前合成数据仍偏精确技术词；它保留为离线基线，不作为生产主路径。
+- hash baseline 的表现不再稳定：`hash_lexical_80_vector_15_type_5` Top3 Recall=0.5625，低于真实 embedding + rerank 的 0.6125。
 - 选择真实 embedding 主路径更贴近真实 JD 和简历语义表达，例如中英文混写、同义表达、职责描述不直接出现技术名的情况。
+
+分桶结果：
+
+| 难度 | Top1 Acc | Top3 Recall | Top5 Recall | MRR | nDCG@5 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| easy | 1.0000 | 0.5000 | 0.7500 | 1.0000 | 0.7650 |
+| medium | 1.0000 | 0.7500 | 0.7500 | 1.0000 | 0.8319 |
+| hard | 1.0000 | 0.5833 | 0.7500 | 1.0000 | 0.7968 |
+| adversarial | 1.0000 | 0.6167 | 0.6667 | 1.0000 | 0.7512 |
 
 调试发现：
 
 - 第一轮真实评测中，裸 CrossEncoder 权重过高，会把强关键词证据推出 Top3，Top3 Recall 从 0.9444 降到 0.8889。
 - 修复方式是采用保守融合：一阶段分数为主，rerank 分数为辅，并设置 Top5 recall anchor。
 - 依赖调试中发现 `transformers 5.x` 与当前 SentenceTransformers 加载不稳定，已在 `requirements.txt` 中约束 `transformers<5.0.0`、`huggingface-hub<1.0`。
+- 强噪声数据集把 Top3 Recall 从原来的 0.9444 拉低到 0.6125，这是有意为之：新数据更接近真实简历里的课程噪声、计划学习和相邻项目干扰。
+- 后续优化重点不再是继续调 embedding 权重，而是引入 evidence classifier 或 LLM verifier 区分“真实交付证据”和“仅提及/计划学习”。
 
 ## RAG 向量库选型
 
@@ -215,6 +237,6 @@ tailor_pass_rate = 1.0000
 
 - 增加真实 PDF 简历和真实岗位 JD 的人工标注评测集。
 - 用真实招聘 JD 和真实候选人简历重新验证 Top5 anchor 是否仍然合理。
-- 增加中文/英文混合 JD 的人工标注 RAG 数据。
+- 增加 evidence type classifier，区分 shipped project、metric evidence、coursework、planned learning、abandoned prototype。
 - 增加 LLM-as-judge，但保留人工抽检。
 - 在 CI 中设置最低 `fit_label_accuracy`、`top3_recall` 和 `guardrail_pass_rate` 阈值。

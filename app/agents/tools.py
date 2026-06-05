@@ -115,7 +115,7 @@ class AgentPlanner:
                     "vector_index.retrieve_resume_evidence",
                     "检索 Top20 简历证据并用 reranker 排序。",
                 ),
-                self._step("tailor_resume", "resume_tailor.tailor_resume", "调用 LLM 或 fallback 生成定制简历。"),
+                self._step("tailor_resume", "resume_tailor.tailor_resume", "调用 LLM 生成定制简历，失败进入 Trace。"),
                 self._step("verify_resume", "guardrail.verify_resume", "验证新增事实、关键词覆盖和风险等级。"),
             ]
             react_loops = [

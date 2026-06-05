@@ -1,14 +1,15 @@
 import os
 
+os.environ["EMBEDDING_PROVIDER"] = "hash"
+os.environ["RERANKER_ENABLED"] = "false"
+os.environ["LLM_FALLBACK_ENABLED"] = "true"
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base
 from app.models import entities  # noqa: F401
-
-os.environ.setdefault("EMBEDDING_PROVIDER", "hash")
-os.environ.setdefault("RERANKER_ENABLED", "false")
 
 
 @pytest.fixture()

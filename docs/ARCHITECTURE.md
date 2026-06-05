@@ -44,7 +44,7 @@ CareerAgent 的目标不是“一个 Prompt 生成简历”，而是一个可观
 2. 加载 Profile 和 Job。
 3. 生成匹配结果。
 4. 检索简历 RAG 证据。
-5. 调用 LLM 或 fallback 生成定制简历。
+5. 调用 LLM 生成定制简历；默认失败直接报错并进入 Trace。
 6. Guardrail 检查新增事实和关键词覆盖。
 7. 保存简历版本、diff、证据和 verification。
 
@@ -85,8 +85,8 @@ Embedding：
 
 - 默认 `EMBEDDING_PROVIDER=sentence_transformers`。
 - 默认模型 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`。
-- 模型不可用时降级为 `hash_fallback`，并把降级原因写入 chunk metadata 或评测结果。
-- pytest 默认设置 `EMBEDDING_PROVIDER=hash`，保证单元测试快速稳定；真实评测通过环境变量打开真实模型。
+- 模型不可用时默认直接报错，避免静默掩盖质量问题。
+- pytest 默认设置 `EMBEDDING_PROVIDER=hash`，这是显式测试模式，不是生产兜底。
 
 Reranker：
 
@@ -99,7 +99,7 @@ Reranker：
 
 - SQLite 让项目易部署、易测试、易审计。
 - Chroma 体现真实 Agent/RAG 项目常见的向量库组件。
-- 离线 fallback 避免简历项目演示时被外部依赖卡住。
+- 开发态优先暴露错误；离线 hash/heuristic 只作为显式测试模式。
 
 ## Agent Tool 与 MCP
 

@@ -44,7 +44,7 @@
 3. Observe：运行 Guardrail，检查新增事实、关键词覆盖、risk level。
 4. Act：如果风险高，回退到更保守、更有证据支持的表达。
 
-当前代码已经具备 ReAct 所需的工具边界和验证器，但默认只执行一次生成 + 一次验证。下一步可以把高风险简历改写成最多 2 轮的 repair loop。
+当前代码已经具备 ReAct 所需的工具边界和验证器。开发默认不做静默 fallback：LLM、embedding 或 reranker 失败会直接报错，Agent step 与 LLM log 用于追溯。下一步可以把高风险简历改写成最多 2 轮的 repair loop。
 
 ## 当前 Tool
 

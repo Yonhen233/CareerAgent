@@ -1,12 +1,15 @@
 import re
 
+from app.core.config import get_settings
 from app.core.llm import LLMClient
+from app.core.llm import LLMConfigurationError
 from app.models.schemas import JDStructured
 from app.services.resume_parser import KNOWN_SKILLS
 
 
 class JDParserService:
     def __init__(self) -> None:
+        self.settings = get_settings()
         self.llm = LLMClient()
 
     async def parse_jd(
@@ -20,6 +23,8 @@ class JDParserService:
     ) -> dict:
         heuristic = self.heuristic_parse(raw_text, title=title, company=company, location=location)
         if not self.llm.available:
+            if not self.settings.llm_fallback_enabled:
+                raise LLMConfigurationError("LLM is required for JD parsing. Set LLM_FALLBACK_ENABLED=true for tests.")
             return heuristic
 
         system_prompt = "You parse job descriptions. Return strict JSON only."
@@ -55,6 +60,8 @@ JD:
             )
             return JDStructured.model_validate({**heuristic, **parsed}).model_dump()
         except Exception:
+            if not self.settings.llm_fallback_enabled:
+                raise
             return heuristic
 
     def heuristic_parse(

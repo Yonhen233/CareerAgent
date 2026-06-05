@@ -2,12 +2,15 @@ import json
 
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.llm import LLMClient
+from app.core.llm import LLMConfigurationError
 from app.models.entities import Application, Job, Profile, ResumeVersion
 
 
 class ApplicationService:
     def __init__(self) -> None:
+        self.settings = get_settings()
         self.llm = LLMClient()
 
     async def create_quick_apply_packet(
@@ -55,6 +58,10 @@ class ApplicationService:
             "可以较快参与真实业务中的 AI 应用开发、评测与工程落地。期待进一步沟通。"
         )
         if not self.llm.available:
+            if not self.settings.llm_fallback_enabled:
+                raise LLMConfigurationError(
+                    "LLM is required for cover letter generation. Set LLM_FALLBACK_ENABLED=true for tests."
+                )
             return fallback
         system_prompt = "You write concise Chinese job application letters. Return plain text only."
         user_prompt = f"""
@@ -75,6 +82,8 @@ Resume version:
         try:
             return await self.llm.generate_text(system_prompt=system_prompt, user_prompt=user_prompt, temperature=0.25)
         except Exception:
+            if not self.settings.llm_fallback_enabled:
+                raise
             return fallback
 
     async def _outreach_message(self, profile: Profile, job: Job) -> str:

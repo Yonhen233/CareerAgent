@@ -124,12 +124,14 @@ class EmbeddingService:
                     )
                 raise
 
-        return self._hash_batch(
-            clean_texts,
-            provider="hash_fallback",
-            model=f"hash-{self.settings.embedding_dimensions}",
-            fallback_reason=f"Unsupported embedding provider: {self.provider}",
-        )
+        if self.settings.embedding_provider_fallback.lower() == "hash":
+            return self._hash_batch(
+                clean_texts,
+                provider="hash_fallback",
+                model=f"hash-{self.settings.embedding_dimensions}",
+                fallback_reason=f"Unsupported embedding provider: {self.provider}",
+            )
+        raise ValueError(f"Unsupported embedding provider: {self.provider}")
 
     def _hash_batch(
         self,
