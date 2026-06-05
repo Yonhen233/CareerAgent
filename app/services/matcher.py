@@ -4,7 +4,8 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.entities import Job, MatchResult, Profile
-from app.services.vector_index import SQLiteVectorIndex, hash_embedding, tokenize, cosine_similarity
+from app.services.embedding_service import EmbeddingService, cosine_similarity, tokenize
+from app.services.vector_index import SQLiteVectorIndex
 
 
 def normalize_skill(skill: str) -> str:
@@ -23,6 +24,7 @@ def fuzzy_contains(needle: str, haystack_tokens: set[str], haystack_text: str) -
 class MatcherService:
     def __init__(self) -> None:
         self.vector_index = SQLiteVectorIndex()
+        self.embedding_service = EmbeddingService()
 
     def build_match_payload(self, db: Session, profile: Profile, job: Job) -> dict[str, Any]:
         profile_data = profile.structured_profile_json or {}
@@ -97,8 +99,10 @@ class MatcherService:
         return [chunk.as_dict() for chunk in self.vector_index.query_profile_chunks(db, profile_id, query, top_k=top_k)]
 
     def _semantic_similarity(self, resume_text: str, jd_text: str) -> float:
-        left = hash_embedding(resume_text, self.vector_index.dimensions)
-        right = hash_embedding(jd_text, self.vector_index.dimensions)
+        embeddings = self.embedding_service.embed_texts([resume_text, jd_text])
+        if len(embeddings.vectors) < 2:
+            return 0.0
+        left, right = embeddings.vectors
         return max(0.0, min(1.0, (cosine_similarity(left, right) + 1.0) / 2.0))
 
     def _project_relevance(self, evidence: list[dict[str, Any]]) -> float:

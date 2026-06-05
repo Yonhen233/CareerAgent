@@ -16,6 +16,8 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - 每个岗位的 JD 会入库为 `jobs`。
   - JD 会切分为 `job_chunks`，包括 required skills、responsibilities、qualifications、raw JD 等。
   - SQLite 保存权威数据和 embedding；Chroma 作为可选向量库镜像。
+  - 默认接入 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` 真实 embedding，失败时记录原因并降级到 hash fallback。
+  - 支持对一阶段 Top20 chunk 使用 CrossEncoder reranker，默认 Top5 作为召回锚点。
 - 岗位来源：
   - 腾讯招聘公开职位接口。
   - Lever 公开岗位 API，可配置公司 slug。
@@ -23,6 +25,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - `find_jobs_for_profile`：搜索岗位、解析 JD、入库、匹配、排序。
   - `tailor_resume_for_job`：匹配岗位、检索简历证据、定制简历、校验幻觉风险。
   - `quick_apply`：生成投递包、求职信、外联文案、投递清单和状态记录。
+  - 每次 run 先生成 Plan-Execute 执行计划，并写入 Trace artifact。
 - LLM 调试：
   - 记录调用名、模型、base_url、prompt 预览、response 预览、耗时、错误信息。
   - 不记录 API key。
@@ -96,6 +99,7 @@ LLM_MODEL=DeepSeek-V4-Pro
 - `POST /jobs/search`
 - `GET /jobs/{job_id}/chunks`
 - `POST /agent/runs`
+- `GET /agent/tools`
 - `GET /agent/runs/{run_id}/steps`
 - `POST /resumes/tailor`
 - `GET /llm/debug/logs`
@@ -119,6 +123,7 @@ pytest -q
 - 前端页面渲染。
 - 简历解析。
 - 简历向量检索。
+- Embedding service 和 reranker。
 - JD chunk 存储与检索。
 - 岗位匹配。
 - Agent 简历定制工作流。
@@ -128,6 +133,7 @@ pytest -q
 ## 文档
 
 - [架构设计](docs/ARCHITECTURE.md)
+- [Agent 设计说明](docs/AGENT_DESIGN.md)
 - [API 说明](docs/API.md)
 - [PDF Chunk 方案](docs/PDF_CHUNKING.md)
 - [量化评测方案](docs/EVALUATION.md)

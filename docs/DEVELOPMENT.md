@@ -21,6 +21,14 @@ LLM_BASE_URL=https://llmapi.paratera.com
 LLM_MODEL=DeepSeek-V4-Pro
 VECTOR_BACKEND=hybrid
 CHROMA_DIR=data/chroma
+EMBEDDING_PROVIDER=sentence_transformers
+EMBEDDING_MODEL_NAME=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+EMBEDDING_PROVIDER_FALLBACK=hash
+RERANKER_ENABLED=true
+RERANKER_PROVIDER=cross_encoder
+RERANKER_MODEL_NAME=cross-encoder/ms-marco-MiniLM-L-6-v2
+RERANKER_TOP_N=20
+RERANKER_ANCHOR_TOP_N=5
 JOB_INGEST_CONCURRENCY=6
 ```
 
@@ -28,6 +36,10 @@ JOB_INGEST_CONCURRENCY=6
 
 - `VECTOR_BACKEND=sqlite`：只使用 SQLite。
 - `VECTOR_BACKEND=hybrid`：SQLite + 可选 Chroma 镜像。
+- `EMBEDDING_PROVIDER=sentence_transformers`：使用真实 SentenceTransformer embedding。
+- `EMBEDDING_PROVIDER=hash`：使用离线 hash embedding，适合快速测试。
+- `RERANKER_ENABLED=true`：对一阶段 Top20 chunk 做二阶段排序。
+- `RERANKER_ANCHOR_TOP_N=5`：保留前 5 条一阶段证据顺序，降低 reranker 牺牲召回的风险。
 - `JOB_INGEST_CONCURRENCY`：并发解析 JD 的最大并发数。
 
 ## 数据库
@@ -109,6 +121,28 @@ GET /llm/debug/logs?limit=50
 3. 看 `prompt_chars` 判断上下文是否过长。
 4. 看 `response_preview` 判断模型是否返回非 JSON。
 5. 看 `error_message` 定位接口、解析或超时问题。
+
+## 真实 RAG 评测
+
+运行真实 embedding + reranker 评测：
+
+```powershell
+$env:EMBEDDING_PROVIDER='sentence_transformers'
+$env:EMBEDDING_MODEL_NAME='sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'
+$env:RERANKER_ENABLED='true'
+$env:RERANKER_PROVIDER='cross_encoder'
+$env:RERANKER_MODEL_NAME='cross-encoder/ms-marco-MiniLM-L-6-v2'
+pytest tests/test_evaluation_service.py -q
+```
+
+单元测试默认在 `tests/conftest.py` 中设置：
+
+```env
+EMBEDDING_PROVIDER=hash
+RERANKER_ENABLED=false
+```
+
+这样可以保证普通回归测试不依赖模型下载；真实评测需要显式打开环境变量。
 
 ## 测试
 

@@ -13,10 +13,12 @@ from app.services.guardrails import ResumeGuardrailService
 from app.services.jd_parser import JDParserService
 from app.services.resume_tailor import ResumeTailorService
 from app.core.llm import LLMClient
+from app.services.embedding_service import EmbeddingService
 from app.services.matcher import MatcherService
+from app.services.reranker import RerankerService
 from app.services.resume_parser import ResumeParserService
 from app.services.text_splitter import PDFPageText, ResumeTextSplitter, TextChunk
-from app.services.vector_index import SQLiteVectorIndex, cosine_similarity, expand_query_text, hash_embedding, tokenize
+from app.services.vector_index import SQLiteVectorIndex, cosine_similarity, expand_query_text, tokenize
 
 
 class EvaluationService:
@@ -24,6 +26,9 @@ class EvaluationService:
         self.settings = get_settings()
         self.matcher = MatcherService()
         self.llm = LLMClient()
+        self.embedding_service = EmbeddingService(settings=self.settings)
+        self.hash_embedding_service = EmbeddingService(settings=self.settings, provider="hash")
+        self.reranker = RerankerService(settings=self.settings)
 
     async def run_sample_evaluation(self, db: Session, *, dataset_path: Path | None = None) -> EvaluationRun:
         path = dataset_path or self.settings.base_path / "evals" / "sample_cases.json"
@@ -107,32 +112,69 @@ class EvaluationService:
         path = dataset_path or self.settings.base_path / "evals" / "rag_cases.json"
         cases = json.loads(path.read_text(encoding="utf-8"))
         strategies = {
-            "vector_only": {"vector_weight": 1.0, "lexical_weight": 0.0, "type_boost": False},
-            "lexical_only": {"vector_weight": 0.0, "lexical_weight": 1.0, "type_boost": False},
-            "lexical_80_vector_15_type_5": {
+            "hash_vector_only": {
+                "embedding_provider": "hash",
+                "vector_weight": 1.0,
+                "lexical_weight": 0.0,
+                "type_boost": False,
+            },
+            "hash_lexical_only": {
+                "embedding_provider": "hash",
+                "vector_weight": 0.0,
+                "lexical_weight": 1.0,
+                "type_boost": False,
+            },
+            "hash_lexical_80_vector_15_type_5": {
+                "embedding_provider": "hash",
                 "vector_weight": 0.15,
                 "lexical_weight": 0.8,
                 "type_boost": True,
                 "query_expansion": True,
             },
-            "hybrid_70_vector_30_lexical": {"vector_weight": 0.7, "lexical_weight": 0.3, "type_boost": False},
-            "hybrid_58_vector_34_lexical_8_type_boost": {
-                "vector_weight": 0.58,
-                "lexical_weight": 0.34,
-                "type_boost": True,
-                "query_expansion": False,
+            "real_embedding_vector_only": {
+                "embedding_provider": "configured",
+                "vector_weight": 1.0,
+                "lexical_weight": 0.0,
+                "type_boost": False,
+                "query_expansion": True,
             },
-            "hybrid_alias_62_vector_33_lexical_5_type_boost": {
-                "vector_weight": 0.62,
-                "lexical_weight": 0.33,
+            "real_embedding_70_vector_30_lexical": {
+                "embedding_provider": "configured",
+                "vector_weight": 0.7,
+                "lexical_weight": 0.3,
+                "type_boost": False,
+                "query_expansion": True,
+            },
+            "real_embedding_55_vector_40_lexical_5_type": {
+                "embedding_provider": "configured",
+                "vector_weight": 0.55,
+                "lexical_weight": 0.4,
                 "type_boost": True,
                 "query_expansion": True,
+            },
+            "real_embedding_45_vector_50_lexical_5_type": {
+                "embedding_provider": "configured",
+                "vector_weight": 0.45,
+                "lexical_weight": 0.5,
+                "type_boost": True,
+                "query_expansion": True,
+            },
+            "real_embedding_top20_rerank": {
+                "embedding_provider": "configured",
+                "vector_weight": 0.55,
+                "lexical_weight": 0.4,
+                "type_boost": True,
+                "query_expansion": True,
+                "reranker": True,
+                "rerank_top_n": 20,
             },
         }
         strategy_results = []
         case_results = []
         for strategy_name, config in strategies.items():
             per_case = []
+            embedding_service = self._embedding_service_for_strategy(config)
+            reranker = self.reranker if config.get("reranker") else None
             for case in cases:
                 chunks = [
                     TextChunk(
@@ -150,10 +192,15 @@ class EvaluationService:
                     vector_weight=config["vector_weight"],
                     lexical_weight=config["lexical_weight"],
                     type_boost=config["type_boost"],
+                    embedding_service=embedding_service,
+                    reranker=reranker,
+                    rerank_top_n=int(config.get("rerank_top_n", self.settings.reranker_top_n)),
                 )
                 expected_ids = set(case["expected_chunk_ids"])
                 top3 = ranked[:3]
                 top5 = ranked[:5]
+                embedding_info = ranked[0].get("embedding", {}) if ranked else {}
+                rerank_info = (ranked[0].get("metadata", {}).get("rerank") or {}) if ranked else {}
                 per_case.append(
                     {
                         "case": case["name"],
@@ -163,9 +210,24 @@ class EvaluationService:
                         "ndcg_at_5": self._ndcg_at_k(ranked, expected_ids, 5),
                         "top1_expected": ranked[0]["uid"] in expected_ids if ranked else False,
                         "top3_ids": [item["uid"] for item in top3],
+                        "embedding_provider": embedding_info.get("provider"),
+                        "embedding_model": embedding_info.get("model"),
+                        "embedding_fallback_reason": embedding_info.get("fallback_reason"),
+                        "reranker_provider": rerank_info.get("reranker_provider"),
+                        "reranker_model": rerank_info.get("reranker_model"),
+                        "reranker_fallback_reason": rerank_info.get("fallback_reason"),
                     }
                 )
             summary = self._summarize_rag_strategy(strategy_name, per_case)
+            summary.update(
+                {
+                    "configured_embedding_provider": config["embedding_provider"],
+                    "uses_reranker": bool(config.get("reranker")),
+                    "vector_weight": config["vector_weight"],
+                    "lexical_weight": config["lexical_weight"],
+                    "type_boost": bool(config["type_boost"]),
+                }
+            )
             strategy_results.append(summary)
             case_results.extend({"strategy": strategy_name, **item} for item in per_case)
 
@@ -176,13 +238,32 @@ class EvaluationService:
             "case_count": len(cases),
             "selected_strategy": selected["strategy"],
             "selection_reason": selected["reason"],
+            "embedding_model_selection": {
+                "configured_provider": self.settings.embedding_provider,
+                "configured_model": self.settings.embedding_model_name,
+                "fallback": self.settings.embedding_provider_fallback,
+                "reason": (
+                    "默认使用多语言 SentenceTransformer 作为本地真实 embedding 模型，能覆盖中文简历、"
+                    "英文 JD 和中英混合技术词；模型不可用时才降级到 hash embedding，并在评测结果记录原因。"
+                ),
+            },
+            "reranker_selection": {
+                "configured_provider": self.settings.reranker_provider,
+                "configured_model": self.settings.reranker_model_name,
+                "top_n": self.settings.reranker_top_n,
+                "reason": (
+                    "一阶段检索保召回，二阶段 reranker 只处理 Top20，成本可控，适合简历证据和 JD 证据这种"
+                    "候选集较小但排序质量要求高的场景。"
+                ),
+            },
             "vector_store_selection": {
                 "selected": "SQLite authoritative store + Chroma optional vector mirror",
                 "reason": (
-                    "SQLite keeps all chunks, metadata and deterministic embeddings auditable and easy to test; "
-                    "Chroma adds a realistic vector database path for local ANN-style retrieval without forcing "
-                    "external infrastructure in demos."
+                    "SQLite 保存 Profile、JD、chunk、metadata、embedding 和评测结果，是可审计的权威存储；"
+                    "Chroma 作为本地持久化向量库镜像，体现真实 RAG 工程的向量检索组件，但不会把职位 JD "
+                    "和简历证据的业务元数据锁死在向量库里。"
                 ),
+                "alternatives_considered": ["FAISS", "Qdrant", "Milvus", "pgvector"],
             },
             "strategy_results": strategy_results,
         }
@@ -578,6 +659,11 @@ Job:
                     break
         return chunks
 
+    def _embedding_service_for_strategy(self, config: dict[str, Any]) -> EmbeddingService:
+        if config["embedding_provider"] == "hash":
+            return self.hash_embedding_service
+        return self.embedding_service
+
     def _rank_text_chunks(
         self,
         query: str,
@@ -586,13 +672,17 @@ Job:
         vector_weight: float,
         lexical_weight: float,
         type_boost: bool = False,
+        embedding_service: EmbeddingService | None = None,
+        reranker: RerankerService | None = None,
+        rerank_top_n: int = 20,
     ) -> list[dict[str, Any]]:
-        dimensions = self.settings.embedding_dimensions
-        query_vec = hash_embedding(query, dimensions)
+        embedder = embedding_service or self.hash_embedding_service
+        embedding_batch = embedder.embed_texts([query] + [chunk.text for chunk in chunks])
+        query_vec = embedding_batch.vectors[0] if embedding_batch.vectors else []
+        chunk_vectors = embedding_batch.vectors[1:]
         query_tokens = set(tokenize(query))
         ranked = []
-        for chunk in chunks:
-            chunk_vec = hash_embedding(chunk.text, dimensions)
+        for chunk, chunk_vec in zip(chunks, chunk_vectors, strict=False):
             vector_score = cosine_similarity(query_vec, chunk_vec)
             chunk_tokens = set(tokenize(chunk.text))
             lexical_score = len(query_tokens & chunk_tokens) / max(len(query_tokens), 1)
@@ -606,9 +696,18 @@ Job:
                     "chunk_type": chunk.chunk_type,
                     "metadata": chunk.metadata or {},
                     "score": round(score, 6),
+                    "embedding": embedding_batch.info(),
+                    "scores": {
+                        "vector_score": round(vector_score, 6),
+                        "lexical_score": round(lexical_score, 6),
+                        "first_stage_score": round(score, 6),
+                    },
                 }
             )
         ranked.sort(key=lambda item: item["score"], reverse=True)
+        if reranker and reranker.enabled:
+            first_stage = ranked[: max(rerank_top_n, 1)]
+            ranked = reranker.rerank_dicts(query, first_stage, top_k=len(first_stage)) + ranked[rerank_top_n:]
         return ranked
 
     def _summarize_pdf_strategy(self, strategy_name: str, per_query: list[dict[str, Any]]) -> dict[str, Any]:
@@ -648,6 +747,16 @@ Job:
 
     def _summarize_rag_strategy(self, strategy_name: str, per_case: list[dict[str, Any]]) -> dict[str, Any]:
         count = max(len(per_case), 1)
+        embedding_providers = sorted({item.get("embedding_provider") for item in per_case if item.get("embedding_provider")})
+        embedding_models = sorted({item.get("embedding_model") for item in per_case if item.get("embedding_model")})
+        reranker_providers = sorted({item.get("reranker_provider") for item in per_case if item.get("reranker_provider")})
+        fallback_reasons = sorted(
+            {
+                str(item.get("embedding_fallback_reason") or item.get("reranker_fallback_reason"))
+                for item in per_case
+                if item.get("embedding_fallback_reason") or item.get("reranker_fallback_reason")
+            }
+        )
         return {
             "strategy": strategy_name,
             "case_count": len(per_case),
@@ -656,27 +765,49 @@ Job:
             "avg_top5_recall": round(sum(item["top5_recall"] for item in per_case) / count, 4),
             "avg_mrr": round(sum(item["mrr"] for item in per_case) / count, 4),
             "avg_ndcg_at_5": round(sum(item["ndcg_at_5"] for item in per_case) / count, 4),
+            "actual_embedding_providers": embedding_providers,
+            "actual_embedding_models": embedding_models,
+            "actual_reranker_providers": reranker_providers,
+            "fallback_reasons": fallback_reasons[:3],
         }
 
     def _select_rag_strategy(self, strategy_results: list[dict[str, Any]]) -> dict[str, str]:
+        real_embedding_results = [
+            item
+            for item in strategy_results
+            if str(item["strategy"]).startswith("real_embedding")
+            and "sentence_transformers" in item.get("actual_embedding_providers", [])
+        ]
+        candidates = real_embedding_results or strategy_results
         ranked = sorted(
-            strategy_results,
+            candidates,
             key=lambda item: (
                 item["avg_top3_recall"],
                 item["avg_mrr"],
                 item["avg_ndcg_at_5"],
                 item["top1_accuracy"],
-                0 if item["strategy"] == "lexical_only" else 1,
+                1 if item.get("uses_reranker") else 0,
+                1 if str(item["strategy"]).startswith("real_embedding") else 0,
+                0 if item["strategy"] in {"hash_lexical_only", "lexical_only"} else 1,
             ),
             reverse=True,
         )
         selected = ranked[0]
+        provider_note = ", ".join(selected.get("actual_embedding_providers") or [])
+        reranker_note = ", ".join(selected.get("actual_reranker_providers") or []) or "none"
+        baseline_best = sorted(
+            strategy_results,
+            key=lambda item: (item["avg_top3_recall"], item["avg_mrr"], item["avg_ndcg_at_5"], item["top1_accuracy"]),
+            reverse=True,
+        )[0]
         return {
             "strategy": selected["strategy"],
             "reason": (
                 f"{selected['strategy']} 的 Top3 Recall={selected['avg_top3_recall']}、"
                 f"MRR={selected['avg_mrr']}、nDCG@5={selected['avg_ndcg_at_5']} 综合最高；"
-                "该选择优先保证技术关键词召回；当混合策略达到相同召回时，优先选择带向量重排和类型加权的方案。"
+                f"实际 embedding={provider_note}，reranker={reranker_note}。"
+                "该选择在真实 embedding 策略内优先保证技术关键词召回；"
+                f"hash baseline 最优为 {baseline_best['strategy']}，仅作为离线基线对照。"
             ),
         }
 

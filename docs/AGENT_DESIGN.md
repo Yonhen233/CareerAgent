@@ -1,0 +1,88 @@
+# Agent 设计说明
+
+## LLM 调用点
+
+当前 LLM 不是一个“全能 Prompt”，而是被放在需要语义理解或自然语言生成的边界上：
+
+- `ResumeParserService.parse_structured_resume`：从 PDF 原文抽取结构化 Profile。
+- `JDParserService.parse_jd`：从真实 JD 抽取 required skills、responsibilities、qualifications。
+- `MatcherService`：主匹配逻辑仍是可解释规则 + RAG evidence，不把最终匹配分数完全交给 LLM。
+- `ResumeTailorService._llm_tailor`：根据 JD 和检索证据生成定制简历。
+- `ApplicationService`：生成求职信和外联文案。
+- `EvaluationService._llm_judge_suitability`：真实调用 LLM 判断岗位是否适配，用于评测 prompt 边界。
+
+所有 LLM 调用都通过 `LLMClient` 记录：
+
+- trace name。
+- model/base_url。
+- prompt preview。
+- response preview。
+- latency。
+- prompt/response 字符数。
+- error message。
+
+系统不会记录 API key。
+
+## Plan-Execute
+
+`AgentOrchestrator.run` 会先执行 `plan_task`，由 `AgentPlanner` 生成计划并写入 `agent_artifacts`。
+
+适合 Plan-Execute 的原因：
+
+- 求职流程天然是多步骤：加载 Profile、搜索岗位、解析 JD、匹配、检索证据、改写简历、验证、生成投递包。
+- 每一步都可以对应一个明确 Tool，便于 trace、重试和测试。
+- 计划本身是可展示产物，适合作为简历项目亮点。
+
+当前计划是确定性 planner。后续可以升级为 LLM planner，但执行仍应限制在注册工具内，避免模型自由调用不可控能力。
+
+## ReAct
+
+最适合引入 ReAct 的环节是简历定制：
+
+1. Observe：读取 JD 缺口、Top20 RAG 证据、当前简历草稿。
+2. Act：生成或修复定制简历。
+3. Observe：运行 Guardrail，检查新增事实、关键词覆盖、risk level。
+4. Act：如果风险高，回退到更保守、更有证据支持的表达。
+
+当前代码已经具备 ReAct 所需的工具边界和验证器，但默认只执行一次生成 + 一次验证。下一步可以把高风险简历改写成最多 2 轮的 repair loop。
+
+## 当前 Tool
+
+`GET /agent/tools` 可以查看工具注册表。当前工具包括：
+
+| Tool | 作用 | 是否适合 MCP |
+| --- | --- | --- |
+| `profile_repository.load_profile` | 加载候选人档案 | 否 |
+| `job_repository.load_job` | 加载目标岗位 | 否 |
+| `job_search.search_jobs` | 并发搜索岗位源 | 是 |
+| `jd_parser.parse_jd` | 解析 JD | 否 |
+| `vector_index.upsert_job_chunks` | 写入 JD chunk 和 embedding | 否 |
+| `matcher.match_job` | 生成匹配分数和证据 | 否 |
+| `vector_index.retrieve_resume_evidence` | 检索简历证据并 rerank | 否 |
+| `resume_tailor.tailor_resume` | 定制简历 | 否 |
+| `guardrail.verify_resume` | 检查幻觉和证据覆盖 | 否 |
+| `application.create_quick_apply_packet` | 生成投递包 | 是 |
+
+## 是否需要 MCP
+
+当前阶段不强制引入 MCP。
+
+理由：
+
+- 工具都在同一 FastAPI 进程内，直接 Python 调用更简单。
+- Agent trace 已经能记录每一步 input/output/latency/error。
+- 本地 SQLite 是权威存储，工具边界还没有跨进程或跨授权域。
+
+适合 MCP 的下一阶段：
+
+- 浏览器：打开招聘网站、辅助填写表单、等待用户确认提交。
+- 邮箱：发送外联邮件或保存草稿。
+- 日历：根据邮件或聊天记录安排面试。
+- 云盘/本地文件系统：管理不同岗位的简历版本。
+- 需要登录态的招聘平台：把账号授权和抓取能力隔离在 MCP server 中。
+
+推荐路线：
+
+1. 先保持当前 Python Tool registry。
+2. 当浏览器/邮箱/日历接入后，把这些外部工具封装为 MCP。
+3. Orchestrator 只面向统一 Tool Spec，不直接依赖某个 MCP server 的实现。

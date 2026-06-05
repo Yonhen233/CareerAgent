@@ -27,4 +27,7 @@ def test_rag_strategy_evaluation_selects_strategy(db_session):
     assert run.summary_json["case_count"] >= 48
     assert run.summary_json["selected_strategy"]
     assert "vector_store_selection" in run.summary_json
+    assert "embedding_model_selection" in run.summary_json
+    assert "reranker_selection" in run.summary_json
     assert len(run.summary_json["strategy_results"]) >= 4
+    assert any(item["uses_reranker"] for item in run.summary_json["strategy_results"])

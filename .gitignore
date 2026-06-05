@@ -12,6 +12,7 @@ data/*.sqlite
 data/uploads/
 data/exports/
 data/chroma/
+data/models/
 data/runtime/
 
 careerpilot-agent/

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.models.entities import Application, Job, Profile, ResumeVersion
 from app.models.schemas import AgentRunRequest
+from app.agents.tools import AgentPlanner
 from app.services.application_service import ApplicationService
 from app.services.job_search import JobSearchService
 from app.services.matcher import MatcherService
@@ -19,6 +20,7 @@ class AgentOrchestrator:
         self.matcher = MatcherService()
         self.tailor = ResumeTailorService()
         self.application = ApplicationService()
+        self.planner = AgentPlanner()
 
     async def run(self, db: Session, request: AgentRunRequest):
         started = time.perf_counter()
@@ -30,6 +32,15 @@ class AgentOrchestrator:
             input_json=request.model_dump(),
         )
         try:
+            plan = await self.trace.step(
+                db,
+                run_id=run.id,
+                step_name="plan_task",
+                tool_name="AgentPlanner",
+                input_json={"task_type": request.task_type},
+                handler=lambda: self._async_value(self.planner.build_plan(request)),
+            )
+            self.trace.add_artifact(db, run_id=run.id, artifact_type="execution_plan", payload=plan)
             if request.task_type == "find_jobs_for_profile":
                 output = await self._find_jobs_for_profile(db, run.id, request)
             elif request.task_type == "tailor_resume_for_job":
@@ -38,6 +49,7 @@ class AgentOrchestrator:
                 output = await self._quick_apply(db, run.id, request)
             else:
                 raise ValueError(f"Unsupported task_type: {request.task_type}")
+            output["execution_plan"] = plan
             return self.trace.finish_run(db, run=run, status="completed", output_json=output, started_at=started)
         except Exception as exc:  # noqa: BLE001
             return self.trace.finish_run(

@@ -219,6 +219,14 @@ GET /agent/runs/{run_id}
 GET /agent/runs/{run_id}/steps
 ```
 
+### 查询 Agent Tool 注册表
+
+```http
+GET /agent/tools
+```
+
+返回当前 Orchestrator 可调用的工具、输入输出描述、副作用和是否适合后续 MCP 化。
+
 ## LLM 调用调试
 
 ```http

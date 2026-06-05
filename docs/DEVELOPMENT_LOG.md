@@ -1,5 +1,51 @@
 # 开发日志
 
+## 2026-06-05 22:21 +08:00：接入真实 Embedding、Top20 Reranker 与 Agent Tool 规划
+
+### 这次做了什么
+
+- 新增 `EmbeddingService`，默认接入 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`，并保留 hash fallback。
+- 新增 `RerankerService`，支持 `cross-encoder/ms-marco-MiniLM-L-6-v2` 对一阶段 Top20 chunk 做二阶段排序。
+- 将 `SQLiteVectorIndex` 的简历 chunk、JD chunk 写入和查询改为真实 embedding 主路径，并在 metadata 中记录 provider/model/dimension。
+- 将生产检索权重调整为 `vector=0.55 / lexical=0.40 / type=0.05`。
+- 为 reranker 增加 Top5 recall anchor：前 5 条证据保留一阶段顺序，第 6 到第 20 条在分数带内 rerank。
+- 扩展 RAG 评测，加入 hash baseline、真实 embedding 多权重、真实 CrossEncoder Top20 rerank 对比。
+- 新增 `AgentToolSpec` 和 `AgentPlanner`，每次 Agent run 会先生成 Plan-Execute artifact。
+- 新增 `GET /agent/tools`，可查看当前 Agent 工具清单和 MCP 候选边界。
+- 新增 `docs/AGENT_DESIGN.md`，说明 LLM 调用点、Plan-Execute、ReAct、Tool 和 MCP 取舍。
+- 更新 README、架构文档、API 文档、开发说明和评测文档。
+- 新增 embedding/reranker 与 agent tools 测试。
+
+### 发现了什么问题
+
+- 裸 `pip install` 安装到了系统 Python，而项目实际使用 `C:\Users\IC\.codex\python312\python.exe`，导致第一次真实评测显示 `No module named 'sentence_transformers'`。
+- `sentence-transformers` 自动安装了 `transformers 5.x` 后，本地模型加载不稳定，出现 tokenizer/processor 识别问题。
+- 裸 CrossEncoder rerank 权重过高时，会把强关键词证据推出 Top3，导致 Top3 Recall 从 0.9444 降到 0.8889。
+- 当前合成 RAG 数据仍偏精确技术关键词，hash/lexical baseline 的 nDCG@5 高于真实 embedding 策略。
+
+### 怎么修复的
+
+- 改用 `python -m pip install` 安装依赖到当前解释器。
+- 在 `requirements.txt` 中增加 `transformers<5.0.0`、`huggingface-hub<1.0`，真实模型可稳定加载。
+- 对 RAG 策略重新评测，真实 embedding 最佳权重为 `0.55/0.40/0.05`。
+- 将 reranker 改为保守融合，并加入 Top5 recall anchor，最终 `real_embedding_top20_rerank` 达到 Top3 Recall=0.9444、Top5 Recall=1.0、MRR=1.0、nDCG@5=0.9843。
+- 保留 hash baseline 作为离线可测对照，但生产策略选择真实 embedding + Top20 rerank。
+- pytest 默认设置 `EMBEDDING_PROVIDER=hash`、`RERANKER_ENABLED=false`，保证普通回归测试不依赖模型下载。
+
+### 未修复的问题及原因
+
+- 真实 RAG 评测数据仍是合成数据，不是真实求职者 PDF 和真实招聘 JD；原因是需要人工标注数据才能可靠衡量真实效果。
+- Reranker 目前使用通用 MS MARCO CrossEncoder，不是招聘/简历领域模型；原因是领域 reranker 需要额外数据微调。
+- ReAct repair loop 还没有真正执行多轮修复；原因是当前先补齐 Tool registry、Plan artifact 和 Guardrail 验证边界。
+- MCP 暂未引入；原因是当前工具都在同一 FastAPI 进程内，直接调用更简单，浏览器/邮箱/日历等外部授权工具接入后更适合 MCP 化。
+
+### 下一步怎么做
+
+- 构建真实 PDF 简历和真实 JD 的人工标注 RAG 数据。
+- 增加简历定制的 ReAct repair loop，高风险时最多自动修复 2 轮。
+- 接入浏览器辅助填写投递表单，并评估是否以 MCP server 形式暴露。
+- 增加领域 reranker 或用真实招聘数据微调 reranker。
+
 ## 2026-06-05 21:18 +08:00：补充 PDF Chunk、RAG 与 LLM 实景评测
 
 ### 这次做了什么
