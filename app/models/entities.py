@@ -51,6 +51,7 @@ class ResumeChunk(Base):
     text: Mapped[str] = mapped_column(Text, nullable=False)
     token_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     embedding_json: Mapped[list[float]] = mapped_column(JSON, nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     profile: Mapped[Profile] = relationship(back_populates="chunks")
@@ -80,9 +81,28 @@ class Job(Base):
     )
 
     matches: Mapped[list["MatchResult"]] = relationship(back_populates="job")
+    chunks: Mapped[list["JobChunk"]] = relationship(back_populates="job", cascade="all, delete-orphan")
     resume_versions: Mapped[list["ResumeVersion"]] = relationship(back_populates="job")
     applications: Mapped[list["Application"]] = relationship(back_populates="job")
     agent_runs: Mapped[list["AgentRun"]] = relationship(back_populates="job")
+
+
+class JobChunk(Base):
+    __tablename__ = "job_chunks"
+    __table_args__ = (UniqueConstraint("job_id", "chunk_uid", name="uq_job_chunk_job_uid"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"), nullable=False, index=True)
+    chunk_uid: Mapped[str] = mapped_column(String(128), nullable=False)
+    chunk_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    source: Mapped[str] = mapped_column(String(255), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    token_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    embedding_json: Mapped[list[float]] = mapped_column(JSON, nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+    job: Mapped[Job] = relationship(back_populates="chunks")
 
 
 class MatchResult(Base):
@@ -202,3 +222,30 @@ class AgentArtifact(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     run: Mapped[AgentRun] = relationship(back_populates="artifacts")
+
+
+class LLMCallLog(Base):
+    __tablename__ = "llm_call_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    trace_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    base_url: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    prompt_preview_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    response_preview: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    prompt_chars: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    response_chars: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class EvaluationRun(Base):
+    __tablename__ = "evaluation_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    summary_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    case_results_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)

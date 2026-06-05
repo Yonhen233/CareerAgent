@@ -1,0 +1,83 @@
+[
+  {
+    "name": "agent_intern_strong_fit",
+    "profile": {
+      "name": "Agent Candidate",
+      "email": "candidate@example.com",
+      "headline": "Agent developer intern candidate",
+      "target_roles": ["Agent Development Intern"],
+      "skills": ["Python", "FastAPI", "RAG", "SQLite", "Agent", "Evaluation"],
+      "projects": [
+        {
+          "name": "CareerAgent",
+          "description": "Built a FastAPI Agent workflow with PDF chunking, SQLite RAG, JD matching and traceable resume tailoring.",
+          "tech_stack": ["Python", "FastAPI", "SQLite"],
+          "impact": "Created an end-to-end usable internship application workflow."
+        }
+      ]
+    },
+    "job": {
+      "title": "Agent Development Intern",
+      "company": "Demo AI",
+      "jd_text": "Build Agent workflows with Python, FastAPI, RAG, SQLite, evaluation and guardrails."
+    },
+    "expected_matched_skills": ["Python", "FastAPI", "RAG", "SQLite"],
+    "expected_missing_skills": ["Guardrails"],
+    "expected_evidence_keywords": ["CareerAgent", "PDF chunking", "SQLite RAG"],
+    "min_overall_score": 65
+  },
+  {
+    "name": "frontend_heavy_weak_fit",
+    "profile": {
+      "name": "Frontend Candidate",
+      "email": "frontend@example.com",
+      "headline": "Frontend intern candidate",
+      "target_roles": ["Frontend Intern"],
+      "skills": ["React", "TypeScript", "CSS"],
+      "projects": [
+        {
+          "name": "Dashboard UI",
+          "description": "Built React dashboards and design system components.",
+          "tech_stack": ["React", "TypeScript"],
+          "impact": "Improved internal UI consistency."
+        }
+      ]
+    },
+    "job": {
+      "title": "Agent Development Intern",
+      "company": "Demo AI",
+      "jd_text": "Build backend Agent workflows with Python, FastAPI, RAG, SQLite and evaluation."
+    },
+    "expected_matched_skills": [],
+    "expected_missing_skills": ["Python", "FastAPI", "RAG", "SQLite"],
+    "expected_evidence_keywords": ["Dashboard UI"],
+    "max_overall_score": 75
+  },
+  {
+    "name": "ml_candidate_partial_fit",
+    "profile": {
+      "name": "ML Candidate",
+      "email": "ml@example.com",
+      "headline": "LLM application intern candidate",
+      "target_roles": ["LLM Application Intern"],
+      "skills": ["Python", "PyTorch", "Transformers", "Evaluation"],
+      "projects": [
+        {
+          "name": "LLM Eval Harness",
+          "description": "Built an evaluation harness for prompt regression tests and model output scoring.",
+          "tech_stack": ["Python", "PyTorch"],
+          "impact": "Reduced manual review effort."
+        }
+      ]
+    },
+    "job": {
+      "title": "Agent Evaluation Intern",
+      "company": "Demo AI",
+      "jd_text": "Evaluate Agent workflows using Python, LLM evaluation, RAG evidence checks, guardrails and SQL analytics."
+    },
+    "expected_matched_skills": ["Python", "Evaluation"],
+    "expected_missing_skills": ["RAG", "SQL"],
+    "expected_evidence_keywords": ["LLM Eval Harness", "evaluation harness"],
+    "min_overall_score": 45
+  }
+]

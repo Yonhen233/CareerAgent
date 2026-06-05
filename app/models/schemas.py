@@ -116,6 +116,20 @@ class JobResponse(BaseModel):
     discovered_at: datetime
 
 
+class JobChunkResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    job_id: int
+    chunk_uid: str
+    chunk_type: str
+    source: str
+    text: str
+    token_count: int
+    metadata_json: dict[str, Any]
+    created_at: datetime
+
+
 class JobSearchResponse(BaseModel):
     jobs: list[JobResponse]
     source_errors: dict[str, str] = Field(default_factory=dict)
@@ -199,6 +213,33 @@ class AgentStepResponse(BaseModel):
     output_json: dict[str, Any] | None
     error_message: str | None
     latency_ms: int
+    created_at: datetime
+
+
+class LLMCallLogResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    trace_name: str
+    model: str
+    base_url: str
+    status: str
+    prompt_preview_json: dict[str, Any]
+    response_preview: str | None
+    error_message: str | None
+    latency_ms: int
+    prompt_chars: int
+    response_chars: int
+    created_at: datetime
+
+
+class EvaluationRunResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    summary_json: dict[str, Any]
+    case_results_json: list[dict[str, Any]]
     created_at: datetime
 
 

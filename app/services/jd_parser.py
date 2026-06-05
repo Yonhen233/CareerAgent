@@ -16,6 +16,7 @@ class JDParserService:
         title: str | None = None,
         company: str | None = None,
         location: str | None = None,
+        db=None,
     ) -> dict:
         heuristic = self.heuristic_parse(raw_text, title=title, company=company, location=location)
         if not self.llm.available:
@@ -46,7 +47,12 @@ JD:
 {raw_text}
 """
         try:
-            parsed = await self.llm.generate_json(system_prompt=system_prompt, user_prompt=user_prompt)
+            parsed = await self.llm.generate_json(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                db=db,
+                trace_name="jd_parser.parse_jd",
+            )
             return JDStructured.model_validate({**heuristic, **parsed}).model_dump()
         except Exception:
             return heuristic

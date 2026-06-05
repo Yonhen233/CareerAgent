@@ -5,8 +5,10 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.agent_runs import router as agent_runs_router
 from app.api.applications import router as applications_router
+from app.api.evaluations import router as evaluations_router
 from app.api.health import router as health_router
 from app.api.jobs import router as jobs_router
+from app.api.llm_debug import router as llm_debug_router
 from app.api.matches import router as matches_router
 from app.api.profiles import router as profiles_router
 from app.api.resumes import router as resumes_router
@@ -21,6 +23,7 @@ settings = get_settings()
 async def lifespan(_: FastAPI):
     settings.upload_path.mkdir(parents=True, exist_ok=True)
     settings.export_path.mkdir(parents=True, exist_ok=True)
+    settings.chroma_path.mkdir(parents=True, exist_ok=True)
     init_db()
     yield
 
@@ -42,7 +45,9 @@ app.include_router(frontend_router)
 app.include_router(health_router)
 app.include_router(profiles_router)
 app.include_router(jobs_router)
+app.include_router(llm_debug_router)
 app.include_router(matches_router)
 app.include_router(resumes_router)
 app.include_router(applications_router)
+app.include_router(evaluations_router)
 app.include_router(agent_runs_router)

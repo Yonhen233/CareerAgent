@@ -24,9 +24,12 @@ class Settings(BaseSettings):
 
     upload_dir: str = "data/uploads"
     export_dir: str = "data/exports"
+    chroma_dir: str = "data/chroma"
     chunk_size: int = 900
     chunk_overlap: int = 160
     embedding_dimensions: int = 256
+    vector_backend: str = "hybrid"
+    job_ingest_concurrency: int = 6
 
     job_search_timeout_seconds: float = 18.0
     user_agent: str = Field(
@@ -56,6 +59,10 @@ class Settings(BaseSettings):
     @property
     def export_path(self) -> Path:
         return self.base_path / self.export_dir
+
+    @property
+    def chroma_path(self) -> Path:
+        return self.base_path / self.chroma_dir
 
     @property
     def effective_llm_api_key(self) -> str | None:

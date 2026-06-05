@@ -1,6 +1,6 @@
 from collections.abc import Generator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.config import get_settings
@@ -29,6 +29,26 @@ def init_db() -> None:
     from app.models import entities  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    _ensure_sqlite_columns()
+
+
+def _ensure_sqlite_columns() -> None:
+    if not settings.database_url.startswith("sqlite"):
+        return
+
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "resume_chunks" not in tables:
+        return
+
+    resume_chunk_columns = {column["name"] for column in inspector.get_columns("resume_chunks")}
+    statements: list[str] = []
+    if "metadata_json" not in resume_chunk_columns:
+        statements.append("ALTER TABLE resume_chunks ADD COLUMN metadata_json JSON NOT NULL DEFAULT '{}'")
+
+    with engine.begin() as conn:
+        for statement in statements:
+            conn.execute(text(statement))
 
 
 def get_db() -> Generator[Session, None, None]:

@@ -3,15 +3,21 @@ import asyncio
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.entities import Job
 from app.services.jd_parser import JDParserService
 from app.services.job_sources import JobPosting, JobSourceRegistry
+from app.services.text_splitter import ResumeTextSplitter
+from app.services.vector_index import SQLiteVectorIndex
 
 
 class JobSearchService:
     def __init__(self) -> None:
         self.registry = JobSourceRegistry()
         self.jd_parser = JDParserService()
+        self.splitter = ResumeTextSplitter()
+        self.vector_index = SQLiteVectorIndex()
+        self.settings = get_settings()
 
     async def search(
         self,
@@ -34,9 +40,9 @@ class JobSearchService:
             except Exception as exc:  # noqa: BLE001
                 return source.name, [], str(exc)
 
-        runs = await asyncio.gather(*[_run_source(source) for source in selected])
+        source_runs = await asyncio.gather(*[_run_source(source) for source in selected])
         postings: list[JobPosting] = []
-        for source_name, rows, error in runs:
+        for source_name, rows, error in source_runs:
             if error:
                 source_errors[source_name] = error
             postings.extend(rows)
@@ -44,18 +50,14 @@ class JobSearchService:
         if internship_only:
             postings = [posting for posting in postings if self._is_internship_like(posting)]
 
-        postings = self._dedupe_postings(postings)
+        postings = self._dedupe_postings(postings)[:limit]
+        parsed_postings = await self._parse_postings_concurrently(postings)
+
         jobs: list[Job] = []
-        for posting in postings[:limit]:
+        for posting, structured in parsed_postings:
             if store_results:
-                jobs.append(await self.upsert_posting(db, posting))
+                jobs.append(self.upsert_prepared_posting(db, posting, structured))
             else:
-                structured = await self.jd_parser.parse_jd(
-                    posting.raw_jd_text,
-                    title=posting.title,
-                    company=posting.company,
-                    location=posting.location,
-                )
                 jobs.append(
                     Job(
                         source=posting.source,
@@ -79,6 +81,9 @@ class JobSearchService:
             company=posting.company,
             location=posting.location,
         )
+        return self.upsert_prepared_posting(db, posting, structured)
+
+    def upsert_prepared_posting(self, db: Session, posting: JobPosting, structured: dict) -> Job:
         external_id = posting.external_id or f"{posting.title}:{posting.company}:{posting.apply_url}"
         existing = (
             db.query(Job)
@@ -96,6 +101,7 @@ class JobSearchService:
             existing.source_payload_json = posting.payload
             db.commit()
             db.refresh(existing)
+            self._index_job_chunks(db, existing)
             return existing
 
         job = Job(
@@ -114,6 +120,7 @@ class JobSearchService:
         try:
             db.commit()
             db.refresh(job)
+            self._index_job_chunks(db, job)
             return job
         except IntegrityError:
             db.rollback()
@@ -124,7 +131,27 @@ class JobSearchService:
             )
             if existing is None:
                 raise
+            self._index_job_chunks(db, existing)
             return existing
+
+    async def _parse_postings_concurrently(self, postings: list[JobPosting]) -> list[tuple[JobPosting, dict]]:
+        semaphore = asyncio.Semaphore(max(1, self.settings.job_ingest_concurrency))
+
+        async def _parse(posting: JobPosting) -> tuple[JobPosting, dict]:
+            async with semaphore:
+                structured = await self.jd_parser.parse_jd(
+                    posting.raw_jd_text,
+                    title=posting.title,
+                    company=posting.company,
+                    location=posting.location,
+                )
+                return posting, structured
+
+        return await asyncio.gather(*[_parse(posting) for posting in postings])
+
+    def _index_job_chunks(self, db: Session, job: Job) -> int:
+        chunks = self.splitter.split_jd_text(job.raw_jd_text, job.structured_jd_json or {}, prefix=f"job_{job.id}")
+        return self.vector_index.upsert_job_chunks(db, job.id, chunks)
 
     def _dedupe_postings(self, postings: list[JobPosting]) -> list[JobPosting]:
         seen: set[tuple[str, str]] = set()

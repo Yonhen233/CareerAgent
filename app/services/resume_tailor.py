@@ -19,7 +19,7 @@ class ResumeTailorService:
     async def tailor_resume(self, db: Session, profile: Profile, job: Job) -> ResumeVersion:
         evidence = self.matcher.retrieve_evidence(db, profile.id, job, top_k=10)
         if self.llm.available:
-            draft = await self._llm_tailor(profile, job, evidence)
+            draft = await self._llm_tailor(db, profile, job, evidence)
         else:
             draft = self._heuristic_tailor(profile, job, evidence)
 
@@ -50,7 +50,7 @@ class ResumeTailorService:
         db.refresh(version)
         return version
 
-    async def _llm_tailor(self, profile: Profile, job: Job, evidence: list[dict[str, Any]]) -> dict[str, Any]:
+    async def _llm_tailor(self, db: Session, profile: Profile, job: Job, evidence: list[dict[str, Any]]) -> dict[str, Any]:
         system_prompt = (
             "You are a senior resume writing agent. Return strict JSON only. "
             "You must never fabricate facts, metrics, companies, degrees, or dates."
@@ -87,7 +87,12 @@ Retrieved evidence:
 {json.dumps(evidence, ensure_ascii=False)}
 """
         try:
-            return await self.llm.generate_json(system_prompt=system_prompt, user_prompt=user_prompt)
+            return await self.llm.generate_json(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                db=db,
+                trace_name="resume_tailor.tailor_resume",
+            )
         except Exception:
             return self._heuristic_tailor(profile, job, evidence)
 

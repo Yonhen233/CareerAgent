@@ -4,10 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.models.entities import Job
-from app.models.schemas import JobCreateRequest, JobResponse, JobSearchRequest, JobSearchResponse
+from app.models.entities import Job, JobChunk
+from app.models.schemas import JobChunkResponse, JobCreateRequest, JobResponse, JobSearchRequest, JobSearchResponse
 from app.services.jd_parser import JDParserService
 from app.services.job_search import JobSearchService
+from app.services.text_splitter import ResumeTextSplitter
+from app.services.vector_index import SQLiteVectorIndex
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -19,6 +21,7 @@ async def create_job(payload: JobCreateRequest, db: Session = Depends(get_db)) -
         title=payload.title,
         company=payload.company,
         location=payload.location,
+        db=db,
     )
     external_id = f"manual:{hashlib.sha1(payload.jd_text.encode('utf-8')).hexdigest()}"
     existing = db.query(Job).filter(Job.source == "manual", Job.external_id == external_id).first()
@@ -32,6 +35,7 @@ async def create_job(payload: JobCreateRequest, db: Session = Depends(get_db)) -
         existing.structured_jd_json = structured
         db.commit()
         db.refresh(existing)
+        _index_job_chunks(db, existing)
         return JobResponse.model_validate(existing)
 
     job = Job(
@@ -49,6 +53,7 @@ async def create_job(payload: JobCreateRequest, db: Session = Depends(get_db)) -
     db.add(job)
     db.commit()
     db.refresh(job)
+    _index_job_chunks(db, job)
     return JobResponse.model_validate(job)
 
 
@@ -85,3 +90,17 @@ def get_job(job_id: int, db: Session = Depends(get_db)) -> JobResponse:
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
     return JobResponse.model_validate(job)
+
+
+@router.get("/{job_id}/chunks", response_model=list[JobChunkResponse])
+def get_job_chunks(job_id: int, db: Session = Depends(get_db)) -> list[JobChunkResponse]:
+    job = db.query(Job).filter(Job.id == job_id).first()
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    chunks = db.query(JobChunk).filter(JobChunk.job_id == job_id).order_by(JobChunk.id.asc()).all()
+    return [JobChunkResponse.model_validate(chunk) for chunk in chunks]
+
+
+def _index_job_chunks(db: Session, job: Job) -> int:
+    chunks = ResumeTextSplitter().split_jd_text(job.raw_jd_text, job.structured_jd_json or {}, prefix=f"job_{job.id}")
+    return SQLiteVectorIndex().upsert_job_chunks(db, job.id, chunks)

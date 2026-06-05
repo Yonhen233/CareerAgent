@@ -9,7 +9,7 @@ from app.core.config import get_settings
 from app.core.llm import LLMClient
 from app.models.entities import Profile
 from app.models.schemas import GuidedProfileRequest, ProfileStructured
-from app.services.text_splitter import ResumeTextSplitter
+from app.services.text_splitter import PDFPageText, ResumeTextSplitter
 from app.services.vector_index import SQLiteVectorIndex
 
 
@@ -56,9 +56,15 @@ def safe_filename(name: str) -> str:
 
 
 def extract_pdf_text(path: Path) -> str:
+    return "\n".join(page.text for page in extract_pdf_pages(path)).strip()
+
+
+def extract_pdf_pages(path: Path) -> list[PDFPageText]:
     reader = PdfReader(str(path))
-    pages = [page.extract_text() or "" for page in reader.pages]
-    return "\n".join(pages).strip()
+    pages = []
+    for index, page in enumerate(reader.pages, start=1):
+        pages.append(PDFPageText(page_no=index, text=(page.extract_text() or "").strip()))
+    return pages
 
 
 class ResumeParserService:
@@ -74,11 +80,12 @@ class ResumeParserService:
             raise ValueError("Uploaded file is empty.")
         path = self.settings.upload_path / f"{uuid4().hex}_{safe_filename(filename)}"
         path.write_bytes(file_bytes)
-        raw_text = extract_pdf_text(path)
+        pages = extract_pdf_pages(path)
+        raw_text = "\n".join(page.text for page in pages).strip()
         if not raw_text:
             raise ValueError("No extractable text was found in the PDF.")
-        structured = await self.parse_structured_resume(raw_text)
-        return self._create_profile(db, structured=structured, source_type="pdf")
+        structured = await self.parse_structured_resume(raw_text, db=db)
+        return self._create_profile(db, structured=structured, source_type="pdf", pages=pages)
 
     def create_profile_from_guided_answers(self, db: Session, payload: GuidedProfileRequest) -> Profile:
         structured = ProfileStructured(
@@ -97,7 +104,7 @@ class ResumeParserService:
         ).model_dump()
         return self._create_profile(db, structured=structured, source_type="guided")
 
-    async def parse_structured_resume(self, raw_text: str) -> dict:
+    async def parse_structured_resume(self, raw_text: str, db=None) -> dict:
         heuristic = self._heuristic_parse(raw_text)
         if not self.llm.available:
             return heuristic
@@ -132,13 +139,25 @@ Resume:
 {raw_text}
 """
         try:
-            parsed = await self.llm.generate_json(system_prompt=system_prompt, user_prompt=user_prompt)
+            parsed = await self.llm.generate_json(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                db=db,
+                trace_name="resume_parser.parse_structured_resume",
+            )
             parsed["raw_text"] = raw_text
             return ProfileStructured.model_validate({**heuristic, **parsed}).model_dump()
         except Exception:
             return heuristic
 
-    def _create_profile(self, db: Session, *, structured: dict, source_type: str) -> Profile:
+    def _create_profile(
+        self,
+        db: Session,
+        *,
+        structured: dict,
+        source_type: str,
+        pages: list[PDFPageText] | None = None,
+    ) -> Profile:
         normalized = ProfileStructured.model_validate(structured).model_dump()
         profile = Profile(
             name=normalized.get("name"),
@@ -154,7 +173,11 @@ Resume:
         db.commit()
         db.refresh(profile)
 
-        chunks = self.splitter.build_resume_chunks(normalized)
+        chunks = self.splitter.split_structured_profile(normalized)
+        if pages:
+            chunks.extend(self.splitter.split_pdf_pages(pages))
+        else:
+            chunks.extend(self.splitter.split_raw_text(str(normalized.get("raw_text") or "")))
         self.vector_index.upsert_profile_chunks(db, profile.id, chunks)
         db.refresh(profile)
         return profile

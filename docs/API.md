@@ -1,23 +1,40 @@
-# API Guide
+# API 说明
 
-Base URL: `http://localhost:8000`
+默认 Base URL：
 
-## Health
+```text
+http://localhost:8000
+```
+
+## 健康检查
 
 ```http
 GET /health
 ```
 
-## Profiles
+返回应用状态、版本和 LLM 是否已配置。
 
-Upload PDF:
+## 简历档案
+
+### 上传 PDF
 
 ```http
 POST /profiles/upload
 Content-Type: multipart/form-data
 ```
 
-Create from guided answers:
+字段：
+
+- `file`：PDF 简历。
+
+效果：
+
+- 提取 PDF 页级文本。
+- 解析结构化 Profile。
+- 生成结构化 chunk 和 PDF page chunk。
+- 写入 `profiles` 和 `resume_chunks`。
+
+### 问答式创建 Profile
 
 ```http
 POST /profiles/guided
@@ -33,23 +50,24 @@ Content-Type: application/json
   "projects": [
     {
       "name": "CareerAgent",
-      "description": "Built a job-search Agent workflow.",
+      "description": "构建求职助手 Agent 工作流。",
       "tech_stack": ["FastAPI", "SQLite"],
-      "impact": "End-to-end usable workflow"
+      "impact": "完成可运行的端到端求职流程。"
     }
   ]
 }
 ```
 
-List profiles:
+### 查询 Profile
 
 ```http
 GET /profiles
+GET /profiles/{profile_id}
 ```
 
-## Jobs
+## 岗位
 
-Search real career sources:
+### 搜索真实岗位
 
 ```http
 POST /jobs/search
@@ -67,7 +85,15 @@ Content-Type: application/json
 }
 ```
 
-Create a manual JD:
+效果：
+
+- 并发请求多个岗位源。
+- 并发解析多个 JD。
+- 顺序写入 SQLite，避免 Session 并发写入风险。
+- 对每个岗位生成 `job_chunks`。
+- 如果 `VECTOR_BACKEND=hybrid` 且 Chroma 可用，同步写入 Chroma 镜像。
+
+### 手动创建岗位
 
 ```http
 POST /jobs
@@ -79,11 +105,21 @@ Content-Type: application/json
   "title": "Agent 开发实习生",
   "company": "Example AI",
   "apply_url": "https://example.com/jobs/agent-intern",
-  "jd_text": "Build Agent workflows with FastAPI, RAG, SQLite, evaluation and guardrails..."
+  "jd_text": "构建 Agent 工作流，使用 FastAPI、RAG、SQLite、评测和 Guardrails..."
 }
 ```
 
-## Matches
+### 查询岗位与 JD Chunk
+
+```http
+GET /jobs
+GET /jobs/{job_id}
+GET /jobs/{job_id}/chunks
+```
+
+`GET /jobs/{job_id}/chunks` 用于检查某个职位 JD 的切分结果。
+
+## 匹配
 
 ```http
 POST /matches
@@ -97,7 +133,17 @@ Content-Type: application/json
 }
 ```
 
-## Resume Tailoring
+返回：
+
+- 总分。
+- required skill coverage。
+- semantic similarity。
+- evidence relevance。
+- internship fit。
+- matched/missing skills。
+- RAG evidence。
+
+## 简历定制
 
 ```http
 POST /resumes/tailor
@@ -111,7 +157,16 @@ Content-Type: application/json
 }
 ```
 
-Download markdown:
+返回：
+
+- 定制简历 Markdown。
+- change summary。
+- keyword alignment。
+- source evidence。
+- guardrail verification。
+- diff。
+
+下载 Markdown：
 
 ```http
 GET /resumes/{resume_version_id}/markdown
@@ -119,7 +174,7 @@ GET /resumes/{resume_version_id}/markdown
 
 ## Agent Runs
 
-Find and rank jobs:
+### 搜索并排序岗位
 
 ```http
 POST /agent/runs
@@ -135,7 +190,7 @@ Content-Type: application/json
 }
 ```
 
-Tailor resume:
+### 为岗位定制简历
 
 ```json
 {
@@ -145,7 +200,7 @@ Tailor resume:
 }
 ```
 
-Quick apply:
+### 生成投递包
 
 ```json
 {
@@ -156,13 +211,56 @@ Quick apply:
 }
 ```
 
-Inspect trace:
+### 查询 Trace
 
 ```http
+GET /agent/runs
+GET /agent/runs/{run_id}
 GET /agent/runs/{run_id}/steps
 ```
 
-## Applications
+## LLM 调用调试
+
+```http
+GET /llm/debug/logs?limit=50
+```
+
+用于查看：
+
+- 调用名称。
+- 模型和 base_url。
+- prompt 预览。
+- response 预览。
+- 调用状态。
+- 延迟。
+- 错误信息。
+
+接口不会返回 API key。
+
+## 量化评测
+
+运行内置样例集：
+
+```http
+POST /evaluations/run
+```
+
+查询历史评测：
+
+```http
+GET /evaluations/results
+```
+
+评测指标包括：
+
+- `pass_rate`
+- `avg_overall_score`
+- `avg_required_skill_precision`
+- `avg_required_skill_recall`
+- `avg_missing_skill_precision`
+- `avg_evidence_hit_rate`
+
+## 投递包
 
 ```http
 POST /applications/quick-apply
@@ -178,7 +276,7 @@ Content-Type: application/json
 }
 ```
 
-List packets:
+查询：
 
 ```http
 GET /applications
