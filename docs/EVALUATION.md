@@ -58,6 +58,25 @@ evals/rag_cases.json
 - 每个 case 包含 hard negative、planned learning、coursework、adjacent domain、generic tools、rejected prototype、long noise 等噪声 chunk。
 - 按 `easy`、`medium`、`hard`、`adversarial` 分桶统计。
 
+### LLM 实景流程数据
+
+```text
+evals/llm_workflow_cases.json
+```
+
+规模：
+
+- 18 个端到端 LLM 流程案例，不再只评测 3 条岗位适配标签。
+- 14 个案例会进入简历定制流程。
+- 覆盖 `strong_fit`、`partial_fit`、`weak_fit` 三类标签。
+- 覆盖 `easy`、`medium`、`hard`、`adversarial` 四类难度。
+
+数据设计：
+
+- 覆盖 Agent/RAG、LLM Eval、后端、前端、数据工程、ML、AI 安全、移动 AI、推荐、分析、DevOps、CV 等岗位。
+- 每个 case 包含原始简历文本、期望 Profile 技能、期望 Profile 关键词、JD、期望 JD 技能、期望 fit label、期望 fit score 区间、定制简历关键词和禁止编造 claim。
+- hard/adversarial case 明确加入 `did not build`、`No shipped project`、相邻岗位经验等反例，测试模型是否把“读过/计划学习/课程提到”误判成真实交付经验。
+
 ## 运行方式
 
 ```bash
@@ -202,41 +221,79 @@ POST /evaluations/llm-workflow
 
 评测内容：
 
-- 真实调用 LLM 判断岗位是否适合候选人。
-- 要求模型返回 strict JSON。
-- 对强匹配岗位调用简历定制流程。
-- 用 required skill coverage 和 guardrail risk level 验收改写结果。
+- 真实调用 LLM 解析简历。
+- 真实调用 LLM 解析 JD。
+- 基于 SQLite chunk 和 RAG 证据做岗位匹配与 evidence retrieval。
+- 真实调用 LLM 判断岗位适配度，要求返回 strict JSON。
+- 对标记为 `run_tailor=true` 的案例真实调用简历定制流程。
+- 使用 Guardrail 验证是否引入未支持数字、过多新 claim、禁止 claim。
+- 不做静默 fallback；失败 case 记录 `failed_stage` 和异常类型，LLM 调用日志记录 prompt/response/error trace。
+
+量化指标：
+
+| 指标 | 含义 |
+| --- | --- |
+| `completed_rate` | 端到端流程完成率。 |
+| `end_to_end_pass_rate` | 全流程验收通过率。 |
+| `resume_parse_success_rate` | 简历结构化解析成功率。 |
+| `avg_profile_skill_recall` | 结构化 Profile 对期望技能的召回。 |
+| `jd_parse_success_rate` | JD 结构化解析成功率。 |
+| `avg_jd_skill_recall` | 结构化 JD 对期望技能的召回。 |
+| `fit_label_accuracy` | LLM 适配度标签准确率。 |
+| `fit_score_in_range_rate` | LLM 分数是否落入人工期望区间。 |
+| `avg_fit_score_range_error` | 分数超出期望区间时的平均偏差。 |
+| `avg_matcher_evidence_hit_rate` | 匹配/RAG 证据是否覆盖期望关键词。 |
+| `tailor_success_rate` | 简历定制调用成功率。 |
+| `tailor_pass_rate` | 定制简历同时通过 Guardrail、关键词覆盖和禁止 claim 检查的比例。 |
+| `guardrail_pass_rate` | Guardrail 通过率。 |
+| `forbidden_claim_free_rate` | 没有出现禁止 claim 的比例。 |
+| `difficulty_breakdown` | 按 easy/medium/hard/adversarial 分桶的指标。 |
 
 最近一次实测结果：
 
-```text
-case_count = 3
-fit_label_accuracy = 1.0000
-tailor_pass_rate = 1.0000
-```
+| 指标 | 结果 |
+| --- | ---: |
+| case_count | 18 |
+| completed_rate | 0.9444 |
+| end_to_end_pass_rate | 0.8889 |
+| resume_parse_success_rate | 1.0000 |
+| jd_parse_success_rate | 1.0000 |
+| fit_judge_success_rate | 1.0000 |
+| fit_label_accuracy | 0.9444 |
+| fit_score_in_range_rate | 0.9444 |
+| avg_fit_score_range_error | 0.8333 |
+| avg_matcher_evidence_hit_rate | 1.0000 |
+| tailor_case_count | 14 |
+| tailor_success_rate | 0.9286 |
+| tailor_pass_rate | 0.9286 |
+| guardrail_pass_rate | 0.9286 |
+| forbidden_claim_free_rate | 0.9286 |
+| avg_hallucination_count | 0.0000 |
 
-三个岗位：
+分桶结果：
 
-- `strong_agent_fit`：预期 `strong_fit`，模型返回 `strong_fit`。
-- `partial_llm_eval_fit`：预期 `partial_fit`，模型返回 `partial_fit`。
-- `weak_frontend_fit`：预期 `weak_fit`，模型返回 `weak_fit`。
-
-简历定制结果：
-
-- required skill coverage = 1.0000
-- guardrail risk level = `low`
-- LLM 调用日志均为 `completed`
+| 难度 | Case 数 | 完成率 | 端到端通过率 | Fit 标签准确率 | Fit 分数区间命中 | Tailor 通过率 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| easy | 9 | 0.8889 | 0.8889 | 1.0000 | 1.0000 | 0.8750 |
+| medium | 6 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 |
+| hard | 2 | 1.0000 | 0.5000 | 0.5000 | 0.5000 | 1.0000 |
+| adversarial | 1 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 0.0000 |
 
 调试发现：
 
-- 第一轮 prompt 中，模型把 `LLM Evaluation Intern` 错判为 `strong_fit`。
-- 原因是 strong/partial 边界不够硬。
-- 修复方式是在 prompt 中明确：只有直接需要 Agent/RAG/FastAPI/SQLite 实现的岗位才能标为 `strong_fit`；LLM eval、dashboard、frontend 等相邻方向应标为 `partial_fit` 或 `weak_fit`。
+- 第一轮真实评测中，简历解析会因为 LLM 把 `impact`、`duration` 等叶子字段返回为 `null` 而失败。
+- 修复方式是在 Pydantic schema 层把“应为字符串但缺失”的字段归一为空字符串，把列表字段的 `null` 归一为空列表；这不是兜底生成内容，只是接受真实 LLM 常见的缺失表达。
+- 修复后，`resume_parse_success_rate` 从 0.7778 提升到 1.0000，`end_to_end_pass_rate` 从 0.6667 提升到 0.8889。
+- 剩余 1 个失败是 `agent_candidate_strong_agent_role` 的 `tailor_resume` 阶段 `httpx.ReadTimeout`，说明长 prompt 的简历定制仍需要更好的超时预算或 prompt 压缩。
+- hard 分桶里 `ml_candidate_partial_agent_role` 被模型判成 `weak_fit`，暴露出 partial/weak 边界仍需更细：有 Python/Transformers/Evaluation 交集但明确没有 Agent/RAG 交付时，人工期望是 partial，模型更保守。
+- 原异常记录使用 `str(exc)`，`ReadTimeout` 会显示为空字符串；已改为记录异常类型和 `repr(exc)`，保证 trace 可追溯。
 
 ## 后续优化
 
 - 增加真实 PDF 简历和真实岗位 JD 的人工标注评测集。
 - 用真实招聘 JD 和真实候选人简历重新验证 Top5 anchor 是否仍然合理。
 - 增加 evidence type classifier，区分 shipped project、metric evidence、coursework、planned learning、abandoned prototype。
+- 对 LLM fit judge 增加 partial/weak 边界样例，特别是“相邻 ML/LLM 技能但缺少 Agent/RAG 交付”的情况。
+- 对简历定制 prompt 做压缩，减少 `tailor_resume` 长上下文超时。
 - 增加 LLM-as-judge，但保留人工抽检。
-- 在 CI 中设置最低 `fit_label_accuracy`、`top3_recall` 和 `guardrail_pass_rate` 阈值。
+- 在 CI 中设置最低 `fit_label_accuracy`、`top3_recall`、`guardrail_pass_rate` 和 `end_to_end_pass_rate` 阈值。

@@ -1,7 +1,21 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+
+
+def empty_string_when_missing(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value)
+
+
+def string_list_when_missing(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value if item is not None]
+    return [str(value)]
 
 
 class EducationItem(BaseModel):
@@ -11,12 +25,19 @@ class EducationItem(BaseModel):
     duration: str = ""
     details: str = ""
 
+    _normalize_strings = field_validator("school", "degree", "major", "duration", "details", mode="before")(
+        empty_string_when_missing
+    )
+
 
 class ProjectItem(BaseModel):
     name: str = ""
     description: str = ""
     tech_stack: list[str] = Field(default_factory=list)
     impact: str = ""
+
+    _normalize_strings = field_validator("name", "description", "impact", mode="before")(empty_string_when_missing)
+    _normalize_lists = field_validator("tech_stack", mode="before")(string_list_when_missing)
 
 
 class ExperienceItem(BaseModel):
@@ -25,6 +46,11 @@ class ExperienceItem(BaseModel):
     duration: str = ""
     details: str = ""
     tech_stack: list[str] = Field(default_factory=list)
+
+    _normalize_strings = field_validator("company", "role", "duration", "details", mode="before")(
+        empty_string_when_missing
+    )
+    _normalize_lists = field_validator("tech_stack", mode="before")(string_list_when_missing)
 
 
 class ProfileStructured(BaseModel):
@@ -41,6 +67,18 @@ class ProfileStructured(BaseModel):
     languages: list[str] = Field(default_factory=list)
     raw_text: str = ""
 
+    _normalize_raw_text = field_validator("raw_text", mode="before")(empty_string_when_missing)
+    _normalize_lists = field_validator(
+        "target_roles",
+        "skills",
+        "education",
+        "projects",
+        "work_experience",
+        "awards",
+        "languages",
+        mode="before",
+    )(lambda value: [] if value is None else value)
+
 
 class GuidedProfileRequest(BaseModel):
     name: str
@@ -54,6 +92,17 @@ class GuidedProfileRequest(BaseModel):
     work_experience: list[ExperienceItem] = Field(default_factory=list)
     awards: list[str] = Field(default_factory=list)
     languages: list[str] = Field(default_factory=list)
+
+    _normalize_lists = field_validator(
+        "target_roles",
+        "education",
+        "skills",
+        "projects",
+        "work_experience",
+        "awards",
+        "languages",
+        mode="before",
+    )(lambda value: [] if value is None else value)
 
 
 class ProfileResponse(BaseModel):
@@ -81,6 +130,15 @@ class JDStructured(BaseModel):
     qualifications: list[str] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
     seniority: str | None = None
+
+    _normalize_lists = field_validator(
+        "required_skills",
+        "preferred_skills",
+        "responsibilities",
+        "qualifications",
+        "keywords",
+        mode="before",
+    )(string_list_when_missing)
 
 
 class JobCreateRequest(BaseModel):

@@ -127,6 +127,43 @@ GET /llm/debug/logs?limit=50
 4. 看 `response_preview` 判断模型是否返回非 JSON。
 5. 看 `error_message` 定位接口、解析或超时问题。
 
+## 真实 LLM 流程评测
+
+运行简历解析、JD 解析、匹配/RAG、适配度判断、简历定制和 Guardrail 的端到端评测：
+
+```powershell
+$env:LLM_API_KEY='your_key_here'
+$env:LLM_BASE_URL='https://llmapi.paratera.com'
+$env:LLM_MODEL='DeepSeek-V4-Pro'
+$env:LLM_FALLBACK_ENABLED='false'
+$env:EMBEDDING_PROVIDER='sentence_transformers'
+$env:EMBEDDING_PROVIDER_FALLBACK='error'
+$env:RERANKER_ENABLED='true'
+$env:RERANKER_PROVIDER='cross_encoder'
+$env:RERANKER_PROVIDER_FALLBACK='error'
+
+@'
+import asyncio, json
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from app.core.database import Base
+from app.models import entities  # noqa: F401
+from app.services.evaluation_service import EvaluationService
+
+engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, future=True)
+Base.metadata.create_all(bind=engine)
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+db = SessionLocal()
+try:
+    run = asyncio.run(EvaluationService().run_llm_workflow_evaluation(db))
+    print(json.dumps(run.summary_json, ensure_ascii=False, indent=2))
+finally:
+    db.close()
+'@ | python -
+```
+
+评测数据在 `evals/llm_workflow_cases.json`，结果指标说明见 `docs/EVALUATION.md`。真实调用失败不会自动兜底，失败阶段会写入 `failed_stage`，调用级问题可通过 `GET /llm/debug/logs?limit=50` 查看。
+
 ## 真实 RAG 评测
 
 运行真实 embedding + reranker 评测：

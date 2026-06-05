@@ -7,12 +7,12 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.entities import EvaluationRun, Job
+from app.models.entities import EvaluationRun, Job, Profile
 from app.models.schemas import GuidedProfileRequest
 from app.services.guardrails import ResumeGuardrailService
 from app.services.jd_parser import JDParserService
 from app.services.resume_tailor import ResumeTailorService
-from app.core.llm import LLMClient, LLMConfigurationError
+from app.core.llm import LLMClient, LLMConfigurationError, format_exception
 from app.services.embedding_service import EmbeddingService
 from app.services.matcher import MatcherService
 from app.services.reranker import RerankerService
@@ -294,107 +294,14 @@ class EvaluationService:
         db.refresh(run)
         return run
 
-    async def run_llm_workflow_evaluation(self, db: Session) -> EvaluationRun:
+    async def run_llm_workflow_evaluation(self, db: Session, *, dataset_path: Path | None = None) -> EvaluationRun:
         if not self.llm.available:
             raise LLMConfigurationError("LLM_API_KEY/LLM_BASE_URL 未配置，无法进行真实 LLM 调用评测。")
 
-        profile = ResumeParserService().create_profile_from_guided_answers(
-            db,
-            GuidedProfileRequest(
-                name="LLM Workflow Candidate",
-                email="llm-workflow@example.com",
-                headline="Agent 开发实习生候选人",
-                target_roles=["Agent Development Intern"],
-                skills=["Python", "FastAPI", "RAG", "SQLite", "Agent", "Evaluation", "Guardrails"],
-                projects=[
-                    {
-                        "name": "CareerAgent",
-                        "description": (
-                            "Built a job-search agent with PDF chunking, SQLite-backed RAG, real job search, "
-                            "traceable workflows, LLM debug logs, evaluation metrics and resume tailoring."
-                        ),
-                        "tech_stack": ["Python", "FastAPI", "SQLite", "RAG"],
-                        "impact": "Created an end-to-end workflow for real internship applications.",
-                    }
-                ],
-            ),
-        )
-        cases = self._llm_workflow_cases()
-        case_results = []
-        for case in cases:
-            jd = await JDParserService().parse_jd(
-                case["jd_text"],
-                title=case["title"],
-                company=case["company"],
-                db=db,
-            )
-            job = Job(
-                source="llm_eval",
-                external_id=f"llm_eval:{case['name']}:{profile.id}",
-                title=case["title"],
-                company=case["company"],
-                raw_jd_text=case["jd_text"],
-                structured_jd_json=jd,
-                apply_url="https://example.com/jobs/llm-eval",
-            )
-            db.add(job)
-            db.commit()
-            db.refresh(job)
-
-            suitability = await self._llm_judge_suitability(db, profile.structured_profile_json, job)
-            label = str(suitability.get("fit_label") or "").strip()
-            label_passed = label == case["expected_fit_label"]
-            result = {
-                "name": case["name"],
-                "job_id": job.id,
-                "expected_fit_label": case["expected_fit_label"],
-                "predicted_fit_label": label,
-                "label_passed": label_passed,
-                "suitability": suitability,
-            }
-            if case.get("run_tailor"):
-                version = await ResumeTailorService().tailor_resume(db, profile, job)
-                required = [str(skill) for skill in jd.get("required_skills", [])]
-                resume_text = version.tailored_resume_markdown.lower()
-                covered = [skill for skill in required if skill.lower() in resume_text]
-                verification = ResumeGuardrailService().verify(
-                    profile=profile,
-                    job=job,
-                    resume_markdown=version.tailored_resume_markdown,
-                    evidence=version.source_evidence_json,
-                )
-                result.update(
-                    {
-                        "resume_version_id": version.id,
-                        "tailor_passed": verification["risk_level"] in {"low", "medium"}
-                        and len(covered) / max(len(required), 1) >= 0.5,
-                        "tailored_required_skill_coverage": round(len(covered) / max(len(required), 1), 4),
-                        "tailored_risk_level": verification["risk_level"],
-                        "resume_preview": version.tailored_resume_markdown[:600],
-                    }
-                )
-            case_results.append(result)
-
-        summary = {
-            "evaluation_type": "llm_workflow",
-            "status": "completed",
-            "case_count": len(case_results),
-            "fit_label_accuracy": round(
-                sum(1 for item in case_results if item["label_passed"]) / max(len(case_results), 1),
-                4,
-            ),
-            "tailor_pass_rate": round(
-                sum(1 for item in case_results if item.get("tailor_passed")) / max(
-                    sum(1 for item in case_results if "tailor_passed" in item),
-                    1,
-                ),
-                4,
-            ),
-            "notes": [
-                "LLM 适配判断要求返回 strict JSON。",
-                "简历定制通过 required skill coverage 与 guardrail risk level 验收。",
-            ],
-        }
+        path = dataset_path or self.settings.base_path / "evals" / "llm_workflow_cases.json"
+        cases = json.loads(path.read_text(encoding="utf-8"))
+        case_results = [await self._run_llm_workflow_case(db, case) for case in cases]
+        summary = self._summarize_llm_workflow(case_results, path)
         run = EvaluationRun(
             name="llm_workflow_evaluation",
             summary_json=summary,
@@ -404,6 +311,328 @@ class EvaluationService:
         db.commit()
         db.refresh(run)
         return run
+
+    async def _run_llm_workflow_case(self, db: Session, case: dict[str, Any]) -> dict[str, Any]:
+        stage = "start"
+        result: dict[str, Any] = {
+            "name": case["name"],
+            "difficulty": case.get("difficulty", "unknown"),
+            "expected_fit_label": case["expected_fit_label"],
+            "expected_fit_score_range": case.get("expected_fit_score_range"),
+            "run_tailor": bool(case.get("run_tailor")),
+            "status": "running",
+        }
+        try:
+            stage = "resume_parse"
+            parser = ResumeParserService()
+            profile_json = await parser.parse_structured_resume(case["resume_raw_text"], db=db)
+            profile_text = json.dumps(profile_json, ensure_ascii=False)
+            profile_skill_recall = self._keyword_hit_rate(profile_text, case.get("expected_profile_skills", []))
+            profile_keyword_hit_rate = self._keyword_hit_rate(profile_text, case.get("expected_profile_keywords", []))
+            profile = Profile(
+                name=profile_json.get("name") or case["name"],
+                email=profile_json.get("email"),
+                phone=profile_json.get("phone"),
+                headline=profile_json.get("headline"),
+                target_roles_json=profile_json.get("target_roles", []),
+                source_type="llm_eval",
+                raw_resume_text=case["resume_raw_text"],
+                structured_profile_json=profile_json,
+            )
+            db.add(profile)
+            db.commit()
+            db.refresh(profile)
+            profile_chunks = ResumeTextSplitter().build_resume_chunks(profile_json)
+            profile_chunk_count = SQLiteVectorIndex().upsert_profile_chunks(db, profile.id, profile_chunks)
+            result.update(
+                {
+                    "profile_id": profile.id,
+                    "resume_parse_success": True,
+                    "profile_skill_recall": profile_skill_recall,
+                    "profile_keyword_hit_rate": profile_keyword_hit_rate,
+                    "profile_chunk_count": profile_chunk_count,
+                }
+            )
+
+            stage = "jd_parse"
+            job_payload = case["job"]
+            jd = await JDParserService().parse_jd(
+                job_payload["jd_text"],
+                title=job_payload.get("title"),
+                company=job_payload.get("company"),
+                db=db,
+            )
+            jd_text = json.dumps(jd, ensure_ascii=False)
+            jd_skill_recall = self._keyword_hit_rate(jd_text, case.get("expected_jd_skills", []))
+            job = Job(
+                source="llm_eval",
+                external_id=f"llm_eval:{case['name']}:{profile.id}",
+                title=job_payload.get("title") or jd.get("title") or "LLM Eval Job",
+                company=job_payload.get("company"),
+                raw_jd_text=job_payload["jd_text"],
+                structured_jd_json=jd,
+                apply_url="https://example.com/jobs/llm-eval",
+            )
+            db.add(job)
+            db.commit()
+            db.refresh(job)
+            jd_chunks = ResumeTextSplitter().split_jd_text(job.raw_jd_text, job.structured_jd_json, prefix=f"llm_job_{job.id}")
+            job_chunk_count = SQLiteVectorIndex().upsert_job_chunks(db, job.id, jd_chunks)
+            result.update(
+                {
+                    "job_id": job.id,
+                    "jd_parse_success": True,
+                    "jd_skill_recall": jd_skill_recall,
+                    "job_chunk_count": job_chunk_count,
+                }
+            )
+
+            stage = "match_and_retrieve"
+            match = self.matcher.create_match_result(db, profile, job)
+            expected_evidence_keywords = list(
+                dict.fromkeys(
+                    case.get("expected_profile_keywords", []) + case.get("expected_tailored_keywords", [])
+                )
+            )
+            evidence_text = json.dumps(match.relevant_evidence_json, ensure_ascii=False)
+            evidence_hit_rate = self._keyword_hit_rate(evidence_text, expected_evidence_keywords)
+            result.update(
+                {
+                    "match_result_id": match.id,
+                    "matcher_overall_score": match.overall_score,
+                    "matcher_evidence_hit_rate": evidence_hit_rate,
+                }
+            )
+
+            stage = "fit_judge"
+            suitability = await self._llm_judge_suitability(db, profile.structured_profile_json, job)
+            predicted_label = str(suitability.get("fit_label") or "").strip()
+            fit_score = self._coerce_float(suitability.get("fit_score"))
+            range_error = self._score_range_error(fit_score, case.get("expected_fit_score_range"))
+            result.update(
+                {
+                    "fit_judge_success": True,
+                    "predicted_fit_label": predicted_label,
+                    "label_passed": predicted_label == case["expected_fit_label"],
+                    "predicted_fit_score": fit_score,
+                    "fit_score_range_error": range_error,
+                    "fit_score_in_expected_range": range_error == 0,
+                    "suitability": suitability,
+                }
+            )
+
+            if case.get("run_tailor"):
+                stage = "tailor_resume"
+                version = await ResumeTailorService().tailor_resume(db, profile, job)
+                resume_text = version.tailored_resume_markdown
+                tailored_keyword_hit_rate = self._keyword_hit_rate(
+                    resume_text,
+                    case.get("expected_tailored_keywords", []),
+                )
+                forbidden_claims = self._forbidden_claim_hits(
+                    resume_text,
+                    case.get("forbidden_tailored_claims", []),
+                )
+                verification = version.verification_json or ResumeGuardrailService().verify(
+                    profile=profile,
+                    job=job,
+                    resume_markdown=resume_text,
+                    evidence=version.source_evidence_json,
+                )
+                tailor_passed = (
+                    verification.get("passed", False)
+                    and tailored_keyword_hit_rate >= 0.6
+                    and not forbidden_claims
+                )
+                result.update(
+                    {
+                        "resume_version_id": version.id,
+                        "tailor_success": True,
+                        "tailor_passed": tailor_passed,
+                        "tailored_keyword_hit_rate": tailored_keyword_hit_rate,
+                        "forbidden_claim_hits": forbidden_claims,
+                        "forbidden_claim_free": not forbidden_claims,
+                        "guardrail_passed": bool(verification.get("passed")),
+                        "tailored_risk_level": verification.get("risk_level"),
+                        "hallucination_count": verification.get("hallucination_count", 0),
+                        "jd_keyword_coverage_score": verification.get("jd_keyword_coverage_score", 0),
+                        "resume_preview": resume_text[:600],
+                    }
+                )
+            else:
+                result.update(
+                    {
+                        "tailor_success": None,
+                        "tailor_passed": None,
+                        "tailored_keyword_hit_rate": None,
+                        "forbidden_claim_hits": [],
+                        "forbidden_claim_free": None,
+                        "guardrail_passed": None,
+                        "hallucination_count": None,
+                    }
+                )
+
+            result["status"] = "completed"
+            result["case_passed"] = self._llm_case_passed(result)
+            return result
+        except Exception as exc:  # noqa: BLE001
+            result.update(
+                {
+                    "status": "failed",
+                    "failed_stage": stage,
+                    "error": format_exception(exc),
+                    "case_passed": False,
+                }
+            )
+            return result
+
+    def _summarize_llm_workflow(self, case_results: list[dict[str, Any]], dataset_path: Path) -> dict[str, Any]:
+        count = max(len(case_results), 1)
+        completed = [item for item in case_results if item.get("status") == "completed"]
+        fit_cases = [item for item in case_results if item.get("fit_judge_success")]
+        tailor_cases = [item for item in case_results if item.get("run_tailor")]
+        summary = {
+            "evaluation_type": "llm_workflow",
+            "status": "completed" if len(completed) == len(case_results) else "completed_with_case_failures",
+            "dataset": dataset_path.name,
+            "case_count": len(case_results),
+            "completed_rate": round(len(completed) / count, 4),
+            "end_to_end_pass_rate": round(sum(1 for item in case_results if item.get("case_passed")) / count, 4),
+            "failed_stage_breakdown": self._count_by_key(
+                [item for item in case_results if item.get("status") == "failed"],
+                "failed_stage",
+            ),
+            "resume_parse_success_rate": self._avg_bool(case_results, "resume_parse_success"),
+            "avg_profile_skill_recall": self._avg_number(case_results, "profile_skill_recall"),
+            "avg_profile_keyword_hit_rate": self._avg_number(case_results, "profile_keyword_hit_rate"),
+            "jd_parse_success_rate": self._avg_bool(case_results, "jd_parse_success"),
+            "avg_jd_skill_recall": self._avg_number(case_results, "jd_skill_recall"),
+            "fit_judge_success_rate": self._avg_bool(case_results, "fit_judge_success"),
+            "fit_label_accuracy": self._avg_bool(fit_cases, "label_passed"),
+            "fit_score_in_range_rate": self._avg_bool(fit_cases, "fit_score_in_expected_range"),
+            "avg_fit_score_range_error": self._avg_number(fit_cases, "fit_score_range_error"),
+            "avg_matcher_evidence_hit_rate": self._avg_number(case_results, "matcher_evidence_hit_rate"),
+            "tailor_case_count": len(tailor_cases),
+            "tailor_success_rate": self._avg_bool(tailor_cases, "tailor_success"),
+            "tailor_pass_rate": self._avg_bool(tailor_cases, "tailor_passed"),
+            "avg_tailored_keyword_hit_rate": self._avg_number(tailor_cases, "tailored_keyword_hit_rate"),
+            "guardrail_pass_rate": self._avg_bool(tailor_cases, "guardrail_passed"),
+            "forbidden_claim_free_rate": self._avg_bool(tailor_cases, "forbidden_claim_free"),
+            "avg_hallucination_count": self._avg_number(tailor_cases, "hallucination_count"),
+            "difficulty_breakdown": self._summarize_llm_by_key(case_results, "difficulty"),
+            "notes": [
+                "每个 case 跑真实链路：简历解析、JD 解析、RAG 证据、fit judge、可选简历定制和 Guardrail。",
+                "LLM/embedding/reranker 默认失败直报；评测只记录失败阶段，不做静默修复。",
+            ],
+        }
+        return summary
+
+    def _keyword_hit_rate(self, text: str, expected_keywords: list[str]) -> float:
+        if not expected_keywords:
+            return 1.0
+        lowered = (text or "").lower()
+        hits = [keyword for keyword in expected_keywords if str(keyword).strip().lower() in lowered]
+        return round(len(hits) / len(expected_keywords), 4)
+
+    def _forbidden_claim_hits(self, text: str, forbidden_claims: list[str]) -> list[str]:
+        lowered = (text or "").lower()
+        return [claim for claim in forbidden_claims if str(claim).strip().lower() in lowered]
+
+    def _coerce_float(self, value: Any) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _score_range_error(self, score: float, expected_range: list[float] | None) -> float:
+        if not expected_range or len(expected_range) != 2:
+            return 0.0
+        low = float(expected_range[0])
+        high = float(expected_range[1])
+        if low <= score <= high:
+            return 0.0
+        return round(min(abs(score - low), abs(score - high)), 4)
+
+    def _llm_case_passed(self, result: dict[str, Any]) -> bool:
+        if result.get("status") != "completed":
+            return False
+        base_passed = (
+            bool(result.get("resume_parse_success"))
+            and bool(result.get("jd_parse_success"))
+            and bool(result.get("fit_judge_success"))
+            and bool(result.get("label_passed"))
+            and bool(result.get("fit_score_in_expected_range"))
+            and self._coerce_float(result.get("profile_skill_recall")) >= 0.5
+            and self._coerce_float(result.get("jd_skill_recall")) >= 0.5
+        )
+        if not base_passed:
+            return False
+        if result.get("run_tailor"):
+            return bool(result.get("tailor_passed"))
+        return True
+
+    def _avg_bool(self, rows: list[dict[str, Any]], key: str) -> float:
+        if not rows:
+            return 0.0
+        return round(sum(1 for item in rows if item.get(key) is True) / len(rows), 4)
+
+    def _avg_number(self, rows: list[dict[str, Any]], key: str) -> float:
+        values = []
+        for item in rows:
+            value = item.get(key)
+            if value is None or isinstance(value, bool):
+                continue
+            try:
+                values.append(float(value))
+            except (TypeError, ValueError):
+                continue
+        if not values:
+            return 0.0
+        return round(sum(values) / len(values), 4)
+
+    def _count_by_key(self, rows: list[dict[str, Any]], key: str) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for item in rows:
+            group = str(item.get(key) or "unknown")
+            counts[group] = counts.get(group, 0) + 1
+        return counts
+
+    def _summarize_llm_by_key(self, rows: list[dict[str, Any]], key: str) -> dict[str, dict[str, Any]]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for item in rows:
+            grouped.setdefault(str(item.get(key) or "unknown"), []).append(item)
+        return {
+            group: {
+                "case_count": len(items),
+                "completed_rate": round(
+                    sum(1 for item in items if item.get("status") == "completed") / max(len(items), 1),
+                    4,
+                ),
+                "end_to_end_pass_rate": round(
+                    sum(1 for item in items if item.get("case_passed")) / max(len(items), 1),
+                    4,
+                ),
+                "fit_label_accuracy": self._avg_bool(
+                    [item for item in items if item.get("fit_judge_success")],
+                    "label_passed",
+                ),
+                "fit_score_in_range_rate": self._avg_bool(
+                    [item for item in items if item.get("fit_judge_success")],
+                    "fit_score_in_expected_range",
+                ),
+                "avg_profile_skill_recall": self._avg_number(items, "profile_skill_recall"),
+                "avg_jd_skill_recall": self._avg_number(items, "jd_skill_recall"),
+                "tailor_pass_rate": self._avg_bool(
+                    [item for item in items if item.get("run_tailor")],
+                    "tailor_passed",
+                ),
+                "guardrail_pass_rate": self._avg_bool(
+                    [item for item in items if item.get("run_tailor")],
+                    "guardrail_passed",
+                ),
+            }
+            for group, items in sorted(grouped.items())
+        }
 
     async def _run_case(self, db: Session, case: dict[str, Any]) -> dict[str, Any]:
         profile_payload = GuidedProfileRequest.model_validate(case["profile"])
@@ -499,49 +728,11 @@ class EvaluationService:
         hits = [keyword for keyword in expected_keywords if keyword.lower() in evidence_text]
         return round(len(hits) / len(expected_keywords), 4)
 
-    def _llm_workflow_cases(self) -> list[dict[str, Any]]:
-        return [
-            {
-                "name": "strong_agent_fit",
-                "title": "Agent Development Intern",
-                "company": "Demo AI",
-                "expected_fit_label": "strong_fit",
-                "run_tailor": True,
-                "jd_text": (
-                    "Agent Development Intern. Build FastAPI services for Agent workflows, PDF chunking, "
-                    "SQLite-backed RAG, evaluation metrics, LLM debug logs and guardrails. Requirements: "
-                    "Python, FastAPI, RAG, SQLite, Agent workflow, evaluation."
-                ),
-            },
-            {
-                "name": "partial_llm_eval_fit",
-                "title": "LLM Evaluation Intern",
-                "company": "Demo AI",
-                "expected_fit_label": "partial_fit",
-                "run_tailor": False,
-                "jd_text": (
-                    "LLM Evaluation Intern. Build prompt regression tests, model output scoring dashboards, "
-                    "SQL analysis and quality review process. Python and evaluation experience required."
-                ),
-            },
-            {
-                "name": "weak_frontend_fit",
-                "title": "Frontend Design System Intern",
-                "company": "Demo UI",
-                "expected_fit_label": "weak_fit",
-                "run_tailor": False,
-                "jd_text": (
-                    "Frontend Design System Intern. Build React components, CSS token systems, visual QA, "
-                    "accessibility checks and Storybook documentation. Requirements: React, TypeScript, CSS."
-                ),
-            },
-        ]
-
     async def _llm_judge_suitability(self, db: Session, profile_json: dict[str, Any], job: Job) -> dict[str, Any]:
         system_prompt = (
-            "You are a strict job-fit evaluator. Return JSON only. "
+            "You are a strict, evidence-grounded job-fit evaluator. Return JSON only. "
             "Use fit_label exactly one of: strong_fit, partial_fit, weak_fit. "
-            "Be conservative: strong_fit requires direct evidence for most core job duties, not just adjacent skills."
+            "Use only facts present in the candidate profile; never invent experience."
         )
         user_prompt = f"""
 Evaluate whether the candidate is suitable for the job.
@@ -556,12 +747,13 @@ Output JSON:
 }}
 
 Rules:
-- strong_fit: candidate has most core requirements and directly relevant project evidence.
-- partial_fit: candidate has some overlapping evidence but important gaps remain.
-- weak_fit: role is mostly outside candidate evidence.
-- For this candidate, strong_fit is appropriate only when the role directly needs Agent workflow/RAG/FastAPI/SQLite implementation.
-- If the role mainly focuses on LLM evaluation, dashboards, prompt regression, frontend, or another adjacent area, use partial_fit unless Agent/RAG implementation is a core responsibility.
-- Do not invent experience.
+- fit_score must be a number from 0 to 100.
+- strong_fit: candidate has direct evidence for most core requirements and similar delivered project or internship work. Use 85-100.
+- partial_fit: candidate has meaningful overlap, but at least one core requirement is missing or only adjacent. Use 55-84.
+- weak_fit: role is mostly outside candidate evidence, or the profile mostly shows coursework, plans, reading notes or unrelated prototypes. Use 0-54.
+- Treat "planned to learn", "read about", "coursework only", "no shipped project" and "did not build" as gaps, not evidence.
+- matched_evidence should cite concrete phrases from the candidate profile.
+- gaps should cite important missing job requirements.
 
 Candidate profile:
 {json.dumps(profile_json, ensure_ascii=False)}
@@ -570,22 +762,13 @@ Job:
 {job.title}
 {job.raw_jd_text}
 """
-        try:
-            return await self.llm.generate_json(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                db=db,
-                trace_name="evaluation.llm_judge_suitability",
-                temperature=0,
-            )
-        except Exception as exc:
-            return {
-                "fit_label": "error",
-                "fit_score": 0,
-                "matched_evidence": [],
-                "gaps": [],
-                "message_to_candidate": str(exc),
-            }
+        return await self.llm.generate_json(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            db=db,
+            trace_name="evaluation.llm_judge_suitability",
+            temperature=0,
+        )
 
     def _pdf_fixed_window_450(self, pages: list[PDFPageText], *, case_name: str) -> list[TextChunk]:
         return self._fixed_window_pdf_chunks(pages, case_name=case_name, chunk_size=450, overlap=80)

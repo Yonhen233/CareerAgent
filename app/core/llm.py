@@ -20,6 +20,13 @@ class LLMResponseError(RuntimeError):
     """Raised when the LLM endpoint returns an unusable response."""
 
 
+def format_exception(exc: Exception) -> str:
+    message = str(exc).strip()
+    if message:
+        return f"{exc.__class__.__name__}: {message}"
+    return f"{exc.__class__.__name__}: {repr(exc)}"
+
+
 def extract_json_object(text: str) -> dict[str, Any]:
     cleaned = text.strip()
     if cleaned.startswith("```"):
@@ -121,13 +128,14 @@ class LLMClient:
             )
             return content
         except Exception as exc:
+            error_message = format_exception(exc)
             self._record_llm_call(
                 db,
                 trace_name=trace_name,
                 status="failed",
                 prompt_preview=prompt_preview,
                 response_preview=None,
-                error_message=str(exc),
+                error_message=error_message,
                 started_at=started,
             )
             raise

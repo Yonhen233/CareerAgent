@@ -32,6 +32,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
 - 量化评测：
   - 内置样例集 `evals/sample_cases.json`。
   - 输出 skill precision/recall、missing skill precision、evidence hit rate、pass rate 等指标。
+  - PDF Chunk、RAG 和 LLM workflow 都有独立评测集；LLM workflow 会真实跑简历解析、JD 解析、fit judge、简历定制和 Guardrail。
 - 可观测性：
   - `agent_runs`、`agent_steps`、`agent_artifacts` 记录每次工作流。
   - 可通过 UI 或 API 查看 Trace。
@@ -128,7 +129,7 @@ pytest -q
 - 岗位匹配。
 - Agent 简历定制工作流。
 - LLM 调用日志。
-- 样例集量化评测。
+- 样例集、PDF Chunk、RAG、LLM workflow 量化评测。
 
 ## 文档
 

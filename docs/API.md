@@ -287,8 +287,16 @@ GET /evaluations/results
 - `avg_evidence_hit_rate`
 - `top3_context_hit_rate`
 - `avg_top3_recall`
+- `completed_rate`
+- `end_to_end_pass_rate`
+- `resume_parse_success_rate`
+- `jd_parse_success_rate`
 - `fit_label_accuracy`
+- `fit_score_in_range_rate`
 - `tailor_pass_rate`
+- `guardrail_pass_rate`
+- `forbidden_claim_free_rate`
+- `difficulty_breakdown`
 
 ## 投递包
 
