@@ -93,7 +93,28 @@ LLM 不再直接读取全量 Profile、全量 JD 和全部证据，而是由 `Co
 3. Observe：运行 Guardrail，检查新增事实、关键词覆盖、risk level。
 4. Act：如果风险高，回退到更保守、更有证据支持的表达。
 
-当前代码已经具备 ReAct 所需的工具边界和验证器。开发默认不做静默 fallback：LLM、embedding 或 reranker 失败会直接报错，Agent step 与 LLM log 用于追溯。下一步可以把高风险简历改写成最多 2 轮的 repair loop。
+当前 `resume_tailor` 已经实现 1 轮 ReAct repair loop：
+
+- 初稿生成后先运行 `guardrail.verify_resume`。
+- 如果 `risk_level=high` 或 `passed=false`，repair loop 会读取 Guardrail issues、当前简历草稿和压缩后的上下文。
+- 真实 LLM 路径调用 `resume_tailor.repair_resume`，只允许删除或改写无证据、高风险、缺口披露类表达，不允许新增事实。
+- 离线测试路径使用 `resume_tailor.heuristic_repair`，同样删除 `eager to learn`、缺失技能正文披露和高风险 claim。
+- 修复后的简历会再次经过 Guardrail，修复元数据写入 `keyword_alignment.react_repair`，包含触发风险、问题类型、attempt 工具、修复前后风险和是否通过。
+
+当前只做 1 轮 repair，是为了让行为可控、trace 易读，并避免把简历生成变成无限重写。开发默认不做静默 fallback：LLM、embedding 或 reranker 失败会直接报错，Agent step、LLM log、Guardrail issues 和 `react_repair` 元数据用于追溯。
+
+## Evidence Type Classifier
+
+RAG 证据不再只按向量分和关键词分排序，`MatcherService.retrieve_evidence` 会先通过 `EvidenceClassifier` 给每个 chunk 打上证据类型：
+
+- `shipped_project`：真实交付项目或上线产物。
+- `metric_evidence`：带评测指标、提升比例、吞吐、延迟、用户量等量化结果的证据。
+- `coursework`：课程、作业、阅读材料或课程项目里的提及。
+- `planned_learning`：计划学习、正在学习、准备补齐的表达。
+- `missing_skill_disclosure`：明确写了 `No MLflow`、`did not build agent system`、`without production RAG` 等缺口披露。
+- `adjacent_experience`、`generic_skill`、`unknown`：相邻经验、泛技能或无法判断的证据。
+
+匹配器会提高 `metric_evidence` 和 `shipped_project` 的权重，降低 `coursework`、`planned_learning` 和 `missing_skill_disclosure` 的权重。LLM workflow 的 `match_and_retrieve.details.top_evidence` 也会记录 `evidence_type` 和 `polarity`，方便看到模型拿到的是交付证据、课程噪声还是缺口披露。
 
 ## 投递门禁
 

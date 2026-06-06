@@ -174,7 +174,7 @@ paragraph_page_900_overlap160
 
 - `coursework_vs_shipped` 噪声最难。900 窗口在这个噪声下 Top3 context hit 只有 0.0521。
 - 说明仅靠 chunk 切分和向量/词法检索，仍难区分“课程里提到某技术”和“真实项目里交付某技术”。
-- 下一步需要在 RAG ranking 中加入 evidence type 识别，例如 shipped/project/metric 比 coursework/planned learning 权重更高。
+- 当前已经在 RAG ranking 中加入 `EvidenceClassifier`：`shipped_project`、`metric_evidence` 会被加权，`coursework`、`planned_learning`、`missing_skill_disclosure` 会被降权。它解决的是“检索到了关键词，但证据性质不可靠”的排序问题，而不是替代 PDF chunk 策略本身。
 
 ## RAG 策略评测
 
@@ -237,7 +237,7 @@ real_embedding_top20_rerank
 - 修复方式是采用保守融合：一阶段分数为主，rerank 分数为辅，并设置 Top5 recall anchor。
 - 依赖调试中发现 `transformers 5.x` 与当前 SentenceTransformers 加载不稳定，已在 `requirements.txt` 中约束 `transformers<5.0.0`、`huggingface-hub<1.0`。
 - 强噪声数据集把 Top3 Recall 从原来的 0.9444 拉低到 0.6125，这是有意为之：新数据更接近真实简历里的课程噪声、计划学习和相邻项目干扰。
-- 后续优化重点不再是继续调 embedding 权重，而是引入 evidence classifier 或 LLM verifier 区分“真实交付证据”和“仅提及/计划学习”。
+- 后续优化重点不再是继续调 embedding 权重。本轮已经加入规则版 evidence classifier 来区分“真实交付证据”和“仅提及/计划学习/缺口披露”，下一步更适合用真实人工标注数据校准规则权重，或增加 LLM verifier 做抽检。
 
 ## RAG 向量库选型
 
@@ -317,6 +317,8 @@ POST /evaluations/llm-workflow
 - `EvaluationRun` 会在评测开始时创建，之后每完成一个 case 就更新 `summary_json` 和 `case_results_json`。
 - 每个 case 带 `stage_trace`，记录 resume parse、JD parse、match/RAG、fit judge、tailor 的中间摘要。
 - 开发脚本可传 `trace_path` 写 JSONL，即使长跑被中断，也能看到已经完成 case 的中间结果。
+- `resume_from_last_completed=true` 时，评测会从 JSONL trace 中读取连续完成的 case 前缀，并从第一个缺失 case 继续跑；新 trace 事件会写入完整 `case_result`，因此恢复后仍能保留每个阶段的中间结果。
+- `tailor_resume` stage 会记录 `react_repair` 元数据；如果触发修复，可以看到触发风险、问题类型、使用工具、修复后风险和二次 Guardrail 是否通过。
 
 量化指标：
 
@@ -405,6 +407,13 @@ POST /evaluations/llm-workflow
 
 这次 trace 直接显示每个 case 的中间返回：简历解析出的技能、JD 解析出的 required skills、RAG Top evidence、fit judge 标签和分数、tailor guardrail 结果。`ml_candidate_weak_agent_role` 的 RAG Top evidence 明确包含 “did not build an agent system”，模型判 `weak_fit` 是符合新标注标准的结果。
 
+本轮 ReAct repair 和断点续跑新增验证：
+
+- 先跑 1 个真实 LLM case 写入 `data/runtime/llm_workflow_trace_latest.jsonl`，再用 `resume_from_last_completed=true` 跑 `case_limit=3`，服务正确跳过 1 个已完成 case，`resumed_case_count=1`。
+- 3-case resume smoke 结果：`completed_rate=1.0000`、`end_to_end_pass_rate=1.0000`、`fit_label_accuracy=1.0000`、`fit_score_in_range_rate=1.0000`、`tailor_pass_rate=1.0000`、`guardrail_pass_rate=1.0000`。
+- trace 中 `match_and_retrieve.details.top_evidence` 已能看到 `metric_evidence`、`missing_skill_disclosure`、`shipped_project`、`generic_skill` 等证据类型和 `positive/negative/neutral` polarity。
+- 专门构造的真实 repair smoke 中，初稿包含 `Eager to learn MLflow` 并被 Guardrail 判为 high risk；`resume_tailor.repair_resume` 调用后删除正文缺口披露，二次 Guardrail 变为 `risk_level=low` 且 `passed=true`。
+
 调试发现：
 
 - 第一轮真实评测中，简历解析会因为 LLM 把 `impact`、`duration` 等叶子字段返回为 `null` 而失败。
@@ -418,14 +427,16 @@ POST /evaluations/llm-workflow
 - 本轮 5-case 真实 trace 发现 `ranking model` 出现在 “did not implement ranking models” 否定句中时，旧 forbidden claim 检查会误判；已改为否定上下文感知。
 - 本轮 5-case 真实 trace 还发现 `A/B testing`、`model evaluation` 与源简历里的 `A/B tests`、`experiment analysis`、`evaluation dashboards` 属于同义证据；Guardrail 已增加技能别名，避免误伤真实证据。
 - 简历定制 prompt 已明确要求：缺失 JD 要求只能写入 `keyword_alignment.missing/notes`，不能以 “eager to learn” 等形式写进简历正文。
+- 本轮补充了 `resume_tailor` 的 1 轮 ReAct repair loop：Guardrail 高风险时读取 issues、压缩上下文和当前草稿，修复后再次验证，并把 `react_repair` 元数据写入简历版本。
+- `match_and_retrieve.details.top_evidence` 已增加 `evidence_type` 和 `polarity`，用于排查 RAG 命中的到底是交付证据、课程噪声还是缺口披露。
 
 ## 后续优化
 
 - 增加真实 PDF 简历和真实岗位 JD 的人工标注评测集。
 - 用真实招聘 JD 和真实候选人简历重新验证 Top5 anchor 是否仍然合理。
-- 增加 evidence type classifier，区分 shipped project、metric evidence、coursework、planned learning、abandoned prototype。
+- 用真实标注数据校准 evidence type classifier，补充 abandoned prototype、research prototype、internship delivery 等更细类型，必要时增加 LLM verifier 做二次核验。
 - 对 LLM fit judge 增加 partial/weak 边界样例，特别是“相邻 ML/LLM 技能但缺少 Agent/RAG 交付”的情况。
-- 在逐 case trace 的基础上增加可恢复运行，支持从最后一个完成 case 继续。
+- 将 `resume_from_last_completed` 从 JSONL trace 恢复扩展到基于 `EvaluationRun` 的恢复，并在 UI/API 中展示可恢复 checkpoint。
 - 继续评估不同 evidence budget 对 Guardrail 和关键词覆盖的影响。
 - 增加 LLM-as-judge，但保留人工抽检。
 - 在 CI 中设置最低 `fit_label_accuracy`、`top3_recall`、`guardrail_pass_rate` 和 `end_to_end_pass_rate` 阈值。

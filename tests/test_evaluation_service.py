@@ -145,3 +145,61 @@ def test_forbidden_claim_hits_ignore_negated_disclosures():
         "ranking model",
         "CTR feature engineering",
     ]
+
+
+def test_llm_workflow_resume_loads_completed_prefix():
+    service = EvaluationService()
+    trace_path = Path("data/runtime/test_llm_resume_prefix.jsonl")
+    trace_path.parent.mkdir(parents=True, exist_ok=True)
+    events = [
+        {
+            "type": "llm_workflow_case_result",
+            "case_result": {
+                "name": "case_a",
+                "status": "completed",
+                "case_passed": True,
+                "stage_trace": [{"stage": "case", "status": "completed"}],
+            },
+        },
+        {
+            "type": "llm_workflow_case_result",
+            "case_result": {
+                "name": "case_b",
+                "status": "completed",
+                "case_passed": False,
+                "stage_trace": [{"stage": "case", "status": "completed"}],
+            },
+        },
+    ]
+    try:
+        trace_path.write_text("\n".join(json.dumps(item) for item in events), encoding="utf-8")
+        selected = [{"name": "case_a"}, {"name": "case_b"}, {"name": "case_c"}]
+
+        loaded = service._load_resumable_llm_results(trace_path, selected)
+
+        assert [item["name"] for item in loaded] == ["case_a", "case_b"]
+        assert loaded[1]["case_passed"] is False
+    finally:
+        trace_path.unlink(missing_ok=True)
+
+
+def test_llm_workflow_resume_stops_at_first_missing_case():
+    service = EvaluationService()
+    trace_path = Path("data/runtime/test_llm_resume_missing.jsonl")
+    trace_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        trace_path.write_text(
+            json.dumps(
+                {
+                    "type": "llm_workflow_case_result",
+                    "case_result": {"name": "case_b", "status": "completed", "case_passed": True},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        loaded = service._load_resumable_llm_results(trace_path, [{"name": "case_a"}, {"name": "case_b"}])
+
+        assert loaded == []
+    finally:
+        trace_path.unlink(missing_ok=True)

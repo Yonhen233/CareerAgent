@@ -1,0 +1,19 @@
+from app.services.evidence_classifier import EvidenceClassifier
+
+
+def test_evidence_classifier_distinguishes_delivery_and_negative_evidence():
+    classifier = EvidenceClassifier()
+
+    shipped = classifier.classify("Built FastAPI RAG service and deployed evaluation metrics.", chunk_type="project")
+    assert shipped.evidence_type == "metric_evidence"
+    assert shipped.polarity == "positive"
+
+    missing = classifier.classify("No MLflow or feature store experience.", chunk_type="project")
+    assert missing.evidence_type == "missing_skill_disclosure"
+    assert missing.polarity == "negative"
+
+    coursework = classifier.classify("Coursework: read articles about RAG and Agent systems.", chunk_type="education")
+    assert coursework.evidence_type == "coursework"
+
+    planned = classifier.classify("Currently learning RAG from tutorials.", chunk_type="project")
+    assert planned.evidence_type == "planned_learning"

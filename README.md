@@ -18,6 +18,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - SQLite 保存权威数据和 embedding；Chroma 作为可选向量库镜像。
   - 默认接入 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` 真实 embedding，模型失败时直接报错，便于通过 Trace 定位问题。
   - 支持对一阶段 Top20 chunk 使用 CrossEncoder reranker，默认 Top5 作为召回锚点。
+  - `EvidenceClassifier` 会区分 shipped project、metric evidence、coursework、planned learning 和 missing-skill disclosure，并影响 RAG 证据排序。
 - 岗位来源：
   - 腾讯招聘公开职位接口。
   - Lever 公开岗位 API，可配置公司 slug。
@@ -28,6 +29,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - `quick_apply` 前置 `fit_gate`：低匹配岗位直接阻断，并把缺口写入 Agent step trace。
   - 每次 run 先生成 Plan-Execute 执行计划，并写入 Trace artifact。
   - 显式注册 Tool、Skill 和 SubAgent，计划产物会展示当前任务使用的能力边界。
+  - 简历定制带 1 轮 ReAct repair loop：Guardrail 高风险时读取 issues 和压缩上下文，修复后再次验证，并记录 `react_repair` 元数据。
 - LLM 上下文治理：
   - 渐进式披露是 LLM 调用前的 runtime policy，不单独包装成 subagent。
   - `ContextCompressor` 按 Profile 摘要、JD 摘要、Top evidence 和 Prompt Packet 总预算生成上下文。
@@ -40,6 +42,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - 输出 skill precision/recall、missing skill precision、evidence hit rate、pass rate 等指标。
   - Agent full-flow 评测覆盖岗位搜索、匹配排序、简历定制、投递门禁、Trace 和 Artifact。
   - PDF Chunk、RAG 和 LLM workflow 都有独立评测集；LLM workflow 会真实跑简历解析、JD 解析、fit judge、简历定制和 Guardrail，并逐 case 写入中间 trace。
+  - LLM workflow 支持 `resume_from_last_completed`，可以从 JSONL trace 中连续完成的 case 后继续长跑评测。
 - 可观测性：
   - `agent_runs`、`agent_steps`、`agent_artifacts` 记录每次工作流。
   - 可通过 UI 或 API 查看 Trace。

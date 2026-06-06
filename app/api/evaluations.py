@@ -36,9 +36,14 @@ async def run_agent_full_flow_evaluation(db: Session = Depends(get_db)) -> Evalu
 @router.post("/llm-workflow", response_model=EvaluationRunResponse, status_code=status.HTTP_201_CREATED)
 async def run_llm_workflow_evaluation(
     case_limit: int | None = Query(default=None, ge=1, le=18),
+    resume_from_last_completed: bool = Query(default=False),
     db: Session = Depends(get_db),
 ) -> EvaluationRunResponse:
-    run = await EvaluationService().run_llm_workflow_evaluation(db, case_limit=case_limit)
+    run = await EvaluationService().run_llm_workflow_evaluation(
+        db,
+        case_limit=case_limit,
+        resume_from_last_completed=resume_from_last_completed,
+    )
     return EvaluationRunResponse.model_validate(run)
 
 

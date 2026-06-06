@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.models.entities import Job, MatchResult, Profile
 from app.services.embedding_service import EmbeddingService, cosine_similarity, tokenize
+from app.services.evidence_classifier import EvidenceClassifier
 from app.services.vector_index import SQLiteVectorIndex
 
 
@@ -93,6 +94,7 @@ class MatcherService:
     def __init__(self) -> None:
         self.vector_index = SQLiteVectorIndex()
         self.embedding_service = EmbeddingService()
+        self.evidence_classifier = EvidenceClassifier()
 
     def build_match_payload(self, db: Session, profile: Profile, job: Job) -> dict[str, Any]:
         profile_data = profile.structured_profile_json or {}
@@ -173,7 +175,10 @@ class MatcherService:
             job.raw_jd_text[:900],
         ]
         query = "\n".join(part for part in query_parts if part)
-        return [chunk.as_dict() for chunk in self.vector_index.query_profile_chunks(db, profile_id, query, top_k=top_k)]
+        return [
+            self.evidence_classifier.classify_dict(chunk.as_dict())
+            for chunk in self.vector_index.query_profile_chunks(db, profile_id, query, top_k=top_k)
+        ]
 
     def _semantic_similarity(self, resume_text: str, jd_text: str) -> float:
         embeddings = self.embedding_service.embed_texts([resume_text, jd_text])
@@ -267,9 +272,22 @@ class MatcherService:
         for item in evidence[:6]:
             base = float(item.get("score") or 0.0)
             text = str(item.get("text") or "").lower()
-            if self._contains_negative_evidence(text):
+            evidence_type = str(item.get("evidence_type") or "")
+            if evidence_type in {"missing_skill_disclosure", "planned_learning", "coursework"}:
+                base -= 0.38
+            elif evidence_type == "metric_evidence":
+                base += 0.22
+            elif evidence_type == "shipped_project":
+                base += 0.18
+            elif evidence_type == "adjacent_experience":
+                base += 0.06
+            elif self._contains_negative_evidence(text):
                 base -= 0.35
-            if item.get("chunk_type") in {"project", "experience"}:
+            if item.get("chunk_type") in {"project", "experience"} and evidence_type not in {
+                "missing_skill_disclosure",
+                "planned_learning",
+                "coursework",
+            }:
                 base += 0.18
             weighted += max(0.0, min(base, 1.0))
         return max(0.0, min(weighted / min(len(evidence), 6), 1.0))

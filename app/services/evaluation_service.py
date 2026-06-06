@@ -386,13 +386,18 @@ class EvaluationService:
         case_limit: int | None = None,
         case_indexes: list[int] | None = None,
         trace_path: Path | None = None,
+        resume_from_last_completed: bool = False,
     ) -> EvaluationRun:
         if not self.llm.available:
             raise LLMConfigurationError("LLM_API_KEY/LLM_BASE_URL 未配置，无法进行真实 LLM 调用评测。")
 
+        if trace_path is None and resume_from_last_completed:
+            trace_path = self.settings.base_path / "data" / "runtime" / "llm_workflow_trace_latest.jsonl"
         path = dataset_path or self.settings.base_path / "evals" / "llm_workflow_cases.json"
         all_cases = json.loads(path.read_text(encoding="utf-8"))
         cases = self._select_llm_cases(all_cases, case_limit=case_limit, case_indexes=case_indexes)
+        existing_results = self._load_resumable_llm_results(trace_path, cases) if resume_from_last_completed else []
+        remaining_cases = cases[len(existing_results) :]
         run = EvaluationRun(
             name="llm_workflow_evaluation",
             summary_json={
@@ -400,20 +405,42 @@ class EvaluationService:
                 "status": "running",
                 "dataset": path.name,
                 "case_count": len(cases),
-                "completed_cases": 0,
-                "remaining_cases": len(cases),
+                "completed_cases": len(existing_results),
+                "remaining_cases": len(remaining_cases),
                 "trace_path": str(trace_path) if trace_path else None,
+                "resume_from_last_completed": resume_from_last_completed,
+                "resumed_case_count": len(existing_results),
             },
-            case_results_json=[],
+            case_results_json=list(existing_results),
         )
         db.add(run)
         db.commit()
         db.refresh(run)
-        case_results: list[dict[str, Any]] = []
+        case_results: list[dict[str, Any]] = list(existing_results)
         if trace_path:
             trace_path.parent.mkdir(parents=True, exist_ok=True)
-            trace_path.write_text("", encoding="utf-8")
-        for index, case in enumerate(cases, start=1):
+            if not resume_from_last_completed:
+                trace_path.write_text("", encoding="utf-8")
+            elif not trace_path.exists():
+                trace_path.write_text("", encoding="utf-8")
+        if not remaining_cases:
+            summary = self._summarize_llm_workflow(case_results, path)
+            summary.update(
+                {
+                    "completed_cases": len(case_results),
+                    "remaining_cases": 0,
+                    "trace_path": str(trace_path) if trace_path else None,
+                    "resume_from_last_completed": resume_from_last_completed,
+                    "resumed_case_count": len(existing_results),
+                }
+            )
+            run.summary_json = summary
+            run.case_results_json = list(case_results)
+            db.add(run)
+            db.commit()
+            db.refresh(run)
+            return run
+        for index, case in enumerate(remaining_cases, start=len(existing_results) + 1):
             case_result = await self._run_llm_workflow_case(db, case)
             case_results.append(case_result)
             summary = self._summarize_llm_workflow(case_results, path)
@@ -424,6 +451,8 @@ class EvaluationService:
                     "remaining_cases": len(cases) - index,
                     "current_case": case["name"],
                     "trace_path": str(trace_path) if trace_path else None,
+                    "resume_from_last_completed": resume_from_last_completed,
+                    "resumed_case_count": len(existing_results),
                 }
             )
             run.summary_json = summary
@@ -587,6 +616,45 @@ class EvaluationService:
             selected = selected[: max(case_limit, 0)]
         return selected
 
+    def _load_resumable_llm_results(
+        self,
+        trace_path: Path | None,
+        selected_cases: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        if trace_path is None or not trace_path.exists():
+            return []
+        by_name: dict[str, dict[str, Any]] = {}
+        for line in trace_path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if event.get("type") != "llm_workflow_case_result":
+                continue
+            case_result = event.get("case_result") or event.get("result")
+            if not isinstance(case_result, dict):
+                case_result = {
+                    "name": event.get("case"),
+                    "status": event.get("status"),
+                    "case_passed": event.get("case_passed"),
+                    "failed_stage": event.get("failed_stage"),
+                    "stage_trace": event.get("stage_trace", []),
+                }
+            if case_result.get("status") != "completed":
+                continue
+            by_name[str(case_result.get("name"))] = case_result
+
+        resumable: list[dict[str, Any]] = []
+        for case in selected_cases:
+            case_name = case["name"]
+            prior = by_name.get(case_name)
+            if not prior:
+                break
+            resumable.append(prior)
+        return resumable
+
     def _append_llm_trace(
         self,
         trace_path: Path | None,
@@ -602,6 +670,7 @@ class EvaluationService:
             "case_passed": case_result.get("case_passed"),
             "failed_stage": case_result.get("failed_stage"),
             "stage_trace": case_result.get("stage_trace", []),
+            "case_result": case_result,
             "summary": {
                 "completed_cases": summary.get("completed_cases"),
                 "remaining_cases": summary.get("remaining_cases"),
@@ -789,6 +858,8 @@ class EvaluationService:
                         {
                             "chunk_uid": item.get("chunk_uid"),
                             "chunk_type": item.get("chunk_type"),
+                            "evidence_type": item.get("evidence_type"),
+                            "polarity": item.get("polarity"),
                             "score": item.get("score"),
                             "text_preview": str(item.get("text") or "")[:220],
                         }
@@ -850,6 +921,8 @@ class EvaluationService:
                     resume_markdown=resume_text,
                     evidence=version.source_evidence_json,
                 )
+                keyword_alignment = version.keyword_alignment_json or {}
+                react_repair = keyword_alignment.get("react_repair")
                 tailor_passed = (
                     verification.get("passed", False)
                     and tailored_keyword_hit_rate >= 0.6
@@ -867,9 +940,8 @@ class EvaluationService:
                         "tailored_risk_level": verification.get("risk_level"),
                         "hallucination_count": verification.get("hallucination_count", 0),
                         "jd_keyword_coverage_score": verification.get("jd_keyword_coverage_score", 0),
-                        "tailor_context_compression": (version.keyword_alignment_json or {}).get(
-                            "context_compression"
-                        ),
+                        "tailor_context_compression": keyword_alignment.get("context_compression"),
+                        "tailor_react_repair": react_repair,
                         "resume_preview": resume_text[:600],
                     }
                 )
@@ -885,8 +957,9 @@ class EvaluationService:
                         "risk_level": verification.get("risk_level"),
                         "hallucination_count": verification.get("hallucination_count", 0),
                         "context_compression": self._compact_context_summary(
-                            (version.keyword_alignment_json or {}).get("context_compression")
+                            keyword_alignment.get("context_compression")
                         ),
+                        "react_repair": react_repair,
                         "resume_preview": resume_text[:360],
                     },
                 )

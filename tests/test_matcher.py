@@ -95,6 +95,10 @@ def test_matcher_penalizes_negative_or_coursework_only_evidence(db_session):
     assert "Agent" in payload["missing_skills"]
     assert "FastAPI" in payload["missing_skills"]
     assert payload["dimension_scores"]["negative_evidence_penalty"] > 0
+    assert any(
+        item["evidence_type"] in {"missing_skill_disclosure", "coursework", "planned_learning"}
+        for item in payload["relevant_evidence"]
+    )
 
 
 def test_matcher_does_not_treat_machine_learning_as_negative_evidence():
