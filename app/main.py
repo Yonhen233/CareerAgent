@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.api.agent_runs import router as agent_runs_router
+from app.api.agent_skills import router as agent_skills_router
 from app.api.agent_tools import router as agent_tools_router
 from app.api.applications import router as applications_router
 from app.api.evaluations import router as evaluations_router
@@ -52,4 +53,5 @@ app.include_router(resumes_router)
 app.include_router(applications_router)
 app.include_router(evaluations_router)
 app.include_router(agent_tools_router)
+app.include_router(agent_skills_router)
 app.include_router(agent_runs_router)

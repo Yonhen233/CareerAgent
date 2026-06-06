@@ -247,9 +247,10 @@ POST /evaluations/llm-workflow
 | `tailor_pass_rate` | 定制简历同时通过 Guardrail、关键词覆盖和禁止 claim 检查的比例。 |
 | `guardrail_pass_rate` | Guardrail 通过率。 |
 | `forbidden_claim_free_rate` | 没有出现禁止 claim 的比例。 |
+| `context_compression` | fit judge 与 tailor 阶段的压缩上下文数量、平均压缩率和保留证据数。 |
 | `difficulty_breakdown` | 按 easy/medium/hard/adversarial 分桶的指标。 |
 
-最近一次实测结果：
+历史 18-case 全量基线结果：
 
 | 指标 | 结果 |
 | --- | ---: |
@@ -270,7 +271,9 @@ POST /evaluations/llm-workflow
 | forbidden_claim_free_rate | 0.9286 |
 | avg_hallucination_count | 0.0000 |
 
-分桶结果：
+这组结果来自引入分级上下文压缩前的全量真实评测，用于保留长期对照。
+
+历史全量分桶结果：
 
 | 难度 | Case 数 | 完成率 | 端到端通过率 | Fit 标签准确率 | Fit 分数区间命中 | Tailor 通过率 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -278,6 +281,15 @@ POST /evaluations/llm-workflow
 | medium | 6 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 |
 | hard | 2 | 1.0000 | 0.5000 | 0.5000 | 0.5000 | 1.0000 |
 | adversarial | 1 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 0.0000 |
+
+本次分级压缩后真实 smoke 结果：
+
+| 评测 | Case | 覆盖 | 结果 |
+| --- | ---: | --- | --- |
+| 5-case smoke | 5 | strong/partial/weak/hard/adversarial，3 个 tailor case | `completed_rate=1.0000`，`end_to_end_pass_rate=0.8000`，`fit_label_accuracy=0.8000`，`tailor_pass_rate=1.0000`，`guardrail_pass_rate=1.0000` |
+| 2-case context smoke | 2 | strong + hard partial 边界，2 个 tailor case | `completed_rate=1.0000`，`end_to_end_pass_rate=0.5000`，`tailor_pass_rate=1.0000`，`avg_tailor_reduction_ratio=0.3614`，`avg_tailor_retained_evidence_count=5.5` |
+
+本次也尝试重跑 18-case 全量真实评测，但 20 分钟命令超时，没有拿到 summary。原因不是 LLM 连接失败，最小 JSON 连通性测试通过；更可能是 18 个 case 顺序执行真实简历解析、JD 解析、fit judge、tailor 和 reranker，开发态运行时间过长。下一步需要把 LLM workflow 评测改成分批、逐 case 落盘、可恢复，并支持较小 smoke mode。
 
 调试发现：
 
@@ -287,6 +299,7 @@ POST /evaluations/llm-workflow
 - 剩余 1 个失败是 `agent_candidate_strong_agent_role` 的 `tailor_resume` 阶段 `httpx.ReadTimeout`，说明长 prompt 的简历定制仍需要更好的超时预算或 prompt 压缩。
 - hard 分桶里 `ml_candidate_partial_agent_role` 被模型判成 `weak_fit`，暴露出 partial/weak 边界仍需更细：有 Python/Transformers/Evaluation 交集但明确没有 Agent/RAG 交付时，人工期望是 partial，模型更保守。
 - 原异常记录使用 `str(exc)`，`ReadTimeout` 会显示为空字符串；已改为记录异常类型和 `repr(exc)`，保证 trace 可追溯。
+- 分级压缩后，`tailor_resume` 的 prompt packet 能明显降低上下文规模；短小的 fit judge 上下文因为结构化字段和 trace 元数据可能略大于原文，已将指标改为 `reduction_ratio` 最低为 0，并单独记录 `expansion_ratio`。
 
 ## 后续优化
 
@@ -294,6 +307,7 @@ POST /evaluations/llm-workflow
 - 用真实招聘 JD 和真实候选人简历重新验证 Top5 anchor 是否仍然合理。
 - 增加 evidence type classifier，区分 shipped project、metric evidence、coursework、planned learning、abandoned prototype。
 - 对 LLM fit judge 增加 partial/weak 边界样例，特别是“相邻 ML/LLM 技能但缺少 Agent/RAG 交付”的情况。
-- 对简历定制 prompt 做压缩，减少 `tailor_resume` 长上下文超时。
+- 将 LLM workflow 全量评测改为分批、逐 case 落盘、可恢复，避免 18-case 顺序真实调用超时后丢失中间结果。
+- 继续压缩 `tailor_resume` prompt，并评估不同 evidence budget 对 Guardrail 和关键词覆盖的影响。
 - 增加 LLM-as-judge，但保留人工抽检。
 - 在 CI 中设置最低 `fit_label_accuracy`、`top3_recall`、`guardrail_pass_rate` 和 `end_to_end_pass_rate` 阈值。

@@ -227,6 +227,19 @@ GET /agent/tools
 
 返回当前 Orchestrator 可调用的工具、输入输出描述、副作用和是否适合后续 MCP 化。
 
+### 查询 Agent Skill 与 SubAgent 注册表
+
+```http
+GET /agent/skills
+GET /agent/subagents
+```
+
+`GET /agent/skills` 返回能力名称、状态、所属 SubAgent、触发条件、使用工具、上下文策略和输出契约。
+
+`GET /agent/subagents` 返回 SubAgent 职责、拥有的 skill、读取/写入边界和上下文策略。
+
+其中 `progressive_disclosure` 是当前 LLM 链路的上下文治理 skill，负责把 Profile、JD 和 RAG evidence 分层压缩后再交给适配判断和简历定制。
+
 ## LLM 调用调试
 
 ```http
@@ -296,6 +309,7 @@ GET /evaluations/results
 - `tailor_pass_rate`
 - `guardrail_pass_rate`
 - `forbidden_claim_free_rate`
+- `context_compression`
 - `difficulty_breakdown`
 
 ## 投递包

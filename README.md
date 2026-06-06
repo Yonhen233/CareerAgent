@@ -26,6 +26,11 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - `tailor_resume_for_job`：匹配岗位、检索简历证据、定制简历、校验幻觉风险。
   - `quick_apply`：生成投递包、求职信、外联文案、投递清单和状态记录。
   - 每次 run 先生成 Plan-Execute 执行计划，并写入 Trace artifact。
+  - 显式注册 Tool、Skill 和 SubAgent，计划产物会展示当前任务使用的能力边界。
+- LLM 上下文治理：
+  - `progressive_disclosure` skill 控制渐进式披露。
+  - `ContextCompressor` 按 Profile、JD、Evidence、Prompt Packet 分级压缩。
+  - 压缩结果记录字符预算、压缩比例、保留证据数和收缩事件，便于排查长上下文和幻觉问题。
 - LLM 调试：
   - 记录调用名、模型、base_url、prompt 预览、response 预览、耗时、错误信息。
   - 不记录 API key。
@@ -101,6 +106,8 @@ LLM_MODEL=DeepSeek-V4-Pro
 - `GET /jobs/{job_id}/chunks`
 - `POST /agent/runs`
 - `GET /agent/tools`
+- `GET /agent/skills`
+- `GET /agent/subagents`
 - `GET /agent/runs/{run_id}/steps`
 - `POST /resumes/tailor`
 - `GET /llm/debug/logs`

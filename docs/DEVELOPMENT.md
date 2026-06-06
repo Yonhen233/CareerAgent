@@ -20,6 +20,9 @@ LLM_API_KEY=
 LLM_BASE_URL=https://llmapi.paratera.com
 LLM_MODEL=DeepSeek-V4-Pro
 LLM_FALLBACK_ENABLED=false
+LLM_CONTEXT_COMPRESSION_ENABLED=true
+LLM_CONTEXT_MAX_CHARS=9000
+LLM_EVIDENCE_MAX_CHARS=3600
 VECTOR_BACKEND=hybrid
 CHROMA_DIR=data/chroma
 EMBEDDING_PROVIDER=sentence_transformers
@@ -39,6 +42,9 @@ JOB_INGEST_CONCURRENCY=6
 - `VECTOR_BACKEND=sqlite`：只使用 SQLite。
 - `VECTOR_BACKEND=hybrid`：SQLite + 可选 Chroma 镜像。
 - `LLM_FALLBACK_ENABLED=false`：开发默认严格失败；设置为 `true` 才使用规则解析/生成路径。
+- `LLM_CONTEXT_COMPRESSION_ENABLED=true`：真实 LLM 调用默认使用渐进式披露和分级上下文压缩。
+- `LLM_CONTEXT_MAX_CHARS`：最终 prompt packet 的字符预算。
+- `LLM_EVIDENCE_MAX_CHARS`：Top evidence 在压缩上下文中的字符预算。
 - `EMBEDDING_PROVIDER=sentence_transformers`：使用真实 SentenceTransformer embedding。
 - `EMBEDDING_PROVIDER=hash`：使用离线 hash embedding，适合快速测试。
 - `EMBEDDING_PROVIDER_FALLBACK=error`：真实 embedding 加载失败时直接报错。
@@ -126,6 +132,25 @@ GET /llm/debug/logs?limit=50
 3. 看 `prompt_chars` 判断上下文是否过长。
 4. 看 `response_preview` 判断模型是否返回非 JSON。
 5. 看 `error_message` 定位接口、解析或超时问题。
+
+## 上下文压缩调试
+
+简历定制和 LLM workflow 评测都会通过 `ContextCompressor` 生成压缩上下文。
+
+可以在以下位置查看压缩元数据：
+
+- `resume_versions.keyword_alignment_json.context_compression`
+- LLM workflow case result 中的失败阶段和调用日志
+- Agent run 的 `execution_plan.context_policy`
+
+重点看：
+
+- `raw_chars`：原始 Profile、JD 和证据总字符数。
+- `compressed_chars`：传给 LLM 的任务包字符数。
+- `retained_evidence_count`：保留了多少条证据。
+- `levels[].events`：哪一层触发了收缩。
+
+如果模型判断错误，先看 RAG 是否召回了正确证据，再看压缩层是否把证据裁掉，最后再调整 prompt 或评测期望。
 
 ## 真实 LLM 流程评测
 

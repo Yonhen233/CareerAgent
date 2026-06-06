@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     llm_model: str = "DeepSeek-V4-Pro"
     llm_timeout_seconds: float = 60.0
     llm_fallback_enabled: bool = False
+    llm_context_compression_enabled: bool = True
+    llm_context_max_chars: int = 9000
+    llm_evidence_max_chars: int = 3600
 
     openai_api_key: str | None = None
     openai_base_url: str | None = None

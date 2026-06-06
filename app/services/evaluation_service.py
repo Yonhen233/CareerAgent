@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models.entities import EvaluationRun, Job, Profile
 from app.models.schemas import GuidedProfileRequest
+from app.services.context_compressor import ContextCompressor
 from app.services.guardrails import ResumeGuardrailService
 from app.services.jd_parser import JDParserService
 from app.services.resume_tailor import ResumeTailorService
@@ -29,6 +30,7 @@ class EvaluationService:
         self.embedding_service = EmbeddingService(settings=self.settings)
         self.hash_embedding_service = EmbeddingService(settings=self.settings, provider="hash")
         self.reranker = RerankerService(settings=self.settings)
+        self.context_compressor = ContextCompressor()
 
     async def run_sample_evaluation(self, db: Session, *, dataset_path: Path | None = None) -> EvaluationRun:
         path = dataset_path or self.settings.base_path / "evals" / "sample_cases.json"
@@ -406,6 +408,7 @@ class EvaluationService:
 
             stage = "fit_judge"
             suitability = await self._llm_judge_suitability(db, profile.structured_profile_json, job)
+            fit_context_compression = suitability.pop("_context_compression", None)
             predicted_label = str(suitability.get("fit_label") or "").strip()
             fit_score = self._coerce_float(suitability.get("fit_score"))
             range_error = self._score_range_error(fit_score, case.get("expected_fit_score_range"))
@@ -417,6 +420,7 @@ class EvaluationService:
                     "predicted_fit_score": fit_score,
                     "fit_score_range_error": range_error,
                     "fit_score_in_expected_range": range_error == 0,
+                    "fit_context_compression": fit_context_compression,
                     "suitability": suitability,
                 }
             )
@@ -456,6 +460,9 @@ class EvaluationService:
                         "tailored_risk_level": verification.get("risk_level"),
                         "hallucination_count": verification.get("hallucination_count", 0),
                         "jd_keyword_coverage_score": verification.get("jd_keyword_coverage_score", 0),
+                        "tailor_context_compression": (version.keyword_alignment_json or {}).get(
+                            "context_compression"
+                        ),
                         "resume_preview": resume_text[:600],
                     }
                 )
@@ -491,6 +498,10 @@ class EvaluationService:
         completed = [item for item in case_results if item.get("status") == "completed"]
         fit_cases = [item for item in case_results if item.get("fit_judge_success")]
         tailor_cases = [item for item in case_results if item.get("run_tailor")]
+        fit_contexts = [item["fit_context_compression"] for item in fit_cases if item.get("fit_context_compression")]
+        tailor_contexts = [
+            item["tailor_context_compression"] for item in tailor_cases if item.get("tailor_context_compression")
+        ]
         summary = {
             "evaluation_type": "llm_workflow",
             "status": "completed" if len(completed) == len(case_results) else "completed_with_case_failures",
@@ -519,6 +530,16 @@ class EvaluationService:
             "guardrail_pass_rate": self._avg_bool(tailor_cases, "guardrail_passed"),
             "forbidden_claim_free_rate": self._avg_bool(tailor_cases, "forbidden_claim_free"),
             "avg_hallucination_count": self._avg_number(tailor_cases, "hallucination_count"),
+            "context_compression": {
+                "fit_context_count": len(fit_contexts),
+                "tailor_context_count": len(tailor_contexts),
+                "avg_fit_reduction_ratio": self._avg_context_metric(fit_contexts, "reduction_ratio"),
+                "avg_tailor_reduction_ratio": self._avg_context_metric(tailor_contexts, "reduction_ratio"),
+                "avg_tailor_retained_evidence_count": self._avg_context_metric(
+                    tailor_contexts,
+                    "retained_evidence_count",
+                ),
+            },
             "difficulty_breakdown": self._summarize_llm_by_key(case_results, "difficulty"),
             "notes": [
                 "每个 case 跑真实链路：简历解析、JD 解析、RAG 证据、fit judge、可选简历定制和 Guardrail。",
@@ -577,6 +598,20 @@ class EvaluationService:
         return round(sum(1 for item in rows if item.get(key) is True) / len(rows), 4)
 
     def _avg_number(self, rows: list[dict[str, Any]], key: str) -> float:
+        values = []
+        for item in rows:
+            value = item.get(key)
+            if value is None or isinstance(value, bool):
+                continue
+            try:
+                values.append(float(value))
+            except (TypeError, ValueError):
+                continue
+        if not values:
+            return 0.0
+        return round(sum(values) / len(values), 4)
+
+    def _avg_context_metric(self, rows: list[dict[str, Any]], key: str) -> float:
         values = []
         for item in rows:
             value = item.get(key)
@@ -729,6 +764,7 @@ class EvaluationService:
         return round(len(hits) / len(expected_keywords), 4)
 
     async def _llm_judge_suitability(self, db: Session, profile_json: dict[str, Any], job: Job) -> dict[str, Any]:
+        compressed_context = self.context_compressor.compress_fit_context(profile_json=profile_json, job=job)
         system_prompt = (
             "You are a strict, evidence-grounded job-fit evaluator. Return JSON only. "
             "Use fit_label exactly one of: strong_fit, partial_fit, weak_fit. "
@@ -755,20 +791,18 @@ Rules:
 - matched_evidence should cite concrete phrases from the candidate profile.
 - gaps should cite important missing job requirements.
 
-Candidate profile:
-{json.dumps(profile_json, ensure_ascii=False)}
-
-Job:
-{job.title}
-{job.raw_jd_text}
+Compressed context:
+{json.dumps(compressed_context, ensure_ascii=False)}
 """
-        return await self.llm.generate_json(
+        result = await self.llm.generate_json(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             db=db,
             trace_name="evaluation.llm_judge_suitability",
             temperature=0,
         )
+        result["_context_compression"] = compressed_context.get("context_compression")
+        return result
 
     def _pdf_fixed_window_450(self, pages: list[PDFPageText], *, case_name: str) -> list[TextChunk]:
         return self._fixed_window_pdf_chunks(pages, case_name=case_name, chunk_size=450, overlap=80)

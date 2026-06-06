@@ -1,6 +1,9 @@
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from app.agents.skills import active_skill_names_for_task
+from app.agents.subagents import subagents_for_task
+
 
 @dataclass(frozen=True)
 class AgentToolSpec:
@@ -149,14 +152,41 @@ class AgentPlanner:
         return {
             "mode": "plan_execute",
             "task_type": task_type,
+            "skills": active_skill_names_for_task(task_type),
+            "subagents": subagents_for_task(task_type),
+            "context_policy": self._context_policy(task_type),
             "steps": steps,
             "react_loops": react_loops,
             "tool_count": len(AGENT_TOOLS),
             "mcp_recommendation": self._mcp_recommendation(),
+            "langgraph_decision": self._langgraph_decision(),
         }
 
     def _step(self, name: str, tool: str, purpose: str) -> dict[str, str]:
         return {"step": name, "tool": tool, "purpose": purpose}
+
+    def _context_policy(self, task_type: str) -> dict[str, Any]:
+        needs_llm_context = task_type in {"tailor_resume_for_job", "quick_apply"}
+        return {
+            "progressive_disclosure": needs_llm_context,
+            "compression_strategy": "hierarchical_progressive_disclosure" if needs_llm_context else "not_required",
+            "visible_layers": ["profile_facts", "job_requirements", "ranked_evidence"] if needs_llm_context else [],
+            "deferred_layers": ["full_raw_resume", "full_raw_jd", "non_top_evidence_chunks"] if needs_llm_context else [],
+            "failure_policy": "缺少证据时直接报告缺口，不让 LLM 编造。",
+        }
+
+    def _langgraph_decision(self) -> dict[str, Any]:
+        return {
+            "migrate_now": False,
+            "reason": (
+                "当前 Orchestrator 已经有显式 plan_execute、step trace、artifact 和注册工具边界；"
+                "此阶段优先补齐 Skill、SubAgent、上下文压缩和评测闭环。"
+            ),
+            "migration_trigger": (
+                "当出现多分支状态机、人工审批节点、后台长任务恢复、跨 MCP server 工具调用或复杂 retry policy 时，"
+                "再迁移到 LangGraph 会更有工程收益。"
+            ),
+        }
 
     def _mcp_recommendation(self) -> dict[str, Any]:
         return {

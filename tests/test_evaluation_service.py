@@ -87,6 +87,8 @@ def test_llm_workflow_summary_has_quantitative_metrics():
             "guardrail_passed": True,
             "forbidden_claim_free": True,
             "hallucination_count": 0,
+            "fit_context_compression": {"reduction_ratio": 0.4},
+            "tailor_context_compression": {"reduction_ratio": 0.5, "retained_evidence_count": 8},
         },
         {
             "name": "failed_case",
@@ -111,4 +113,6 @@ def test_llm_workflow_summary_has_quantitative_metrics():
     assert summary["fit_label_accuracy"] == 1.0
     assert summary["tailor_pass_rate"] == 1.0
     assert summary["failed_stage_breakdown"] == {"jd_parse": 1}
+    assert summary["context_compression"]["fit_context_count"] == 1
+    assert summary["context_compression"]["avg_tailor_reduction_ratio"] == 0.5
     assert "difficulty_breakdown" in summary

@@ -6,7 +6,7 @@ CareerAgent 的目标不是“一个 Prompt 生成简历”，而是一个可观
 
 - `app/api`：FastAPI 路由层，负责请求校验、DB Session 注入和服务编排。
 - `app/frontend`：Jinja 页面路由，提供本地工作台。
-- `app/agents`：Agent 工作流编排。
+- `app/agents`：Agent 工作流编排、Tool 注册表、Skill 注册表和 SubAgent 注册表。
 - `app/services`：领域服务，包括简历解析、JD 解析、岗位搜索、RAG 检索、匹配、简历定制、Guardrails、投递包、评测和 Trace。
 - `app/models`：SQLAlchemy 数据模型和 Pydantic 响应模型。
 - `app/core`：配置、数据库、LLM 客户端。
@@ -26,11 +26,27 @@ CareerAgent 的目标不是“一个 Prompt 生成简历”，而是一个可观
 - `llm_call_logs`：LLM 调用调试日志。
 - `evaluation_runs`：评测运行结果。
 
+## Agent 能力注册
+
+`app/agents/tools.py` 保存可执行 Tool 的输入输出、副作用和 MCP 化候选标记。
+
+`app/agents/skills.py` 保存更高层的能力注册：
+
+- `resume_intake_and_structuring`
+- `jd_structuring`
+- `evidence_retrieval`
+- `progressive_disclosure`
+- `fit_assessment`
+- `resume_tailoring`
+- `application_packet`
+
+`app/agents/subagents.py` 保存工程责任边界，例如 `context_manager` 负责渐进式披露和分级上下文压缩。当前 SubAgent 不是独立进程，也不是多个自由对话模型，而是为了控制 prompt、上下文、trace 和测试边界。
+
 ## Agent 工作流
 
 ### `find_jobs_for_profile`
 
-1. `plan_task` 生成 Plan-Execute 执行计划并写入 `agent_artifacts`。
+1. `plan_task` 生成 Plan-Execute 执行计划，包含 tools、skills、subagents 和 context policy，并写入 `agent_artifacts`。
 2. 加载 Profile。
 3. 并发搜索岗位源。
 4. 并发解析 JD。
@@ -44,9 +60,10 @@ CareerAgent 的目标不是“一个 Prompt 生成简历”，而是一个可观
 2. 加载 Profile 和 Job。
 3. 生成匹配结果。
 4. 检索简历 RAG 证据。
-5. 调用 LLM 生成定制简历；默认失败直接报错并进入 Trace。
-6. Guardrail 检查新增事实和关键词覆盖。
-7. 保存简历版本、diff、证据和 verification。
+5. `ContextCompressor` 按 L1 Profile、L2 JD、L3 Evidence、L4 Prompt Packet 分级压缩上下文。
+6. 调用 LLM 生成定制简历；默认失败直接报错并进入 Trace。
+7. Guardrail 检查新增事实和关键词覆盖。
+8. 保存简历版本、diff、证据和 verification。
 
 这个流程适合引入 ReAct 的位置是“定制简历 -> 验证 -> 修复”：
 
@@ -158,6 +175,17 @@ Reranker：
 - `response_chars`
 
 日志用于调试 prompt、模型响应、JSON 解析失败、超时和延迟问题。系统不会记录 API key。
+
+## 上下文治理
+
+`app/services/context_compressor.py` 实现渐进式披露：
+
+- 默认只向 LLM 暴露结构化 Profile、结构化 JD 和 Top evidence。
+- 全量原始简历、全量 JD、非 Top evidence 默认作为 deferred context，不进入 prompt。
+- 每层压缩都记录字符数、预算、压缩事件和保留证据数量。
+- 简历定制结果的 `keyword_alignment_json.context_compression` 会保存压缩元数据，便于追溯质量问题。
+
+这样做的目标不是单纯减少 token，而是让失败可定位：如果 LLM 判断错，可以区分是解析错、RAG 没召回、reranker 排错、压缩丢证据，还是模型本身判断错。
 
 ## Guardrails
 

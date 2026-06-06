@@ -8,6 +8,7 @@ from app.core.config import get_settings
 from app.core.llm import LLMClient
 from app.core.llm import LLMConfigurationError, LLMResponseError
 from app.models.entities import Job, Profile, ResumeVersion
+from app.services.context_compressor import ContextCompressor
 from app.services.guardrails import ResumeGuardrailService
 from app.services.matcher import MatcherService
 
@@ -18,11 +19,17 @@ class ResumeTailorService:
         self.llm = LLMClient()
         self.matcher = MatcherService()
         self.guardrails = ResumeGuardrailService()
+        self.context_compressor = ContextCompressor()
 
     async def tailor_resume(self, db: Session, profile: Profile, job: Job) -> ResumeVersion:
         evidence = self.matcher.retrieve_evidence(db, profile.id, job, top_k=10)
+        compressed_context = self.context_compressor.compress_tailor_context(
+            profile=profile,
+            job=job,
+            evidence=evidence,
+        )
         if self.llm.available:
-            draft = await self._llm_tailor(db, profile, job, evidence)
+            draft = await self._llm_tailor(db, profile, job, evidence, compressed_context)
         else:
             if not self.settings.llm_fallback_enabled:
                 raise LLMConfigurationError(
@@ -49,7 +56,10 @@ class ResumeTailorService:
             title=f"{profile.name or 'Candidate'} - {job.title}",
             tailored_resume_markdown=markdown,
             change_summary_json=draft.get("change_summary", []),
-            keyword_alignment_json=draft.get("keyword_alignment", {}),
+            keyword_alignment_json={
+                **(draft.get("keyword_alignment", {}) if isinstance(draft.get("keyword_alignment"), dict) else {}),
+                "context_compression": compressed_context.get("context_compression", {}),
+            },
             source_evidence_json=evidence,
             verification_json=verification,
             diff_text=self._build_diff(profile.raw_resume_text, markdown),
@@ -59,13 +69,20 @@ class ResumeTailorService:
         db.refresh(version)
         return version
 
-    async def _llm_tailor(self, db: Session, profile: Profile, job: Job, evidence: list[dict[str, Any]]) -> dict[str, Any]:
+    async def _llm_tailor(
+        self,
+        db: Session,
+        profile: Profile,
+        job: Job,
+        evidence: list[dict[str, Any]],
+        compressed_context: dict[str, Any],
+    ) -> dict[str, Any]:
         system_prompt = (
             "You are a senior resume writing agent. Return strict JSON only. "
             "You must never fabricate facts, metrics, companies, degrees, or dates."
         )
         user_prompt = f"""
-Goal: tailor the candidate resume for this job while staying grounded in source evidence.
+Goal: tailor the candidate resume for this job while staying grounded in the compressed source context.
 
 Output JSON:
 {{
@@ -79,21 +96,10 @@ Hard rules:
 - You may reorder, summarize, and emphasize; do not invent metrics or claims.
 - Keep the resume concise and ATS-friendly.
 - Prefer Agent/RAG/FastAPI/SQLite/tool-calling evidence when relevant.
+- The context was compressed. If a fact is absent from compressed_context, treat it as unavailable.
 
-Source profile JSON:
-{json.dumps(profile.structured_profile_json, ensure_ascii=False)}
-
-Source raw resume:
-{profile.raw_resume_text}
-
-Job JSON:
-{json.dumps(job.structured_jd_json, ensure_ascii=False)}
-
-Job description:
-{job.raw_jd_text}
-
-Retrieved evidence:
-{json.dumps(evidence, ensure_ascii=False)}
+Compressed context:
+{json.dumps(compressed_context, ensure_ascii=False)}
 """
         try:
             return await self.llm.generate_json(
