@@ -25,6 +25,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - `find_jobs_for_profile`：搜索岗位、解析 JD、入库、匹配、排序。
   - `tailor_resume_for_job`：匹配岗位、检索简历证据、定制简历、校验幻觉风险。
   - `quick_apply`：生成投递包、求职信、外联文案、投递清单和状态记录。
+  - `quick_apply` 前置 `fit_gate`：低匹配岗位直接阻断，并把缺口写入 Agent step trace。
   - 每次 run 先生成 Plan-Execute 执行计划，并写入 Trace artifact。
   - 显式注册 Tool、Skill 和 SubAgent，计划产物会展示当前任务使用的能力边界。
 - LLM 上下文治理：
@@ -37,6 +38,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
 - 量化评测：
   - 内置样例集 `evals/sample_cases.json`。
   - 输出 skill precision/recall、missing skill precision、evidence hit rate、pass rate 等指标。
+  - Agent full-flow 评测覆盖岗位搜索、匹配排序、简历定制、投递门禁、Trace 和 Artifact。
   - PDF Chunk、RAG 和 LLM workflow 都有独立评测集；LLM workflow 会真实跑简历解析、JD 解析、fit judge、简历定制和 Guardrail，并逐 case 写入中间 trace。
 - 可观测性：
   - `agent_runs`、`agent_steps`、`agent_artifacts` 记录每次工作流。
@@ -114,6 +116,7 @@ LLM_MODEL=DeepSeek-V4-Pro
 - `POST /evaluations/run`
 - `POST /evaluations/pdf-chunk-strategies`
 - `POST /evaluations/rag-strategies`
+- `POST /evaluations/agent-full-flow`
 - `POST /evaluations/llm-workflow`
 - `GET /evaluations/results`
 
@@ -136,7 +139,7 @@ pytest -q
 - 岗位匹配。
 - Agent 简历定制工作流。
 - LLM 调用日志。
-- 样例集、PDF Chunk、RAG、LLM workflow 量化评测。
+- 样例集、PDF Chunk、RAG、Agent full-flow、LLM workflow 量化评测。
 
 ## 文档
 

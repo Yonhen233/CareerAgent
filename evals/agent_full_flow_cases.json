@@ -1,0 +1,303 @@
+[
+  {
+    "name": "agent_candidate_selects_agent_job_and_applies",
+    "difficulty": "easy",
+    "query": "Agent Development Intern",
+    "profile": {
+      "name": "Li Ming",
+      "email": "li.ming@example.com",
+      "headline": "Agent Development Intern Candidate",
+      "target_roles": ["Agent Development Intern"],
+      "skills": ["Python", "FastAPI", "RAG", "SQLite", "Agent workflow", "Evaluation", "Guardrails"],
+      "projects": [
+        {
+          "name": "CareerAgent",
+          "description": "Built a job-search agent with PDF chunking, SQLite-backed RAG, reranker, LLM debug logs and resume tailoring.",
+          "tech_stack": ["Python", "FastAPI", "RAG", "SQLite"],
+          "impact": "Measured retrieval recall, fit label accuracy and guardrail pass rate."
+        }
+      ],
+      "work_experience": [
+        {
+          "company": "AI Lab",
+          "role": "AI Application Intern",
+          "details": "Maintained Python services and wrote guardrail tests for LLM workflows.",
+          "tech_stack": ["Python", "Guardrails"]
+        }
+      ]
+    },
+    "jobs": [
+      {
+        "external_id": "agent_intern",
+        "title": "Agent Development Intern",
+        "company": "Demo AI",
+        "jd_text": "Build Agent workflows with Python, FastAPI, RAG retrieval, SQLite storage, evaluation metrics, LLM debug logs and guardrails.",
+        "structured_jd": {
+          "title": "Agent Development Intern",
+          "company": "Demo AI",
+          "required_skills": ["Python", "FastAPI", "RAG", "SQLite", "Agent workflow", "Evaluation", "Guardrails"],
+          "keywords": ["Agent", "RAG", "LLM debug logs"]
+        }
+      },
+      {
+        "external_id": "frontend_intern",
+        "title": "Frontend Engineering Intern",
+        "company": "DesignOps",
+        "jd_text": "Build React components, TypeScript hooks, CSS tokens, accessibility checks and Storybook docs.",
+        "structured_jd": {
+          "required_skills": ["React", "TypeScript", "CSS", "Accessibility"],
+          "keywords": ["Frontend", "Storybook"]
+        }
+      },
+      {
+        "external_id": "llm_eval_intern",
+        "title": "LLM Evaluation Intern",
+        "company": "ModelOps",
+        "jd_text": "Build prompt regression tests, SQL dashboards, model quality reports and rubric-based evaluation.",
+        "structured_jd": {
+          "required_skills": ["Python", "SQL", "Evaluation", "Prompt Regression", "Dashboards"],
+          "keywords": ["LLM Evaluation"]
+        }
+      }
+    ],
+    "expected_top_job_external_id": "agent_intern",
+    "expected_min_top_score": 70,
+    "expected_max_top_score": 100,
+    "run_tailor": true,
+    "run_quick_apply": true,
+    "expected_resume_keywords": ["FastAPI", "RAG", "SQLite", "Agent", "evaluation", "guardrails"]
+  },
+  {
+    "name": "frontend_candidate_selects_frontend_job",
+    "difficulty": "easy",
+    "query": "Software Engineering Intern",
+    "profile": {
+      "name": "Zhao Lin",
+      "email": "zhaolin@example.com",
+      "headline": "Frontend Engineering Intern Candidate",
+      "target_roles": ["Frontend Engineering Intern"],
+      "skills": ["React", "TypeScript", "CSS", "Playwright", "Accessibility", "Storybook"],
+      "projects": [
+        {
+          "name": "DashboardStudio",
+          "description": "Built reusable React components, TypeScript hooks, CSS tokens, Playwright visual tests and accessibility checks.",
+          "tech_stack": ["React", "TypeScript", "CSS", "Playwright"],
+          "impact": "Improved component reuse and UI regression coverage."
+        }
+      ]
+    },
+    "jobs": [
+      {
+        "external_id": "agent_intern",
+        "title": "Agent Development Intern",
+        "company": "Demo AI",
+        "jd_text": "Build FastAPI services, RAG retrieval, SQLite storage and Agent workflows.",
+        "structured_jd": {
+          "required_skills": ["Python", "FastAPI", "RAG", "SQLite", "Agent"],
+          "keywords": ["Agent"]
+        }
+      },
+      {
+        "external_id": "frontend_intern",
+        "title": "Frontend Engineering Intern",
+        "company": "DesignOps",
+        "jd_text": "Build React components, TypeScript utilities, CSS token systems, Playwright tests and accessibility checks.",
+        "structured_jd": {
+          "required_skills": ["React", "TypeScript", "CSS", "Playwright", "Accessibility"],
+          "keywords": ["Frontend", "Design System"]
+        }
+      }
+    ],
+    "expected_top_job_external_id": "frontend_intern",
+    "expected_min_top_score": 70,
+    "expected_max_top_score": 100,
+    "run_tailor": true,
+    "run_quick_apply": true,
+    "expected_resume_keywords": ["React", "TypeScript", "CSS", "Playwright", "accessibility"]
+  },
+  {
+    "name": "data_candidate_selects_data_job",
+    "difficulty": "medium",
+    "query": "Data Engineering Intern",
+    "profile": {
+      "name": "Sun Rui",
+      "email": "sunrui@example.com",
+      "headline": "Data Engineering Intern Candidate",
+      "target_roles": ["Data Engineering Intern"],
+      "skills": ["Python", "SQL", "Airflow", "dbt", "Data Quality", "Warehouse"],
+      "projects": [
+        {
+          "name": "PipelineMonitor",
+          "description": "Built Airflow DAGs, dbt transformations and data quality checks for warehouse tables.",
+          "tech_stack": ["Python", "SQL", "Airflow", "dbt"],
+          "impact": "Reduced stale-table incidents through scheduled validation reports."
+        }
+      ]
+    },
+    "jobs": [
+      {
+        "external_id": "data_intern",
+        "title": "Data Engineering Intern",
+        "company": "DataHub",
+        "jd_text": "Build Airflow DAGs, dbt transformations, warehouse data models, SQL checks and data quality monitoring.",
+        "structured_jd": {
+          "required_skills": ["Python", "SQL", "Airflow", "dbt", "Data Quality", "Warehouse"],
+          "keywords": ["Data Engineering"]
+        }
+      },
+      {
+        "external_id": "mobile_ai_intern",
+        "title": "Mobile AI Intern",
+        "company": "MobileMind",
+        "jd_text": "Build Android features in Kotlin, on-device ML, REST sync, SQLite cache and performance profiling.",
+        "structured_jd": {
+          "required_skills": ["Kotlin", "Android", "On-device ML", "SQLite", "Performance"],
+          "keywords": ["Mobile"]
+        }
+      }
+    ],
+    "expected_top_job_external_id": "data_intern",
+    "expected_min_top_score": 70,
+    "expected_max_top_score": 100,
+    "run_tailor": true,
+    "run_quick_apply": true,
+    "expected_resume_keywords": ["Airflow", "dbt", "SQL", "data quality", "warehouse"]
+  },
+  {
+    "name": "analytics_candidate_weak_recommendation_blocked",
+    "difficulty": "hard",
+    "query": "Recommendation Algorithm Intern",
+    "profile": {
+      "name": "Tang Wei",
+      "email": "tangwei@example.com",
+      "headline": "Product Analytics Intern Candidate",
+      "target_roles": ["Recommendation Algorithm Intern"],
+      "skills": ["SQL", "Python", "Experiment Analysis", "Metrics", "Funnels", "Dashboards"],
+      "projects": [
+        {
+          "name": "MetricStudio",
+          "description": "Built funnel dashboards, experiment analysis notebooks and metric definitions. Analyzed A/B tests but did not implement ranking models or CTR features.",
+          "tech_stack": ["SQL", "Python", "Dashboards"],
+          "impact": "Supported product experiment review with metrics and funnel analysis."
+        }
+      ]
+    },
+    "jobs": [
+      {
+        "external_id": "recommendation_intern",
+        "title": "Recommendation Algorithm Intern",
+        "company": "RankWorks",
+        "jd_text": "Build ranking features, analyze CTR, run offline evaluation, feature engineering and A/B testing for recommender systems.",
+        "structured_jd": {
+          "required_skills": ["Python", "Ranking", "CTR", "Feature Engineering", "A/B Testing", "Metrics"],
+          "keywords": ["Recommendation", "Ranking", "Metrics"]
+        }
+      },
+      {
+        "external_id": "frontend_intern",
+        "title": "Frontend Engineering Intern",
+        "company": "DesignOps",
+        "jd_text": "Build React components, TypeScript utilities and visual QA.",
+        "structured_jd": {
+          "required_skills": ["React", "TypeScript", "CSS"],
+          "keywords": ["Frontend"]
+        }
+      }
+    ],
+    "expected_top_job_external_id": "recommendation_intern",
+    "expected_min_top_score": 30,
+    "expected_max_top_score": 54,
+    "run_tailor": true,
+    "run_quick_apply": true,
+    "expect_quick_apply_blocked": true,
+    "expected_resume_keywords": ["Python", "A/B", "metrics", "experiment"]
+  },
+  {
+    "name": "cv_candidate_weak_ml_platform_blocked",
+    "difficulty": "medium",
+    "query": "Machine Learning Platform Intern",
+    "profile": {
+      "name": "Ma Chen",
+      "email": "machen@example.com",
+      "headline": "Computer Vision Intern Candidate",
+      "target_roles": ["Machine Learning Platform Intern"],
+      "skills": ["Python", "OpenCV", "PyTorch", "Detection", "Evaluation"],
+      "projects": [
+        {
+          "name": "VisionBench",
+          "description": "Built object-detection experiments and evaluation dashboards. No MLflow or feature store experience.",
+          "tech_stack": ["Python", "OpenCV", "PyTorch"],
+          "impact": "Compared detection model outputs with evaluation dashboards."
+        }
+      ]
+    },
+    "jobs": [
+      {
+        "external_id": "ml_platform_intern",
+        "title": "Machine Learning Platform Intern",
+        "company": "MLWorks",
+        "jd_text": "Maintain MLflow experiment tracking, feature store pipelines, model evaluation dashboards and PyTorch baselines.",
+        "structured_jd": {
+          "required_skills": ["Python", "PyTorch", "MLflow", "Feature Store", "Evaluation"],
+          "keywords": ["ML Platform", "PyTorch"]
+        }
+      },
+      {
+        "external_id": "devops_intern",
+        "title": "DevOps Platform Intern",
+        "company": "CloudOps",
+        "jd_text": "Build Docker images, Kubernetes templates, CI/CD workflows and Terraform modules.",
+        "structured_jd": {
+          "required_skills": ["Docker", "Kubernetes", "CI/CD", "Terraform"],
+          "keywords": ["DevOps"]
+        }
+      }
+    ],
+    "expected_top_job_external_id": "ml_platform_intern",
+    "expected_min_top_score": 40,
+    "expected_max_top_score": 54,
+    "run_tailor": true,
+    "run_quick_apply": true,
+    "expect_quick_apply_blocked": true,
+    "expected_resume_keywords": ["Python", "PyTorch", "evaluation"]
+  },
+  {
+    "name": "beginner_agent_candidate_blocked_by_fit_gate",
+    "difficulty": "adversarial",
+    "query": "Agent Development Intern",
+    "profile": {
+      "name": "Wu Fan",
+      "email": "wufan@example.com",
+      "headline": "Beginner Software Student",
+      "target_roles": ["Agent Development Intern"],
+      "skills": ["Python basics", "HTML", "CSS", "Git"],
+      "projects": [
+        {
+          "name": "Course Notes",
+          "description": "Read articles about RAG, Agent, FastAPI and SQLite. No shipped project, no API service, no evaluation harness.",
+          "tech_stack": ["Python basics"],
+          "impact": "Coursework only."
+        }
+      ]
+    },
+    "jobs": [
+      {
+        "external_id": "agent_intern",
+        "title": "Agent Development Intern",
+        "company": "Demo AI",
+        "jd_text": "Build production-like Agent workflows, FastAPI APIs, RAG retrieval, SQLite storage, LLM debugging, evaluation metrics and guardrails.",
+        "structured_jd": {
+          "required_skills": ["Python", "FastAPI", "RAG", "SQLite", "Agent", "Evaluation"],
+          "keywords": ["Agent", "RAG", "Guardrails"]
+        }
+      }
+    ],
+    "expected_top_job_external_id": "agent_intern",
+    "expected_min_top_score": 0,
+    "expected_max_top_score": 54,
+    "run_tailor": false,
+    "run_quick_apply": true,
+    "expect_quick_apply_blocked": true,
+    "expected_resume_keywords": []
+  }
+]

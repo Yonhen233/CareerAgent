@@ -14,13 +14,22 @@ from app.services.trace_service import TraceService
 
 
 class AgentOrchestrator:
-    def __init__(self) -> None:
-        self.trace = TraceService()
-        self.job_search = JobSearchService()
-        self.matcher = MatcherService()
-        self.tailor = ResumeTailorService()
-        self.application = ApplicationService()
-        self.planner = AgentPlanner()
+    def __init__(
+        self,
+        *,
+        trace: TraceService | None = None,
+        job_search: JobSearchService | None = None,
+        matcher: MatcherService | None = None,
+        tailor: ResumeTailorService | None = None,
+        application: ApplicationService | None = None,
+        planner: AgentPlanner | None = None,
+    ) -> None:
+        self.trace = trace or TraceService()
+        self.job_search = job_search or JobSearchService()
+        self.matcher = matcher or MatcherService()
+        self.tailor = tailor or ResumeTailorService()
+        self.application = application or ApplicationService()
+        self.planner = planner or AgentPlanner()
 
     async def run(self, db: Session, request: AgentRunRequest):
         started = time.perf_counter()
@@ -150,8 +159,31 @@ class AgentOrchestrator:
         return payload
 
     async def _quick_apply(self, db: Session, run_id: int, request: AgentRunRequest) -> dict[str, Any]:
-        profile = await self._load_profile(db, request.profile_id)
-        job = await self._load_job(db, request.job_id)
+        profile = await self.trace.step(
+            db,
+            run_id=run_id,
+            step_name="load_profile",
+            tool_name="ProfileRepository",
+            input_json={"profile_id": request.profile_id},
+            handler=lambda: self._load_profile(db, request.profile_id),
+        )
+        job = await self.trace.step(
+            db,
+            run_id=run_id,
+            step_name="load_job",
+            tool_name="JobRepository",
+            input_json={"job_id": request.job_id},
+            handler=lambda: self._load_job(db, request.job_id),
+        )
+        fit_gate = await self.trace.step(
+            db,
+            run_id=run_id,
+            step_name="fit_gate",
+            tool_name="MatcherService",
+            input_json={"profile_id": profile.id, "job_id": job.id, "min_score": 55},
+            handler=lambda: self._async_value(self._fit_gate(db, profile, job)),
+        )
+        self.trace.add_artifact(db, run_id=run_id, artifact_type="fit_gate", payload=fit_gate)
         resume_version = None
         if request.resume_version_id:
             resume_version = db.query(ResumeVersion).filter(ResumeVersion.id == request.resume_version_id).first()
@@ -178,7 +210,9 @@ class AgentOrchestrator:
                 browser_assist=False,
             ),
         )
-        return self._application_payload(application)
+        payload = self._application_payload(application)
+        payload["fit_gate"] = fit_gate
+        return payload
 
     async def _load_profile(self, db: Session, profile_id: int | None) -> Profile:
         if profile_id is None:
@@ -198,6 +232,23 @@ class AgentOrchestrator:
 
     async def _async_value(self, value):
         return value
+
+    def _fit_gate(self, db: Session, profile: Profile, job: Job) -> dict[str, Any]:
+        match = self.matcher.create_match_result(db, profile, job)
+        payload = {
+            "match_result_id": match.id,
+            "overall_score": match.overall_score,
+            "matched_skills": match.matched_skills_json,
+            "missing_skills": match.missing_skills_json,
+            "passed": match.overall_score >= 55,
+            "min_score": 55,
+        }
+        if not payload["passed"]:
+            raise ValueError(
+                f"Fit gate blocked quick_apply: score {match.overall_score} is below 55. "
+                f"Missing skills: {', '.join(match.missing_skills_json[:6])}"
+            )
+        return payload
 
     def _application_payload(self, application: Application) -> dict[str, Any]:
         return {

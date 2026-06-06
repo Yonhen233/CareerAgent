@@ -1,11 +1,12 @@
 # 量化评测方案
 
-CareerAgent 的评测分为四层：
+CareerAgent 的评测分为五层：
 
 - 基础匹配评测：Profile/JD 匹配质量。
 - PDF Chunk 策略评测：不同 PDF 切分方案对证据召回的影响。
 - RAG 策略评测：不同检索排序策略对证据召回的影响。
 - LLM 实景流程评测：真实调用 LLM 判断岗位适配度并按 JD 改写简历。
+- Agent 全流程评测：覆盖岗位搜索、匹配排序、简历定制、一键投递门禁、Trace 和 Artifact。
 
 ## 数据集
 
@@ -67,7 +68,7 @@ evals/llm_workflow_cases.json
 规模：
 
 - 18 个端到端 LLM 流程案例，不再只评测 3 条岗位适配标签。
-- 14 个案例会进入简历定制流程。
+- 13 个案例会进入简历定制流程。
 - 覆盖 `strong_fit`、`partial_fit`、`weak_fit` 三类标签。
 - 覆盖 `easy`、`medium`、`hard`、`adversarial` 四类难度。
 
@@ -76,6 +77,49 @@ evals/llm_workflow_cases.json
 - 覆盖 Agent/RAG、LLM Eval、后端、前端、数据工程、ML、AI 安全、移动 AI、推荐、分析、DevOps、CV 等岗位。
 - 每个 case 包含原始简历文本、期望 Profile 技能、期望 Profile 关键词、JD、期望 JD 技能、期望 fit label、期望 fit score 区间、定制简历关键词和禁止编造 claim。
 - hard/adversarial case 明确加入 `did not build`、`No shipped project`、相邻岗位经验等反例，测试模型是否把“读过/计划学习/课程提到”误判成真实交付经验。
+
+### Agent 全流程数据
+
+```text
+evals/agent_full_flow_cases.json
+```
+
+规模：
+
+- 6 个端到端 Agent 流程案例。
+- 覆盖 Agent、前端、数据工程、推荐算法、ML 平台和弱匹配 Agent 候选人。
+- 每个 case 都使用可控岗位源写入真实 `jobs`、`job_chunks` 和匹配结果，避免外部招聘站波动影响回归。
+- 强匹配 case 会跑通 `find_jobs_for_profile`、`tailor_resume_for_job` 和 `quick_apply`。
+- 弱匹配 case 会允许定制简历或检索分析，但 `quick_apply` 必须被 `fit_gate` 阻断。
+
+数据设计：
+
+- 每个 case 包含 guided profile、候选岗位列表、期望 Top1 岗位、期望分数区间、是否运行 tailor、是否运行 quick_apply、是否期望投递门禁拦截。
+- 评测会检查 Top1 岗位准确率、分数门禁、tailor Guardrail、quick apply 行为、Agent step trace 和 execution plan artifact。
+- 岗位 external_id 每次评测运行都会带唯一 namespace，重复运行不会撞 SQLite 唯一约束；原始岗位 ID 保存在 `eval_external_id` 里用于断言。
+
+## 标注标准
+
+### `strong_fit`
+
+- 分数区间：85-100。
+- 候选人已经在项目、实习或工作中交付过岗位核心能力的大部分要求。
+- 允许少量工具名缺失，但必须有可追溯证据，例如 shipped project、服务/API、评测指标、部署或可量化结果。
+- 目标岗位、headline、求职意向不能作为匹配证据。
+
+### `partial_fit`
+
+- 分数区间：55-84。
+- 候选人至少交付过一个与岗位核心任务直接相关或高度相邻的完整产物，但仍缺少部分核心工具、平台经验或业务场景。
+- 可以进入简历定制和人工评估；是否一键投递由 `fit_gate` 分数、缺口和风险共同决定。
+- 单纯“学过/读过/计划学习/课程提到”不能标为 `partial_fit`。
+
+### `weak_fit`
+
+- 分数区间：0-54。
+- 出现以下任一情况即归入弱匹配：只有目标意向或 headline；只有课程、阅读、计划学习；明确写了 `did not build`、`No shipped project`、`No MLflow` 等核心否定证据；只有相邻岗位经验但缺少岗位核心交付。
+- `weak_fit` 不代表候选人完全没有潜力，而是当前证据不足以直接投递。`quick_apply` 必须被 `fit_gate` 阻断，并在 Agent trace 中保留阻断原因。
+- 负面证据优先级高于关键词重合，不能因为同一句话里出现技术词就算作已掌握。
 
 ## 运行方式
 
@@ -89,6 +133,7 @@ API：
 POST /evaluations/run
 POST /evaluations/pdf-chunk-strategies
 POST /evaluations/rag-strategies
+POST /evaluations/agent-full-flow
 POST /evaluations/llm-workflow
 GET /evaluations/results
 ```
@@ -211,6 +256,47 @@ SQLite 权威存储 + Chroma 可选向量库镜像
 - 与 Qdrant、Milvus 相比，Chroma 不需要额外服务，更适合个人简历项目和本地面试演示。
 - 后续如果需要规模化，可替换为 Qdrant、Milvus、pgvector 或云向量库。
 
+## Agent 全流程评测
+
+接口：
+
+```http
+POST /evaluations/agent-full-flow
+```
+
+评测内容：
+
+- 通过 guided profile 创建候选人档案和简历 chunk。
+- 使用可控岗位源写入岗位、JD chunk 和向量索引。
+- 运行 `find_jobs_for_profile`，检查 Top1 岗位和匹配分数区间。
+- 对需要定制的 case 运行 `tailor_resume_for_job`，检查 Guardrail 和关键词覆盖。
+- 对需要投递的 case 运行 `quick_apply`；弱匹配 case 期望被 `fit_gate` 阻断。
+- 检查每个 Agent run 是否生成 `execution_plan` artifact，并记录完整 step trace。
+
+最新离线全流程结果：
+
+| 指标 | 结果 |
+| --- | ---: |
+| case_count | 6 |
+| pass_rate | 1.0000 |
+| completed_rate | 1.0000 |
+| top_job_accuracy | 1.0000 |
+| score_gate_accuracy | 1.0000 |
+| tailor_pass_rate | 1.0000 |
+| quick_apply_pass_rate | 1.0000 |
+| fit_gate_block_count | 3 |
+| trace_pass_rate | 1.0000 |
+| artifact_pass_rate | 1.0000 |
+| avg_top_job_score | 57.3650 |
+| avg_ranking_margin | 29.8817 |
+
+本轮暴露并修复的问题：
+
+- Guided profile 的 `raw_text` 会包含 headline 和 `Target roles`，如果直接参与匹配，会把“想做某岗位”误判成“做过某岗位”。已改为 support text 和 profile chunk 都过滤目标意向、headline、邮箱等元信息。
+- `No MLflow or feature store experience` 这类否定证据必须覆盖关键词命中。匹配器现在在句子级识别 `no/not/without/lacks/missing/did not build/coursework/read articles` 等负面证据。
+- 重复运行评测时，评测岗位 external_id 曾经撞 SQLite 唯一约束。现在每次 Agent full-flow evaluation 都会生成唯一 namespace，原始 ID 仍保存在 `eval_external_id`。
+- 推荐算法和 ML 平台两个弱匹配 case 被重新标注为“可分析/可定制，但不可一键投递”，更符合真实求职风险控制。
+
 ## LLM 实景流程评测
 
 接口：
@@ -296,24 +382,28 @@ POST /evaluations/llm-workflow
 
 最新轻量上下文策略后的真实 trace smoke：
 
-| Case | 难度 | 期望标签 | 预测标签 | Case 通过 | Tailor 通过 | Prompt Packet |
+| Case | 难度 | 期望标签 | 预测标签 | 分数 | Case 通过 | Tailor 通过 |
 | --- | --- | --- | --- | ---: | ---: | ---: |
-| `agent_candidate_strong_agent_role` | easy | `strong_fit` | `strong_fit` | 是 | 是 | 6071 chars，预算内 |
-| `ml_candidate_partial_agent_role` | hard | `partial_fit` | `weak_fit` | 否 | 是 | 5516 chars，预算内 |
-| `beginner_candidate_weak_agent_role` | adversarial | `weak_fit` | `weak_fit` | 是 | 未运行 | 无 tailor |
+| `agent_candidate_strong_agent_role` | easy | `strong_fit` | `strong_fit` | 95 | 是 | 是 |
+| `ml_candidate_weak_agent_role` | hard | `weak_fit` | `weak_fit` | 30 | 是 | 未运行 |
+| `analytics_candidate_partial_recommendation_role` | hard | `partial_fit` | `partial_fit` | 60 | 是 | 是 |
+| `beginner_candidate_weak_agent_role` | adversarial | `weak_fit` | `weak_fit` | 15 | 是 | 未运行 |
+| `cv_candidate_partial_ml_platform_role` | medium | `partial_fit` | `partial_fit` | 60 | 是 | 是 |
 
 汇总：
 
 - `completed_rate=1.0000`
-- `end_to_end_pass_rate=0.6667`
-- `fit_label_accuracy=0.6667`
+- `end_to_end_pass_rate=1.0000`
+- `fit_label_accuracy=1.0000`
+- `fit_score_in_range_rate=1.0000`
 - `tailor_pass_rate=1.0000`
 - `guardrail_pass_rate=1.0000`
-- `avg_tailor_reduction_ratio=0.4892`
-- `avg_tailor_retained_evidence_count=6.5`
+- `forbidden_claim_free_rate=1.0000`
+- `avg_tailor_reduction_ratio=0.4938`
+- `avg_tailor_retained_evidence_count=6.3333`
 - trace 文件：`data/runtime/llm_workflow_trace_latest.jsonl`
 
-这次 trace 直接显示每个 case 的中间返回：简历解析出的技能、JD 解析出的 required skills、RAG Top evidence、fit judge 标签和分数、tailor guardrail 结果。`ml_candidate_partial_agent_role` 失败不是因为没有 trace 或证据丢失，RAG Top evidence 明确包含 “did not build an agent system”，模型因此判 `weak_fit`，说明下一步应重新定义 partial/weak 标注边界或增加边界 prompt，而不是继续调上下文压缩。
+这次 trace 直接显示每个 case 的中间返回：简历解析出的技能、JD 解析出的 required skills、RAG Top evidence、fit judge 标签和分数、tailor guardrail 结果。`ml_candidate_weak_agent_role` 的 RAG Top evidence 明确包含 “did not build an agent system”，模型判 `weak_fit` 是符合新标注标准的结果。
 
 调试发现：
 
@@ -321,10 +411,13 @@ POST /evaluations/llm-workflow
 - 修复方式是在 Pydantic schema 层把“应为字符串但缺失”的字段归一为空字符串，把列表字段的 `null` 归一为空列表；这不是兜底生成内容，只是接受真实 LLM 常见的缺失表达。
 - 修复后，`resume_parse_success_rate` 从 0.7778 提升到 1.0000，`end_to_end_pass_rate` 从 0.6667 提升到 0.8889。
 - 剩余 1 个失败是 `agent_candidate_strong_agent_role` 的 `tailor_resume` 阶段 `httpx.ReadTimeout`，说明长 prompt 的简历定制仍需要更好的超时预算或 prompt 压缩。
-- hard 分桶里 `ml_candidate_partial_agent_role` 被模型判成 `weak_fit`，暴露出 partial/weak 边界仍需更细：有 Python/Transformers/Evaluation 交集但明确没有 Agent/RAG 交付时，人工期望是 partial，模型更保守。
+- 旧标注中 `ml_candidate_partial_agent_role` 被模型判成 `weak_fit`，trace 证明模型依据的是 “did not build an agent system” 这类核心否定证据；该 case 已重标为 `ml_candidate_weak_agent_role`，并作为 partial/weak 边界回归样例。
 - 原异常记录使用 `str(exc)`，`ReadTimeout` 会显示为空字符串；已改为记录异常类型和 `repr(exc)`，保证 trace 可追溯。
 - 上下文压缩已从过重的多阶段收缩改成 Profile 摘要、JD 摘要、Top evidence 和一次总 prompt packet 预算检查；短小 fit judge 上下文如果因为结构化元数据变大，会用 `expansion_ratio` 单独记录。
 - 轻量策略第一轮真实 trace 发现 strong case 的 tailor packet 曾超过 9000 字符预算；修复方式是压缩 evidence metadata，只保留排序调试必要字段，并将预算 trim 调整为更明确的 Top evidence 片段。
+- 本轮 5-case 真实 trace 发现 `ranking model` 出现在 “did not implement ranking models” 否定句中时，旧 forbidden claim 检查会误判；已改为否定上下文感知。
+- 本轮 5-case 真实 trace 还发现 `A/B testing`、`model evaluation` 与源简历里的 `A/B tests`、`experiment analysis`、`evaluation dashboards` 属于同义证据；Guardrail 已增加技能别名，避免误伤真实证据。
+- 简历定制 prompt 已明确要求：缺失 JD 要求只能写入 `keyword_alignment.missing/notes`，不能以 “eager to learn” 等形式写进简历正文。
 
 ## 后续优化
 

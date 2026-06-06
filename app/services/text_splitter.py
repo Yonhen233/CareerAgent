@@ -212,8 +212,42 @@ class ResumeTextSplitter:
 
     def build_resume_chunks(self, profile: dict) -> list[TextChunk]:
         chunks = self.split_structured_profile(profile)
-        chunks.extend(self.split_raw_text(str(profile.get("raw_text") or "")))
+        chunks.extend(self.split_raw_text(self._clean_profile_raw_text(profile)))
         return chunks
+
+    def _clean_profile_raw_text(self, profile: dict) -> str:
+        raw_text = str(profile.get("raw_text") or "")
+        target_roles = [str(item).strip().lower() for item in profile.get("target_roles", []) or [] if str(item).strip()]
+        exact_metadata = {
+            str(value).strip().lower()
+            for value in [
+                profile.get("name"),
+                profile.get("email"),
+                profile.get("phone"),
+                profile.get("headline"),
+            ]
+            if str(value or "").strip()
+        }
+        cleaned: list[str] = []
+        for line in raw_text.splitlines():
+            stripped = line.strip()
+            lowered = stripped.lower()
+            if not stripped:
+                continue
+            if lowered in exact_metadata:
+                continue
+            if lowered.startswith(("target roles:", "target role:", "目标岗位", "求职意向")):
+                continue
+            if self._is_target_intent_line(lowered, target_roles):
+                continue
+            cleaned.append(stripped)
+        return "\n".join(cleaned)
+
+    def _is_target_intent_line(self, lowered_line: str, target_roles: list[str]) -> bool:
+        if not target_roles:
+            return False
+        intent_cues = ["target", "candidate", "seeking", "applying", "目标", "求职", "候选人", "应聘"]
+        return any(role in lowered_line for role in target_roles) and any(cue in lowered_line for cue in intent_cues)
 
     def _flatten_mapping(self, value: object) -> str:
         if isinstance(value, dict):

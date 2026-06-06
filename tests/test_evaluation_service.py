@@ -38,6 +38,22 @@ def test_rag_strategy_evaluation_selects_strategy(db_session):
     assert "difficulty_breakdown" in run.summary_json["strategy_results"][0]
 
 
+def test_agent_full_flow_evaluation_covers_orchestrator_components(db_session):
+    run = asyncio.run(EvaluationService().run_agent_full_flow_evaluation(db_session))
+
+    assert run.summary_json["evaluation_type"] == "agent_full_flow"
+    assert run.summary_json["case_count"] >= 6
+    assert run.summary_json["pass_rate"] == 1.0
+    assert run.summary_json["top_job_accuracy"] == 1.0
+    assert run.summary_json["score_gate_accuracy"] == 1.0
+    assert run.summary_json["quick_apply_pass_rate"] == 1.0
+    assert run.summary_json["trace_pass_rate"] == 1.0
+    assert run.summary_json["artifact_pass_rate"] == 1.0
+    assert run.summary_json["fit_gate_block_count"] >= 3
+    assert any(item.get("fit_gate_blocked") for item in run.case_results_json)
+    assert all(item.get("run_trace") for item in run.case_results_json)
+
+
 def test_llm_workflow_dataset_covers_full_pipeline():
     cases = json.loads(Path("evals/llm_workflow_cases.json").read_text(encoding="utf-8"))
     required_fields = {
@@ -116,3 +132,16 @@ def test_llm_workflow_summary_has_quantitative_metrics():
     assert summary["context_compression"]["fit_context_count"] == 1
     assert summary["context_compression"]["avg_tailor_reduction_ratio"] == 0.5
     assert "difficulty_breakdown" in summary
+
+
+def test_forbidden_claim_hits_ignore_negated_disclosures():
+    service = EvaluationService()
+
+    conservative_text = "Built metric dashboards. Did not implement ranking models or CTR features."
+    assert service._forbidden_claim_hits(conservative_text, ["ranking model", "CTR feature"]) == []
+
+    inflated_text = "Implemented ranking models and owned CTR feature engineering for recommender systems."
+    assert service._forbidden_claim_hits(inflated_text, ["ranking model", "CTR feature engineering"]) == [
+        "ranking model",
+        "CTR feature engineering",
+    ]

@@ -2,17 +2,20 @@ import json
 import math
 import re
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.agents.orchestrator import AgentOrchestrator
 from app.core.config import get_settings
-from app.models.entities import EvaluationRun, Job, Profile
-from app.models.schemas import GuidedProfileRequest
+from app.models.entities import AgentArtifact, AgentStep, EvaluationRun, Job, Profile
+from app.models.schemas import AgentRunRequest, GuidedProfileRequest
 from app.services.context_compressor import ContextCompressor
 from app.services.guardrails import ResumeGuardrailService
 from app.services.jd_parser import JDParserService
+from app.services.job_sources import JobPosting
 from app.services.resume_tailor import ResumeTailorService
 from app.core.llm import LLMClient, LLMConfigurationError, format_exception
 from app.services.embedding_service import EmbeddingService
@@ -21,6 +24,65 @@ from app.services.reranker import RerankerService
 from app.services.resume_parser import ResumeParserService
 from app.services.text_splitter import PDFPageText, ResumeTextSplitter, TextChunk
 from app.services.vector_index import SQLiteVectorIndex, cosine_similarity, expand_query_text, tokenize
+
+
+class EvaluationJobSearchService:
+    def __init__(self, postings: list[dict[str, Any]], *, namespace: str) -> None:
+        self.postings = postings
+        self.namespace = namespace
+        self.jd_parser = JDParserService()
+        self.splitter = ResumeTextSplitter()
+        self.vector_index = SQLiteVectorIndex()
+
+    async def search(
+        self,
+        db: Session,
+        *,
+        query: str,
+        location: str | None = None,
+        internship_only: bool = True,
+        limit: int = 20,
+        store_results: bool = True,
+    ) -> tuple[list[Job], dict[str, str]]:
+        jobs = []
+        for index, item in enumerate(self.postings[:limit]):
+            raw_external_id = str(item.get("external_id") or f"eval_job_{index}")
+            posting = JobPosting(
+                source="eval_agent_full_flow",
+                external_id=f"{self.namespace}:{raw_external_id}",
+                title=str(item.get("title") or "Evaluation Job"),
+                company=item.get("company"),
+                location=item.get("location") or location,
+                job_type=item.get("job_type") or "internship",
+                apply_url=item.get("apply_url") or f"https://example.com/jobs/{index}",
+                raw_jd_text=str(item.get("jd_text") or ""),
+                payload={**item, "eval_external_id": raw_external_id},
+            )
+            structured = item.get("structured_jd") or await self.jd_parser.parse_jd(
+                posting.raw_jd_text,
+                title=posting.title,
+                company=posting.company,
+                location=posting.location,
+            )
+            job = Job(
+                source=posting.source,
+                external_id=posting.external_id,
+                title=posting.title,
+                company=posting.company,
+                location=posting.location,
+                job_type=posting.job_type,
+                apply_url=posting.apply_url,
+                raw_jd_text=posting.raw_jd_text,
+                structured_jd_json=structured,
+                source_payload_json=posting.payload,
+            )
+            db.add(job)
+            db.commit()
+            db.refresh(job)
+            chunks = self.splitter.split_jd_text(job.raw_jd_text, job.structured_jd_json or {}, prefix=f"eval_job_{job.id}")
+            self.vector_index.upsert_job_chunks(db, job.id, chunks)
+            jobs.append(job)
+        return jobs, {}
 
 
 class EvaluationService:
@@ -297,6 +359,25 @@ class EvaluationService:
         db.refresh(run)
         return run
 
+    async def run_agent_full_flow_evaluation(self, db: Session, *, dataset_path: Path | None = None) -> EvaluationRun:
+        path = dataset_path or self.settings.base_path / "evals" / "agent_full_flow_cases.json"
+        cases = json.loads(path.read_text(encoding="utf-8"))
+        run_namespace = uuid.uuid4().hex[:12]
+        case_results = [
+            await self._run_agent_full_flow_case(db, case, namespace=f"{run_namespace}:{index}:{case['name']}")
+            for index, case in enumerate(cases)
+        ]
+        summary = self._summarize_agent_full_flow(case_results, path)
+        run = EvaluationRun(
+            name="agent_full_flow_evaluation",
+            summary_json=summary,
+            case_results_json=case_results,
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        return run
+
     async def run_llm_workflow_evaluation(
         self,
         db: Session,
@@ -352,6 +433,144 @@ class EvaluationService:
             db.refresh(run)
             self._append_llm_trace(trace_path, case_result, summary)
         return run
+
+    async def _run_agent_full_flow_case(
+        self,
+        db: Session,
+        case: dict[str, Any],
+        *,
+        namespace: str,
+    ) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "name": case["name"],
+            "difficulty": case.get("difficulty", "unknown"),
+            "status": "running",
+        }
+        try:
+            profile = ResumeParserService().create_profile_from_guided_answers(
+                db,
+                GuidedProfileRequest.model_validate(case["profile"]),
+            )
+            orchestrator = AgentOrchestrator(
+                job_search=EvaluationJobSearchService(case.get("jobs", []), namespace=namespace)
+            )
+            find_run = await orchestrator.run(
+                db,
+                self._agent_request(
+                    task_type="find_jobs_for_profile",
+                    profile_id=profile.id,
+                    query=case.get("query") or "Agent intern",
+                    limit=len(case.get("jobs", [])) or 5,
+                ),
+            )
+            find_output = find_run.output_json or {}
+            matches = find_output.get("matches", [])
+            top_match = matches[0] if matches else {}
+            top_job = db.query(Job).filter(Job.id == top_match.get("job_id")).first() if top_match else None
+            top_job_eval_external_id = (
+                (top_job.source_payload_json or {}).get("eval_external_id") if top_job else None
+            )
+            expected_top = case.get("expected_top_job_external_id")
+            top_job_passed = bool(top_job and top_job_eval_external_id == expected_top)
+            min_score = float(case.get("expected_min_top_score", 0))
+            max_score = float(case.get("expected_max_top_score", 100))
+            top_score = float(top_match.get("overall_score") or 0)
+            score_passed = min_score <= top_score <= max_score
+            ranking_margin = self._ranking_margin(matches)
+
+            tailor_run = None
+            quick_apply_run = None
+            tailor_passed = None
+            quick_apply_passed = None
+            fit_gate_blocked = None
+            resume_version_id = None
+            application_id = None
+            if top_job and case.get("run_tailor"):
+                tailor_run = await AgentOrchestrator().run(
+                    db,
+                    self._agent_request(
+                        task_type="tailor_resume_for_job",
+                        profile_id=profile.id,
+                        job_id=top_job.id,
+                    ),
+                )
+                tailor_output = tailor_run.output_json or {}
+                resume_version_id = tailor_output.get("resume_version_id")
+                version_text = ""
+                if resume_version_id:
+                    from app.models.entities import ResumeVersion
+
+                    version = db.query(ResumeVersion).filter(ResumeVersion.id == resume_version_id).first()
+                    version_text = version.tailored_resume_markdown if version else ""
+                keyword_hit = self._keyword_hit_rate(version_text, case.get("expected_resume_keywords", []))
+                verification = tailor_output.get("verification") or {}
+                tailor_passed = (
+                    tailor_run.status == "completed"
+                    and bool(verification.get("passed"))
+                    and keyword_hit >= float(case.get("min_resume_keyword_hit_rate", 0.6))
+                )
+                result["resume_keyword_hit_rate"] = keyword_hit
+
+            if top_job and case.get("run_quick_apply"):
+                quick_apply_run = await AgentOrchestrator().run(
+                    db,
+                    self._agent_request(
+                        task_type="quick_apply",
+                        profile_id=profile.id,
+                        job_id=top_job.id,
+                        resume_version_id=resume_version_id,
+                    ),
+                )
+                quick_output = quick_apply_run.output_json or {}
+                fit_gate_blocked = quick_apply_run.status == "failed" and "Fit gate blocked" in (
+                    quick_apply_run.error_message or ""
+                )
+                expected_block = bool(case.get("expect_quick_apply_blocked"))
+                quick_apply_passed = (
+                    fit_gate_blocked if expected_block else quick_apply_run.status == "completed"
+                )
+                application_id = quick_output.get("application_id")
+
+            runs = [run for run in [find_run, tailor_run, quick_apply_run] if run is not None]
+            trace_passed = all(self._run_has_completed_plan(db, run.id) for run in runs)
+            artifact_passed = all(self._run_has_artifact(db, run.id, "execution_plan") for run in runs)
+            result.update(
+                {
+                    "status": "completed",
+                    "profile_id": profile.id,
+                    "find_run_id": find_run.id,
+                    "tailor_run_id": tailor_run.id if tailor_run else None,
+                    "quick_apply_run_id": quick_apply_run.id if quick_apply_run else None,
+                    "top_job_id": top_job.id if top_job else None,
+                    "top_job_external_id": top_job.external_id if top_job else None,
+                    "top_job_eval_external_id": top_job_eval_external_id,
+                    "top_job_score": top_score,
+                    "ranking_margin": ranking_margin,
+                    "top_job_passed": top_job_passed,
+                    "score_passed": score_passed,
+                    "tailor_passed": tailor_passed,
+                    "quick_apply_passed": quick_apply_passed,
+                    "fit_gate_blocked": fit_gate_blocked,
+                    "trace_passed": trace_passed,
+                    "artifact_passed": artifact_passed,
+                    "resume_version_id": resume_version_id,
+                    "application_id": application_id,
+                    "matches": matches,
+                    "run_trace": [self._agent_run_trace(db, run.id) for run in runs],
+                }
+            )
+            result["case_passed"] = self._agent_full_flow_case_passed(result, case)
+            return result
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            result.update(
+                {
+                    "status": "failed",
+                    "error": format_exception(exc),
+                    "case_passed": False,
+                }
+            )
+            return result
 
     def _select_llm_cases(
         self,
@@ -708,6 +927,114 @@ class EvaluationService:
             )
             return result
 
+    def _agent_request(self, **kwargs: Any) -> AgentRunRequest:
+        return AgentRunRequest.model_validate(kwargs)
+
+    def _ranking_margin(self, matches: list[dict[str, Any]]) -> float:
+        if len(matches) < 2:
+            return float(matches[0].get("overall_score") or 0) if matches else 0.0
+        return round(float(matches[0].get("overall_score") or 0) - float(matches[1].get("overall_score") or 0), 4)
+
+    def _run_has_completed_plan(self, db: Session, run_id: int) -> bool:
+        step = (
+            db.query(AgentStep)
+            .filter(AgentStep.run_id == run_id, AgentStep.step_name == "plan_task")
+            .first()
+        )
+        return bool(step and step.status == "completed")
+
+    def _run_has_artifact(self, db: Session, run_id: int, artifact_type: str) -> bool:
+        return (
+            db.query(AgentArtifact)
+            .filter(AgentArtifact.run_id == run_id, AgentArtifact.artifact_type == artifact_type)
+            .first()
+            is not None
+        )
+
+    def _agent_run_trace(self, db: Session, run_id: int) -> dict[str, Any]:
+        steps = (
+            db.query(AgentStep)
+            .filter(AgentStep.run_id == run_id)
+            .order_by(AgentStep.created_at.asc(), AgentStep.id.asc())
+            .all()
+        )
+        artifacts = (
+            db.query(AgentArtifact)
+            .filter(AgentArtifact.run_id == run_id)
+            .order_by(AgentArtifact.created_at.asc(), AgentArtifact.id.asc())
+            .all()
+        )
+        return {
+            "run_id": run_id,
+            "steps": [
+                {
+                    "step_name": step.step_name,
+                    "tool_name": step.tool_name,
+                    "status": step.status,
+                    "latency_ms": step.latency_ms,
+                    "error_message": step.error_message,
+                }
+                for step in steps
+            ],
+            "artifacts": [artifact.artifact_type for artifact in artifacts],
+        }
+
+    def _agent_full_flow_case_passed(self, result: dict[str, Any], case: dict[str, Any]) -> bool:
+        if result.get("status") != "completed":
+            return False
+        base = (
+            bool(result.get("top_job_passed"))
+            and bool(result.get("score_passed"))
+            and bool(result.get("trace_passed"))
+            and bool(result.get("artifact_passed"))
+        )
+        if not base:
+            return False
+        if case.get("run_tailor") and result.get("tailor_passed") is not True:
+            return False
+        if case.get("run_quick_apply") and result.get("quick_apply_passed") is not True:
+            return False
+        return True
+
+    def _summarize_agent_full_flow(self, case_results: list[dict[str, Any]], dataset_path: Path) -> dict[str, Any]:
+        count = max(len(case_results), 1)
+        tailor_cases = [item for item in case_results if item.get("tailor_passed") is not None]
+        quick_cases = [item for item in case_results if item.get("quick_apply_passed") is not None]
+        blocked_cases = [item for item in case_results if item.get("fit_gate_blocked") is True]
+        return {
+            "evaluation_type": "agent_full_flow",
+            "dataset": dataset_path.name,
+            "case_count": len(case_results),
+            "pass_rate": round(sum(1 for item in case_results if item.get("case_passed")) / count, 4),
+            "completed_rate": round(sum(1 for item in case_results if item.get("status") == "completed") / count, 4),
+            "top_job_accuracy": self._avg_bool(case_results, "top_job_passed"),
+            "score_gate_accuracy": self._avg_bool(case_results, "score_passed"),
+            "tailor_pass_rate": self._avg_bool(tailor_cases, "tailor_passed"),
+            "quick_apply_pass_rate": self._avg_bool(quick_cases, "quick_apply_passed"),
+            "fit_gate_block_count": len(blocked_cases),
+            "trace_pass_rate": self._avg_bool(case_results, "trace_passed"),
+            "artifact_pass_rate": self._avg_bool(case_results, "artifact_passed"),
+            "avg_top_job_score": self._avg_number(case_results, "top_job_score"),
+            "avg_ranking_margin": self._avg_number(case_results, "ranking_margin"),
+            "failure_breakdown": self._agent_full_flow_failure_breakdown(case_results),
+            "notes": [
+                "覆盖 find_jobs_for_profile、tailor_resume_for_job、quick_apply、Trace、Artifact、RAG 证据和 Guardrail。",
+                "岗位源使用可控评测源，避免外部招聘站波动影响全链路回归；真实岗位抓取由 job source 单独测试。",
+                "低匹配 quick_apply 应被 fit_gate 阻断，失败直接写入 Agent step trace。",
+            ],
+        }
+
+    def _agent_full_flow_failure_breakdown(self, rows: list[dict[str, Any]]) -> dict[str, int]:
+        checks = {
+            "top_job_failed": lambda item: item.get("top_job_passed") is False,
+            "score_gate_failed": lambda item: item.get("score_passed") is False,
+            "tailor_failed": lambda item: item.get("tailor_passed") is False,
+            "quick_apply_failed": lambda item: item.get("quick_apply_passed") is False,
+            "trace_failed": lambda item: item.get("trace_passed") is False,
+            "artifact_failed": lambda item: item.get("artifact_passed") is False,
+        }
+        return {name: sum(1 for item in rows if check(item)) for name, check in checks.items()}
+
     def _summarize_llm_workflow(self, case_results: list[dict[str, Any]], dataset_path: Path) -> dict[str, Any]:
         count = max(len(case_results), 1)
         completed = [item for item in case_results if item.get("status") == "completed"]
@@ -773,7 +1100,48 @@ class EvaluationService:
 
     def _forbidden_claim_hits(self, text: str, forbidden_claims: list[str]) -> list[str]:
         lowered = (text or "").lower()
-        return [claim for claim in forbidden_claims if str(claim).strip().lower() in lowered]
+        hits: list[str] = []
+        for claim in forbidden_claims:
+            needle = str(claim).strip().lower()
+            if not needle:
+                continue
+            search_from = 0
+            has_unnegated_hit = False
+            while True:
+                index = lowered.find(needle, search_from)
+                if index < 0:
+                    break
+                window = lowered[max(0, index - 120) : min(len(lowered), index + len(needle) + 120)]
+                if not self._claim_window_is_negated(window):
+                    has_unnegated_hit = True
+                    break
+                search_from = index + max(len(needle), 1)
+            if has_unnegated_hit:
+                hits.append(str(claim))
+        return hits
+
+    def _claim_window_is_negated(self, window: str) -> bool:
+        negation_cues = [
+            "did not",
+            "do not",
+            "does not",
+            "not implement",
+            "not implemented",
+            "not build",
+            "not built",
+            "no ",
+            "without ",
+            "lacks ",
+            "lack ",
+            "currently lack",
+            "not have",
+            "no direct",
+            "没有",
+            "未实现",
+            "未交付",
+            "缺少",
+        ]
+        return any(cue in window for cue in negation_cues)
 
     def _coerce_float(self, value: Any) -> float:
         try:

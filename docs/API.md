@@ -278,6 +278,14 @@ POST /evaluations/pdf-chunk-strategies
 POST /evaluations/rag-strategies
 ```
 
+运行 Agent 全流程评测：
+
+```http
+POST /evaluations/agent-full-flow
+```
+
+该评测覆盖 `find_jobs_for_profile`、`tailor_resume_for_job`、`quick_apply`、`fit_gate`、Trace 和 Artifact。弱匹配 case 期望 `quick_apply` 失败并在 step trace 中记录阻断原因。
+
 运行真实 LLM 工作流评测：
 
 ```http
@@ -303,6 +311,12 @@ GET /evaluations/results
 - `avg_evidence_hit_rate`
 - `top3_context_hit_rate`
 - `avg_top3_recall`
+- `top_job_accuracy`
+- `score_gate_accuracy`
+- `quick_apply_pass_rate`
+- `fit_gate_block_count`
+- `trace_pass_rate`
+- `artifact_pass_rate`
 - `completed_rate`
 - `end_to_end_pass_rate`
 - `resume_parse_success_rate`

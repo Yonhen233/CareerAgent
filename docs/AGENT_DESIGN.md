@@ -95,6 +95,17 @@ LLM 不再直接读取全量 Profile、全量 JD 和全部证据，而是由 `Co
 
 当前代码已经具备 ReAct 所需的工具边界和验证器。开发默认不做静默 fallback：LLM、embedding 或 reranker 失败会直接报错，Agent step 与 LLM log 用于追溯。下一步可以把高风险简历改写成最多 2 轮的 repair loop。
 
+## 投递门禁
+
+`quick_apply` 不再把所有岗位都推进到投递包生成。它会先运行 `fit_gate`：
+
+- `overall_score >= 55` 才允许继续生成或复用定制简历。
+- `overall_score < 55` 直接失败，错误信息包含缺失技能，Agent step trace 保留输入、耗时和异常。
+- 目标岗位、headline 和求职意向不作为匹配证据；只有技能、项目、经历、教育等事实字段进入 support text。
+- `did not build`、`No shipped project`、`No MLflow`、课程/阅读/计划学习等负面证据优先级高于关键词命中。
+
+这个设计让开发期评测更接近真实求职场景：Agent 可以建议继续补项目或定制简历，但不能把证据不足的岗位静默投出去。
+
 ## 当前 Tool
 
 `GET /agent/tools` 可以查看工具注册表。当前工具包括：

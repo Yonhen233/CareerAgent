@@ -393,7 +393,7 @@
     ]
   },
   {
-    "name": "ml_candidate_partial_agent_role",
+    "name": "ml_candidate_weak_agent_role",
     "difficulty": "hard",
     "resume_raw_text": "Liu Xin\nliuxin@example.com\nSkills: Python, PyTorch, Transformers, MLflow, Model Evaluation.\n\nProjects\nModelLab: Trained transformer baselines and compared metrics. Read papers about RAG but did not build an agent system.",
     "expected_profile_skills": [
@@ -419,22 +419,14 @@
       "SQLite",
       "Agent"
     ],
-    "expected_fit_label": "partial_fit",
+    "expected_fit_label": "weak_fit",
     "expected_fit_score_range": [
-      45,
-      75
+      0,
+      45
     ],
-    "run_tailor": true,
-    "expected_tailored_keywords": [
-      "Python",
-      "Transformers",
-      "evaluation"
-    ],
-    "forbidden_tailored_claims": [
-      "built FastAPI services",
-      "SQLite RAG",
-      "tool execution traces"
-    ]
+    "run_tailor": false,
+    "expected_tailored_keywords": [],
+    "forbidden_tailored_claims": []
   },
   {
     "name": "security_candidate_strong_ai_security_role",

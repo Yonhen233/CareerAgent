@@ -27,6 +27,12 @@ def run_rag_strategy_evaluation(db: Session = Depends(get_db)) -> EvaluationRunR
     return EvaluationRunResponse.model_validate(run)
 
 
+@router.post("/agent-full-flow", response_model=EvaluationRunResponse, status_code=status.HTTP_201_CREATED)
+async def run_agent_full_flow_evaluation(db: Session = Depends(get_db)) -> EvaluationRunResponse:
+    run = await EvaluationService().run_agent_full_flow_evaluation(db)
+    return EvaluationRunResponse.model_validate(run)
+
+
 @router.post("/llm-workflow", response_model=EvaluationRunResponse, status_code=status.HTTP_201_CREATED)
 async def run_llm_workflow_evaluation(
     case_limit: int | None = Query(default=None, ge=1, le=18),
