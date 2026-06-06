@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -28,8 +28,11 @@ def run_rag_strategy_evaluation(db: Session = Depends(get_db)) -> EvaluationRunR
 
 
 @router.post("/llm-workflow", response_model=EvaluationRunResponse, status_code=status.HTTP_201_CREATED)
-async def run_llm_workflow_evaluation(db: Session = Depends(get_db)) -> EvaluationRunResponse:
-    run = await EvaluationService().run_llm_workflow_evaluation(db)
+async def run_llm_workflow_evaluation(
+    case_limit: int | None = Query(default=None, ge=1, le=18),
+    db: Session = Depends(get_db),
+) -> EvaluationRunResponse:
+    run = await EvaluationService().run_llm_workflow_evaluation(db, case_limit=case_limit)
     return EvaluationRunResponse.model_validate(run)
 
 

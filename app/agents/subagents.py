@@ -41,14 +41,6 @@ SUBAGENTS: list[SubAgentSpec] = [
         context_policy="保留 Top evidence 和排序元数据，压缩后再交给 LLM。",
     ),
     SubAgentSpec(
-        name="context_manager",
-        purpose="执行渐进式披露和分级上下文压缩，控制传给 LLM 的证据预算。",
-        owns_skills=["progressive_disclosure"],
-        reads=["structured_profile", "structured_jd", "ranked_evidence"],
-        writes=["compressed_fit_context", "compressed_tailor_context", "context_compression_trace"],
-        context_policy="按 L1 Profile、L2 JD、L3 Evidence、L4 Prompt Packet 分层压缩，并记录每层预算与丢弃字符数。",
-    ),
-    SubAgentSpec(
         name="fit_judge",
         purpose="使用压缩上下文判断岗位适配度，并输出证据与缺口。",
         owns_skills=["fit_assessment"],
@@ -81,11 +73,10 @@ TASK_SUBAGENTS = {
         "profile_analyst",
         "job_analyst",
         "evidence_curator",
-        "context_manager",
         "fit_judge",
         "resume_writer",
     ],
-    "quick_apply": ["profile_analyst", "job_analyst", "context_manager", "resume_writer", "application_operator"],
+    "quick_apply": ["profile_analyst", "job_analyst", "resume_writer", "application_operator"],
 }
 
 

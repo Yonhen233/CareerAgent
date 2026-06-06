@@ -35,12 +35,11 @@ CareerAgent 的目标不是“一个 Prompt 生成简历”，而是一个可观
 - `resume_intake_and_structuring`
 - `jd_structuring`
 - `evidence_retrieval`
-- `progressive_disclosure`
 - `fit_assessment`
 - `resume_tailoring`
 - `application_packet`
 
-`app/agents/subagents.py` 保存工程责任边界，例如 `context_manager` 负责渐进式披露和分级上下文压缩。当前 SubAgent 不是独立进程，也不是多个自由对话模型，而是为了控制 prompt、上下文、trace 和测试边界。
+`app/agents/subagents.py` 保存工程责任边界，例如 `fit_judge`、`resume_writer`、`application_operator`。上下文压缩不再注册成独立 subagent，而是由 `ContextCompressor` 作为 LLM 调用前的 runtime policy 执行。
 
 ## Agent 工作流
 
@@ -60,7 +59,7 @@ CareerAgent 的目标不是“一个 Prompt 生成简历”，而是一个可观
 2. 加载 Profile 和 Job。
 3. 生成匹配结果。
 4. 检索简历 RAG 证据。
-5. `ContextCompressor` 按 L1 Profile、L2 JD、L3 Evidence、L4 Prompt Packet 分级压缩上下文。
+5. `ContextCompressor` 按 Profile 摘要、JD 摘要、Top evidence 和总 prompt packet 预算生成压缩上下文。
 6. 调用 LLM 生成定制简历；默认失败直接报错并进入 Trace。
 7. Guardrail 检查新增事实和关键词覆盖。
 8. 保存简历版本、diff、证据和 verification。
@@ -182,7 +181,7 @@ Reranker：
 
 - 默认只向 LLM 暴露结构化 Profile、结构化 JD 和 Top evidence。
 - 全量原始简历、全量 JD、非 Top evidence 默认作为 deferred context，不进入 prompt。
-- 每层压缩都记录字符数、预算、压缩事件和保留证据数量。
+- 压缩元数据记录字符数、预算、压缩事件和保留证据数量。
 - 简历定制结果的 `keyword_alignment_json.context_compression` 会保存压缩元数据，便于追溯质量问题。
 
 这样做的目标不是单纯减少 token，而是让失败可定位：如果 LLM 判断错，可以区分是解析错、RAG 没召回、reranker 排错、压缩丢证据，还是模型本身判断错。

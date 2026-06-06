@@ -1,6 +1,5 @@
 import json
 import re
-from copy import deepcopy
 from typing import Any, Callable
 
 from app.core.config import get_settings
@@ -8,7 +7,7 @@ from app.models.entities import Job, Profile
 
 
 class ContextCompressor:
-    """Build task-specific prompt packets with progressive disclosure metadata."""
+    """Build budgeted prompt packets with progressive disclosure metadata."""
 
     def __init__(self) -> None:
         self.settings = get_settings()
@@ -79,42 +78,39 @@ class ContextCompressor:
     def _profile_layer(self, profile_data: dict[str, Any], raw_resume_text: str) -> dict[str, Any]:
         payload = self._compress_profile(profile_data, raw_resume_text, level=0)
         return self._budget_layer(
-            name="L1_profile_facts",
+            name="profile_summary",
             raw_payload={"profile": profile_data, "raw_resume_text": raw_resume_text},
             payload=payload,
             budget=max(int(self.settings.llm_context_max_chars * 0.32), 1800),
             strategy="structured_profile_fields_then_signal_excerpt",
             shrinkers=[
                 lambda item: self._compress_profile(profile_data, raw_resume_text, level=1),
-                lambda item: self._compress_profile(profile_data, raw_resume_text, level=2),
             ],
         )
 
     def _job_layer(self, job: Job, job_data: dict[str, Any]) -> dict[str, Any]:
         payload = self._compress_job(job, job_data, level=0)
         return self._budget_layer(
-            name="L2_job_requirements",
+            name="job_summary",
             raw_payload={"job": job_data, "raw_jd_text": job.raw_jd_text},
             payload=payload,
             budget=max(int(self.settings.llm_context_max_chars * 0.26), 1600),
             strategy="structured_jd_requirements_then_signal_excerpt",
             shrinkers=[
                 lambda item: self._compress_job(job, job_data, level=1),
-                lambda item: self._compress_job(job, job_data, level=2),
             ],
         )
 
     def _evidence_layer(self, evidence: list[dict[str, Any]]) -> dict[str, Any]:
         payload = self._compress_evidence(evidence, max_items=20, snippet_chars=520)
         return self._budget_layer(
-            name="L3_ranked_evidence",
+            name="evidence_snippets",
             raw_payload={"evidence": evidence},
             payload=payload,
             budget=self.settings.llm_evidence_max_chars,
             strategy="top20_retrieval_rerank_metadata_then_budgeted_snippets",
             shrinkers=[
-                lambda item: self._compress_evidence(evidence, max_items=12, snippet_chars=360),
-                lambda item: self._compress_evidence(evidence, max_items=8, snippet_chars=240),
+                lambda item: self._compress_evidence(evidence, max_items=6, snippet_chars=180),
             ],
         )
 
@@ -175,34 +171,26 @@ class ContextCompressor:
             payload["raw_context"] = raw_context
             events: list[dict[str, Any]] = []
         else:
-            payload = deepcopy(packet)
+            payload = dict(packet)
             events = []
-            for stage_name, shrinker in [
-                ("L4_prompt_packet_evidence_trim", self._shrink_prompt_packet_medium),
-                ("L5_prompt_packet_summary_only", self._shrink_prompt_packet_small),
-                ("L6_minimal_decision_packet", self._shrink_prompt_packet_minimal),
-            ]:
-                current_chars = self._chars(payload)
-                if current_chars <= self.settings.llm_context_max_chars:
-                    break
-                next_payload = shrinker(payload)
-                next_chars = self._chars(next_payload)
+            current_chars = self._chars(payload)
+            if current_chars > self.settings.llm_context_max_chars:
+                payload = self._shrink_prompt_packet(payload)
                 events.append(
-                    {
-                        "stage": stage_name,
-                        "before_chars": current_chars,
-                        "after_chars": next_chars,
-                        "budget_chars": self.settings.llm_context_max_chars,
-                    }
+                    self._event(
+                        "prompt_packet_budget_trim",
+                        before_chars=current_chars,
+                        after_chars=self._chars(payload),
+                        budget_chars=self.settings.llm_context_max_chars,
+                    )
                 )
-                payload = next_payload
 
         final_chars = self._chars(payload)
         layer_metadata = [{key: value for key, value in layer.items() if key != "payload"} for layer in layers]
         payload["context_compression"] = {
             "enabled": self.settings.llm_context_compression_enabled,
             "purpose": purpose,
-            "strategy": "hierarchical_progressive_disclosure",
+            "strategy": "progressive_disclosure_budgeted_packet",
             "raw_chars": raw_chars,
             "initial_packet_chars": initial_packet_chars,
             "compressed_chars": final_chars,
@@ -215,8 +203,8 @@ class ContextCompressor:
             "levels": layer_metadata
             + [
                 {
-                    "name": "L4_prompt_packet",
-                    "strategy": "final_task_packet_budget_guard",
+                    "name": "prompt_packet",
+                    "strategy": "single_budget_guard",
                     "visible_to_llm": True,
                     "input_chars": initial_packet_chars,
                     "output_chars": final_chars,
@@ -232,10 +220,8 @@ class ContextCompressor:
     def _compress_profile(self, profile_data: dict[str, Any], raw_resume_text: str, *, level: int) -> dict[str, Any]:
         if level == 0:
             project_count, exp_count, skill_count, desc_chars, impact_chars, excerpt_chars = 8, 6, 32, 520, 260, 1200
-        elif level == 1:
-            project_count, exp_count, skill_count, desc_chars, impact_chars, excerpt_chars = 5, 4, 26, 360, 180, 800
         else:
-            project_count, exp_count, skill_count, desc_chars, impact_chars, excerpt_chars = 3, 2, 20, 240, 120, 450
+            project_count, exp_count, skill_count, desc_chars, impact_chars, excerpt_chars = 4, 3, 24, 320, 160, 650
 
         projects = []
         for project in profile_data.get("projects", [])[:project_count]:
@@ -277,10 +263,8 @@ class ContextCompressor:
     def _compress_job(self, job: Job, job_data: dict[str, Any], *, level: int) -> dict[str, Any]:
         if level == 0:
             required_count, preferred_count, list_count, keyword_count, excerpt_chars = 24, 18, 8, 28, 1600
-        elif level == 1:
-            required_count, preferred_count, list_count, keyword_count, excerpt_chars = 18, 12, 6, 22, 1000
         else:
-            required_count, preferred_count, list_count, keyword_count, excerpt_chars = 14, 8, 4, 18, 550
+            required_count, preferred_count, list_count, keyword_count, excerpt_chars = 16, 10, 5, 20, 700
         return {
             "title": job.title or job_data.get("title"),
             "company": job.company or job_data.get("company"),
@@ -319,67 +303,50 @@ class ContextCompressor:
                     "score": item.get("score"),
                     "source": item.get("source"),
                     "text": snippet,
-                    "retrieval": (item.get("metadata") or {}).get("retrieval"),
-                    "rerank": (item.get("metadata") or {}).get("rerank"),
+                    "retrieval": self._compact_metadata((item.get("metadata") or {}).get("retrieval")),
+                    "rerank": self._compact_metadata((item.get("metadata") or {}).get("rerank")),
                 }
             )
         return retained
 
-    def _shrink_prompt_packet_medium(self, payload: dict[str, Any]) -> dict[str, Any]:
-        shrunk = deepcopy(payload)
-        shrunk["ranked_evidence"] = shrunk.get("ranked_evidence", [])[:12]
-        self._trim_evidence_in_place(shrunk["ranked_evidence"], 360)
+    def _shrink_prompt_packet(self, payload: dict[str, Any]) -> dict[str, Any]:
+        shrunk = dict(payload)
+        shrunk["ranked_evidence"] = shrunk.get("ranked_evidence", [])[:5]
+        self._trim_evidence_in_place(shrunk["ranked_evidence"], 180)
         profile = dict(shrunk.get("profile_facts") or {})
-        profile["raw_text_excerpt"] = self._trim(profile.get("raw_text_excerpt", ""), 700)
-        profile["projects"] = profile.get("projects", [])[:5]
-        profile["work_experience"] = profile.get("work_experience", [])[:4]
-        shrunk["profile_facts"] = profile
-        job = dict(shrunk.get("job_requirements") or {})
-        job["raw_jd_excerpt"] = self._trim(job.get("raw_jd_excerpt", ""), 900)
-        job["responsibilities"] = job.get("responsibilities", [])[:6]
-        job["qualifications"] = job.get("qualifications", [])[:6]
-        shrunk["job_requirements"] = job
-        return shrunk
-
-    def _shrink_prompt_packet_small(self, payload: dict[str, Any]) -> dict[str, Any]:
-        shrunk = self._shrink_prompt_packet_medium(payload)
-        shrunk["ranked_evidence"] = shrunk.get("ranked_evidence", [])[:8]
-        self._trim_evidence_in_place(shrunk["ranked_evidence"], 240)
-        profile = dict(shrunk.get("profile_facts") or {})
-        profile["raw_text_excerpt"] = self._trim(profile.get("raw_text_excerpt", ""), 450)
+        profile["raw_text_excerpt"] = self._trim(profile.get("raw_text_excerpt", ""), 350)
         profile["projects"] = profile.get("projects", [])[:3]
         profile["work_experience"] = profile.get("work_experience", [])[:2]
         profile["skills"] = profile.get("skills", [])[:20]
         shrunk["profile_facts"] = profile
         job = dict(shrunk.get("job_requirements") or {})
-        job["raw_jd_excerpt"] = self._trim(job.get("raw_jd_excerpt", ""), 550)
+        job["raw_jd_excerpt"] = self._trim(job.get("raw_jd_excerpt", ""), 420)
         job["responsibilities"] = job.get("responsibilities", [])[:4]
         job["qualifications"] = job.get("qualifications", [])[:4]
         job["required_skills"] = job.get("required_skills", [])[:14]
         shrunk["job_requirements"] = job
         return shrunk
 
-    def _shrink_prompt_packet_minimal(self, payload: dict[str, Any]) -> dict[str, Any]:
-        shrunk = self._shrink_prompt_packet_small(payload)
-        shrunk["ranked_evidence"] = shrunk.get("ranked_evidence", [])[:4]
-        self._trim_evidence_in_place(shrunk["ranked_evidence"], 180)
-        profile = dict(shrunk.get("profile_facts") or {})
-        profile["raw_text_excerpt"] = ""
-        profile["projects"] = profile.get("projects", [])[:2]
-        profile["work_experience"] = profile.get("work_experience", [])[:1]
-        profile["skills"] = profile.get("skills", [])[:16]
-        shrunk["profile_facts"] = profile
-        job = dict(shrunk.get("job_requirements") or {})
-        job["raw_jd_excerpt"] = ""
-        job["responsibilities"] = job.get("responsibilities", [])[:3]
-        job["qualifications"] = job.get("qualifications", [])[:3]
-        job["required_skills"] = job.get("required_skills", [])[:12]
-        shrunk["job_requirements"] = job
-        return shrunk
-
     def _trim_evidence_in_place(self, evidence: list[dict[str, Any]], max_chars: int) -> None:
         for item in evidence:
             item["text"] = self._trim(item.get("text", ""), max_chars)
+
+    def _compact_metadata(self, value: Any) -> dict[str, Any] | None:
+        if not isinstance(value, dict):
+            return None
+        keep = [
+            "rank",
+            "score",
+            "first_stage_score",
+            "final_score",
+            "rerank_score_normalized",
+            "rerank_weight",
+            "anchor_top_n",
+            "reranker_provider",
+            "reranker_model",
+        ]
+        compact = {key: value.get(key) for key in keep if key in value}
+        return compact or None
 
     def _progressive_disclosure_contract(self) -> dict[str, Any]:
         return {
@@ -444,6 +411,14 @@ class ContextCompressor:
         if len(text) <= max_chars:
             return text
         return text[: max(max_chars - 3, 0)].rstrip() + "..."
+
+    def _event(self, stage: str, *, before_chars: int, after_chars: int, budget_chars: int) -> dict[str, Any]:
+        return {
+            "stage": stage,
+            "before_chars": before_chars,
+            "after_chars": after_chars,
+            "budget_chars": budget_chars,
+        }
 
     def _chars(self, value: Any) -> int:
         return len(json.dumps(value, ensure_ascii=False, default=str))

@@ -35,22 +35,20 @@
 - `profile_analyst`：解析候选人 Profile。
 - `job_analyst`：解析岗位 JD。
 - `evidence_curator`：检索和整理证据。
-- `context_manager`：执行渐进式披露和分级上下文压缩。
 - `fit_judge`：判断岗位适配度。
 - `resume_writer`：生成定制简历并接受 Guardrail。
 - `application_operator`：生成投递包。
 
-这里的“SubAgent”先实现为工程上的责任边界和上下文边界，而不是多个自由聊天 Agent。这样可以避免为了形式感引入大量 prompt，却仍然能在执行计划、trace 和评测中清楚展示每个能力模块。
+这里的“SubAgent”只表示任务责任边界，不把上下文压缩做成单独 subagent。上下文治理是 Orchestrator/LLM 调用前的 runtime policy，由 `ContextCompressor` 处理；这样更接近主流 Agent 工程实践，也避免为了形式感制造一个不会独立推理的 subagent。
 
-## 渐进式披露与分级压缩
+## 渐进式披露与上下文预算
 
 LLM 不再直接读取全量 Profile、全量 JD 和全部证据，而是由 `ContextCompressor` 生成任务包：
 
-- L1 `profile_facts`：结构化候选人事实、项目、经历、技能和简历信号句。
-- L2 `job_requirements`：岗位硬要求、职责、资格条件、关键词和 JD 信号句。
-- L3 `ranked_evidence`：Top20 检索证据、retrieval/rerank metadata 和预算内片段。
-- L4 `prompt_packet`：最终传给 LLM 的任务包。
-- L5/L6：如果 L4 仍超过预算，继续压缩为摘要包或最小决策包。
+- `profile_summary`：结构化候选人事实、项目、经历、技能和简历信号句。
+- `job_summary`：岗位硬要求、职责、资格条件、关键词和 JD 信号句。
+- `evidence_snippets`：Top evidence、retrieval/rerank metadata 和预算内片段。
+- `prompt_packet`：最终传给 LLM 的任务包，只做一次总预算检查。
 
 每次压缩都会写入 `context_compression` 元数据：
 
@@ -62,6 +60,8 @@ LLM 不再直接读取全量 Profile、全量 JD 和全部证据，而是由 `Co
 - 每层 `budget_chars`、`dropped_chars`、`within_budget` 和 shrink event
 
 渐进式披露规则是：默认只给 LLM 看结构化摘要和 Top evidence；只有 Guardrail repair 需要具体引用时，后续才暴露更细粒度原文。证据不足时直接报告缺口，不让模型编造。
+
+这个能力不会出现在 Skill 注册表里，因为它不是用户意图层的能力，而是 LLM 调用链路的上下文策略。Skill 仍保留给 `fit_assessment`、`resume_tailoring` 这类可执行任务能力。
 
 ## Plan-Execute
 

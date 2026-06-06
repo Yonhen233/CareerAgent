@@ -63,5 +63,5 @@ def test_tailor_resume_agent_workflow(db_session):
     assert run.status == "completed"
     assert run.output_json["resume_version_id"] > 0
     assert run.output_json["verification"]["risk_level"] in {"low", "medium", "high"}
-    assert "progressive_disclosure" in run.output_json["execution_plan"]["skills"]
-    assert any(item["name"] == "context_manager" for item in run.output_json["execution_plan"]["subagents"])
+    assert run.output_json["execution_plan"]["context_policy"]["progressive_disclosure"] is True
+    assert not any(item["name"] == "context_manager" for item in run.output_json["execution_plan"]["subagents"])

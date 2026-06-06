@@ -154,7 +154,7 @@ GET /llm/debug/logs?limit=50
 
 ## 真实 LLM 流程评测
 
-运行简历解析、JD 解析、匹配/RAG、适配度判断、简历定制和 Guardrail 的端到端评测：
+运行简历解析、JD 解析、匹配/RAG、适配度判断、简历定制和 Guardrail 的端到端评测。开发调试时建议先跑 `case_limit` 或指定 `case_indexes`，并写入 trace 文件：
 
 ```powershell
 $env:LLM_API_KEY='your_key_here'
@@ -169,6 +169,7 @@ $env:RERANKER_PROVIDER_FALLBACK='error'
 
 @'
 import asyncio, json
+from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.core.database import Base
@@ -180,14 +181,26 @@ Base.metadata.create_all(bind=engine)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 db = SessionLocal()
 try:
-    run = asyncio.run(EvaluationService().run_llm_workflow_evaluation(db))
+    run = asyncio.run(
+        EvaluationService().run_llm_workflow_evaluation(
+            db,
+            case_limit=3,
+            trace_path=Path("data/runtime/llm_workflow_trace.jsonl"),
+        )
+    )
     print(json.dumps(run.summary_json, ensure_ascii=False, indent=2))
 finally:
     db.close()
 '@ | python -
 ```
 
-评测数据在 `evals/llm_workflow_cases.json`，结果指标说明见 `docs/EVALUATION.md`。真实调用失败不会自动兜底，失败阶段会写入 `failed_stage`，调用级问题可通过 `GET /llm/debug/logs?limit=50` 查看。
+评测数据在 `evals/llm_workflow_cases.json`，结果指标说明见 `docs/EVALUATION.md`。真实调用失败不会自动兜底，失败阶段会写入 `failed_stage`。每个 case 的 `stage_trace` 会记录简历解析、JD 解析、RAG、fit judge、tailor 和 Guardrail 的中间摘要；如果命令超时，已经完成的 case 会写入数据库和 `trace_path`。
+
+API 也支持 smoke mode：
+
+```http
+POST /evaluations/llm-workflow?case_limit=3
+```
 
 ## 真实 RAG 评测
 

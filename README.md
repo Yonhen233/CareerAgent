@@ -28,8 +28,8 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - 每次 run 先生成 Plan-Execute 执行计划，并写入 Trace artifact。
   - 显式注册 Tool、Skill 和 SubAgent，计划产物会展示当前任务使用的能力边界。
 - LLM 上下文治理：
-  - `progressive_disclosure` skill 控制渐进式披露。
-  - `ContextCompressor` 按 Profile、JD、Evidence、Prompt Packet 分级压缩。
+  - 渐进式披露是 LLM 调用前的 runtime policy，不单独包装成 subagent。
+  - `ContextCompressor` 按 Profile 摘要、JD 摘要、Top evidence 和 Prompt Packet 总预算生成上下文。
   - 压缩结果记录字符预算、压缩比例、保留证据数和收缩事件，便于排查长上下文和幻觉问题。
 - LLM 调试：
   - 记录调用名、模型、base_url、prompt 预览、response 预览、耗时、错误信息。
@@ -37,7 +37,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
 - 量化评测：
   - 内置样例集 `evals/sample_cases.json`。
   - 输出 skill precision/recall、missing skill precision、evidence hit rate、pass rate 等指标。
-  - PDF Chunk、RAG 和 LLM workflow 都有独立评测集；LLM workflow 会真实跑简历解析、JD 解析、fit judge、简历定制和 Guardrail。
+  - PDF Chunk、RAG 和 LLM workflow 都有独立评测集；LLM workflow 会真实跑简历解析、JD 解析、fit judge、简历定制和 Guardrail，并逐 case 写入中间 trace。
 - 可观测性：
   - `agent_runs`、`agent_steps`、`agent_artifacts` 记录每次工作流。
   - 可通过 UI 或 API 查看 Trace。

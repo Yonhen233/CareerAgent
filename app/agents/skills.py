@@ -50,16 +50,6 @@ AGENT_SKILLS: list[AgentSkillSpec] = [
         output_contract={"evidence": "list[RetrievedChunk]", "match_result": "dict"},
     ),
     AgentSkillSpec(
-        name="progressive_disclosure",
-        status="active",
-        owner_subagent="context_manager",
-        purpose="按任务阶段逐步披露 Profile、JD 和 evidence，避免一次性把全量上下文塞进 LLM。",
-        trigger="fit judge、简历定制、投递包生成或 Guardrail repair 前。",
-        tools=["context_compressor.compress_fit_context", "context_compressor.compress_tailor_context"],
-        context_policy="默认只暴露结构化摘要和 Top evidence；只有修复循环需要具体引用时才请求更细粒度原文。",
-        output_contract={"compressed_context": "dict", "context_compression": "dict"},
-    ),
-    AgentSkillSpec(
         name="fit_assessment",
         status="active",
         owner_subagent="fit_judge",
@@ -102,10 +92,9 @@ def active_skill_names_for_task(task_type: str) -> list[str]:
         "find_jobs_for_profile": ["resume_intake_and_structuring", "jd_structuring", "evidence_retrieval"],
         "tailor_resume_for_job": [
             "evidence_retrieval",
-            "progressive_disclosure",
             "fit_assessment",
             "resume_tailoring",
         ],
-        "quick_apply": ["progressive_disclosure", "resume_tailoring", "application_packet"],
+        "quick_apply": ["resume_tailoring", "application_packet"],
     }
     return mapping.get(task_type, [])

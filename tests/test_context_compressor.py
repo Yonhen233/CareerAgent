@@ -2,7 +2,7 @@ from app.models.entities import Job, Profile
 from app.services.context_compressor import ContextCompressor
 
 
-def test_context_compressor_uses_hierarchical_progressive_disclosure():
+def test_context_compressor_uses_budgeted_progressive_disclosure():
     long_resume = " ".join(
         [
             "Candidate built CareerAgent with FastAPI, SQLite, RAG, evaluation, guardrail and agent trace."
@@ -69,7 +69,7 @@ def test_context_compressor_uses_hierarchical_progressive_disclosure():
     compressed = ContextCompressor().compress_tailor_context(profile=profile, job=job, evidence=evidence)
     metadata = compressed["context_compression"]
 
-    assert metadata["strategy"] == "hierarchical_progressive_disclosure"
+    assert metadata["strategy"] == "progressive_disclosure_budgeted_packet"
     assert metadata["raw_chars"] > metadata["compressed_chars"]
     assert metadata["retained_evidence_count"] <= 20
     assert len(metadata["levels"]) >= 4

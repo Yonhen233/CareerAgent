@@ -238,7 +238,7 @@ GET /agent/subagents
 
 `GET /agent/subagents` 返回 SubAgent 职责、拥有的 skill、读取/写入边界和上下文策略。
 
-其中 `progressive_disclosure` 是当前 LLM 链路的上下文治理 skill，负责把 Profile、JD 和 RAG evidence 分层压缩后再交给适配判断和简历定制。
+上下文治理不作为独立 skill/subagent 暴露，而是在 Agent 执行计划的 `context_policy`、简历版本的 `context_compression` 和 LLM workflow 的逐 case trace 中查看。
 
 ## LLM 调用调试
 
@@ -282,7 +282,10 @@ POST /evaluations/rag-strategies
 
 ```http
 POST /evaluations/llm-workflow
+POST /evaluations/llm-workflow?case_limit=3
 ```
+
+`case_limit` 用于真实 LLM smoke 评测。返回的 `case_results_json` 中，每个 case 都包含 `stage_trace`，用于检查简历解析、JD 解析、RAG 证据、fit judge、tailor 和 Guardrail 的中间结果。
 
 查询历史评测：
 

@@ -26,11 +26,11 @@ def test_agent_skills_and_subagents_endpoints_list_context_capabilities():
     skills_response = client.get("/agent/skills")
     assert skills_response.status_code == 200
     skill_names = {item["name"] for item in skills_response.json()}
-    assert "progressive_disclosure" in skill_names
     assert "resume_tailoring" in skill_names
+    assert "progressive_disclosure" not in skill_names
 
     subagents_response = client.get("/agent/subagents")
     assert subagents_response.status_code == 200
     subagent_names = {item["name"] for item in subagents_response.json()}
-    assert "context_manager" in subagent_names
     assert "resume_writer" in subagent_names
+    assert "context_manager" not in subagent_names

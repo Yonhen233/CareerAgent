@@ -228,6 +228,9 @@ POST /evaluations/llm-workflow
 - 对标记为 `run_tailor=true` 的案例真实调用简历定制流程。
 - 使用 Guardrail 验证是否引入未支持数字、过多新 claim、禁止 claim。
 - 不做静默 fallback；失败 case 记录 `failed_stage` 和异常类型，LLM 调用日志记录 prompt/response/error trace。
+- `EvaluationRun` 会在评测开始时创建，之后每完成一个 case 就更新 `summary_json` 和 `case_results_json`。
+- 每个 case 带 `stage_trace`，记录 resume parse、JD parse、match/RAG、fit judge、tailor 的中间摘要。
+- 开发脚本可传 `trace_path` 写 JSONL，即使长跑被中断，也能看到已经完成 case 的中间结果。
 
 量化指标：
 
@@ -282,14 +285,35 @@ POST /evaluations/llm-workflow
 | hard | 2 | 1.0000 | 0.5000 | 0.5000 | 0.5000 | 1.0000 |
 | adversarial | 1 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 0.0000 |
 
-本次分级压缩后真实 smoke 结果：
+上一轮较重压缩后的真实 smoke 结果：
 
 | 评测 | Case | 覆盖 | 结果 |
 | --- | ---: | --- | --- |
 | 5-case smoke | 5 | strong/partial/weak/hard/adversarial，3 个 tailor case | `completed_rate=1.0000`，`end_to_end_pass_rate=0.8000`，`fit_label_accuracy=0.8000`，`tailor_pass_rate=1.0000`，`guardrail_pass_rate=1.0000` |
 | 2-case context smoke | 2 | strong + hard partial 边界，2 个 tailor case | `completed_rate=1.0000`，`end_to_end_pass_rate=0.5000`，`tailor_pass_rate=1.0000`，`avg_tailor_reduction_ratio=0.3614`，`avg_tailor_retained_evidence_count=5.5` |
 
-本次也尝试重跑 18-case 全量真实评测，但 20 分钟命令超时，没有拿到 summary。原因不是 LLM 连接失败，最小 JSON 连通性测试通过；更可能是 18 个 case 顺序执行真实简历解析、JD 解析、fit judge、tailor 和 reranker，开发态运行时间过长。下一步需要把 LLM workflow 评测改成分批、逐 case 落盘、可恢复，并支持较小 smoke mode。
+上一轮曾尝试重跑 18-case 全量真实评测，但 20 分钟命令超时，没有拿到 summary。根因是当时评测服务先把所有 case 放在内存 list 中，最后才创建 `EvaluationRun`。现在已经改为逐 case 落库，并可写 `trace_path`，不再只依赖最终 summary。
+
+最新轻量上下文策略后的真实 trace smoke：
+
+| Case | 难度 | 期望标签 | 预测标签 | Case 通过 | Tailor 通过 | Prompt Packet |
+| --- | --- | --- | --- | ---: | ---: | ---: |
+| `agent_candidate_strong_agent_role` | easy | `strong_fit` | `strong_fit` | 是 | 是 | 6071 chars，预算内 |
+| `ml_candidate_partial_agent_role` | hard | `partial_fit` | `weak_fit` | 否 | 是 | 5516 chars，预算内 |
+| `beginner_candidate_weak_agent_role` | adversarial | `weak_fit` | `weak_fit` | 是 | 未运行 | 无 tailor |
+
+汇总：
+
+- `completed_rate=1.0000`
+- `end_to_end_pass_rate=0.6667`
+- `fit_label_accuracy=0.6667`
+- `tailor_pass_rate=1.0000`
+- `guardrail_pass_rate=1.0000`
+- `avg_tailor_reduction_ratio=0.4892`
+- `avg_tailor_retained_evidence_count=6.5`
+- trace 文件：`data/runtime/llm_workflow_trace_latest.jsonl`
+
+这次 trace 直接显示每个 case 的中间返回：简历解析出的技能、JD 解析出的 required skills、RAG Top evidence、fit judge 标签和分数、tailor guardrail 结果。`ml_candidate_partial_agent_role` 失败不是因为没有 trace 或证据丢失，RAG Top evidence 明确包含 “did not build an agent system”，模型因此判 `weak_fit`，说明下一步应重新定义 partial/weak 标注边界或增加边界 prompt，而不是继续调上下文压缩。
 
 调试发现：
 
@@ -299,7 +323,8 @@ POST /evaluations/llm-workflow
 - 剩余 1 个失败是 `agent_candidate_strong_agent_role` 的 `tailor_resume` 阶段 `httpx.ReadTimeout`，说明长 prompt 的简历定制仍需要更好的超时预算或 prompt 压缩。
 - hard 分桶里 `ml_candidate_partial_agent_role` 被模型判成 `weak_fit`，暴露出 partial/weak 边界仍需更细：有 Python/Transformers/Evaluation 交集但明确没有 Agent/RAG 交付时，人工期望是 partial，模型更保守。
 - 原异常记录使用 `str(exc)`，`ReadTimeout` 会显示为空字符串；已改为记录异常类型和 `repr(exc)`，保证 trace 可追溯。
-- 分级压缩后，`tailor_resume` 的 prompt packet 能明显降低上下文规模；短小的 fit judge 上下文因为结构化字段和 trace 元数据可能略大于原文，已将指标改为 `reduction_ratio` 最低为 0，并单独记录 `expansion_ratio`。
+- 上下文压缩已从过重的多阶段收缩改成 Profile 摘要、JD 摘要、Top evidence 和一次总 prompt packet 预算检查；短小 fit judge 上下文如果因为结构化元数据变大，会用 `expansion_ratio` 单独记录。
+- 轻量策略第一轮真实 trace 发现 strong case 的 tailor packet 曾超过 9000 字符预算；修复方式是压缩 evidence metadata，只保留排序调试必要字段，并将预算 trim 调整为更明确的 Top evidence 片段。
 
 ## 后续优化
 
@@ -307,7 +332,7 @@ POST /evaluations/llm-workflow
 - 用真实招聘 JD 和真实候选人简历重新验证 Top5 anchor 是否仍然合理。
 - 增加 evidence type classifier，区分 shipped project、metric evidence、coursework、planned learning、abandoned prototype。
 - 对 LLM fit judge 增加 partial/weak 边界样例，特别是“相邻 ML/LLM 技能但缺少 Agent/RAG 交付”的情况。
-- 将 LLM workflow 全量评测改为分批、逐 case 落盘、可恢复，避免 18-case 顺序真实调用超时后丢失中间结果。
-- 继续压缩 `tailor_resume` prompt，并评估不同 evidence budget 对 Guardrail 和关键词覆盖的影响。
+- 在逐 case trace 的基础上增加可恢复运行，支持从最后一个完成 case 继续。
+- 继续评估不同 evidence budget 对 Guardrail 和关键词覆盖的影响。
 - 增加 LLM-as-judge，但保留人工抽检。
 - 在 CI 中设置最低 `fit_label_accuracy`、`top3_recall`、`guardrail_pass_rate` 和 `end_to_end_pass_rate` 阈值。

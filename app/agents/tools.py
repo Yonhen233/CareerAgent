@@ -169,10 +169,11 @@ class AgentPlanner:
         needs_llm_context = task_type in {"tailor_resume_for_job", "quick_apply"}
         return {
             "progressive_disclosure": needs_llm_context,
-            "compression_strategy": "hierarchical_progressive_disclosure" if needs_llm_context else "not_required",
+            "compression_strategy": "progressive_disclosure_budgeted_packet" if needs_llm_context else "not_required",
             "visible_layers": ["profile_facts", "job_requirements", "ranked_evidence"] if needs_llm_context else [],
             "deferred_layers": ["full_raw_resume", "full_raw_jd", "non_top_evidence_chunks"] if needs_llm_context else [],
             "failure_policy": "缺少证据时直接报告缺口，不让 LLM 编造。",
+            "implementation": "LLM 调用前的 runtime policy，不作为独立 subagent 或可调用 skill。",
         }
 
     def _langgraph_decision(self) -> dict[str, Any]:

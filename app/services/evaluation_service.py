@@ -1,6 +1,7 @@
 import json
 import math
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -296,26 +297,145 @@ class EvaluationService:
         db.refresh(run)
         return run
 
-    async def run_llm_workflow_evaluation(self, db: Session, *, dataset_path: Path | None = None) -> EvaluationRun:
+    async def run_llm_workflow_evaluation(
+        self,
+        db: Session,
+        *,
+        dataset_path: Path | None = None,
+        case_limit: int | None = None,
+        case_indexes: list[int] | None = None,
+        trace_path: Path | None = None,
+    ) -> EvaluationRun:
         if not self.llm.available:
             raise LLMConfigurationError("LLM_API_KEY/LLM_BASE_URL 未配置，无法进行真实 LLM 调用评测。")
 
         path = dataset_path or self.settings.base_path / "evals" / "llm_workflow_cases.json"
-        cases = json.loads(path.read_text(encoding="utf-8"))
-        case_results = [await self._run_llm_workflow_case(db, case) for case in cases]
-        summary = self._summarize_llm_workflow(case_results, path)
+        all_cases = json.loads(path.read_text(encoding="utf-8"))
+        cases = self._select_llm_cases(all_cases, case_limit=case_limit, case_indexes=case_indexes)
         run = EvaluationRun(
             name="llm_workflow_evaluation",
-            summary_json=summary,
-            case_results_json=case_results,
+            summary_json={
+                "evaluation_type": "llm_workflow",
+                "status": "running",
+                "dataset": path.name,
+                "case_count": len(cases),
+                "completed_cases": 0,
+                "remaining_cases": len(cases),
+                "trace_path": str(trace_path) if trace_path else None,
+            },
+            case_results_json=[],
         )
         db.add(run)
         db.commit()
         db.refresh(run)
+        case_results: list[dict[str, Any]] = []
+        if trace_path:
+            trace_path.parent.mkdir(parents=True, exist_ok=True)
+            trace_path.write_text("", encoding="utf-8")
+        for index, case in enumerate(cases, start=1):
+            case_result = await self._run_llm_workflow_case(db, case)
+            case_results.append(case_result)
+            summary = self._summarize_llm_workflow(case_results, path)
+            summary.update(
+                {
+                    "status": "running" if index < len(cases) else summary["status"],
+                    "completed_cases": index,
+                    "remaining_cases": len(cases) - index,
+                    "current_case": case["name"],
+                    "trace_path": str(trace_path) if trace_path else None,
+                }
+            )
+            run.summary_json = summary
+            run.case_results_json = list(case_results)
+            db.add(run)
+            db.commit()
+            db.refresh(run)
+            self._append_llm_trace(trace_path, case_result, summary)
         return run
+
+    def _select_llm_cases(
+        self,
+        cases: list[dict[str, Any]],
+        *,
+        case_limit: int | None,
+        case_indexes: list[int] | None,
+    ) -> list[dict[str, Any]]:
+        if case_indexes:
+            selected = [cases[index] for index in case_indexes if 0 <= index < len(cases)]
+        else:
+            selected = list(cases)
+        if case_limit is not None:
+            selected = selected[: max(case_limit, 0)]
+        return selected
+
+    def _append_llm_trace(
+        self,
+        trace_path: Path | None,
+        case_result: dict[str, Any],
+        summary: dict[str, Any],
+    ) -> None:
+        if trace_path is None:
+            return
+        event = {
+            "type": "llm_workflow_case_result",
+            "case": case_result.get("name"),
+            "status": case_result.get("status"),
+            "case_passed": case_result.get("case_passed"),
+            "failed_stage": case_result.get("failed_stage"),
+            "stage_trace": case_result.get("stage_trace", []),
+            "summary": {
+                "completed_cases": summary.get("completed_cases"),
+                "remaining_cases": summary.get("remaining_cases"),
+                "end_to_end_pass_rate": summary.get("end_to_end_pass_rate"),
+                "fit_label_accuracy": summary.get("fit_label_accuracy"),
+                "tailor_pass_rate": summary.get("tailor_pass_rate"),
+            },
+        }
+        with trace_path.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(event, ensure_ascii=False, default=str) + "\n")
+
+    def _record_stage(
+        self,
+        stage_trace: list[dict[str, Any]],
+        stage: str,
+        status: str,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        stage_trace.append(
+            {
+                "stage": stage,
+                "status": status,
+                "time_ms": int(time.perf_counter() * 1000),
+                "details": details or {},
+            }
+        )
+
+    def _compact_context_summary(self, context: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not context:
+            return None
+        return {
+            "strategy": context.get("strategy"),
+            "raw_chars": context.get("raw_chars"),
+            "compressed_chars": context.get("compressed_chars"),
+            "reduction_ratio": context.get("reduction_ratio"),
+            "expansion_ratio": context.get("expansion_ratio"),
+            "retained_evidence_count": context.get("retained_evidence_count"),
+            "levels": [
+                {
+                    "name": item.get("name"),
+                    "output_chars": item.get("output_chars"),
+                    "budget_chars": item.get("budget_chars"),
+                    "within_budget": item.get("within_budget"),
+                    "events": item.get("events", []),
+                }
+                for item in context.get("levels", [])
+            ],
+        }
 
     async def _run_llm_workflow_case(self, db: Session, case: dict[str, Any]) -> dict[str, Any]:
         stage = "start"
+        case_started = time.perf_counter()
+        stage_trace: list[dict[str, Any]] = []
         result: dict[str, Any] = {
             "name": case["name"],
             "difficulty": case.get("difficulty", "unknown"),
@@ -323,9 +443,11 @@ class EvaluationService:
             "expected_fit_score_range": case.get("expected_fit_score_range"),
             "run_tailor": bool(case.get("run_tailor")),
             "status": "running",
+            "stage_trace": stage_trace,
         }
         try:
             stage = "resume_parse"
+            self._record_stage(stage_trace, stage, "started")
             parser = ResumeParserService()
             profile_json = await parser.parse_structured_resume(case["resume_raw_text"], db=db)
             profile_text = json.dumps(profile_json, ensure_ascii=False)
@@ -355,8 +477,23 @@ class EvaluationService:
                     "profile_chunk_count": profile_chunk_count,
                 }
             )
+            self._record_stage(
+                stage_trace,
+                stage,
+                "completed",
+                {
+                    "profile_id": profile.id,
+                    "name": profile_json.get("name"),
+                    "skills": profile_json.get("skills", [])[:12],
+                    "project_count": len(profile_json.get("projects", [])),
+                    "profile_skill_recall": profile_skill_recall,
+                    "profile_keyword_hit_rate": profile_keyword_hit_rate,
+                    "profile_chunk_count": profile_chunk_count,
+                },
+            )
 
             stage = "jd_parse"
+            self._record_stage(stage_trace, stage, "started")
             job_payload = case["job"]
             jd = await JDParserService().parse_jd(
                 job_payload["jd_text"],
@@ -388,8 +525,22 @@ class EvaluationService:
                     "job_chunk_count": job_chunk_count,
                 }
             )
+            self._record_stage(
+                stage_trace,
+                stage,
+                "completed",
+                {
+                    "job_id": job.id,
+                    "title": job.title,
+                    "company": job.company,
+                    "required_skills": jd.get("required_skills", [])[:12],
+                    "jd_skill_recall": jd_skill_recall,
+                    "job_chunk_count": job_chunk_count,
+                },
+            )
 
             stage = "match_and_retrieve"
+            self._record_stage(stage_trace, stage, "started")
             match = self.matcher.create_match_result(db, profile, job)
             expected_evidence_keywords = list(
                 dict.fromkeys(
@@ -405,8 +556,30 @@ class EvaluationService:
                     "matcher_evidence_hit_rate": evidence_hit_rate,
                 }
             )
+            self._record_stage(
+                stage_trace,
+                stage,
+                "completed",
+                {
+                    "match_result_id": match.id,
+                    "overall_score": match.overall_score,
+                    "matched_skills": match.matched_skills_json,
+                    "missing_skills": match.missing_skills_json,
+                    "evidence_hit_rate": evidence_hit_rate,
+                    "top_evidence": [
+                        {
+                            "chunk_uid": item.get("chunk_uid"),
+                            "chunk_type": item.get("chunk_type"),
+                            "score": item.get("score"),
+                            "text_preview": str(item.get("text") or "")[:220],
+                        }
+                        for item in (match.relevant_evidence_json or [])[:5]
+                    ],
+                },
+            )
 
             stage = "fit_judge"
+            self._record_stage(stage_trace, stage, "started")
             suitability = await self._llm_judge_suitability(db, profile.structured_profile_json, job)
             fit_context_compression = suitability.pop("_context_compression", None)
             predicted_label = str(suitability.get("fit_label") or "").strip()
@@ -424,9 +597,24 @@ class EvaluationService:
                     "suitability": suitability,
                 }
             )
+            self._record_stage(
+                stage_trace,
+                stage,
+                "completed",
+                {
+                    "expected_fit_label": case["expected_fit_label"],
+                    "predicted_fit_label": predicted_label,
+                    "label_passed": predicted_label == case["expected_fit_label"],
+                    "predicted_fit_score": fit_score,
+                    "fit_score_range_error": range_error,
+                    "message_preview": str(suitability.get("message_to_candidate") or "")[:240],
+                    "context_compression": self._compact_context_summary(fit_context_compression),
+                },
+            )
 
             if case.get("run_tailor"):
                 stage = "tailor_resume"
+                self._record_stage(stage_trace, stage, "started")
                 version = await ResumeTailorService().tailor_resume(db, profile, job)
                 resume_text = version.tailored_resume_markdown
                 tailored_keyword_hit_rate = self._keyword_hit_rate(
@@ -466,6 +654,23 @@ class EvaluationService:
                         "resume_preview": resume_text[:600],
                     }
                 )
+                self._record_stage(
+                    stage_trace,
+                    stage,
+                    "completed",
+                    {
+                        "resume_version_id": version.id,
+                        "tailor_passed": tailor_passed,
+                        "tailored_keyword_hit_rate": tailored_keyword_hit_rate,
+                        "guardrail_passed": bool(verification.get("passed")),
+                        "risk_level": verification.get("risk_level"),
+                        "hallucination_count": verification.get("hallucination_count", 0),
+                        "context_compression": self._compact_context_summary(
+                            (version.keyword_alignment_json or {}).get("context_compression")
+                        ),
+                        "resume_preview": resume_text[:360],
+                    },
+                )
             else:
                 result.update(
                     {
@@ -478,17 +683,27 @@ class EvaluationService:
                         "hallucination_count": None,
                     }
                 )
+                self._record_stage(stage_trace, "tailor_resume", "skipped", {"reason": "case.run_tailor=false"})
 
             result["status"] = "completed"
             result["case_passed"] = self._llm_case_passed(result)
+            result["latency_ms"] = int((time.perf_counter() - case_started) * 1000)
+            self._record_stage(
+                stage_trace,
+                "case",
+                "completed",
+                {"case_passed": result["case_passed"], "latency_ms": result["latency_ms"]},
+            )
             return result
         except Exception as exc:  # noqa: BLE001
+            self._record_stage(stage_trace, stage, "failed", {"error": format_exception(exc)})
             result.update(
                 {
                     "status": "failed",
                     "failed_stage": stage,
                     "error": format_exception(exc),
                     "case_passed": False,
+                    "latency_ms": int((time.perf_counter() - case_started) * 1000),
                 }
             )
             return result
@@ -543,7 +758,8 @@ class EvaluationService:
             "difficulty_breakdown": self._summarize_llm_by_key(case_results, "difficulty"),
             "notes": [
                 "每个 case 跑真实链路：简历解析、JD 解析、RAG 证据、fit judge、可选简历定制和 Guardrail。",
-                "LLM/embedding/reranker 默认失败直报；评测只记录失败阶段，不做静默修复。",
+                "每个 case 写入 stage_trace；评测运行会逐 case 更新 EvaluationRun，避免长跑中断后丢失中间结果。",
+                "LLM/embedding/reranker 默认失败直报；失败记录 failed_stage 和异常，不做静默修复。",
             ],
         }
         return summary
