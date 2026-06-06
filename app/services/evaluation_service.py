@@ -1,3 +1,4 @@
+import asyncio
 import json
 import math
 import re
@@ -15,7 +16,7 @@ from app.models.schemas import AgentRunRequest, GuidedProfileRequest
 from app.services.context_compressor import ContextCompressor
 from app.services.guardrails import ResumeGuardrailService
 from app.services.jd_parser import JDParserService
-from app.services.job_sources import JobPosting
+from app.services.job_sources import JobPosting, JobSourceRegistry
 from app.services.resume_tailor import ResumeTailorService
 from app.core.llm import LLMClient, LLMConfigurationError, format_exception
 from app.services.embedding_service import EmbeddingService
@@ -370,6 +371,78 @@ class EvaluationService:
         summary = self._summarize_agent_full_flow(case_results, path)
         run = EvaluationRun(
             name="agent_full_flow_evaluation",
+            summary_json=summary,
+            case_results_json=case_results,
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        return run
+
+    async def run_real_job_source_smoke(
+        self,
+        db: Session,
+        *,
+        query: str = "Agent Development Intern",
+        location: str | None = None,
+        limit: int = 8,
+        sources: list[str] | None = None,
+        source_registry: JobSourceRegistry | None = None,
+    ) -> EvaluationRun:
+        registry = source_registry or JobSourceRegistry()
+        selected_sources = registry.select(sources)
+        started = time.perf_counter()
+
+        async def _probe(source: Any) -> dict[str, Any]:
+            source_started = time.perf_counter()
+            try:
+                postings = await source.search(query=query, location=location, limit=limit)
+                sample_jobs = [self._summarize_source_posting(posting) for posting in postings[:limit]]
+                return {
+                    "source": source.name,
+                    "status": "completed",
+                    "source_reachable": True,
+                    "has_results": bool(postings),
+                    "result_count": len(postings),
+                    "internship_like_count": sum(1 for posting in postings if self._is_internship_like_posting(posting)),
+                    "query_relevant_count": sum(
+                        1 for posting in postings if self._is_query_relevant_posting(posting, query)
+                    ),
+                    "agent_related_count": sum(1 for posting in postings if self._is_agent_related_posting(posting)),
+                    "non_empty_jd_count": sum(1 for posting in postings if bool(posting.raw_jd_text.strip())),
+                    "apply_url_count": sum(1 for posting in postings if bool(posting.apply_url)),
+                    "latency_ms": int((time.perf_counter() - source_started) * 1000),
+                    "error": None,
+                    "sample_jobs": sample_jobs,
+                }
+            except Exception as exc:  # noqa: BLE001
+                return {
+                    "source": source.name,
+                    "status": "source_error",
+                    "source_reachable": False,
+                    "has_results": False,
+                    "result_count": 0,
+                    "internship_like_count": 0,
+                    "query_relevant_count": 0,
+                    "agent_related_count": 0,
+                    "non_empty_jd_count": 0,
+                    "apply_url_count": 0,
+                    "latency_ms": int((time.perf_counter() - source_started) * 1000),
+                    "error": format_exception(exc),
+                    "sample_jobs": [],
+                }
+
+        case_results = await asyncio.gather(*[_probe(source) for source in selected_sources])
+        summary = self._summarize_real_job_source_smoke(
+            case_results,
+            query=query,
+            location=location,
+            limit=limit,
+            source_names=[source.name for source in selected_sources],
+            latency_ms=int((time.perf_counter() - started) * 1000),
+        )
+        run = EvaluationRun(
+            name="real_job_source_smoke",
             summary_json=summary,
             case_results_json=case_results,
         )
@@ -1096,6 +1169,136 @@ class EvaluationService:
                 "低匹配 quick_apply 应被 fit_gate 阻断，失败直接写入 Agent step trace。",
             ],
         }
+
+    def _summarize_real_job_source_smoke(
+        self,
+        case_results: list[dict[str, Any]],
+        *,
+        query: str,
+        location: str | None,
+        limit: int,
+        source_names: list[str],
+        latency_ms: int,
+    ) -> dict[str, Any]:
+        source_count = max(len(source_names), 1)
+        total_result_count = sum(int(item.get("result_count") or 0) for item in case_results)
+        reachable_count = sum(1 for item in case_results if item.get("source_reachable"))
+        result_source_count = sum(1 for item in case_results if item.get("has_results"))
+        source_error_count = sum(1 for item in case_results if item.get("status") == "source_error")
+        non_empty_jd_count = sum(int(item.get("non_empty_jd_count") or 0) for item in case_results)
+        apply_url_count = sum(int(item.get("apply_url_count") or 0) for item in case_results)
+        internship_like_count = sum(int(item.get("internship_like_count") or 0) for item in case_results)
+        query_relevant_count = sum(int(item.get("query_relevant_count") or 0) for item in case_results)
+        agent_related_count = sum(int(item.get("agent_related_count") or 0) for item in case_results)
+        if source_error_count > 0 and total_result_count > 0:
+            status = "completed_with_source_errors"
+        elif (
+            reachable_count == len(source_names)
+            and result_source_count == len(source_names)
+            and total_result_count > 0
+        ):
+            status = "completed"
+        elif reachable_count == len(source_names) and total_result_count > 0:
+            status = "completed_with_empty_sources"
+        elif total_result_count > 0:
+            status = "completed_with_source_errors"
+        else:
+            status = "source_unavailable"
+        result_denominator = max(total_result_count, 1)
+        return {
+            "evaluation_type": "real_job_source_smoke",
+            "status": status,
+            "query": query,
+            "location": location,
+            "limit": limit,
+            "sources": source_names,
+            "source_count": len(source_names),
+            "reachable_source_rate": round(reachable_count / source_count, 4),
+            "result_source_rate": round(result_source_count / source_count, 4),
+            "source_error_count": source_error_count,
+            "total_result_count": total_result_count,
+            "non_empty_jd_rate": round(non_empty_jd_count / result_denominator, 4),
+            "apply_url_rate": round(apply_url_count / result_denominator, 4),
+            "internship_like_rate": round(internship_like_count / result_denominator, 4),
+            "query_relevance_rate": round(query_relevant_count / result_denominator, 4),
+            "agent_related_rate": round(agent_related_count / result_denominator, 4),
+            "latency_ms": latency_ms,
+            "source_errors": {
+                item["source"]: item.get("error")
+                for item in case_results
+                if item.get("status") == "source_error"
+            },
+            "core_regression_independent": True,
+            "notes": [
+                "真实岗位源 smoke 只衡量 source 层健康度，不参与 agent_full_flow 的核心 pass_rate。",
+                "网络失败、招聘站空结果或接口变化会记录为 source_error/source_unavailable，而不是被静默吞掉。",
+                "岗位质量用 JD 非空、apply_url、internship-like、query relevance 和 Agent/AI relevance 命中率衡量，后续可接入解析和入库链路。",
+            ],
+        }
+
+    def _summarize_source_posting(self, posting: JobPosting) -> dict[str, Any]:
+        return {
+            "source": posting.source,
+            "external_id": posting.external_id,
+            "title": posting.title,
+            "company": posting.company,
+            "location": posting.location,
+            "job_type": posting.job_type,
+            "apply_url": posting.apply_url,
+            "jd_chars": len(posting.raw_jd_text or ""),
+            "internship_like": self._is_internship_like_posting(posting),
+            "agent_related": self._is_agent_related_posting(posting),
+        }
+
+    def _is_internship_like_posting(self, posting: JobPosting) -> bool:
+        haystack = " ".join(
+            [
+                posting.title,
+                posting.job_type or "",
+                posting.raw_jd_text[:800] if posting.raw_jd_text else "",
+            ]
+        ).lower()
+        return any(token in haystack for token in ["intern", "internship", "实习", "校招"])
+
+    def _is_query_relevant_posting(self, posting: JobPosting, query: str) -> bool:
+        haystack = self._source_posting_haystack(posting)
+        tokens = [
+            token
+            for token in re.split(r"[\s,/|;:()（）\-]+", query.lower())
+            if len(token.strip()) >= 2
+        ]
+        if not tokens and query.strip():
+            tokens = [query.strip().lower()]
+        return any(token in haystack for token in tokens)
+
+    def _is_agent_related_posting(self, posting: JobPosting) -> bool:
+        haystack = self._source_posting_haystack(posting)
+        return any(
+            token in haystack
+            for token in [
+                "agent",
+                "rag",
+                "llm",
+                "ai",
+                "machine learning",
+                "生成式",
+                "大模型",
+                "智能体",
+                "算法",
+                "模型",
+            ]
+        )
+
+    def _source_posting_haystack(self, posting: JobPosting) -> str:
+        return " ".join(
+            [
+                posting.title or "",
+                posting.company or "",
+                posting.location or "",
+                posting.job_type or "",
+                posting.raw_jd_text or "",
+            ]
+        ).lower()
 
     def _agent_full_flow_failure_breakdown(self, rows: list[dict[str, Any]]) -> dict[str, int]:
         checks = {

@@ -286,6 +286,15 @@ POST /evaluations/agent-full-flow
 
 该评测覆盖 `find_jobs_for_profile`、`tailor_resume_for_job`、`quick_apply`、`fit_gate`、Trace 和 Artifact。弱匹配 case 期望 `quick_apply` 失败并在 step trace 中记录阻断原因。
 
+运行真实岗位源 smoke：
+
+```http
+POST /evaluations/real-job-source-smoke
+POST /evaluations/real-job-source-smoke?query=Agent%20Development%20Intern&limit=8&sources=tencent&sources=lever
+```
+
+该评测只检查招聘源可达性、返回数量和岗位质量，不调用 LLM 解析 JD，不写入主岗位库，也不影响核心 `agent-full-flow` 回归。返回的 `summary_json` 包含 `reachable_source_rate`、`result_source_rate`、`total_result_count`、`non_empty_jd_rate`、`apply_url_rate`、`internship_like_rate`、`query_relevance_rate`、`agent_related_rate` 和 `source_errors`；`case_results_json` 会按 source 保存错误、耗时和样例岗位。所有 source 可达但部分 source 没有结果时，状态为 `completed_with_empty_sources`。
+
 运行真实 LLM 工作流评测：
 
 ```http
@@ -318,6 +327,13 @@ GET /evaluations/results
 - `fit_gate_block_count`
 - `trace_pass_rate`
 - `artifact_pass_rate`
+- `reachable_source_rate`
+- `result_source_rate`
+- `non_empty_jd_rate`
+- `apply_url_rate`
+- `internship_like_rate`
+- `query_relevance_rate`
+- `agent_related_rate`
 - `completed_rate`
 - `end_to_end_pass_rate`
 - `resume_parse_success_rate`

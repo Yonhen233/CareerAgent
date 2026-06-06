@@ -7,6 +7,7 @@ CareerAgent 的评测分为五层：
 - RAG 策略评测：不同检索排序策略对证据召回的影响。
 - LLM 实景流程评测：真实调用 LLM 判断岗位适配度并按 JD 改写简历。
 - Agent 全流程评测：覆盖岗位搜索、匹配排序、简历定制、一键投递门禁、Trace 和 Artifact。
+- 真实岗位源 Smoke：只评测招聘源可达性、结果数量和岗位质量，不参与核心 Agent 回归 pass rate。
 
 ## 数据集
 
@@ -134,6 +135,7 @@ POST /evaluations/run
 POST /evaluations/pdf-chunk-strategies
 POST /evaluations/rag-strategies
 POST /evaluations/agent-full-flow
+POST /evaluations/real-job-source-smoke
 POST /evaluations/llm-workflow
 GET /evaluations/results
 ```
@@ -296,6 +298,58 @@ POST /evaluations/agent-full-flow
 - `No MLflow or feature store experience` 这类否定证据必须覆盖关键词命中。匹配器现在在句子级识别 `no/not/without/lacks/missing/did not build/coursework/read articles` 等负面证据。
 - 重复运行评测时，评测岗位 external_id 曾经撞 SQLite 唯一约束。现在每次 Agent full-flow evaluation 都会生成唯一 namespace，原始 ID 仍保存在 `eval_external_id`。
 - 推荐算法和 ML 平台两个弱匹配 case 被重新标注为“可分析/可定制，但不可一键投递”，更符合真实求职风险控制。
+
+## 真实岗位源 Smoke
+
+接口：
+
+```http
+POST /evaluations/real-job-source-smoke
+POST /evaluations/real-job-source-smoke?query=Agent%20Development%20Intern&limit=8&sources=tencent&sources=lever
+```
+
+评测内容：
+
+- 并发访问真实岗位源，例如腾讯招聘公开接口和 Lever 公开岗位 API。
+- 对每个 source 单独记录 `status`、`source_reachable`、`result_count`、`latency_ms`、`error` 和 `sample_jobs`。
+- 不调用 LLM 解析 JD，不写入主岗位库，只评估 source 层健康度，避免 LLM、embedding 或数据库状态掩盖招聘源问题。
+- 网络失败、招聘站接口变化、空结果都会进入 `source_errors` 或 `source_unavailable`，不污染 `agent_full_flow` 的核心 pass rate。
+- 如果所有 source 可达但部分 source 对当前 query 为空，summary 状态为 `completed_with_empty_sources`，并通过 `result_source_rate` 暴露空源比例。
+
+核心指标：
+
+| 指标 | 含义 |
+| --- | --- |
+| `reachable_source_rate` | 可访问的岗位源比例。 |
+| `result_source_rate` | 返回至少一个岗位的岗位源比例。 |
+| `total_result_count` | 本次 smoke 返回的岗位总数。 |
+| `non_empty_jd_rate` | 返回岗位里 JD 文本非空的比例。 |
+| `apply_url_rate` | 返回岗位里包含投递链接的比例。 |
+| `internship_like_rate` | 返回岗位里标题、类型或 JD 命中 intern/实习/校招等信号的比例。 |
+| `query_relevance_rate` | 返回岗位里标题、类型或 JD 命中当前 query token 的比例。 |
+| `agent_related_rate` | 返回岗位里命中 Agent/RAG/LLM/AI/大模型/智能体等信号的比例。 |
+| `source_error_count` | 发生异常的岗位源数量。 |
+
+该评测的定位是 source 层真实环境探针：它可以暴露外部招聘站波动，但不会替代可控岗位源下的 Agent full-flow 回归。
+
+最新真实 smoke：
+
+| 指标 | 结果 |
+| --- | ---: |
+| query | `Agent Development Intern` |
+| sources | `tencent, lever` |
+| status | `completed_with_empty_sources` |
+| reachable_source_rate | 1.0000 |
+| result_source_rate | 0.5000 |
+| total_result_count | 8 |
+| non_empty_jd_rate | 1.0000 |
+| apply_url_rate | 1.0000 |
+| internship_like_rate | 1.0000 |
+| query_relevance_rate | 1.0000 |
+| agent_related_rate | 1.0000 |
+| source_error_count | 0 |
+
+本次结果说明腾讯招聘公开接口当前可达并返回 8 个实习相关岗位，Lever API 可达但当前配置的公司 slug 对该 query 没有返回岗位。后续优化应优先扩展 Lever slug 或加入更多大厂自有招聘源，而不是把空结果当作 Agent 核心失败。
 
 ## LLM 实景流程评测
 

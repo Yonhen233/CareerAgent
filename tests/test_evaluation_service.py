@@ -2,6 +2,7 @@ import asyncio
 import json
 from pathlib import Path
 
+from app.services.job_sources import JobPosting
 from app.services.evaluation_service import EvaluationService
 
 
@@ -52,6 +53,98 @@ def test_agent_full_flow_evaluation_covers_orchestrator_components(db_session):
     assert run.summary_json["fit_gate_block_count"] >= 3
     assert any(item.get("fit_gate_blocked") for item in run.case_results_json)
     assert all(item.get("run_trace") for item in run.case_results_json)
+
+
+def test_real_job_source_smoke_records_source_layer_metrics(db_session):
+    class HealthySource:
+        name = "healthy"
+
+        async def search(self, *, query: str, location: str | None, limit: int):
+            return [
+                JobPosting(
+                    source=self.name,
+                    external_id="healthy-1",
+                    title="Agent Development Intern",
+                    company="Example AI",
+                    location=location or "Shanghai",
+                    job_type="internship",
+                    apply_url="https://example.com/jobs/healthy-1",
+                    raw_jd_text=f"{query}: build Agent workflows with FastAPI and RAG.",
+                )
+            ][:limit]
+
+    class BrokenSource:
+        name = "broken"
+
+        async def search(self, *, query: str, location: str | None, limit: int):
+            raise RuntimeError("source timeout")
+
+    class FakeRegistry:
+        def select(self, names=None):
+            return [HealthySource(), BrokenSource()]
+
+    run = asyncio.run(
+        EvaluationService().run_real_job_source_smoke(
+            db_session,
+            query="Agent Development Intern",
+            location="Shanghai",
+            limit=5,
+            source_registry=FakeRegistry(),
+        )
+    )
+
+    assert run.summary_json["evaluation_type"] == "real_job_source_smoke"
+    assert run.summary_json["status"] == "completed_with_source_errors"
+    assert run.summary_json["reachable_source_rate"] == 0.5
+    assert run.summary_json["result_source_rate"] == 0.5
+    assert run.summary_json["total_result_count"] == 1
+    assert run.summary_json["non_empty_jd_rate"] == 1.0
+    assert run.summary_json["apply_url_rate"] == 1.0
+    assert run.summary_json["query_relevance_rate"] == 1.0
+    assert run.summary_json["agent_related_rate"] == 1.0
+    assert run.summary_json["core_regression_independent"] is True
+    assert any(item["status"] == "source_error" and item["error"] for item in run.case_results_json)
+    assert run.case_results_json[0]["sample_jobs"][0]["agent_related"] is True
+
+
+def test_real_job_source_smoke_marks_empty_sources(db_session):
+    class HealthySource:
+        name = "healthy"
+
+        async def search(self, *, query: str, location: str | None, limit: int):
+            return [
+                JobPosting(
+                    source=self.name,
+                    external_id="healthy-1",
+                    title="Agent Development Intern",
+                    company="Example AI",
+                    location=location,
+                    job_type="internship",
+                    apply_url="https://example.com/jobs/healthy-1",
+                    raw_jd_text="Build Agent workflows.",
+                )
+            ]
+
+    class EmptySource:
+        name = "empty"
+
+        async def search(self, *, query: str, location: str | None, limit: int):
+            return []
+
+    class FakeRegistry:
+        def select(self, names=None):
+            return [HealthySource(), EmptySource()]
+
+    run = asyncio.run(
+        EvaluationService().run_real_job_source_smoke(
+            db_session,
+            source_registry=FakeRegistry(),
+        )
+    )
+
+    assert run.summary_json["status"] == "completed_with_empty_sources"
+    assert run.summary_json["reachable_source_rate"] == 1.0
+    assert run.summary_json["result_source_rate"] == 0.5
 
 
 def test_llm_workflow_dataset_covers_full_pipeline():

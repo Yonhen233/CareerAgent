@@ -33,6 +33,24 @@ async def run_agent_full_flow_evaluation(db: Session = Depends(get_db)) -> Evalu
     return EvaluationRunResponse.model_validate(run)
 
 
+@router.post("/real-job-source-smoke", response_model=EvaluationRunResponse, status_code=status.HTTP_201_CREATED)
+async def run_real_job_source_smoke(
+    query: str = Query(default="Agent Development Intern", min_length=1),
+    location: str | None = Query(default=None),
+    limit: int = Query(default=8, ge=1, le=20),
+    sources: list[str] | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> EvaluationRunResponse:
+    run = await EvaluationService().run_real_job_source_smoke(
+        db,
+        query=query,
+        location=location,
+        limit=limit,
+        sources=sources,
+    )
+    return EvaluationRunResponse.model_validate(run)
+
+
 @router.post("/llm-workflow", response_model=EvaluationRunResponse, status_code=status.HTTP_201_CREATED)
 async def run_llm_workflow_evaluation(
     case_limit: int | None = Query(default=None, ge=1, le=18),
