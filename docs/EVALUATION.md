@@ -357,7 +357,7 @@ POST /evaluations/agent-full-flow
 
 ```http
 POST /evaluations/real-job-source-smoke
-POST /evaluations/real-job-source-smoke?query=Agent%20Development%20Intern&limit=8&sources=tencent&sources=lever
+POST /evaluations/real-job-source-smoke?query=Agent%20%E5%BC%80%E5%8F%91%E5%AE%9E%E4%B9%A0%E7%94%9F&limit=8&sources=tencent
 ```
 
 评测内容：
@@ -388,20 +388,20 @@ POST /evaluations/real-job-source-smoke?query=Agent%20Development%20Intern&limit
 
 | 指标 | 结果 |
 | --- | ---: |
-| query | `Agent Development Intern` |
-| sources | `tencent, lever` |
-| status | `completed_with_empty_sources` |
+| query | `Agent 开发实习生` |
+| sources | `tencent` |
+| status | `completed` |
 | reachable_source_rate | 1.0000 |
-| result_source_rate | 0.5000 |
+| result_source_rate | 1.0000 |
 | total_result_count | 8 |
 | non_empty_jd_rate | 1.0000 |
 | apply_url_rate | 1.0000 |
-| internship_like_rate | 1.0000 |
+| internship_like_rate | 0.3750 |
 | query_relevance_rate | 1.0000 |
 | agent_related_rate | 1.0000 |
 | source_error_count | 0 |
 
-本次结果说明腾讯招聘公开接口当前可达并返回 8 个实习相关岗位，Lever API 可达但当前配置的公司 slug 对该 query 没有返回岗位。后续优化应优先扩展 Lever slug 或加入更多大厂自有招聘源，而不是把空结果当作 Agent 核心失败。
+本次结果说明腾讯招聘公开接口当前可达，中文 query 可以返回 8 个 Agent 相关岗位，包括 Agent Development/Evaluation Intern、QQ-Agent 产品经理、元宝-Agent 架构工程师、腾讯视频-AI Agent 工程师等。`internship_like_rate=0.3750` 说明中文主场景下 source 会混入正式岗位和产品岗位，后续排序/过滤应以中文岗位质量为主，不应引入 Greenhouse 这类中国场景较弱的英文 ATS 作为默认源。
 
 ## 真实 JD Ingest Smoke
 
@@ -409,7 +409,7 @@ POST /evaluations/real-job-source-smoke?query=Agent%20Development%20Intern&limit
 
 ```http
 POST /evaluations/real-job-ingest-smoke
-POST /evaluations/real-job-ingest-smoke?query=Agent%20Development%20Intern&limit=1&sources=tencent
+POST /evaluations/real-job-ingest-smoke?query=Agent%20%E5%BC%80%E5%8F%91%E5%AE%9E%E4%B9%A0%E7%94%9F&limit=1&sources=tencent
 ```
 
 评测内容：
@@ -446,7 +446,7 @@ POST /evaluations/real-job-ingest-smoke?query=Agent%20Development%20Intern&limit
 
 | 指标 | 结果 |
 | --- | ---: |
-| query | `Agent Development Intern` |
+| query | `Agent 开发实习生` |
 | sources | `tencent` |
 | limit | 1 |
 | status | `completed` |
@@ -462,14 +462,14 @@ POST /evaluations/real-job-ingest-smoke?query=Agent%20Development%20Intern&limit
 | parser_quality_failure_count | 0 |
 | avg_chunks_per_job | 8.0000 |
 | avg_required_skill_count | 3.0000 |
-| avg_keyword_count | 44.0000 |
+| avg_keyword_count | 46.0000 |
 | embedding_provider_counts | `sentence_transformers: 8` |
 | retrieval_query_embedding_provider_counts | `sentence_transformers: 3` |
 | reranker_provider_counts | `cross_encoder: 3` |
 | embedding_fallback_job_count | 0 |
 | retrieval_fallback_job_count | 0 |
 
-本次真实运行说明：腾讯真实 JD 可以被 LLM parser 解析并成功写入 SQLite/`job_chunks`，检索 probe 可以召回新写入 chunk，parser quality probe 可以确认 `Agent`、`Python`、`SQL` 三个核心技能进入 structured JD。首次接入 quality probe 时真实运行暴露出 LLM parser 只返回 `Python`、`SQL`，漏掉标题和职责中的 `Agent`；修复为 LLM 输出与 heuristic 输出的有序并集合并后，复测通过。运行时仍可能出现 `Transformer cache_dir argument is deprecated` 的第三方兼容层告警，不影响本次 ingest 指标。
+本次真实运行说明：中文 query `Agent 开发实习生` 可以通过腾讯真实岗位源进入 LLM parser、SQLite/`job_chunks`、embedding/reranker 和 retrieval probe，parser quality probe 可以确认 `Agent`、`Python`、`SQL` 三个核心技能进入 structured JD。首次接入 quality probe 时真实运行暴露出 LLM parser 只返回 `Python`、`SQL`，漏掉标题和职责中的 `Agent`；修复为 LLM 输出与 heuristic 输出的有序并集合并后，中文复测通过。运行时仍可能出现 `Transformer cache_dir argument is deprecated` 的第三方兼容层告警，不影响本次 ingest 指标。
 
 ## LLM 实景流程评测
 

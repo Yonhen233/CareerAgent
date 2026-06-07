@@ -1,5 +1,37 @@
 # 开发日志
 
+## 2026-06-07 12:03 +08:00：切回中文主场景并撤销 Greenhouse 默认源方向
+
+### 这次做了什么
+- 根据新的使用场景约束，将项目默认岗位搜索 query 从 `Agent Development Intern` / `Agent intern` 调整为 `Agent 开发实习生`。
+- 更新 `JobSearchRequest`、`AgentRunRequest`、Agent fallback query、`real-job-source-smoke` 和 `real-job-ingest-smoke` 的默认 query。
+- 更新首页、岗位页和 Agent Run 页表单默认值，避免 UI 默认把用户带到英文求职场景。
+- 更新 API 文档和评测文档中的真实 source/ingest smoke 示例，将中文 query 作为主路径，英文岗位源只保留为辅助场景。
+- 新增 `tests/test_chinese_first_defaults.py`，验证岗位搜索和 Agent run 的默认 query 是中文主场景。
+- 撤销 Greenhouse 接入方向，没有把 Greenhouse 加入默认技术栈或 source registry。
+
+### 发现了什么问题
+- Greenhouse 在北美公司 ATS 中常见，但不符合当前“中文岗位为主，少量英文辅助”的求职场景；把它加入默认 source 会让项目看起来技术栈更多，但产品场景变弱。
+- 真实 Greenhouse smoke 虽然可达并能返回结果，但 `Agent Development Intern` query 会混入大量 AI Sales/Account Executive 等英文商业岗位，不适合作为中文 Agent 实习求职助手的默认岗位源。
+- 项目多个默认入口仍是英文 query，包括 API schema、评测 endpoint 和前端表单；这会让真实测试和用户演示偏离中文主场景。
+- 中文 query `Agent 开发实习生` 在腾讯招聘公开接口上可用，可以返回 Agent Development/Evaluation Intern、QQ-Agent 产品经理、元宝-Agent 架构工程师、腾讯视频-AI Agent 工程师等岗位。
+
+### 怎么修复的
+- 完整撤销 Greenhouse 代码、配置、默认 source 和测试文件，不保留与主场景不匹配的技术栈。
+- 将默认 query 统一改为 `Agent 开发实习生`，并用新增测试锁住默认值。
+- 真实 source smoke 已用中文 query 运行：`sources=tencent`、`limit=8`、`status=completed`、`reachable_source_rate=1.0000`、`result_source_rate=1.0000`、`total_result_count=8`、`non_empty_jd_rate=1.0000`、`apply_url_rate=1.0000`、`internship_like_rate=0.3750`、`query_relevance_rate=1.0000`、`agent_related_rate=1.0000`。
+- 真实 ingest smoke 已用中文 query 运行：`sources=tencent`、`limit=1`、`status=completed`、`parse_success_rate=1.0000`、`ingest_success_rate=1.0000`、`chunk_index_success_rate=1.0000`、`retrieval_probe_success_rate=1.0000`、`parser_quality_pass_rate=1.0000`、`avg_parser_quality_required_recall=1.0000`、`avg_parser_quality_query_coverage=1.0000`。
+
+### 未修复的问题及原因
+- 目前中文主场景真实 source 仍主要依赖腾讯招聘；原因是字节、美团等公开站点本轮探测到的是 SPA/内部接口形态，不适合作为短时间内稳定接入的默认源。
+- 腾讯中文 query 会混入正式岗位和产品岗位，`internship_like_rate=0.3750`；原因是真实招聘搜索本身按关键词召回，后续需要做中文岗位排序/过滤，而不是强行引入英文 ATS。
+- 旧评测集中仍有不少英文 case；原因是它们现在作为英文辅助场景保留，下一步应继续增加/替换中文 case，使整体测试数据逐步中文占主。
+
+### 下一步怎么做
+- 增加中文岗位排序规则，让实习、开发、Agent/RAG/LLM 技能匹配的岗位排在产品/销售/泛 AI 岗位前面。
+- 继续探测字节、阿里、美团、华为等中文自有招聘源，只接入能稳定返回公开中文 JD 的 source。
+- 扩充 JD parser、RAG 和 LLM workflow 的中文 case 占比，英文 case 作为辅助保留。
+
 ## 2026-06-07 11:39 +08:00：真实 JD Ingest 增加 Parser Quality Probe
 
 ### 这次做了什么

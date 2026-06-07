@@ -79,7 +79,7 @@ class AgentOrchestrator:
             input_json={"profile_id": request.profile_id},
             handler=lambda: self._load_profile(db, request.profile_id),
         )
-        query = request.query or " ".join(profile.target_roles_json or []) or "Agent intern"
+        query = request.query or " ".join(profile.target_roles_json or []) or "Agent 开发实习生"
         jobs, source_errors = await self.trace.step(
             db,
             run_id=run_id,

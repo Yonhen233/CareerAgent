@@ -76,8 +76,8 @@ Content-Type: application/json
 
 ```json
 {
-  "query": "Agent Development Intern",
-  "location": "Shanghai",
+  "query": "Agent 开发实习生",
+  "location": "上海",
   "internship_only": true,
   "limit": 20,
   "sources": ["tencent", "lever"],
@@ -185,7 +185,7 @@ Content-Type: application/json
 {
   "task_type": "find_jobs_for_profile",
   "profile_id": 1,
-  "query": "Agent Development Intern",
+  "query": "Agent 开发实习生",
   "limit": 12
 }
 ```
@@ -298,7 +298,7 @@ POST /evaluations/jd-parser
 
 ```http
 POST /evaluations/real-job-source-smoke
-POST /evaluations/real-job-source-smoke?query=Agent%20Development%20Intern&limit=8&sources=tencent&sources=lever
+POST /evaluations/real-job-source-smoke?query=Agent%20%E5%BC%80%E5%8F%91%E5%AE%9E%E4%B9%A0%E7%94%9F&limit=8&sources=tencent
 ```
 
 该评测只检查招聘源可达性、返回数量和岗位质量，不调用 LLM 解析 JD，不写入主岗位库，也不影响核心 `agent-full-flow` 回归。返回的 `summary_json` 包含 `reachable_source_rate`、`result_source_rate`、`total_result_count`、`non_empty_jd_rate`、`apply_url_rate`、`internship_like_rate`、`query_relevance_rate`、`agent_related_rate` 和 `source_errors`；`case_results_json` 会按 source 保存错误、耗时和样例岗位。所有 source 可达但部分 source 没有结果时，状态为 `completed_with_empty_sources`。
@@ -307,7 +307,7 @@ POST /evaluations/real-job-source-smoke?query=Agent%20Development%20Intern&limit
 
 ```http
 POST /evaluations/real-job-ingest-smoke
-POST /evaluations/real-job-ingest-smoke?query=Agent%20Development%20Intern&limit=1&sources=tencent
+POST /evaluations/real-job-ingest-smoke?query=Agent%20%E5%BC%80%E5%8F%91%E5%AE%9E%E4%B9%A0%E7%94%9F&limit=1&sources=tencent
 ```
 
 该评测从真实岗位源获取 posting 后，继续验证 JD 解析、SQLite upsert、JD chunk、embedding/reranker provider、检索 probe 和 parser quality probe。它会写入 `jobs` 与 `job_chunks`，但仍独立于核心 `agent-full-flow` 回归。返回的 `summary_json` 包含 `parse_success_rate`、`ingest_success_rate`、`chunk_index_success_rate`、`retrieval_probe_success_rate`、`parser_quality_pass_rate`、`avg_parser_quality_required_recall`、`avg_parser_quality_structured_recall`、`avg_parser_quality_query_coverage`、`embedding_provider_counts`、`retrieval_query_embedding_provider_counts`、`reranker_provider_counts`、`embedding_fallback_job_count` 和 `retrieval_fallback_job_count`。如果入库成功但 parser quality probe 失败，状态会变成 `completed_with_parser_quality_failures`，不会把核心技能漏抽当作完全成功。

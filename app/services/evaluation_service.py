@@ -433,7 +433,7 @@ class EvaluationService:
         self,
         db: Session,
         *,
-        query: str = "Agent Development Intern",
+        query: str = "Agent 开发实习生",
         location: str | None = None,
         limit: int = 8,
         sources: list[str] | None = None,
@@ -505,7 +505,7 @@ class EvaluationService:
         self,
         db: Session,
         *,
-        query: str = "Agent Development Intern",
+        query: str = "Agent 开发实习生",
         location: str | None = None,
         limit: int = 3,
         sources: list[str] | None = None,
@@ -682,7 +682,7 @@ class EvaluationService:
                 self._agent_request(
                     task_type="find_jobs_for_profile",
                     profile_id=profile.id,
-                    query=case.get("query") or "Agent intern",
+                    query=case.get("query") or "Agent 开发实习生",
                     limit=len(case.get("jobs", [])) or 5,
                 ),
             )

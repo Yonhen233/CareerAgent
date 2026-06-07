@@ -2,7 +2,7 @@
 
 CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Agent。它不是单次 Prompt 演示，而是一个工程化工作流：从 PDF 简历或问答式信息采集开始，解析候选人画像，搜索真实招聘站岗位，存储并检索职位 JD，做岗位匹配评分，基于 RAG 证据定制简历，记录 LLM 调用与 Agent Trace，最后生成可人工确认的投递包。
 
-默认演示场景是“Agent 开发实习生”，但数据模型和服务层可以扩展到其他技术岗位。
+默认演示场景是中文求职场景下的“Agent 开发实习生”，英文岗位只作为少量辅助测试；数据模型和服务层可以扩展到其他技术岗位。
 
 ## 核心能力
 
@@ -23,8 +23,8 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - 支持对一阶段 Top20 chunk 使用 CrossEncoder reranker，默认 Top5 作为召回锚点。
   - `EvidenceClassifier` 会区分 shipped project、metric evidence、coursework、planned learning 和 missing-skill disclosure，并影响 RAG 证据排序。
 - 岗位来源：
-  - 腾讯招聘公开职位接口。
-  - Lever 公开岗位 API，可配置公司 slug。
+  - 腾讯招聘公开职位接口，作为中文主场景岗位源。
+  - Lever 公开岗位 API，可配置公司 slug，作为少量英文辅助岗位源。
   - `real-job-source-smoke` 会单独记录岗位源可达性、返回数量、JD 非空率、投递链接率、query relevance、Agent/AI relevance 和 source errors，不让外部网络波动影响核心回归。
   - `real-job-ingest-smoke` 单独验证真实 JD 的 LLM 解析、SQLite upsert、JD chunk、embedding/reranker provider、检索 probe 和 parser quality probe。
 - Agent 工作流：

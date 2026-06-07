@@ -150,7 +150,7 @@ class JobCreateRequest(BaseModel):
 
 
 class JobSearchRequest(BaseModel):
-    query: str = "Agent intern"
+    query: str = "Agent 开发实习生"
     location: str | None = None
     internship_only: bool = True
     limit: int = Field(default=20, ge=1, le=80)
@@ -239,7 +239,7 @@ class AgentRunRequest(BaseModel):
     profile_id: int | None = None
     job_id: int | None = None
     resume_version_id: int | None = None
-    query: str | None = "Agent intern"
+    query: str | None = "Agent 开发实习生"
     location: str | None = None
     limit: int = Field(default=20, ge=1, le=80)
 
