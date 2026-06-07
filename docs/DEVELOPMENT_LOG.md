@@ -1,5 +1,42 @@
 # 开发日志
 
+## 2026-06-07 11:39 +08:00：真实 JD Ingest 增加 Parser Quality Probe
+
+### 这次做了什么
+- 为 `real-job-ingest-smoke` 增加 parser quality probe，在真实岗位 posting 入库后继续检查 query、title 和原始 JD 中的核心技能是否进入 structured JD。
+- 每条真实岗位结果新增 `parser_quality_evaluable`、`parser_quality_probe_passed`、`parser_quality_expected_skills`、`parser_quality_query_skills`、`parser_quality_required_recall`、`parser_quality_structured_recall`、`parser_quality_query_coverage`、`parser_quality_missing_required_skills` 和 `parser_quality_missing_structured_skills`。
+- Summary 新增 `parser_quality_evaluable_count`、`parser_quality_pass_rate`、`avg_parser_quality_required_recall`、`avg_parser_quality_structured_recall`、`avg_parser_quality_query_coverage`、`parser_quality_failure_count` 和 `parser_quality_failure_breakdown`。
+- `real-job-ingest-smoke` 状态新增 `completed_with_parser_quality_failures`：当 source、parse、SQLite upsert、chunk 和 retrieval 都成功，但 parser 漏掉核心技能时，不再显示为完全成功。
+- `JDParserService.parse_jd` 不再让 LLM 结果完全覆盖 heuristic 结果；required/preferred/responsibilities/qualifications/keywords 会做有序并集合并，避免 LLM 漏掉标题或职责中的显式技能。
+- 新增单元测试覆盖健康 ingest quality probe 和故意漏抽 Agent/RAG/LLM 的 parser quality failure。
+- 新增单元测试覆盖 LLM parser 输出过稀疏时，heuristic 抽出的 `Agent/FastAPI/RAG/Evaluation` 不会被覆盖丢失。
+- 更新 README、API 文档和评测文档，说明 real-job-ingest-smoke 不只看 parse/ingest 成功，也会检查 parser 对核心 JD 技能的理解质量。
+
+### 发现了什么问题
+- `parse_success_rate=1.0` 只能说明 parser 返回了结构化 JSON，不能说明 required skills 足够完整；真实求职场景中，漏掉 `Agent/RAG/LLM` 会直接影响匹配、RAG 证据召回和简历定制。
+- 单独的 JD parser 标注集能做离线质量回归，但真实 source smoke 仍需要一个轻量在线 probe，否则真实 JD 入库链路可能在质量退化时仍显示成功。
+- 质量 probe 不能直接复用完整标注集，因为真实岗位没有人工 gold label；因此本轮采用保守技能词表，只评估 query/title/JD 中明确出现的高价值技术词。
+- 第一次真实腾讯 ingest 运行暴露出实际问题：`parse_success_rate=1.0000`、`ingest_success_rate=1.0000`、`retrieval_probe_success_rate=1.0000`，但 `parser_quality_pass_rate=0.0000`，因为 LLM parser 只返回 `Python`、`SQL`，漏掉标题和职责中的 `Agent`。
+- 这说明真实 LLM parser 不是总比规则 parser 更完整；LLM 输出如果直接覆盖 heuristic，会把确定性技能抽取结果丢掉。
+
+### 怎么修复的
+- 在 `_ingest_smoke_posting` 中解析完成后立刻生成 parser quality probe，并把结果随 job result 一起写入 `EvaluationRun.case_results_json`。
+- probe 将 query/title 和 raw JD 中识别到的核心技能作为 expected skills，再分别计算 required recall、structured recall 和 query coverage。
+- preferred/optional/加分项行不会作为 raw JD required quality 期望；`No prior X required`、`不要求 X`、`无需 X` 等负向语境也不会触发期望技能。
+- 如果 quality probe 失败，summary 会保留 parse/ingest/chunk/retrieval 的成功率，同时把整体状态标记为 `completed_with_parser_quality_failures`，便于定位是“链路可用但理解质量差”。
+- 修复 LLM 与 heuristic 的合并策略：LLM 仍可以补充结构化字段，但 list 字段会与 heuristic 结果做有序并集，不再覆盖掉确定性抽取出的技能。
+- 修复后重新运行真实腾讯 JD ingest：`status=completed`、`parser_quality_pass_rate=1.0000`、`avg_parser_quality_required_recall=1.0000`、`avg_parser_quality_structured_recall=1.0000`、`avg_parser_quality_query_coverage=1.0000`、`required_skills_preview=Python, SQL, Agent`。
+- 新增测试已运行：`tests/test_evaluation_service.py` 共 17 个测试通过；全量测试 `python -m pytest -q` 共 41 个测试通过。
+
+### 未修复的问题及原因
+- parser quality probe 仍是保守词表，不等同于人工标注的真实 JD gold label；原因是真实 source smoke 需要轻量、低成本、可在线运行，不能每次依赖人工标注。
+- 当前 probe 主要覆盖技术岗位核心技能，对薪资、学历、城市、年限等非技能字段还没有做质量判断；原因是这些字段对本项目的匹配和简历定制影响次于 required skills，本轮先修最关键的语义风险。
+- 真实运行仍出现 `Transformer cache_dir argument is deprecated` 第三方告警；原因是告警来自模型加载链路内部兼容层，不影响 parser quality、embedding 或 reranker 指标，本轮不通过隐藏 warning 来伪装干净结果。
+
+### 下一步怎么做
+- 如果真实 JD 的 `parser_quality_required_recall` 偏低，把失败岗位样例加入 JD parser 标注集，形成离线回归。
+- 后续可扩展 quality probe 到 location、intern/full-time、salary/benefit 和 apply_url 字段，逐步补齐真实发布前 smoke。
+
 ## 2026-06-07 11:31 +08:00：新增 JD Parser 质量评测并修复解析边界
 
 ### 这次做了什么

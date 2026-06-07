@@ -28,6 +28,37 @@ from app.services.text_splitter import PDFPageText, ResumeTextSplitter, TextChun
 from app.services.vector_index import SQLiteVectorIndex, cosine_similarity, expand_query_text, tokenize
 
 
+REAL_JD_INGEST_PROBE_PATTERNS: dict[str, list[str]] = {
+    "Agent": [r"\bagents?\b", "智能体"],
+    "RAG": [r"\brag\b", r"\bretrieval[- ]augmented generation\b", "检索增强", "知识库"],
+    "LLM": [r"\bllms?\b", r"\blarge language models?\b", "大语言模型", "大模型"],
+    "Python": [r"\bpython\b"],
+    "FastAPI": [r"\bfastapi\b"],
+    "SQL": [r"\bsql\b"],
+    "SQLite": [r"\bsqlite\b"],
+    "Vector Database": [r"\bvector (database|store|index|search)\b", "向量数据库", "向量检索"],
+    "Embedding": [r"\bembeddings?\b", "嵌入模型", "语义向量"],
+    "Reranker": [r"\brerank(er|ing)?\b", r"\bcross[- ]encoder\b", "重排序"],
+    "Tool Calling": [r"\btool calling\b", r"\bfunction calling\b", "工具调用"],
+    "Workflow": [r"\bworkflows?\b", r"\borchestration\b", "工作流", "编排"],
+    "Evaluation": [r"\beval(uation)?\b", "评测", "评估"],
+    "Guardrail": [r"\bguardrails?\b", "安全护栏", "风控策略"],
+    "Prompt Engineering": [r"\bprompt engineering\b", r"\bprompts?\b", "提示词工程"],
+    "Prompt Injection": [r"\bprompt injection\b", "提示词注入"],
+    "A/B Testing": [r"\ba/b tests?\b", r"\ba/b testing\b", r"\bab tests?\b", "A/B实验", "AB实验"],
+    "Feature Store": [r"\bfeature stores?\b", "特征平台", "特征库"],
+    "MLflow": [r"\bmlflow\b"],
+    "Airflow": [r"\bairflow\b"],
+    "Spark": [r"\bspark\b"],
+    "Kafka": [r"\bkafka\b"],
+    "Recommendation": [r"\brecommendation(s)?\b", "推荐系统", "推荐算法"],
+    "Ranking": [r"\branking\b", "排序模型", "召回排序"],
+    "CTR": [r"\bctr\b", "点击率"],
+    "Docker": [r"\bdocker\b"],
+    "Kubernetes": [r"\bkubernetes\b", r"\bk8s\b"],
+}
+
+
 class EvaluationJobSearchService:
     def __init__(self, postings: list[dict[str, Any]], *, namespace: str) -> None:
         self.postings = postings
@@ -1637,6 +1668,11 @@ class EvaluationService:
             embedding_report = self._job_chunk_embedding_report(chunk_rows)
             retrieval_report = self._job_retrieval_probe_report(retrieved)
             required_skills = [str(item) for item in structured.get("required_skills", []) if str(item).strip()]
+            parser_quality_probe = self._real_ingest_parser_quality_probe(
+                posting=posting,
+                query=query,
+                structured=structured,
+            )
             return {
                 **base,
                 "status": "completed",
@@ -1652,6 +1688,7 @@ class EvaluationService:
                 "chunk_types": chunk_types,
                 **embedding_report,
                 **retrieval_report,
+                **parser_quality_probe,
                 "required_skill_count": len(required_skills),
                 "required_skills_preview": required_skills[:8],
                 "keyword_count": len(structured.get("keywords", []) or []),
@@ -1680,6 +1717,99 @@ class EvaluationService:
                 "required_skill_count": len(structured.get("required_skills", []) or []),
                 "keyword_count": len(structured.get("keywords", []) or []),
             }
+
+    def _real_ingest_parser_quality_probe(
+        self,
+        *,
+        posting: JobPosting,
+        query: str,
+        structured: dict[str, Any],
+    ) -> dict[str, Any]:
+        query_skills = self._infer_real_ingest_probe_skills(
+            "\n".join([query or "", posting.title or ""]),
+            skip_preferred_lines=False,
+        )
+        jd_skills = self._infer_real_ingest_probe_skills(posting.raw_jd_text or "", skip_preferred_lines=True)
+        expected_skills = list(dict.fromkeys(query_skills + jd_skills))
+        required_skills = [str(item) for item in structured.get("required_skills", []) if str(item).strip()]
+        structured_skills = list(
+            dict.fromkeys(
+                required_skills
+                + [str(item) for item in structured.get("preferred_skills", []) if str(item).strip()]
+                + [str(item) for item in structured.get("keywords", []) if str(item).strip()]
+            )
+        )
+        expected_terms = {self._normalize_eval_term(item) for item in expected_skills}
+        required_terms = {self._normalize_eval_term(item) for item in required_skills}
+        structured_terms = {self._normalize_eval_term(item) for item in structured_skills}
+        query_terms = {self._normalize_eval_term(item) for item in query_skills}
+        required_recall = self._recall(required_terms, expected_terms)
+        structured_recall = self._recall(structured_terms, expected_terms)
+        query_coverage = self._recall(structured_terms, query_terms)
+        missing_required = [
+            skill for skill in expected_skills if self._normalize_eval_term(skill) not in required_terms
+        ]
+        missing_structured = [
+            skill for skill in expected_skills if self._normalize_eval_term(skill) not in structured_terms
+        ]
+        evaluable = bool(expected_skills)
+        passed = (
+            True
+            if not evaluable
+            else required_recall >= 0.6 and structured_recall >= 0.8 and query_coverage >= 0.8
+        )
+        return {
+            "parser_quality_evaluable": evaluable,
+            "parser_quality_probe_passed": passed,
+            "parser_quality_expected_skills": expected_skills[:16],
+            "parser_quality_query_skills": query_skills[:8],
+            "parser_quality_required_recall": required_recall,
+            "parser_quality_structured_recall": structured_recall,
+            "parser_quality_query_coverage": query_coverage,
+            "parser_quality_missing_required_skills": missing_required[:12],
+            "parser_quality_missing_structured_skills": missing_structured[:12],
+        }
+
+    def _infer_real_ingest_probe_skills(self, text: str, *, skip_preferred_lines: bool) -> list[str]:
+        found: list[str] = []
+        seen: set[str] = set()
+        lines = text.splitlines() if text else []
+        for line in lines:
+            if skip_preferred_lines and self._real_ingest_line_is_preferred(line):
+                continue
+            for skill, patterns in REAL_JD_INGEST_PROBE_PATTERNS.items():
+                if skill.lower() in seen:
+                    continue
+                if any(self._real_ingest_pattern_hit(line, pattern) for pattern in patterns):
+                    seen.add(skill.lower())
+                    found.append(skill)
+        return found
+
+    def _real_ingest_pattern_hit(self, line: str, pattern: str) -> bool:
+        for match in re.finditer(pattern, line, re.IGNORECASE):
+            if not self._real_ingest_match_is_negated(line, match.start(), match.end()):
+                return True
+        return False
+
+    def _real_ingest_line_is_preferred(self, line: str) -> bool:
+        lowered = line.lower()
+        return any(
+            token in lowered
+            for token in ["preferred", "nice to have", "bonus", "plus", "optional", "加分", "优先", "非必须"]
+        )
+
+    def _real_ingest_match_is_negated(self, line: str, start: int, end: int) -> bool:
+        lowered = line[max(0, start - 50) : min(len(line), end + 80)].lower()
+        negation_patterns = [
+            r"\bno\s+(prior\s+)?[^.\n;:]{0,50}\b(required|needed|mandatory)\b",
+            r"\bnot\s+[^.\n;:]{0,50}\b(required|needed|mandatory|necessary)\b",
+            "不要求",
+            "不需要",
+            "无需",
+            "非必须",
+            "可不具备",
+        ]
+        return any(re.search(pattern, lowered) for pattern in negation_patterns)
 
     def _job_chunk_embedding_report(self, rows: list[JobChunk]) -> dict[str, Any]:
         provider_counts: dict[str, int] = {}
@@ -1752,8 +1882,12 @@ class EvaluationService:
         ingested_count = sum(1 for item in job_results if item.get("ingest_success"))
         chunked_count = sum(1 for item in job_results if item.get("chunk_index_success"))
         retrieval_count = sum(1 for item in job_results if item.get("retrieval_probe_hit"))
+        quality_rows = [item for item in job_results if item.get("parser_quality_evaluable")]
+        quality_failures = [item for item in quality_rows if item.get("parser_quality_probe_passed") is not True]
         if not job_results:
             status = "source_unavailable"
+        elif ingested_count == len(job_results) and quality_failures:
+            status = "completed_with_parser_quality_failures"
         elif ingested_count == len(job_results):
             status = "completed" if source_error_count == 0 else "completed_with_source_errors"
         else:
@@ -1776,6 +1910,21 @@ class EvaluationService:
             "ingest_success_rate": round(ingested_count / job_count, 4),
             "chunk_index_success_rate": round(chunked_count / job_count, 4),
             "retrieval_probe_success_rate": round(retrieval_count / job_count, 4),
+            "parser_quality_evaluable_count": len(quality_rows),
+            "parser_quality_pass_rate": self._avg_bool(quality_rows, "parser_quality_probe_passed"),
+            "avg_parser_quality_required_recall": self._avg_number(
+                quality_rows,
+                "parser_quality_required_recall",
+            ),
+            "avg_parser_quality_structured_recall": self._avg_number(
+                quality_rows,
+                "parser_quality_structured_recall",
+            ),
+            "avg_parser_quality_query_coverage": self._avg_number(
+                quality_rows,
+                "parser_quality_query_coverage",
+            ),
+            "parser_quality_failure_count": len(quality_failures),
             "avg_chunks_per_job": self._avg_number(job_results, "chunk_count"),
             "avg_required_skill_count": self._avg_number(job_results, "required_skill_count"),
             "avg_keyword_count": self._avg_number(job_results, "keyword_count"),
@@ -1801,13 +1950,29 @@ class EvaluationService:
                 [item for item in job_results if item.get("status") != "completed"],
                 "status",
             ),
+            "parser_quality_failure_breakdown": self._real_ingest_parser_quality_failure_breakdown(quality_failures),
             "core_regression_independent": True,
             "notes": [
                 "真实 JD ingest smoke 只评估 source 返回岗位后的 parser、SQLite upsert、JD chunk 和向量检索链路。",
                 "该评测与 real-job-source-smoke 分离：source 是否可达、JD 是否能入库分别定位。",
-                "LLM 未配置且未显式开启测试 fallback 时，JD parse 会记录 parse_error，不会静默当作成功。",
+                "parser_quality_probe 会检查 query/title/JD 中的核心技能是否进入 structured JD，避免 parse_success 掩盖核心技能漏抽。",
             ],
         }
+
+    def _real_ingest_parser_quality_failure_breakdown(self, rows: list[dict[str, Any]]) -> dict[str, int]:
+        breakdown = {
+            "required_recall_below_threshold": 0,
+            "structured_recall_below_threshold": 0,
+            "query_coverage_below_threshold": 0,
+        }
+        for row in rows:
+            if self._coerce_float(row.get("parser_quality_required_recall")) < 0.6:
+                breakdown["required_recall_below_threshold"] += 1
+            if self._coerce_float(row.get("parser_quality_structured_recall")) < 0.8:
+                breakdown["structured_recall_below_threshold"] += 1
+            if self._coerce_float(row.get("parser_quality_query_coverage")) < 0.8:
+                breakdown["query_coverage_below_threshold"] += 1
+        return {key: value for key, value in breakdown.items() if value > 0}
 
     def _merge_count_dicts(self, rows: list[dict[str, Any]], key: str) -> dict[str, int]:
         merged: dict[str, int] = {}

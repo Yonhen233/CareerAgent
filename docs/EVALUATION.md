@@ -418,6 +418,7 @@ POST /evaluations/real-job-ingest-smoke?query=Agent%20Development%20Intern&limit
 - 将解析后的 JD upsert 到 `jobs`，切分并写入 `job_chunks`。
 - 对写入后的 JD chunk 执行一次 retrieval probe，确认索引可检索。
 - 每条岗位单独记录 `parse_error`、`ingest_error`、`chunk_count`、`chunk_types`、`required_skill_count`、`retrieved_chunk_preview`。
+- 对 query、title 和原始 JD 执行 parser quality probe，检查保守识别出的核心技能是否进入 structured JD。
 - 记录 `embedding_provider_counts`、`retrieval_query_embedding_provider_counts`、`reranker_provider_counts` 和 fallback job count，用于区分真实模型链路与 hash/heuristic 降级链路。
 
 核心指标：
@@ -428,6 +429,12 @@ POST /evaluations/real-job-ingest-smoke?query=Agent%20Development%20Intern&limit
 | `ingest_success_rate` | 解析后写入 `jobs` 成功比例。 |
 | `chunk_index_success_rate` | 写入 `job_chunks` 且 chunk 数量非零的比例。 |
 | `retrieval_probe_success_rate` | 对新写入 JD 执行检索 probe 能返回结果的比例。 |
+| `parser_quality_evaluable_count` | query/title/JD 中能提取到核心技能、可以评估 parser 质量的岗位数。 |
+| `parser_quality_pass_rate` | parser quality probe 通过比例。 |
+| `avg_parser_quality_required_recall` | 原始 JD 核心技能进入 `required_skills` 的平均召回。 |
+| `avg_parser_quality_structured_recall` | 原始 JD 核心技能进入 required/preferred/keywords 任意结构化字段的平均召回。 |
+| `avg_parser_quality_query_coverage` | query/title 中核心技能进入 structured JD 的平均覆盖率。 |
+| `parser_quality_failure_count` | 入库成功但 parser quality probe 失败的岗位数。 |
 | `avg_chunks_per_job` | 每个真实 JD 平均切分出的 chunk 数。 |
 | `avg_required_skill_count` | 每个真实 JD 解析出的 required skills 平均数量。 |
 | `embedding_provider_counts` | JD chunk 写入时使用的 embedding provider 分布。 |
@@ -447,16 +454,22 @@ POST /evaluations/real-job-ingest-smoke?query=Agent%20Development%20Intern&limit
 | ingest_success_rate | 1.0000 |
 | chunk_index_success_rate | 1.0000 |
 | retrieval_probe_success_rate | 1.0000 |
+| parser_quality_evaluable_count | 1 |
+| parser_quality_pass_rate | 1.0000 |
+| avg_parser_quality_required_recall | 1.0000 |
+| avg_parser_quality_structured_recall | 1.0000 |
+| avg_parser_quality_query_coverage | 1.0000 |
+| parser_quality_failure_count | 0 |
 | avg_chunks_per_job | 8.0000 |
-| avg_required_skill_count | 2.0000 |
-| avg_keyword_count | 12.0000 |
+| avg_required_skill_count | 3.0000 |
+| avg_keyword_count | 44.0000 |
 | embedding_provider_counts | `sentence_transformers: 8` |
 | retrieval_query_embedding_provider_counts | `sentence_transformers: 3` |
 | reranker_provider_counts | `cross_encoder: 3` |
 | embedding_fallback_job_count | 0 |
 | retrieval_fallback_job_count | 0 |
 
-本次真实运行说明：腾讯真实 JD 可以被 LLM parser 解析并成功写入 SQLite/`job_chunks`，检索 probe 可以召回新写入 chunk。运行时发现 HuggingFace 在 Windows 上会因为默认缓存目录和 symlink 能力产生噪声 warning；代码已将 `HF_HOME` 与 `SENTENCE_TRANSFORMERS_HOME` 默认指向项目内 `data/models`，并默认关闭 symlink warning，避免用户目录权限影响发布环境。当前仍可能出现 `Transformer cache_dir argument is deprecated` 的第三方兼容层告警，不影响本次 ingest 指标。
+本次真实运行说明：腾讯真实 JD 可以被 LLM parser 解析并成功写入 SQLite/`job_chunks`，检索 probe 可以召回新写入 chunk，parser quality probe 可以确认 `Agent`、`Python`、`SQL` 三个核心技能进入 structured JD。首次接入 quality probe 时真实运行暴露出 LLM parser 只返回 `Python`、`SQL`，漏掉标题和职责中的 `Agent`；修复为 LLM 输出与 heuristic 输出的有序并集合并后，复测通过。运行时仍可能出现 `Transformer cache_dir argument is deprecated` 的第三方兼容层告警，不影响本次 ingest 指标。
 
 ## LLM 实景流程评测
 

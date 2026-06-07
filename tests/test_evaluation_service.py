@@ -93,6 +93,31 @@ def test_jd_parser_aliases_preferred_and_negative_context():
     assert {"LangGraph", "MCP"} <= set(parsed["preferred_skills"])
 
 
+def test_jd_parser_llm_merge_preserves_heuristic_skills():
+    from app.services.jd_parser import JDParserService
+
+    service = JDParserService()
+    heuristic = service.heuristic_parse(
+        "Agent Development Intern\n"
+        "Responsibilities: build AI agents with Python, FastAPI and RAG.\n"
+        "Requirements: SQL and evaluation.",
+        title="Agent Development Intern",
+    )
+    sparse_llm = {
+        "title": "Agent Development Intern",
+        "required_skills": ["Python", "SQL"],
+        "preferred_skills": [],
+        "responsibilities": ["Build tools."],
+        "qualifications": ["Python and SQL."],
+        "keywords": ["Python", "SQL"],
+    }
+
+    merged = service._merge_llm_parse(heuristic, sparse_llm)
+
+    assert {"Agent", "Python", "FastAPI", "RAG", "SQL", "Evaluation"} <= set(merged["required_skills"])
+    assert merged["required_skills"].count("Python") == 1
+
+
 def test_real_job_source_smoke_records_source_layer_metrics(db_session):
     class HealthySource:
         name = "healthy"
@@ -227,6 +252,10 @@ def test_real_job_ingest_smoke_parses_stores_chunks_and_retrieves(db_session):
     assert run.summary_json["ingest_success_rate"] == 1.0
     assert run.summary_json["chunk_index_success_rate"] == 1.0
     assert run.summary_json["retrieval_probe_success_rate"] == 1.0
+    assert run.summary_json["parser_quality_evaluable_count"] == 1
+    assert run.summary_json["parser_quality_pass_rate"] == 1.0
+    assert run.summary_json["avg_parser_quality_required_recall"] >= 0.8
+    assert run.summary_json["avg_parser_quality_query_coverage"] == 1.0
     assert run.summary_json["avg_chunks_per_job"] > 0
     assert run.summary_json["embedding_provider_counts"].get("hash", 0) > 0
     assert run.summary_json["retrieval_query_embedding_provider_counts"].get("hash", 0) > 0
@@ -234,7 +263,73 @@ def test_real_job_ingest_smoke_parses_stores_chunks_and_retrieves(db_session):
     assert db_session.query(JobChunk).count() > 0
     job_result = run.case_results_json[0]["job_results"][0]
     assert job_result["required_skill_count"] > 0
+    assert job_result["parser_quality_probe_passed"] is True
+    assert "Agent" in job_result["parser_quality_expected_skills"]
     assert job_result["retrieved_chunk_preview"]
+
+
+def test_real_job_ingest_smoke_reports_parser_quality_failures(db_session):
+    class HealthySource:
+        name = "healthy"
+
+        async def search(self, *, query: str, location: str | None, limit: int):
+            return [
+                JobPosting(
+                    source=self.name,
+                    external_id="quality-fail-1",
+                    title="Agent Development Intern",
+                    company="Example AI",
+                    location=location or "Shanghai",
+                    job_type="internship",
+                    apply_url="https://example.com/jobs/quality-fail-1",
+                    raw_jd_text=(
+                        "Agent Development Intern\n"
+                        "Responsibilities: build Agent workflows with RAG, LLM and tool calling.\n"
+                        "Requirements: Python, FastAPI, RAG, LLM, Evaluation and Guardrail."
+                    ),
+                )
+            ][:limit]
+
+    class FakeRegistry:
+        def select(self, names=None):
+            return [HealthySource()]
+
+    class WeakParser:
+        async def parse_jd(self, raw_text: str, **kwargs):
+            return {
+                "title": kwargs.get("title"),
+                "company": kwargs.get("company"),
+                "location": kwargs.get("location"),
+                "job_type": "internship",
+                "required_skills": ["Python"],
+                "preferred_skills": [],
+                "responsibilities": ["Build backend scripts."],
+                "qualifications": ["Python."],
+                "keywords": ["Python"],
+                "seniority": "intern",
+            }
+
+    service = EvaluationService()
+    service.jd_parser = WeakParser()
+
+    run = asyncio.run(
+        service.run_real_job_ingest_smoke(
+            db_session,
+            query="Agent Development Intern",
+            source_registry=FakeRegistry(),
+        )
+    )
+
+    assert run.summary_json["status"] == "completed_with_parser_quality_failures"
+    assert run.summary_json["parse_success_rate"] == 1.0
+    assert run.summary_json["ingest_success_rate"] == 1.0
+    assert run.summary_json["parser_quality_pass_rate"] == 0.0
+    assert run.summary_json["parser_quality_failure_count"] == 1
+    assert run.summary_json["parser_quality_failure_breakdown"]["required_recall_below_threshold"] == 1
+    job_result = run.case_results_json[0]["job_results"][0]
+    assert job_result["status"] == "completed"
+    assert job_result["parser_quality_probe_passed"] is False
+    assert {"Agent", "RAG", "LLM"} <= set(job_result["parser_quality_missing_required_skills"])
 
 
 def test_real_job_ingest_smoke_records_parse_errors(db_session):

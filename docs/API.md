@@ -310,7 +310,7 @@ POST /evaluations/real-job-ingest-smoke
 POST /evaluations/real-job-ingest-smoke?query=Agent%20Development%20Intern&limit=1&sources=tencent
 ```
 
-该评测从真实岗位源获取 posting 后，继续验证 JD 解析、SQLite upsert、JD chunk、embedding/reranker provider 和检索 probe。它会写入 `jobs` 与 `job_chunks`，但仍独立于核心 `agent-full-flow` 回归。返回的 `summary_json` 包含 `parse_success_rate`、`ingest_success_rate`、`chunk_index_success_rate`、`retrieval_probe_success_rate`、`embedding_provider_counts`、`retrieval_query_embedding_provider_counts`、`reranker_provider_counts`、`embedding_fallback_job_count` 和 `retrieval_fallback_job_count`。
+该评测从真实岗位源获取 posting 后，继续验证 JD 解析、SQLite upsert、JD chunk、embedding/reranker provider、检索 probe 和 parser quality probe。它会写入 `jobs` 与 `job_chunks`，但仍独立于核心 `agent-full-flow` 回归。返回的 `summary_json` 包含 `parse_success_rate`、`ingest_success_rate`、`chunk_index_success_rate`、`retrieval_probe_success_rate`、`parser_quality_pass_rate`、`avg_parser_quality_required_recall`、`avg_parser_quality_structured_recall`、`avg_parser_quality_query_coverage`、`embedding_provider_counts`、`retrieval_query_embedding_provider_counts`、`reranker_provider_counts`、`embedding_fallback_job_count` 和 `retrieval_fallback_job_count`。如果入库成功但 parser quality probe 失败，状态会变成 `completed_with_parser_quality_failures`，不会把核心技能漏抽当作完全成功。
 
 运行真实 LLM 工作流评测：
 
@@ -360,6 +360,12 @@ GET /evaluations/results
 - `ingest_success_rate`
 - `chunk_index_success_rate`
 - `retrieval_probe_success_rate`
+- `parser_quality_evaluable_count`
+- `parser_quality_pass_rate`
+- `avg_parser_quality_required_recall`
+- `avg_parser_quality_structured_recall`
+- `avg_parser_quality_query_coverage`
+- `parser_quality_failure_count`
 - `completed_rate`
 - `end_to_end_pass_rate`
 - `resume_parse_success_rate`

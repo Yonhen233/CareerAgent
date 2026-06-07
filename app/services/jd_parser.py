@@ -92,11 +92,32 @@ JD:
                 db=db,
                 trace_name="jd_parser.parse_jd",
             )
-            return JDStructured.model_validate({**heuristic, **parsed}).model_dump()
+            return JDStructured.model_validate(self._merge_llm_parse(heuristic, parsed)).model_dump()
         except Exception:
             if not self.settings.llm_fallback_enabled:
                 raise
             return heuristic
+
+    def _merge_llm_parse(self, heuristic: dict, parsed: dict) -> dict:
+        merged = {**heuristic, **parsed}
+        for field in ["required_skills", "preferred_skills", "responsibilities", "qualifications", "keywords"]:
+            merged[field] = self._merge_ordered_lists(parsed.get(field), heuristic.get(field))
+        for field in ["title", "company", "location", "job_type", "seniority"]:
+            merged[field] = parsed.get(field) or heuristic.get(field)
+        return merged
+
+    def _merge_ordered_lists(self, primary: object, secondary: object) -> list[str]:
+        merged: list[str] = []
+        seen: set[str] = set()
+        for source in [primary, secondary]:
+            items = source if isinstance(source, list) else ([] if source is None else [source])
+            for item in items:
+                value = str(item).strip()
+                key = value.lower()
+                if value and key not in seen:
+                    seen.add(key)
+                    merged.append(value)
+        return merged
 
     def heuristic_parse(
         self,
