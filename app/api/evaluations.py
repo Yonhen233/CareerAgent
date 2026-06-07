@@ -33,6 +33,12 @@ async def run_agent_full_flow_evaluation(db: Session = Depends(get_db)) -> Evalu
     return EvaluationRunResponse.model_validate(run)
 
 
+@router.post("/jd-parser", response_model=EvaluationRunResponse, status_code=status.HTTP_201_CREATED)
+async def run_jd_parser_evaluation(db: Session = Depends(get_db)) -> EvaluationRunResponse:
+    run = await EvaluationService().run_jd_parser_evaluation(db)
+    return EvaluationRunResponse.model_validate(run)
+
+
 @router.post("/real-job-source-smoke", response_model=EvaluationRunResponse, status_code=status.HTTP_201_CREATED)
 async def run_real_job_source_smoke(
     query: str = Query(default="Agent Development Intern", min_length=1),

@@ -286,6 +286,14 @@ POST /evaluations/agent-full-flow
 
 该评测覆盖 `find_jobs_for_profile`、`tailor_resume_for_job`、`quick_apply`、`fit_gate`、Trace 和 Artifact。弱匹配 case 期望 `quick_apply` 失败并在 step trace 中记录阻断原因。
 
+运行 JD Parser 标注集评测：
+
+```http
+POST /evaluations/jd-parser
+```
+
+该评测使用 `evals/jd_parser_cases.json`，单独衡量 JD parser 的结构化质量。返回的 `summary_json` 包含 `completed_rate`、`pass_rate`、`avg_required_skill_recall`、`avg_keyword_hit_rate`、`job_type_accuracy`、`responsibility_min_pass_rate`、`qualification_min_pass_rate`、`absent_required_skill_violation_count`、`parser_mode_counts`、`failure_breakdown`、`difficulty_breakdown` 和 `noise_breakdown`。`case_results_json` 会保留每个 JD 的 parsed required/preferred skills、missing required skills、负向技能误抽取和失败检查项。
+
 运行真实岗位源 smoke：
 
 ```http
@@ -343,6 +351,11 @@ GET /evaluations/results
 - `internship_like_rate`
 - `query_relevance_rate`
 - `agent_related_rate`
+- `job_type_accuracy`
+- `responsibility_min_pass_rate`
+- `qualification_min_pass_rate`
+- `absent_required_skill_violation_count`
+- `parser_mode_counts`
 - `parse_success_rate`
 - `ingest_success_rate`
 - `chunk_index_success_rate`

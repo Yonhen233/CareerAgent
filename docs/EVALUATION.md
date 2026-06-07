@@ -1,10 +1,11 @@
 # 量化评测方案
 
-CareerAgent 的评测分为七类：
+CareerAgent 的评测分为八类：
 
 - 基础匹配评测：Profile/JD 匹配质量。
 - PDF Chunk 策略评测：不同 PDF 切分方案对证据召回的影响。
 - RAG 策略评测：不同检索排序策略对证据召回的影响。
+- JD Parser 评测：衡量真实 JD 结构化解析质量，避免核心技能漏抽或把可选技能误写成 required。
 - LLM 实景流程评测：真实调用 LLM 判断岗位适配度并按 JD 改写简历。
 - Agent 全流程评测：覆盖岗位搜索、匹配排序、简历定制、一键投递门禁、Trace 和 Artifact。
 - 真实岗位源 Smoke：只评测招聘源可达性、结果数量和岗位质量，不参与核心 Agent 回归 pass rate。
@@ -60,6 +61,25 @@ evals/rag_cases.json
 - 一部分查询使用精确技术关键词，一部分使用同义表达，例如 `retrieval augmented generation` -> `RAG`。
 - 每个 case 包含 hard negative、planned learning、coursework、adjacent domain、generic tools、rejected prototype、long noise 等噪声 chunk。
 - 按 `easy`、`medium`、`hard`、`adversarial` 分桶统计。
+
+### JD Parser 评测数据
+
+```text
+evals/jd_parser_cases.json
+```
+
+规模：
+
+- 30 个 JD 解析 case。
+- 覆盖 `easy`、`medium`、`hard`、`adversarial` 四类难度。
+- 覆盖 `preferred_skill_noise`、`negative_requirement`、`synonym_alias`、`chinese_jd`、`rag_stack`、`platform_stack`、`metric_evidence`、`agent_framework_stack` 等噪声画像。
+
+数据设计：
+
+- 每个 case 都包含原始 JD、岗位标题、公司/地点、期望 job_type、期望 required skills、期望关键词、期望不应进入 required 的技能。
+- 中英混合覆盖 Agent/RAG、LLM Eval、Prompt Security、ML Platform、Backend、Frontend、Data Engineering、Recommendation、MLOps、Computer Vision 等真实岗位类型。
+- 刻意加入 `Preferred`、`Nice to have`、`加分项`、`No prior X required`、`不要求 X`、同义词和相邻领域噪声。
+- 指标同时检查 required skill recall、keyword hit rate、job_type accuracy、responsibility/qualification 最小覆盖和 absent required skill violation。
 
 ### LLM 实景流程数据
 
@@ -136,10 +156,41 @@ POST /evaluations/run
 POST /evaluations/pdf-chunk-strategies
 POST /evaluations/rag-strategies
 POST /evaluations/agent-full-flow
+POST /evaluations/jd-parser
 POST /evaluations/real-job-source-smoke
+POST /evaluations/real-job-ingest-smoke
 POST /evaluations/llm-workflow
 GET /evaluations/results
 ```
+
+## JD Parser 评测
+
+运行：
+
+```http
+POST /evaluations/jd-parser
+```
+
+最近一次离线回归结果：
+
+| 指标 | 结果 |
+| --- | ---: |
+| case_count | 30 |
+| completed_rate | 1.0000 |
+| pass_rate | 1.0000 |
+| avg_required_skill_recall | 0.9972 |
+| avg_keyword_hit_rate | 1.0000 |
+| job_type_accuracy | 1.0000 |
+| responsibility_min_pass_rate | 1.0000 |
+| qualification_min_pass_rate | 1.0000 |
+| absent_required_skill_violation_count | 0 |
+
+说明：
+
+- 这次结果运行在测试环境的 `heuristic_fallback` parser mode，用于离线、可重复地验证规则路径；生产配置中 LLM 可用时仍会调用真实 JD parser LLM 链路。
+- 本轮评测先暴露了两个问题：`Tool Calling`、`A/B Testing` 被后续负向句误判为不要求；`internal tools` 被 `intern` 子串误判成实习岗位。
+- 修复后，负向语境只在当前行/句内判断，preferred 技能单独抽取；job_type 使用词边界匹配 `intern`，并把 `location=Remote` 和常规工程岗位标题纳入推断。
+- 该评测不会替代真实 JD ingest smoke；它负责 parser 质量，ingest smoke 负责 source posting 进入 SQLite、chunk、embedding/reranker 和 retrieval probe 的链路健康。
 
 ## PDF Chunk 策略评测
 

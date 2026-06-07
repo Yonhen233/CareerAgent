@@ -14,6 +14,9 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - 每个 chunk 存储页码、字段、字符范围、切分策略等 metadata。
 - JD 存储与检索：
   - 每个岗位的 JD 会入库为 `jobs`。
+  - `JDParserService` 会抽取 required/preferred skills、responsibilities、qualifications、keywords 和 job_type。
+  - JD parser 支持 Agent/RAG/LLM、向量库、reranker、A/B Testing、Feature Store、MLflow、Airflow、Kafka、推荐排序、Prompt Security 等技能别名归一化。
+  - parser 会区分 required 与 preferred，并过滤 `No prior X required`、`不要求 X` 这类负向语境，避免把“可选/不要求”误写成硬性技能。
   - JD 会切分为 `job_chunks`，包括 required skills、responsibilities、qualifications、raw JD 等。
   - SQLite 保存权威数据和 embedding；Chroma 作为可选向量库镜像。
   - 默认接入 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` 真实 embedding，模型失败时直接报错，便于通过 Trace 定位问题。
@@ -43,6 +46,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - 内置样例集 `evals/sample_cases.json`。
   - 输出 skill precision/recall、missing skill precision、evidence hit rate、pass rate 等指标。
   - Agent full-flow 评测覆盖岗位搜索、匹配排序、简历定制、投递门禁、Trace 和 Artifact。
+  - JD parser 评测用 30 个中英混合、带 preferred/negative/synonym 噪声的 JD case 衡量结构化质量。
   - 真实岗位源 smoke 独立评估 source 层健康度，核心 full-flow 仍使用可控岗位源保证可重复。
   - 真实 JD ingest smoke 独立评估 parser/RAG 入库链路，避免和 source 可达性混淆。
   - PDF Chunk、RAG 和 LLM workflow 都有独立评测集；LLM workflow 会真实跑简历解析、JD 解析、fit judge、简历定制和 Guardrail，并逐 case 写入中间 trace。
@@ -124,6 +128,7 @@ LLM_MODEL=DeepSeek-V4-Pro
 - `POST /evaluations/pdf-chunk-strategies`
 - `POST /evaluations/rag-strategies`
 - `POST /evaluations/agent-full-flow`
+- `POST /evaluations/jd-parser`
 - `POST /evaluations/real-job-source-smoke`
 - `POST /evaluations/real-job-ingest-smoke`
 - `POST /evaluations/llm-workflow`
@@ -148,7 +153,7 @@ pytest -q
 - 岗位匹配。
 - Agent 简历定制工作流。
 - LLM 调用日志。
-- 样例集、PDF Chunk、RAG、Agent full-flow、真实岗位源 smoke、真实 JD ingest smoke、LLM workflow 量化评测。
+- 样例集、PDF Chunk、RAG、Agent full-flow、JD parser、真实岗位源 smoke、真实 JD ingest smoke、LLM workflow 量化评测。
 
 ## 文档
 

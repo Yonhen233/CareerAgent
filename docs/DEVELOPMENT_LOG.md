@@ -1,5 +1,42 @@
 # 开发日志
 
+## 2026-06-07 11:31 +08:00：新增 JD Parser 质量评测并修复解析边界
+
+### 这次做了什么
+- 新增 `evals/jd_parser_cases.json`，包含 30 个中英混合 JD 解析 case，覆盖 Agent/RAG、LLM Eval、Prompt Security、ML Platform、Backend、Frontend、Data Engineering、Recommendation、MLOps、Computer Vision 等岗位。
+- 新增 `run_jd_parser_evaluation` 和 `POST /evaluations/jd-parser`，独立评估 JD parser 的结构化质量，不再只依赖真实 JD ingest smoke 的 `parse_success_rate`。
+- JD parser 评测新增 `avg_required_skill_recall`、`avg_keyword_hit_rate`、`job_type_accuracy`、`responsibility_min_pass_rate`、`qualification_min_pass_rate`、`absent_required_skill_violation_count`、`parser_mode_counts`、`difficulty_breakdown` 和 `noise_breakdown`。
+- 扩展 JD 技能别名归一化：覆盖 `Vector Database`、`Embedding`、`Reranker`、`Tool Calling`、`Prompt Regression`、`Prompt Injection`、`Model Evaluation`、`A/B Testing`、`Feature Store`、`MLflow`、`Airflow`、`Kafka`、`Recommendation`、`Ranking`、`CTR`、`MLOps`、`Computer Vision` 等。
+- parser 开始区分 required 与 preferred：`Preferred`、`Nice to have`、`加分项`、`optional` 等行进入 `preferred_skills`，不再混入 required。
+- parser 增加负向语境过滤：`No prior X required`、`X is not required`、`不要求 X`、`无需 X` 等不会进入 required skills。
+- 修复 job_type 推断：`intern` 改为词边界匹配，避免 `internal tools` 被误判成实习；同时把 `location=Remote` 和常规工程岗位标题纳入推断。
+- 新增单元测试覆盖 JD parser 标注集、技能别名、preferred 技能和负向语境。
+- 更新 README、API 文档和评测文档，说明 JD parser 评测入口、指标、数据规模和最新结果。
+
+### 发现了什么问题
+- 真实 JD ingest smoke 只能说明 parser 没报错，不能说明 required skills 抽全了；之前腾讯真实 JD 只抽出少量技能，说明需要单独的 parser 质量指标。
+- 第一版新增评测后，30 个 case 的 pass rate 只有 0.6333，但技能召回已经接近满分；失败集中在 `job_type`，说明类型推断是独立薄弱点。
+- 负向语境判断窗口过宽：`Tool Calling and A/B tests` 后面下一行出现 `No prior Kubernetes... required`，会把前一行技能误判为“不要求”。
+- `intern` 使用子串匹配导致 `internal tools` 被误判为实习岗位，这是典型真实 JD 文本噪声。
+
+### 怎么修复的
+- 将负向语境判断收敛到当前行/句，而不是跨行窗口；这样只影响同一句里的 `No prior X required` 或 `X is not required`。
+- preferred 技能抽取允许保留 `not required` 语境，因为 preferred 行的语义本来就是“非硬性但可加分”。
+- `intern` 改为正则词边界匹配，避免命中 `internal`、`internet` 等普通词。
+- `_guess_job_type` 现在会读取 `location`，并对没有显式 full-time 但标题是 Engineer/Developer/Analyst/Scientist/Architect 的岗位推断为 `full-time`。
+- 离线评测已运行：`case_count=30`、`completed_rate=1.0000`、`pass_rate=1.0000`、`avg_required_skill_recall=0.9972`、`avg_keyword_hit_rate=1.0000`、`job_type_accuracy=1.0000`、`absent_required_skill_violation_count=0`。
+- 新增测试已运行：`tests/test_evaluation_service.py` 共 15 个测试通过；全量测试 `python -m pytest -q` 共 39 个测试通过。
+
+### 未修复的问题及原因
+- 本次 JD parser 最新指标来自测试环境 `heuristic_fallback`，还不是真实 LLM parser 与 heuristic parser 的对照评测；原因是本轮先补齐离线可重复的 parser 质量门禁。
+- 当前 schema 仍只有 `required_skills` 与 `preferred_skills`，没有更细的 `must_have`、`nice_to_have`、`explicitly_not_required` 字段；原因是下游 matcher 现在只消费 required/preferred，过早扩 schema 会牵动更多链路。
+- 真实招聘源中的超长 JD、HTML 残留和多岗位混排还没有进入这个离线数据集；原因是本轮先用合成强噪声覆盖主要语义错误，下一步再接真实 source 样本。
+
+### 下一步怎么做
+- 用真实岗位源采样 JD，生成 parser LLM 与 heuristic 的对照评测，重点看 required skill recall、preferred/negative 误抽取和 job_type。
+- 在 real-job-ingest-smoke 中加入 parser quality probe，不只记录 `required_skill_count`，也记录命中核心查询技能的比例。
+- 如果真实 LLM parser 与 heuristic 差异大，增加 parser trace 对比和少量 gold JD 回归阈值。
+
 ## 2026-06-07 11:12 +08:00：新增真实 JD Ingest Smoke 并收敛模型缓存边界
 
 ### 这次做了什么

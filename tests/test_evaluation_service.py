@@ -56,6 +56,43 @@ def test_agent_full_flow_evaluation_covers_orchestrator_components(db_session):
     assert all(item.get("run_trace") for item in run.case_results_json)
 
 
+def test_jd_parser_evaluation_covers_noisy_realistic_cases(db_session):
+    run = asyncio.run(EvaluationService().run_jd_parser_evaluation(db_session))
+
+    assert run.summary_json["evaluation_type"] == "jd_parser"
+    assert run.summary_json["case_count"] >= 30
+    assert run.summary_json["completed_rate"] == 1.0
+    assert run.summary_json["pass_rate"] >= 0.9
+    assert run.summary_json["avg_required_skill_recall"] >= 0.85
+    assert run.summary_json["avg_keyword_hit_rate"] >= 0.85
+    assert run.summary_json["absent_required_skill_violation_count"] == 0
+    assert "difficulty_breakdown" in run.summary_json
+    assert "noise_breakdown" in run.summary_json
+    assert {"easy", "medium", "hard", "adversarial"} <= set(run.summary_json["difficulty_breakdown"])
+
+
+def test_jd_parser_aliases_preferred_and_negative_context():
+    from app.services.jd_parser import JDParserService
+
+    jd = (
+        "RAG Evaluation Intern\n"
+        "Responsibilities: improve retrieval augmented generation over a vector database.\n"
+        "Responsibilities: build guardrail and prompt regression checks for LLM answers.\n"
+        "Requirements: Python, SQL, RAG, Evaluation, Tool Calling and A/B tests.\n"
+        "Requirements: No prior Kubernetes or MLflow experience required.\n"
+        "Preferred: LangGraph and MCP exposure are helpful but optional."
+    )
+
+    parsed = JDParserService().heuristic_parse(jd, title="RAG Evaluation Intern")
+
+    assert {"RAG", "Vector Database", "Guardrail", "Prompt Regression", "LLM", "Tool Calling", "A/B Testing"} <= set(
+        parsed["required_skills"]
+    )
+    assert "Kubernetes" not in parsed["required_skills"]
+    assert "MLflow" not in parsed["required_skills"]
+    assert {"LangGraph", "MCP"} <= set(parsed["preferred_skills"])
+
+
 def test_real_job_source_smoke_records_source_layer_metrics(db_session):
     class HealthySource:
         name = "healthy"

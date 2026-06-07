@@ -383,6 +383,21 @@ class EvaluationService:
         db.refresh(run)
         return run
 
+    async def run_jd_parser_evaluation(self, db: Session, *, dataset_path: Path | None = None) -> EvaluationRun:
+        path = dataset_path or self.settings.base_path / "evals" / "jd_parser_cases.json"
+        cases = json.loads(path.read_text(encoding="utf-8"))
+        case_results = [await self._run_jd_parser_case(db, case) for case in cases]
+        summary = self._summarize_jd_parser(case_results, path)
+        run = EvaluationRun(
+            name="jd_parser_evaluation",
+            summary_json=summary,
+            case_results_json=case_results,
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        return run
+
     async def run_real_job_source_smoke(
         self,
         db: Session,
@@ -1309,6 +1324,212 @@ class EvaluationService:
                 "网络失败、招聘站空结果或接口变化会记录为 source_error/source_unavailable，而不是被静默吞掉。",
                 "岗位质量用 JD 非空、apply_url、internship-like、query relevance 和 Agent/AI relevance 命中率衡量，后续可接入解析和入库链路。",
             ],
+        }
+
+    async def _run_jd_parser_case(self, db: Session, case: dict[str, Any]) -> dict[str, Any]:
+        started = time.perf_counter()
+        expected_required = [str(item) for item in case.get("expected_required_skills", [])]
+        expected_keywords = [str(item) for item in case.get("expected_keywords", [])]
+        expected_absent = [str(item) for item in case.get("expected_absent_required_skills", [])]
+        min_required_recall = float(case.get("min_required_skill_recall", 0.75))
+        min_keyword_hit = float(case.get("min_keyword_hit_rate", 0.7))
+        min_responsibility_count = int(case.get("min_responsibility_count", 1))
+        min_qualification_count = int(case.get("min_qualification_count", 1))
+        result: dict[str, Any] = {
+            "name": case["name"],
+            "difficulty": case.get("difficulty", "unknown"),
+            "noise_profiles": case.get("noise_profiles", []),
+            "title": case.get("title"),
+            "company": case.get("company"),
+            "expected_job_type": case.get("expected_job_type"),
+            "expected_required_skills": expected_required,
+            "expected_absent_required_skills": expected_absent,
+            "status": "running",
+        }
+        try:
+            parsed = await self.jd_parser.parse_jd(
+                case["jd_text"],
+                title=case.get("title"),
+                company=case.get("company"),
+                location=case.get("location"),
+                db=db,
+            )
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            result.update(
+                {
+                    "status": "parse_error",
+                    "case_passed": False,
+                    "error": format_exception(exc),
+                    "failed_checks": ["parse_error"],
+                    "latency_ms": int((time.perf_counter() - started) * 1000),
+                }
+            )
+            return result
+
+        parsed_required = [str(item) for item in parsed.get("required_skills", []) if str(item).strip()]
+        parsed_preferred = [str(item) for item in parsed.get("preferred_skills", []) if str(item).strip()]
+        parsed_text = json.dumps(parsed, ensure_ascii=False)
+        required_hits = self._normalized_hits(parsed_required, expected_required)
+        required_skill_recall = self._recall(
+            {self._normalize_eval_term(item) for item in parsed_required},
+            {self._normalize_eval_term(item) for item in expected_required},
+        )
+        keyword_hit_rate = self._keyword_hit_rate(parsed_text, expected_keywords)
+        absent_violations = [
+            item
+            for item in expected_absent
+            if self._normalize_eval_term(item) in {self._normalize_eval_term(skill) for skill in parsed_required}
+        ]
+        job_type_passed = True
+        if case.get("expected_job_type"):
+            job_type_passed = str(parsed.get("job_type") or "").lower() == str(case["expected_job_type"]).lower()
+        responsibility_count = len(parsed.get("responsibilities", []) or [])
+        qualification_count = len(parsed.get("qualifications", []) or [])
+        responsibility_min_passed = responsibility_count >= min_responsibility_count
+        qualification_min_passed = qualification_count >= min_qualification_count
+        failed_checks = []
+        if required_skill_recall < min_required_recall:
+            failed_checks.append("required_skill_recall")
+        if keyword_hit_rate < min_keyword_hit:
+            failed_checks.append("keyword_hit_rate")
+        if not job_type_passed:
+            failed_checks.append("job_type")
+        if not responsibility_min_passed:
+            failed_checks.append("responsibility_count")
+        if not qualification_min_passed:
+            failed_checks.append("qualification_count")
+        if absent_violations:
+            failed_checks.append("absent_required_skill_violation")
+        result.update(
+            {
+                "status": "completed",
+                "case_passed": not failed_checks,
+                "failed_checks": failed_checks,
+                "parser_mode": self._jd_parser_mode(),
+                "latency_ms": int((time.perf_counter() - started) * 1000),
+                "parsed_job_type": parsed.get("job_type"),
+                "job_type_passed": job_type_passed,
+                "parsed_required_skills": parsed_required,
+                "parsed_preferred_skills": parsed_preferred,
+                "parsed_keywords_preview": (parsed.get("keywords") or [])[:16],
+                "required_skill_recall": required_skill_recall,
+                "required_skill_hits": required_hits,
+                "missing_required_skills": [
+                    item
+                    for item in expected_required
+                    if self._normalize_eval_term(item)
+                    not in {self._normalize_eval_term(skill) for skill in parsed_required}
+                ],
+                "keyword_hit_rate": keyword_hit_rate,
+                "absent_required_skill_violations": absent_violations,
+                "responsibility_count": responsibility_count,
+                "qualification_count": qualification_count,
+                "responsibility_min_passed": responsibility_min_passed,
+                "qualification_min_passed": qualification_min_passed,
+            }
+        )
+        return result
+
+    def _jd_parser_mode(self) -> str:
+        if self.jd_parser.llm.available:
+            return "llm"
+        if self.settings.llm_fallback_enabled:
+            return "heuristic_fallback"
+        return "llm_required_unavailable"
+
+    def _summarize_jd_parser(self, case_results: list[dict[str, Any]], dataset_path: Path) -> dict[str, Any]:
+        count = max(len(case_results), 1)
+        completed = [item for item in case_results if item.get("status") == "completed"]
+        quality_failures = [item for item in completed if not item.get("case_passed")]
+        parse_errors = [item for item in case_results if item.get("status") == "parse_error"]
+        if parse_errors and not completed:
+            status = "parser_unavailable"
+        elif parse_errors or quality_failures:
+            status = "completed_with_quality_failures"
+        else:
+            status = "completed"
+        return {
+            "evaluation_type": "jd_parser",
+            "status": status,
+            "dataset": dataset_path.name,
+            "case_count": len(case_results),
+            "completed_rate": round(len(completed) / count, 4),
+            "pass_rate": round(sum(1 for item in case_results if item.get("case_passed")) / count, 4),
+            "avg_required_skill_recall": self._avg_number(case_results, "required_skill_recall"),
+            "avg_keyword_hit_rate": self._avg_number(case_results, "keyword_hit_rate"),
+            "job_type_accuracy": self._avg_bool(completed, "job_type_passed"),
+            "responsibility_min_pass_rate": self._avg_bool(completed, "responsibility_min_passed"),
+            "qualification_min_pass_rate": self._avg_bool(completed, "qualification_min_passed"),
+            "absent_required_skill_violation_count": sum(
+                len(item.get("absent_required_skill_violations") or []) for item in case_results
+            ),
+            "avg_required_skill_count": self._avg_list_length(case_results, "parsed_required_skills"),
+            "avg_preferred_skill_count": self._avg_list_length(case_results, "parsed_preferred_skills"),
+            "parser_mode_counts": self._count_by_key(completed, "parser_mode"),
+            "failure_breakdown": self._count_jd_parser_failures(case_results),
+            "difficulty_breakdown": self._summarize_jd_parser_by_key(case_results, "difficulty"),
+            "noise_breakdown": self._summarize_jd_parser_by_key(case_results, "noise_profiles"),
+            "notes": [
+                "该评测独立衡量 JD parser 的结构化质量，避免真实 JD ingest 只看到 parse_success 却漏掉核心技能。",
+                "case 同时检查 required skill recall、关键词命中、岗位类型、职责/要求覆盖和负向技能误抽取。",
+                "生产配置下 LLM 不可用且未显式开启 fallback 时会记录 parse_error；测试环境可显式用 heuristic_fallback 做离线回归。",
+            ],
+        }
+
+    def _normalized_hits(self, predicted: list[str], expected: list[str]) -> list[str]:
+        predicted_terms = {self._normalize_eval_term(item) for item in predicted}
+        return [item for item in expected if self._normalize_eval_term(item) in predicted_terms]
+
+    def _normalize_eval_term(self, value: str) -> str:
+        lowered = str(value or "").strip().lower()
+        alias = {
+            "retrieval augmented generation": "rag",
+            "large language model": "llm",
+            "large language models": "llm",
+            "vector store": "vector database",
+            "vector search": "vector database",
+            "ab testing": "a b testing",
+            "a/b testing": "a b testing",
+            "a/b test": "a b testing",
+            "cross encoder": "reranker",
+        }
+        lowered = alias.get(lowered, lowered)
+        return re.sub(r"[^a-z0-9\u4e00-\u9fff]+", " ", lowered).strip()
+
+    def _avg_list_length(self, rows: list[dict[str, Any]], key: str) -> float:
+        if not rows:
+            return 0.0
+        return round(sum(len(item.get(key) or []) for item in rows) / len(rows), 4)
+
+    def _count_jd_parser_failures(self, rows: list[dict[str, Any]]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for row in rows:
+            for check in row.get("failed_checks") or []:
+                counts[str(check)] = counts.get(str(check), 0) + 1
+        return counts
+
+    def _summarize_jd_parser_by_key(self, rows: list[dict[str, Any]], key: str) -> dict[str, Any]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            raw_value = row.get(key)
+            values = raw_value if isinstance(raw_value, list) else [raw_value or "unknown"]
+            for value in values or ["unknown"]:
+                grouped.setdefault(str(value or "unknown"), []).append(row)
+        return {
+            group: {
+                "case_count": len(items),
+                "pass_rate": round(
+                    sum(1 for item in items if item.get("case_passed")) / max(len(items), 1),
+                    4,
+                ),
+                "avg_required_skill_recall": self._avg_number(items, "required_skill_recall"),
+                "avg_keyword_hit_rate": self._avg_number(items, "keyword_hit_rate"),
+                "absent_required_skill_violation_count": sum(
+                    len(item.get("absent_required_skill_violations") or []) for item in items
+                ),
+            }
+            for group, items in sorted(grouped.items())
         }
 
     def _summarize_source_posting(self, posting: JobPosting) -> dict[str, Any]:
