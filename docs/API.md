@@ -295,6 +295,15 @@ POST /evaluations/real-job-source-smoke?query=Agent%20Development%20Intern&limit
 
 该评测只检查招聘源可达性、返回数量和岗位质量，不调用 LLM 解析 JD，不写入主岗位库，也不影响核心 `agent-full-flow` 回归。返回的 `summary_json` 包含 `reachable_source_rate`、`result_source_rate`、`total_result_count`、`non_empty_jd_rate`、`apply_url_rate`、`internship_like_rate`、`query_relevance_rate`、`agent_related_rate` 和 `source_errors`；`case_results_json` 会按 source 保存错误、耗时和样例岗位。所有 source 可达但部分 source 没有结果时，状态为 `completed_with_empty_sources`。
 
+运行真实 JD 解析与入库 smoke：
+
+```http
+POST /evaluations/real-job-ingest-smoke
+POST /evaluations/real-job-ingest-smoke?query=Agent%20Development%20Intern&limit=1&sources=tencent
+```
+
+该评测从真实岗位源获取 posting 后，继续验证 JD 解析、SQLite upsert、JD chunk、embedding/reranker provider 和检索 probe。它会写入 `jobs` 与 `job_chunks`，但仍独立于核心 `agent-full-flow` 回归。返回的 `summary_json` 包含 `parse_success_rate`、`ingest_success_rate`、`chunk_index_success_rate`、`retrieval_probe_success_rate`、`embedding_provider_counts`、`retrieval_query_embedding_provider_counts`、`reranker_provider_counts`、`embedding_fallback_job_count` 和 `retrieval_fallback_job_count`。
+
 运行真实 LLM 工作流评测：
 
 ```http
@@ -334,6 +343,10 @@ GET /evaluations/results
 - `internship_like_rate`
 - `query_relevance_rate`
 - `agent_related_rate`
+- `parse_success_rate`
+- `ingest_success_rate`
+- `chunk_index_success_rate`
+- `retrieval_probe_success_rate`
 - `completed_rate`
 - `end_to_end_pass_rate`
 - `resume_parse_success_rate`

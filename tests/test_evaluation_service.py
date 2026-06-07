@@ -2,6 +2,7 @@ import asyncio
 import json
 from pathlib import Path
 
+from app.models.entities import Job, JobChunk
 from app.services.job_sources import JobPosting
 from app.services.evaluation_service import EvaluationService
 
@@ -145,6 +146,101 @@ def test_real_job_source_smoke_marks_empty_sources(db_session):
     assert run.summary_json["status"] == "completed_with_empty_sources"
     assert run.summary_json["reachable_source_rate"] == 1.0
     assert run.summary_json["result_source_rate"] == 0.5
+
+
+def test_real_job_ingest_smoke_parses_stores_chunks_and_retrieves(db_session):
+    class HealthySource:
+        name = "healthy"
+
+        async def search(self, *, query: str, location: str | None, limit: int):
+            return [
+                JobPosting(
+                    source=self.name,
+                    external_id="ingest-1",
+                    title="Agent Development Intern",
+                    company="Example AI",
+                    location=location or "Shanghai",
+                    job_type="internship",
+                    apply_url="https://example.com/jobs/ingest-1",
+                    raw_jd_text=(
+                        "Agent Development Intern\n"
+                        "Responsibilities: build Agent workflows with Python, FastAPI, RAG and SQLite.\n"
+                        "Requirements: evaluation, guardrails, retrieval and tool calling."
+                    ),
+                )
+            ][:limit]
+
+    class FakeRegistry:
+        def select(self, names=None):
+            return [HealthySource()]
+
+    run = asyncio.run(
+        EvaluationService().run_real_job_ingest_smoke(
+            db_session,
+            query="Agent Development Intern",
+            location="Shanghai",
+            limit=2,
+            source_registry=FakeRegistry(),
+        )
+    )
+
+    assert run.summary_json["evaluation_type"] == "real_job_ingest_smoke"
+    assert run.summary_json["status"] == "completed"
+    assert run.summary_json["parse_success_rate"] == 1.0
+    assert run.summary_json["ingest_success_rate"] == 1.0
+    assert run.summary_json["chunk_index_success_rate"] == 1.0
+    assert run.summary_json["retrieval_probe_success_rate"] == 1.0
+    assert run.summary_json["avg_chunks_per_job"] > 0
+    assert run.summary_json["embedding_provider_counts"].get("hash", 0) > 0
+    assert run.summary_json["retrieval_query_embedding_provider_counts"].get("hash", 0) > 0
+    assert db_session.query(Job).filter(Job.external_id == "ingest-1").count() == 1
+    assert db_session.query(JobChunk).count() > 0
+    job_result = run.case_results_json[0]["job_results"][0]
+    assert job_result["required_skill_count"] > 0
+    assert job_result["retrieved_chunk_preview"]
+
+
+def test_real_job_ingest_smoke_records_parse_errors(db_session):
+    class HealthySource:
+        name = "healthy"
+
+        async def search(self, *, query: str, location: str | None, limit: int):
+            return [
+                JobPosting(
+                    source=self.name,
+                    external_id="parse-fail-1",
+                    title="Agent Development Intern",
+                    company="Example AI",
+                    location=location,
+                    job_type="internship",
+                    apply_url="https://example.com/jobs/parse-fail-1",
+                    raw_jd_text="This JD will fail parser.",
+                )
+            ]
+
+    class FakeRegistry:
+        def select(self, names=None):
+            return [HealthySource()]
+
+    class BrokenParser:
+        async def parse_jd(self, *args, **kwargs):
+            raise RuntimeError("parser unavailable")
+
+    service = EvaluationService()
+    service.jd_parser = BrokenParser()
+
+    run = asyncio.run(
+        service.run_real_job_ingest_smoke(
+            db_session,
+            source_registry=FakeRegistry(),
+        )
+    )
+
+    assert run.summary_json["status"] == "completed_with_ingest_failures"
+    assert run.summary_json["parse_success_rate"] == 0.0
+    assert run.summary_json["ingest_success_rate"] == 0.0
+    assert run.summary_json["failure_breakdown"] == {"parse_error": 1}
+    assert run.case_results_json[0]["job_results"][0]["status"] == "parse_error"
 
 
 def test_llm_workflow_dataset_covers_full_pipeline():

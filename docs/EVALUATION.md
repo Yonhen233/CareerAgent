@@ -1,6 +1,6 @@
 # 量化评测方案
 
-CareerAgent 的评测分为五层：
+CareerAgent 的评测分为七类：
 
 - 基础匹配评测：Profile/JD 匹配质量。
 - PDF Chunk 策略评测：不同 PDF 切分方案对证据召回的影响。
@@ -8,6 +8,7 @@ CareerAgent 的评测分为五层：
 - LLM 实景流程评测：真实调用 LLM 判断岗位适配度并按 JD 改写简历。
 - Agent 全流程评测：覆盖岗位搜索、匹配排序、简历定制、一键投递门禁、Trace 和 Artifact。
 - 真实岗位源 Smoke：只评测招聘源可达性、结果数量和岗位质量，不参与核心 Agent 回归 pass rate。
+- 真实 JD Ingest Smoke：只评测真实 JD 解析、SQLite 入库、JD chunk、embedding/reranker 和检索 probe，不参与核心 Agent 回归 pass rate。
 
 ## 数据集
 
@@ -350,6 +351,61 @@ POST /evaluations/real-job-source-smoke?query=Agent%20Development%20Intern&limit
 | source_error_count | 0 |
 
 本次结果说明腾讯招聘公开接口当前可达并返回 8 个实习相关岗位，Lever API 可达但当前配置的公司 slug 对该 query 没有返回岗位。后续优化应优先扩展 Lever slug 或加入更多大厂自有招聘源，而不是把空结果当作 Agent 核心失败。
+
+## 真实 JD Ingest Smoke
+
+接口：
+
+```http
+POST /evaluations/real-job-ingest-smoke
+POST /evaluations/real-job-ingest-smoke?query=Agent%20Development%20Intern&limit=1&sources=tencent
+```
+
+评测内容：
+
+- 先访问真实岗位源获取 posting，再对每条 posting 跑 JD parser。
+- 将解析后的 JD upsert 到 `jobs`，切分并写入 `job_chunks`。
+- 对写入后的 JD chunk 执行一次 retrieval probe，确认索引可检索。
+- 每条岗位单独记录 `parse_error`、`ingest_error`、`chunk_count`、`chunk_types`、`required_skill_count`、`retrieved_chunk_preview`。
+- 记录 `embedding_provider_counts`、`retrieval_query_embedding_provider_counts`、`reranker_provider_counts` 和 fallback job count，用于区分真实模型链路与 hash/heuristic 降级链路。
+
+核心指标：
+
+| 指标 | 含义 |
+| --- | --- |
+| `parse_success_rate` | JD 结构化解析成功比例。 |
+| `ingest_success_rate` | 解析后写入 `jobs` 成功比例。 |
+| `chunk_index_success_rate` | 写入 `job_chunks` 且 chunk 数量非零的比例。 |
+| `retrieval_probe_success_rate` | 对新写入 JD 执行检索 probe 能返回结果的比例。 |
+| `avg_chunks_per_job` | 每个真实 JD 平均切分出的 chunk 数。 |
+| `avg_required_skill_count` | 每个真实 JD 解析出的 required skills 平均数量。 |
+| `embedding_provider_counts` | JD chunk 写入时使用的 embedding provider 分布。 |
+| `reranker_provider_counts` | retrieval probe 使用的 reranker provider 分布。 |
+| `embedding_fallback_job_count` | 写入阶段出现 embedding fallback 的岗位数。 |
+| `retrieval_fallback_job_count` | 检索阶段出现 embedding/reranker fallback 的岗位数。 |
+
+最新真实 ingest smoke：
+
+| 指标 | 结果 |
+| --- | ---: |
+| query | `Agent Development Intern` |
+| sources | `tencent` |
+| limit | 1 |
+| status | `completed` |
+| parse_success_rate | 1.0000 |
+| ingest_success_rate | 1.0000 |
+| chunk_index_success_rate | 1.0000 |
+| retrieval_probe_success_rate | 1.0000 |
+| avg_chunks_per_job | 8.0000 |
+| avg_required_skill_count | 2.0000 |
+| avg_keyword_count | 12.0000 |
+| embedding_provider_counts | `sentence_transformers: 8` |
+| retrieval_query_embedding_provider_counts | `sentence_transformers: 3` |
+| reranker_provider_counts | `cross_encoder: 3` |
+| embedding_fallback_job_count | 0 |
+| retrieval_fallback_job_count | 0 |
+
+本次真实运行说明：腾讯真实 JD 可以被 LLM parser 解析并成功写入 SQLite/`job_chunks`，检索 probe 可以召回新写入 chunk。运行时发现 HuggingFace 在 Windows 上会因为默认缓存目录和 symlink 能力产生噪声 warning；代码已将 `HF_HOME` 与 `SENTENCE_TRANSFORMERS_HOME` 默认指向项目内 `data/models`，并默认关闭 symlink warning，避免用户目录权限影响发布环境。当前仍可能出现 `Transformer cache_dir argument is deprecated` 的第三方兼容层告警，不影响本次 ingest 指标。
 
 ## LLM 实景流程评测
 

@@ -11,11 +11,12 @@ from sqlalchemy.orm import Session
 
 from app.agents.orchestrator import AgentOrchestrator
 from app.core.config import get_settings
-from app.models.entities import AgentArtifact, AgentStep, EvaluationRun, Job, Profile
+from app.models.entities import AgentArtifact, AgentStep, EvaluationRun, Job, JobChunk, Profile
 from app.models.schemas import AgentRunRequest, GuidedProfileRequest
 from app.services.context_compressor import ContextCompressor
 from app.services.guardrails import ResumeGuardrailService
 from app.services.jd_parser import JDParserService
+from app.services.job_search import JobSearchService
 from app.services.job_sources import JobPosting, JobSourceRegistry
 from app.services.resume_tailor import ResumeTailorService
 from app.core.llm import LLMClient, LLMConfigurationError, format_exception
@@ -95,6 +96,9 @@ class EvaluationService:
         self.hash_embedding_service = EmbeddingService(settings=self.settings, provider="hash")
         self.reranker = RerankerService(settings=self.settings)
         self.context_compressor = ContextCompressor()
+        self.jd_parser = JDParserService()
+        self.job_search_service = JobSearchService()
+        self.vector_index = SQLiteVectorIndex()
 
     async def run_sample_evaluation(self, db: Session, *, dataset_path: Path | None = None) -> EvaluationRun:
         path = dataset_path or self.settings.base_path / "evals" / "sample_cases.json"
@@ -445,6 +449,77 @@ class EvaluationService:
             name="real_job_source_smoke",
             summary_json=summary,
             case_results_json=case_results,
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        return run
+
+    async def run_real_job_ingest_smoke(
+        self,
+        db: Session,
+        *,
+        query: str = "Agent Development Intern",
+        location: str | None = None,
+        limit: int = 3,
+        sources: list[str] | None = None,
+        source_registry: JobSourceRegistry | None = None,
+    ) -> EvaluationRun:
+        registry = source_registry or JobSourceRegistry()
+        selected_sources = registry.select(sources)
+        started = time.perf_counter()
+        source_results: list[dict[str, Any]] = []
+        job_results: list[dict[str, Any]] = []
+
+        async def _fetch_source(source: Any) -> dict[str, Any]:
+            source_started = time.perf_counter()
+            try:
+                postings = await source.search(query=query, location=location, limit=limit)
+                return {
+                    "source": source.name,
+                    "status": "completed",
+                    "source_reachable": True,
+                    "result_count": len(postings),
+                    "latency_ms": int((time.perf_counter() - source_started) * 1000),
+                    "error": None,
+                    "postings": postings,
+                }
+            except Exception as exc:  # noqa: BLE001
+                return {
+                    "source": source.name,
+                    "status": "source_error",
+                    "source_reachable": False,
+                    "result_count": 0,
+                    "latency_ms": int((time.perf_counter() - source_started) * 1000),
+                    "error": format_exception(exc),
+                    "postings": [],
+                }
+
+        fetched_sources = await asyncio.gather(*[_fetch_source(source) for source in selected_sources])
+        for source_result in fetched_sources:
+            postings = source_result.pop("postings", [])
+            source_results.append(source_result)
+            for posting in postings[:limit]:
+                job_results.append(await self._ingest_smoke_posting(db, posting, query=query))
+
+        summary = self._summarize_real_job_ingest_smoke(
+            source_results=source_results,
+            job_results=job_results,
+            query=query,
+            location=location,
+            limit=limit,
+            source_names=[source.name for source in selected_sources],
+            latency_ms=int((time.perf_counter() - started) * 1000),
+        )
+        run = EvaluationRun(
+            name="real_job_ingest_smoke",
+            summary_json=summary,
+            case_results_json=[
+                {
+                    "source_results": source_results,
+                    "job_results": job_results,
+                }
+            ],
         )
         db.add(run)
         db.commit()
@@ -1299,6 +1374,232 @@ class EvaluationService:
                 posting.raw_jd_text or "",
             ]
         ).lower()
+
+    async def _ingest_smoke_posting(self, db: Session, posting: JobPosting, *, query: str) -> dict[str, Any]:
+        started = time.perf_counter()
+        base: dict[str, Any] = {
+            "source": posting.source,
+            "external_id": posting.external_id,
+            "title": posting.title,
+            "company": posting.company,
+            "apply_url": posting.apply_url,
+            "raw_jd_chars": len(posting.raw_jd_text or ""),
+        }
+        try:
+            structured = await self.jd_parser.parse_jd(
+                posting.raw_jd_text,
+                title=posting.title,
+                company=posting.company,
+                location=posting.location,
+                db=db,
+            )
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            return {
+                **base,
+                "status": "parse_error",
+                "stage": "parse_jd",
+                "error": format_exception(exc),
+                "latency_ms": int((time.perf_counter() - started) * 1000),
+                "parse_success": False,
+                "ingest_success": False,
+                "chunk_index_success": False,
+                "retrieval_probe_hit": False,
+            }
+
+        try:
+            job = self.job_search_service.upsert_prepared_posting(db, posting, structured)
+            chunk_rows = db.query(JobChunk).filter(JobChunk.job_id == job.id).all()
+            chunk_count = len(chunk_rows)
+            retrieved = self.vector_index.query_job_chunks(db, job.id, query, top_k=3)
+            chunk_types = sorted({row.chunk_type for row in chunk_rows})
+            embedding_report = self._job_chunk_embedding_report(chunk_rows)
+            retrieval_report = self._job_retrieval_probe_report(retrieved)
+            required_skills = [str(item) for item in structured.get("required_skills", []) if str(item).strip()]
+            return {
+                **base,
+                "status": "completed",
+                "stage": "completed",
+                "error": None,
+                "job_id": job.id,
+                "latency_ms": int((time.perf_counter() - started) * 1000),
+                "parse_success": True,
+                "ingest_success": True,
+                "chunk_index_success": chunk_count > 0,
+                "retrieval_probe_hit": bool(retrieved),
+                "chunk_count": chunk_count,
+                "chunk_types": chunk_types,
+                **embedding_report,
+                **retrieval_report,
+                "required_skill_count": len(required_skills),
+                "required_skills_preview": required_skills[:8],
+                "keyword_count": len(structured.get("keywords", []) or []),
+                "retrieved_chunk_preview": [
+                    {
+                        "chunk_uid": item.chunk_uid,
+                        "chunk_type": item.chunk_type,
+                        "score": item.score,
+                        "text_preview": item.text[:180],
+                    }
+                    for item in retrieved
+                ],
+            }
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            return {
+                **base,
+                "status": "ingest_error",
+                "stage": "upsert_or_index",
+                "error": format_exception(exc),
+                "latency_ms": int((time.perf_counter() - started) * 1000),
+                "parse_success": True,
+                "ingest_success": False,
+                "chunk_index_success": False,
+                "retrieval_probe_hit": False,
+                "required_skill_count": len(structured.get("required_skills", []) or []),
+                "keyword_count": len(structured.get("keywords", []) or []),
+            }
+
+    def _job_chunk_embedding_report(self, rows: list[JobChunk]) -> dict[str, Any]:
+        provider_counts: dict[str, int] = {}
+        fallback_reasons: list[str] = []
+        dimensions: set[int] = set()
+        for row in rows:
+            embedding = (row.metadata_json or {}).get("embedding") or {}
+            provider = str(embedding.get("provider") or "unknown")
+            provider_counts[provider] = provider_counts.get(provider, 0) + 1
+            if embedding.get("fallback_reason"):
+                reason = str(embedding.get("fallback_reason"))
+                if reason not in fallback_reasons:
+                    fallback_reasons.append(reason)
+            if embedding.get("dimensions") is not None:
+                try:
+                    dimensions.add(int(embedding.get("dimensions")))
+                except (TypeError, ValueError):
+                    pass
+        return {
+            "embedding_provider_counts": provider_counts,
+            "embedding_dimensions": sorted(dimensions),
+            "embedding_fallback_count": len(fallback_reasons),
+            "embedding_fallback_reasons": fallback_reasons[:3],
+        }
+
+    def _job_retrieval_probe_report(self, retrieved: list[Any]) -> dict[str, Any]:
+        query_embedding_providers: dict[str, int] = {}
+        reranker_providers: dict[str, int] = {}
+        fallback_reasons: list[str] = []
+        for item in retrieved:
+            metadata = getattr(item, "metadata", None) or {}
+            retrieval = metadata.get("retrieval") or {}
+            query_embedding = retrieval.get("query_embedding") or {}
+            provider = str(query_embedding.get("provider") or "unknown")
+            query_embedding_providers[provider] = query_embedding_providers.get(provider, 0) + 1
+            if query_embedding.get("fallback_reason"):
+                reason = str(query_embedding.get("fallback_reason"))
+                if reason not in fallback_reasons:
+                    fallback_reasons.append(reason)
+            rerank = metadata.get("rerank") or {}
+            if rerank:
+                reranker_provider = str(rerank.get("reranker_provider") or "unknown")
+                reranker_providers[reranker_provider] = reranker_providers.get(reranker_provider, 0) + 1
+                if rerank.get("fallback_reason"):
+                    reason = str(rerank.get("fallback_reason"))
+                    if reason not in fallback_reasons:
+                        fallback_reasons.append(reason)
+        return {
+            "retrieval_query_embedding_provider_counts": query_embedding_providers,
+            "reranker_provider_counts": reranker_providers,
+            "retrieval_fallback_count": len(fallback_reasons),
+            "retrieval_fallback_reasons": fallback_reasons[:3],
+        }
+
+    def _summarize_real_job_ingest_smoke(
+        self,
+        *,
+        source_results: list[dict[str, Any]],
+        job_results: list[dict[str, Any]],
+        query: str,
+        location: str | None,
+        limit: int,
+        source_names: list[str],
+        latency_ms: int,
+    ) -> dict[str, Any]:
+        source_count = max(len(source_names), 1)
+        job_count = max(len(job_results), 1)
+        source_error_count = sum(1 for item in source_results if item.get("status") == "source_error")
+        parsed_count = sum(1 for item in job_results if item.get("parse_success"))
+        ingested_count = sum(1 for item in job_results if item.get("ingest_success"))
+        chunked_count = sum(1 for item in job_results if item.get("chunk_index_success"))
+        retrieval_count = sum(1 for item in job_results if item.get("retrieval_probe_hit"))
+        if not job_results:
+            status = "source_unavailable"
+        elif ingested_count == len(job_results):
+            status = "completed" if source_error_count == 0 else "completed_with_source_errors"
+        else:
+            status = "completed_with_ingest_failures"
+        return {
+            "evaluation_type": "real_job_ingest_smoke",
+            "status": status,
+            "query": query,
+            "location": location,
+            "limit": limit,
+            "sources": source_names,
+            "source_count": len(source_names),
+            "source_error_count": source_error_count,
+            "reachable_source_rate": round(
+                sum(1 for item in source_results if item.get("source_reachable")) / source_count,
+                4,
+            ),
+            "posting_count": len(job_results),
+            "parse_success_rate": round(parsed_count / job_count, 4),
+            "ingest_success_rate": round(ingested_count / job_count, 4),
+            "chunk_index_success_rate": round(chunked_count / job_count, 4),
+            "retrieval_probe_success_rate": round(retrieval_count / job_count, 4),
+            "avg_chunks_per_job": self._avg_number(job_results, "chunk_count"),
+            "avg_required_skill_count": self._avg_number(job_results, "required_skill_count"),
+            "avg_keyword_count": self._avg_number(job_results, "keyword_count"),
+            "embedding_provider_counts": self._merge_count_dicts(job_results, "embedding_provider_counts"),
+            "retrieval_query_embedding_provider_counts": self._merge_count_dicts(
+                job_results,
+                "retrieval_query_embedding_provider_counts",
+            ),
+            "reranker_provider_counts": self._merge_count_dicts(job_results, "reranker_provider_counts"),
+            "embedding_fallback_job_count": sum(
+                1 for item in job_results if int(item.get("embedding_fallback_count") or 0) > 0
+            ),
+            "retrieval_fallback_job_count": sum(
+                1 for item in job_results if int(item.get("retrieval_fallback_count") or 0) > 0
+            ),
+            "latency_ms": latency_ms,
+            "source_errors": {
+                item["source"]: item.get("error")
+                for item in source_results
+                if item.get("status") == "source_error"
+            },
+            "failure_breakdown": self._count_by_key(
+                [item for item in job_results if item.get("status") != "completed"],
+                "status",
+            ),
+            "core_regression_independent": True,
+            "notes": [
+                "真实 JD ingest smoke 只评估 source 返回岗位后的 parser、SQLite upsert、JD chunk 和向量检索链路。",
+                "该评测与 real-job-source-smoke 分离：source 是否可达、JD 是否能入库分别定位。",
+                "LLM 未配置且未显式开启测试 fallback 时，JD parse 会记录 parse_error，不会静默当作成功。",
+            ],
+        }
+
+    def _merge_count_dicts(self, rows: list[dict[str, Any]], key: str) -> dict[str, int]:
+        merged: dict[str, int] = {}
+        for row in rows:
+            counts = row.get(key) or {}
+            if not isinstance(counts, dict):
+                continue
+            for name, value in counts.items():
+                try:
+                    merged[str(name)] = merged.get(str(name), 0) + int(value)
+                except (TypeError, ValueError):
+                    continue
+        return merged
 
     def _agent_full_flow_failure_breakdown(self, rows: list[dict[str, Any]]) -> dict[str, int]:
         checks = {

@@ -1,5 +1,6 @@
 import hashlib
 import math
+import os
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -193,6 +194,7 @@ class EmbeddingService:
         if cache_key in _MODEL_CACHE:
             return _MODEL_CACHE[cache_key]
         try:
+            self._ensure_local_model_cache_env()
             from sentence_transformers import SentenceTransformer  # type: ignore
 
             self.settings.embedding_cache_path.mkdir(parents=True, exist_ok=True)
@@ -205,3 +207,11 @@ class EmbeddingService:
         except Exception as exc:  # noqa: BLE001
             _MODEL_FAILURES[cache_key] = str(exc)
             raise
+
+    def _ensure_local_model_cache_env(self) -> None:
+        self.settings.embedding_cache_path.mkdir(parents=True, exist_ok=True)
+        hf_home = self.settings.embedding_cache_path / "huggingface"
+        hf_home.mkdir(parents=True, exist_ok=True)
+        os.environ.setdefault("HF_HOME", str(hf_home))
+        os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", str(self.settings.embedding_cache_path))
+        os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
