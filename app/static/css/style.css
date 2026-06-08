@@ -293,6 +293,61 @@ button svg,
   font-size: 12px;
 }
 
+.validation-panel {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.validation-risk {
+  border-color: #f1b8b8;
+  background: #fff6f6;
+}
+
+.validation-ok {
+  border-color: #bfe4ce;
+  background: #f3fbf6;
+}
+
+.validation-head,
+.validation-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.validation-head {
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+}
+
+.validation-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.compact-list {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.compact-list li,
+.message-preview {
+  overflow-wrap: anywhere;
+}
+
+.message-preview {
+  padding: 10px 12px;
+  border-left: 3px solid var(--blue);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
 .quick-actions {
   display: grid;
   gap: 10px;
@@ -379,7 +434,9 @@ button svg,
 
   .workspace-grid,
   .form-grid,
-  .resume-grid {
+  .resume-grid,
+  .validation-grid,
+  .validation-head {
     grid-template-columns: 1fr;
   }
 

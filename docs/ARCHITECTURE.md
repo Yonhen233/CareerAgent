@@ -142,11 +142,13 @@ Reranker：
 - 需要登录态的招聘平台搜索。
 - 云盘或本地文件系统授权访问。
 
+岗位源 MCP 化同样要服从中文主场景：优先考虑中文互联网公司自有招聘站和国内常见招聘平台，不把 Greenhouse 这类中国岗位覆盖弱的海外 ATS 当作主路径。
+
 ## FastAPI 并发设计
 
 已使用的并发点：
 
-- 岗位源搜索：腾讯等 source 使用 `asyncio.gather` 并发请求；Lever 这类海外 ATS source 默认关闭，只作为显式开启的英文辅助源。
+- 岗位源搜索：腾讯等中文 source 使用 `asyncio.gather` 并发请求；Lever/Greenhouse 这类海外 ATS 不进入默认中文链路，只能作为显式英文辅助场景。
 - Source 返回后执行确定性中文相关性排序，按 Agent/LLM/RAG、开发/工程、实习/校招等正向信号提升岗位，按产品、销售、商务等偏离信号降权。
 - JD 解析：多个岗位的 JD 解析使用 semaphore 控制并发。
 - 外部 I/O：HTTP 请求、LLM 调用都走 async client。

@@ -423,3 +423,5 @@ GET /applications
 - `mode=manual_confirm_required`
 - `final_submission=user_confirmed_only`
 - `packet_validation`：投递包 Guardrail 结果，包括 `passed`、`risk_level`、`issues`、`warnings` 和支持证据中的技能词。
+
+`/ui/applications` 会展示这些 Guardrail 结果：`issues` 是阻断问题，`warnings` 是需要用户人工补充或确认的问题。

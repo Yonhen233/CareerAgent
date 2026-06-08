@@ -107,6 +107,7 @@ def test_application_service_dynamic_fallback_matches_non_agent_role(db_session)
     validation = application.automation_result_json["packet_validation"]
     assert validation["passed"] is True
     assert application.automation_result_json["final_submission"] == "user_confirmed_only"
+    assert application.automation_result_json["validation_passed"] is True
 
 
 def test_application_service_fails_when_llm_fabricates_claims(db_session, monkeypatch):

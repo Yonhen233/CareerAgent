@@ -42,6 +42,38 @@ function tags(values) {
   return `<div class="tags">${(values || []).slice(0, 8).map((x) => `<span class="tag">${escapeHtml(x)}</span>`).join("")}</div>`;
 }
 
+function validationList(items, emptyText) {
+  if (!items || !items.length) return `<div class="meta">${escapeHtml(emptyText)}</div>`;
+  return `<ul class="compact-list">${items.map((item) => `
+    <li><span class="tag">${escapeHtml(item.code || "note")}</span>${escapeHtml(item.message || "")}${item.terms?.length ? `：${escapeHtml(item.terms.join("、"))}` : ""}</li>
+  `).join("")}</ul>`;
+}
+
+function applicationValidation(row) {
+  const automation = row.automation_result_json || {};
+  const validation = automation.packet_validation || {};
+  const risk = validation.risk_level || "unknown";
+  const passed = validation.passed === true;
+  return `
+    <div class="validation-panel ${passed ? "validation-ok" : "validation-risk"}">
+      <div class="validation-head">
+        <span class="status-pill ${passed ? "ok" : ""}">${escapeHtml(risk)}</span>
+        <span class="meta">${escapeHtml(automation.mode || "manual_confirm_required")} · ${escapeHtml(automation.final_submission || "user_confirmed_only")}</span>
+      </div>
+      <div class="validation-grid">
+        <div>
+          <strong>Issues</strong>
+          ${validationList(validation.issues || [], "未发现阻断问题")}
+        </div>
+        <div>
+          <strong>Warnings</strong>
+          ${validationList(validation.warnings || [], "无警告")}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -155,6 +187,8 @@ async function loadApplications() {
       <div class="item-title"><span>#${row.id} Job ${row.job_id}</span><span class="status-pill">${escapeHtml(row.status)}</span></div>
       <div class="meta">Resume Version ${row.resume_version_id || "-"}</div>
       ${row.apply_url ? `<p><a class="button ghost" href="${escapeHtml(row.apply_url)}" target="_blank"><i data-lucide="external-link"></i> 打开投递页</a></p>` : ""}
+      ${applicationValidation(row)}
+      ${row.outreach_message ? `<p class="message-preview">${escapeHtml(row.outreach_message)}</p>` : ""}
       <pre>${escapeHtml(row.cover_letter || "")}</pre>
     </article>
   `);

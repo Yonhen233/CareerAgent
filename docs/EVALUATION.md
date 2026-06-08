@@ -445,7 +445,7 @@ POST /evaluations/real-job-source-smoke?query=Agent%20%E5%BC%80%E5%8F%91%E5%AE%9
 
 评测内容：
 
-- 并发访问真实岗位源；默认中文主链路使用腾讯招聘公开接口，Lever 这类海外 ATS 只在显式开启英文辅助源时参与。
+- 并发访问真实岗位源；默认中文主链路使用腾讯招聘公开接口，Lever/Greenhouse 这类海外 ATS 不参与默认中文评测，只能在显式英文辅助场景下单独评测。
 - 对每个 source 单独记录 `status`、`source_reachable`、`result_count`、`latency_ms`、`error` 和 `sample_jobs`。
 - 不调用 LLM 解析 JD，不写入主岗位库，只评估 source 层健康度，避免 LLM、embedding 或数据库状态掩盖招聘源问题。
 - 网络失败、招聘站接口变化、空结果都会进入 `source_errors` 或 `source_unavailable`，不污染 `agent_full_flow` 的核心 pass rate。

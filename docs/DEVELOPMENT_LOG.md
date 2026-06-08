@@ -1,5 +1,58 @@
 # 开发日志
 
+## 2026-06-08 13:28 +08:00：收紧中文岗位源边界
+
+### 这次做了什么
+- 明确项目岗位源策略：中文求职场景和中文 JD 是主路径，英文岗位只作为少量辅助测试。
+- README、开发文档、架构文档和评测文档补充说明：Greenhouse 这类中国招聘场景弱的海外 ATS 不作为核心能力或默认岗位源接入。
+- 为 `JobSourceRegistry` 增加默认源回归测试，确认默认只注册 `tencent`，不会把 `lever` 或 `greenhouse` 悄悄带入中文主链路。
+- 给 `LeverCareersSource` 增加代码注释，标明它只是显式开启的英文辅助源。
+
+### 发现了什么问题
+- 真实产品场景不能只按“哪个接口容易爬”来选岗位源；如果默认接入中国候选人很少遇到的海外 ATS，会让项目看起来技术栈更丰富，但偏离中文 Agent 实习求职场景。
+- 历史日志里曾经记录过 Greenhouse/Lever 探测过程，如果当前文档不再次收紧边界，容易让人误解下一步还要把这些源接成主路径。
+
+### 怎么修复的
+- 把默认源边界写进 README、架构、开发和评测文档：中文 source 优先，海外 ATS 只能显式英文辅助。
+- 用测试固定默认注册行为：`JobSourceRegistry()` 默认只含 `tencent`。
+- 保留历史日志中的试错记录，但在最新日志和当前文档里明确当前决策，避免历史探索覆盖当前产品方向。
+
+### 未修复的问题及原因
+- 目前中文真实 source 仍主要依赖腾讯招聘；原因是更多中文自有招聘站需要逐个验证公开接口、JD 完整性和稳定性，不能为了数量硬接不稳定或弱场景 source。
+- 没有删除可选 Lever 代码；原因是项目允许少量英文辅助场景，但它默认关闭，并由配置和测试保证不进入中文主链路。
+
+### 下一步怎么做
+- 继续探测字节、阿里、美团、华为等中文自有招聘源，只接入能稳定返回公开中文 JD 的 source。
+- 为新增中文 source 增加 source smoke、真实 JD ingest smoke 和排序前后 top sample，确保不是“能抓到”就算可用。
+
+## 2026-06-08 13:24 +08:00：投递包页面展示 Guardrail 结果
+
+### 这次做了什么
+- 在 `/ui/applications` 的投递记录中展示 `packet_validation`。
+- 前端新增 `applicationValidation` 和 `validationList`，展示 risk level、issues、warnings、manual confirmation mode 和 final submission 边界。
+- 投递记录现在同时展示外联文案和求职信，方便用户在提交前一起检查。
+- CSS 新增 validation panel、risk/ok 状态、紧凑 issue/warning 列表和移动端单列布局。
+- Agent `quick_apply` 输出中保留 `packet_validation` 和完整 `automation_result`，让 Agent run trace 与 UI 使用同一份校验结果。
+- 更新 README 和 API 文档，说明投递页面会展示 Guardrail issues/warnings。
+
+### 发现了什么问题
+- 上一轮已经把投递包 Guardrail 写入后端，但 UI 只显示投递状态和求职信，用户看不到为什么一个投递包安全、为什么有 warning，或者是否保留了人工确认边界。
+- 只把 `packet_validation` 存在 `automation_result_json` 中不够，真实产品里用户需要在提交前直接看到风险项，否则 trace 只是开发者可见。
+
+### 怎么修复的
+- 在前端列表项中读取 `row.automation_result_json.packet_validation`，把 high/medium/low 风险、issue code、warning code 和 message 展示出来。
+- 对没有问题的投递包显示“未发现阻断问题/无警告”，避免用户误以为没有显示就是缺数据。
+- 移动端把 validation grid 改成单列，避免 issue/warning 文本挤压。
+- 投递包 service 测试已确认 `validation_passed=true` 和 `packet_validation` 会写入 response 数据。
+
+### 未修复的问题及原因
+- UI 目前只展示列表中的 Guardrail 摘要，没有做逐条 issue 的交互式修复；原因是本轮先补齐风险可见性，下一步再做“根据 issue 修改投递包”的工作流。
+- 前端没有引入浏览器端单元测试框架；原因是项目现有测试以 FastAPI 和服务层为主，本轮用 API/模板和服务测试覆盖数据可见性。
+
+### 下一步怎么做
+- 增加投递包重新生成/修复入口，让用户可以基于 `issues` 一键重写求职信或外联文案。
+- 如果接浏览器辅助填写，UI 必须在最终提交按钮前再次显示 `user_confirmed_only`。
+
 ## 2026-06-08 13:13 +08:00：新增投递包 Guardrail 并修复硬编码 Agent 兜底
 
 ### 这次做了什么

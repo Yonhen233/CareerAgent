@@ -79,6 +79,8 @@ class TencentCareersSource(JobSource):
 
 
 class LeverCareersSource(JobSource):
+    """Explicit English auxiliary source; it is never part of the Chinese default path."""
+
     name = "lever"
 
     def __init__(self, company_slugs: list[str] | None = None) -> None:

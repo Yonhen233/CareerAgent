@@ -24,6 +24,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - `EvidenceClassifier` 会区分 shipped project、metric evidence、coursework、planned learning 和 missing-skill disclosure，并影响 RAG 证据排序。
 - 岗位来源：
   - 腾讯招聘公开职位接口，作为中文主场景岗位源。
+  - 海外 ATS 只作为少量英文辅助，不进入默认中文链路；Greenhouse 这类中国招聘场景弱的源不作为核心能力接入。
   - Lever 公开岗位 API 仅作为显式开启的英文辅助岗位源，默认不参与中文主链路。
   - Source 层有确定性的中文岗位相关性排序，会优先提升 Agent/LLM/RAG、开发/工程和实习/校招信号，降低产品、销售、商务等不匹配岗位。
   - `real-job-source-smoke` 会单独记录岗位源可达性、返回数量、JD 非空率、投递链接率、query relevance、Agent/AI relevance、relevance score 和 source errors，不让外部网络波动影响核心回归。
@@ -112,7 +113,7 @@ LLM_MODEL=DeepSeek-V4-Pro
 - `/ui/jobs`：搜索真实岗位或手动粘贴 JD。
 - `/ui/agent-runs`：运行 Agent 并查看步骤。
 - `/ui/resumes`：查看和下载定制简历版本。
-- `/ui/applications`：查看投递包和投递状态。
+- `/ui/applications`：查看投递包、投递状态、Guardrail issues/warnings 和人工确认边界。
 
 ## 常用 API
 

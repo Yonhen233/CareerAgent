@@ -88,6 +88,7 @@ class MySource(JobSource):
 - 返回内容要统一映射到 `JobPosting`。
 - 外部请求使用 async HTTP client。
 - 中文主场景 source 应优先稳定返回中文 JD；海外 ATS 类 source 只能作为显式开启的英文辅助源。
+- 不因为某个 ATS 接口容易访问就加入主路径；Greenhouse 这类中国求职场景较弱的源不作为默认能力，除非后续有明确英文岗位场景和单独评测。
 - 新 source 返回后应复用 `job_relevance` 的中文岗位相关性排序和 trace 字段，避免各 source 各自定义不可比较的排序规则。
 
 ## 新增评测样例
