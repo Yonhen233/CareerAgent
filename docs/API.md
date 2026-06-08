@@ -295,6 +295,14 @@ POST /evaluations/jd-parser
 
 该评测使用 `evals/jd_parser_cases.json`，单独衡量 JD parser 的结构化质量。返回的 `summary_json` 包含 `completed_rate`、`pass_rate`、`avg_required_skill_recall`、`avg_keyword_hit_rate`、`job_type_accuracy`、`responsibility_min_pass_rate`、`qualification_min_pass_rate`、`absent_required_skill_violation_count`、`parser_mode_counts`、`failure_breakdown`、`difficulty_breakdown` 和 `noise_breakdown`。`case_results_json` 会保留每个 JD 的 parsed required/preferred skills、missing required skills、负向技能误抽取和失败检查项。
 
+运行中文岗位排序标注集评测：
+
+```http
+POST /evaluations/job-relevance
+```
+
+该评测使用 `evals/job_relevance_cases.json`，不访问外部招聘站，也不调用 LLM，只衡量 source 层中文岗位相关性排序。数据集包含 13 个中文为主 query、130 个候选岗位，每个候选使用 0-4 级相关性标注。返回的 `summary_json` 包含 `pass_rate`、`top1_accuracy`、`avg_top3_recall`、`avg_top5_recall`、`avg_mrr`、`avg_ndcg_at_5`、`low_grade_above_strong_count`、`intent_breakdown`、`difficulty_breakdown` 和 `noise_breakdown`。`case_results_json` 会保留每个候选岗位的排序名次、人工 grade、排序分和 `relevance_reasons`。
+
 运行真实岗位源 smoke：
 
 ```http

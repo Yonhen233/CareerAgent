@@ -33,6 +33,12 @@ DEVELOPMENT_EN_PATTERNS = (
     r"(?<![a-z0-9])platform(?![a-z0-9])",
 )
 PRODUCT_CN_SIGNALS = ("产品经理", "产品策划", "产品", "策划", "运营", "增长", "商业化", "销售", "商务", "市场")
+ALGORITHM_SIGNALS = ("推荐算法", "排序模型", "推荐", "排序", "召回", "粗排", "精排", "ctr", "ranking", "recommendation")
+BACKEND_SIGNALS = ("后端", "服务端", "接口", "fastapi", "backend", "api")
+DATA_SIGNALS = ("数据开发", "数据平台", "数仓", "数据仓库", "spark", "kafka", "airflow", "sql", "warehouse")
+SECURITY_SIGNALS = ("安全", "护栏", "提示词注入", "红队", "越权", "guardrail", "security", "prompt injection")
+EVALUATION_SIGNALS = ("评测", "评估", "benchmark", "evaluation", "quality")
+PROMPT_SIGNALS = ("prompt", "提示词", "提示词工程", "prompt engineering")
 BUSINESS_EN_PATTERNS = (
     r"(?<![a-z0-9])sales(?![a-z0-9])",
     r"account executive",
@@ -62,6 +68,14 @@ def score_job_posting(posting: Any, query: str) -> JobRelevance:
     wants_internship = _contains_internship_signal(query_text)
     wants_development = _has_development_signal(query_text) or "开发实习" in query_text
     wants_product = _has_product_signal(query_text)
+    domain_intents = [
+        ("算法/推荐", _has_algorithm_signal(query_text), _has_algorithm_signal),
+        ("后端/API", _has_backend_signal(query_text), _has_backend_signal),
+        ("数据开发", _has_data_signal(query_text), _has_data_signal),
+        ("安全", _has_security_signal(query_text), _has_security_signal),
+        ("评测", _has_evaluation_signal(query_text), _has_evaluation_signal),
+        ("Prompt", _has_prompt_signal(query_text), _has_prompt_signal),
+    ]
 
     for term in _query_terms(query):
         if _term_present(title, term):
@@ -103,6 +117,18 @@ def score_job_posting(posting: Any, query: str) -> JobRelevance:
         score -= 3.0
     if not wants_product and (_has_business_signal(title) or _has_business_signal(job_type)):
         score -= 4.0
+    if wants_product and (_has_product_signal(title) or _has_product_signal(job_type)):
+        score += 6.0
+        reasons.append("标题命中产品意图")
+    for label, wants_domain, detector in domain_intents:
+        if not wants_domain:
+            continue
+        if detector(title) or detector(job_type):
+            score += 6.0
+            reasons.append(f"标题命中{label}意图")
+        elif detector(jd_preview):
+            score += 2.0
+            reasons.append(f"JD 命中{label}意图")
 
     if _posting_jd(posting).strip():
         score += 0.4
@@ -159,6 +185,20 @@ def _query_terms(query: str) -> list[str]:
     extras: list[str] = []
     if "开发" in text:
         extras.extend(["开发", "研发", "development", "engineer", "engineering"])
+    if "产品" in text:
+        extras.extend(["产品", "产品经理", "产品策划", "product", "pm"])
+    if "算法" in text or "推荐" in text:
+        extras.extend(["算法", "推荐", "排序", "召回", "ctr", "ranking", "recommendation"])
+    if "后端" in text or "服务" in text:
+        extras.extend(["后端", "服务", "接口", "fastapi", "backend", "api"])
+    if "数据" in text:
+        extras.extend(["数据", "sql", "spark", "kafka", "airflow", "warehouse"])
+    if "安全" in text:
+        extras.extend(["安全", "护栏", "提示词注入", "prompt injection", "guardrail", "security"])
+    if "评测" in text or "评估" in text or "evaluation" in text:
+        extras.extend(["评测", "评估", "evaluation", "benchmark", "quality"])
+    if "prompt" in text or "提示词" in text:
+        extras.extend(["prompt", "提示词", "prompt engineering", "提示词工程"])
     if "实习" in text or INTERNSHIP_PATTERN.search(text):
         extras.extend(["实习", "实习生", "校招", "intern", "internship"])
     if _has_agent_signal(text):
@@ -194,6 +234,30 @@ def _has_development_signal(text: str) -> bool:
 
 def _has_product_signal(text: str) -> bool:
     return _contains_any(text, PRODUCT_CN_SIGNALS)
+
+
+def _has_algorithm_signal(text: str) -> bool:
+    return _contains_any(text, ALGORITHM_SIGNALS)
+
+
+def _has_backend_signal(text: str) -> bool:
+    return _contains_any(text, BACKEND_SIGNALS)
+
+
+def _has_data_signal(text: str) -> bool:
+    return _contains_any(text, DATA_SIGNALS)
+
+
+def _has_security_signal(text: str) -> bool:
+    return _contains_any(text, SECURITY_SIGNALS)
+
+
+def _has_evaluation_signal(text: str) -> bool:
+    return _contains_any(text, EVALUATION_SIGNALS)
+
+
+def _has_prompt_signal(text: str) -> bool:
+    return _contains_any(text, PROMPT_SIGNALS)
 
 
 def _has_business_signal(text: str) -> bool:

@@ -39,6 +39,12 @@ async def run_jd_parser_evaluation(db: Session = Depends(get_db)) -> EvaluationR
     return EvaluationRunResponse.model_validate(run)
 
 
+@router.post("/job-relevance", response_model=EvaluationRunResponse, status_code=status.HTTP_201_CREATED)
+def run_job_relevance_evaluation(db: Session = Depends(get_db)) -> EvaluationRunResponse:
+    run = EvaluationService().run_job_relevance_evaluation(db)
+    return EvaluationRunResponse.model_validate(run)
+
+
 @router.post("/real-job-source-smoke", response_model=EvaluationRunResponse, status_code=status.HTTP_201_CREATED)
 async def run_real_job_source_smoke(
     query: str = Query(default="Agent 开发实习生", min_length=1),

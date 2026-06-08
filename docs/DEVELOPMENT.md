@@ -119,6 +119,26 @@ pytest -q
 POST /evaluations/run
 ```
 
+中文岗位排序评测使用：
+
+```text
+evals/job_relevance_cases.json
+```
+
+重新生成数据集：
+
+```bash
+python scripts/generate_job_relevance_eval.py
+```
+
+运行排序评测：
+
+```http
+POST /evaluations/job-relevance
+```
+
+核心指标包括 `top1_accuracy`、`avg_top3_recall`、`avg_mrr`、`avg_ndcg_at_5` 和 `low_grade_above_strong_count`。如果失败，优先查看 `case_results_json[].ranked_jobs[].reasons`，判断是 query intent 缺失、泛技术词过强，还是产品/销售/运营噪声没有被降权。
+
 ## LLM 调试
 
 查看最近调用：

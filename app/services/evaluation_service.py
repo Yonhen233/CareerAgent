@@ -437,6 +437,21 @@ class EvaluationService:
         db.refresh(run)
         return run
 
+    def run_job_relevance_evaluation(self, db: Session, *, dataset_path: Path | None = None) -> EvaluationRun:
+        path = dataset_path or self.settings.base_path / "evals" / "job_relevance_cases.json"
+        cases = json.loads(path.read_text(encoding="utf-8"))
+        case_results = [self._run_job_relevance_case(case) for case in cases]
+        summary = self._summarize_job_relevance(case_results, path)
+        run = EvaluationRun(
+            name="job_relevance_evaluation",
+            summary_json=summary,
+            case_results_json=case_results,
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        return run
+
     async def run_real_job_source_smoke(
         self,
         db: Session,
@@ -1527,7 +1542,7 @@ class EvaluationService:
             "avg_required_skill_count": self._avg_list_length(case_results, "parsed_required_skills"),
             "avg_preferred_skill_count": self._avg_list_length(case_results, "parsed_preferred_skills"),
             "parser_mode_counts": self._count_by_key(completed, "parser_mode"),
-            "failure_breakdown": self._count_jd_parser_failures(case_results),
+            "failure_breakdown": self._count_failed_checks(case_results),
             "difficulty_breakdown": self._summarize_jd_parser_by_key(case_results, "difficulty"),
             "noise_breakdown": self._summarize_jd_parser_by_key(case_results, "noise_profiles"),
             "notes": [
@@ -1563,6 +1578,9 @@ class EvaluationService:
         return round(sum(len(item.get(key) or []) for item in rows) / len(rows), 4)
 
     def _count_jd_parser_failures(self, rows: list[dict[str, Any]]) -> dict[str, int]:
+        return self._count_failed_checks(rows)
+
+    def _count_failed_checks(self, rows: list[dict[str, Any]]) -> dict[str, int]:
         counts: dict[str, int] = {}
         for row in rows:
             for check in row.get("failed_checks") or []:
@@ -1591,6 +1609,166 @@ class EvaluationService:
             }
             for group, items in sorted(grouped.items())
         }
+
+    def _run_job_relevance_case(self, case: dict[str, Any]) -> dict[str, Any]:
+        postings = [
+            JobPosting(
+                source="eval",
+                external_id=str(candidate["id"]),
+                title=str(candidate["title"]),
+                company=str(candidate.get("company") or "评测样例公司"),
+                location=str(candidate.get("location") or "中国"),
+                job_type=str(candidate.get("job_type") or ""),
+                apply_url=str(candidate.get("apply_url") or ""),
+                raw_jd_text=str(candidate.get("jd_text") or candidate["title"]),
+                payload={
+                    "grade": int(candidate["grade"]),
+                    "label": candidate.get("label"),
+                },
+            )
+            for candidate in case.get("candidates", [])
+        ]
+        ranked_postings = rank_postings_for_query(postings, str(case["query"]))
+        grade_by_id = {posting.external_id: int(posting.payload.get("grade") or 0) for posting in postings}
+        max_grade = max(grade_by_id.values() or [0])
+        strong_ids = {uid for uid, grade in grade_by_id.items() if grade >= 3}
+        ranked_rows = []
+        for rank, posting in enumerate(ranked_postings, start=1):
+            relevance = score_job_posting(posting, str(case["query"]))
+            ranked_rows.append(
+                {
+                    "rank": rank,
+                    "id": posting.external_id,
+                    "title": posting.title,
+                    "job_type": posting.job_type,
+                    "grade": grade_by_id[posting.external_id],
+                    "score": relevance.score,
+                    "reasons": relevance.reasons,
+                    "label": posting.payload.get("label"),
+                }
+            )
+        top1_grade = ranked_rows[0]["grade"] if ranked_rows else 0
+        top1_expected = top1_grade == max_grade
+        top3_recall = self._graded_recall_at_k(ranked_rows, strong_ids, 3)
+        top5_recall = self._graded_recall_at_k(ranked_rows, strong_ids, 5)
+        mrr = self._graded_mrr(ranked_rows, min_grade=3)
+        ndcg_at_5 = self._graded_ndcg_at_k(ranked_rows, k=5)
+        low_grade_above_strong = self._low_grade_above_strong_count(ranked_rows)
+        failed_checks = []
+        if not top1_expected:
+            failed_checks.append("top1_not_best_grade")
+        if top3_recall < float(case.get("min_top3_recall", 0.67)):
+            failed_checks.append("top3_recall_below_threshold")
+        if ndcg_at_5 < float(case.get("min_ndcg_at_5", 0.82)):
+            failed_checks.append("ndcg_at_5_below_threshold")
+        if top1_grade <= 1:
+            failed_checks.append("top1_low_relevance")
+        if low_grade_above_strong > int(case.get("max_low_grade_above_strong", 0)):
+            failed_checks.append("low_grade_above_strong")
+        return {
+            "name": case["name"],
+            "query": case["query"],
+            "intent": case.get("intent", "unknown"),
+            "difficulty": case.get("difficulty", "unknown"),
+            "noise_profile": case.get("noise_profile", "unknown"),
+            "candidate_count": len(postings),
+            "strong_candidate_count": len(strong_ids),
+            "top1_expected": top1_expected,
+            "top1_grade": top1_grade,
+            "top1_title": ranked_rows[0]["title"] if ranked_rows else None,
+            "top3_recall": top3_recall,
+            "top5_recall": top5_recall,
+            "mrr": mrr,
+            "ndcg_at_5": ndcg_at_5,
+            "low_grade_above_strong_count": low_grade_above_strong,
+            "case_passed": not failed_checks,
+            "failed_checks": failed_checks,
+            "ranked_jobs": ranked_rows,
+        }
+
+    def _summarize_job_relevance(self, case_results: list[dict[str, Any]], dataset_path: Path) -> dict[str, Any]:
+        count = max(len(case_results), 1)
+        failed = [item for item in case_results if not item.get("case_passed")]
+        return {
+            "evaluation_type": "job_relevance_ranking",
+            "status": "completed" if not failed else "completed_with_quality_failures",
+            "dataset": dataset_path.name,
+            "case_count": len(case_results),
+            "candidate_count": sum(int(item.get("candidate_count") or 0) for item in case_results),
+            "pass_rate": round(sum(1 for item in case_results if item.get("case_passed")) / count, 4),
+            "top1_accuracy": round(sum(1 for item in case_results if item.get("top1_expected")) / count, 4),
+            "avg_top3_recall": self._avg_number(case_results, "top3_recall"),
+            "avg_top5_recall": self._avg_number(case_results, "top5_recall"),
+            "avg_mrr": self._avg_number(case_results, "mrr"),
+            "avg_ndcg_at_5": self._avg_number(case_results, "ndcg_at_5"),
+            "low_grade_above_strong_count": sum(
+                int(item.get("low_grade_above_strong_count") or 0) for item in case_results
+            ),
+            "failure_breakdown": self._count_failed_checks(case_results),
+            "intent_breakdown": self._summarize_job_relevance_by_key(case_results, "intent"),
+            "difficulty_breakdown": self._summarize_job_relevance_by_key(case_results, "difficulty"),
+            "noise_breakdown": self._summarize_job_relevance_by_key(case_results, "noise_profile"),
+            "notes": [
+                "该评测验证 source 层确定性排序，不访问外部招聘站，也不调用 LLM。",
+                "标注使用 0-4 级相关性：4 为最匹配，3 为强匹配，2 为相关但有关键缺口，1 为相邻岗位，0 为噪声。",
+                "指标优先关注 top1_accuracy、Top3 strong recall、MRR 和 nDCG@5；low_grade_above_strong 用来暴露产品/销售/运营噪声排到强匹配前面的风险。",
+            ],
+        }
+
+    def _summarize_job_relevance_by_key(self, rows: list[dict[str, Any]], key: str) -> dict[str, Any]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            grouped.setdefault(str(row.get(key) or "unknown"), []).append(row)
+        return {
+            group: {
+                "case_count": len(items),
+                "pass_rate": round(sum(1 for item in items if item.get("case_passed")) / max(len(items), 1), 4),
+                "top1_accuracy": round(sum(1 for item in items if item.get("top1_expected")) / max(len(items), 1), 4),
+                "avg_top3_recall": self._avg_number(items, "top3_recall"),
+                "avg_mrr": self._avg_number(items, "mrr"),
+                "avg_ndcg_at_5": self._avg_number(items, "ndcg_at_5"),
+                "low_grade_above_strong_count": sum(
+                    int(item.get("low_grade_above_strong_count") or 0) for item in items
+                ),
+            }
+            for group, items in sorted(grouped.items())
+        }
+
+    def _graded_recall_at_k(self, ranked_rows: list[dict[str, Any]], strong_ids: set[str], k: int) -> float:
+        if not strong_ids:
+            return 1.0
+        hits = {row["id"] for row in ranked_rows[:k] if row["id"] in strong_ids}
+        return round(len(hits) / len(strong_ids), 4)
+
+    def _graded_mrr(self, ranked_rows: list[dict[str, Any]], *, min_grade: int) -> float:
+        for index, row in enumerate(ranked_rows, start=1):
+            if int(row.get("grade") or 0) >= min_grade:
+                return round(1 / index, 4)
+        return 0.0
+
+    def _graded_ndcg_at_k(self, ranked_rows: list[dict[str, Any]], *, k: int) -> float:
+        def gain(grade: int) -> float:
+            return float((2**grade) - 1)
+
+        dcg = 0.0
+        for index, row in enumerate(ranked_rows[:k], start=1):
+            dcg += gain(int(row.get("grade") or 0)) / math.log2(index + 1)
+        ideal_grades = sorted((int(row.get("grade") or 0) for row in ranked_rows), reverse=True)[:k]
+        idcg = sum(gain(grade) / math.log2(index + 1) for index, grade in enumerate(ideal_grades, start=1))
+        if idcg == 0:
+            return 0.0
+        return round(dcg / idcg, 4)
+
+    def _low_grade_above_strong_count(self, ranked_rows: list[dict[str, Any]]) -> int:
+        strong_ranks = [int(row["rank"]) for row in ranked_rows if int(row.get("grade") or 0) >= 3]
+        if not strong_ranks:
+            return 0
+        first_strong_rank = min(strong_ranks)
+        return sum(
+            1
+            for row in ranked_rows
+            if int(row["rank"]) < first_strong_rank and int(row.get("grade") or 0) <= 1
+        )
 
     def _summarize_source_posting(self, posting: JobPosting, *, query: str | None = None) -> dict[str, Any]:
         relevance = score_job_posting(posting, query or "")

@@ -1,5 +1,38 @@
 # 开发日志
 
+## 2026-06-08 13:01 +08:00：新增中文岗位排序标注集和 NDCG/MRR 评测
+
+### 这次做了什么
+- 新增 `scripts/generate_job_relevance_eval.py`，生成中文为主的岗位排序标注集。
+- 新增 `evals/job_relevance_cases.json`，覆盖 13 个 query、130 个候选岗位，包括 Agent 开发实习、智能体校招、RAG 平台、AI Agent 产品、推荐算法、后端 FastAPI、LLM 评测、大模型安全、数据开发、Agent 工程师、AI 产品经理、Prompt 工程和少量英文辅助样例。
+- 每个候选岗位使用 0-4 级人工相关性标注，区分最匹配、强匹配、相关但有关键缺口、相邻岗位和噪声岗位。
+- 新增 `EvaluationService.run_job_relevance_evaluation` 和 `POST /evaluations/job-relevance`。
+- 评测 summary 输出 `top1_accuracy`、`avg_top3_recall`、`avg_top5_recall`、`avg_mrr`、`avg_ndcg_at_5`、`low_grade_above_strong_count`、intent/difficulty/noise breakdown。
+- 每个 case 的 `ranked_jobs` 写入候选岗位 rank、人工 grade、排序 score 和 relevance reasons，方便定位误排。
+- 更新 README、API 文档、评测文档和开发文档，说明排序评测数据、指标和运行方法。
+
+### 发现了什么问题
+- 只靠真实腾讯 source smoke 的 top sample 无法量化排序质量，也无法覆盖不同中文 query 意图。
+- 首次运行 job relevance evaluation 时整体 `top1_accuracy=1.0000`、`avg_mrr=1.0000`，但状态仍是 `completed_with_quality_failures`，因为 `推荐算法实习生` case 的 `top3_recall=0.5000`。
+- 失败 trace 显示 `排序模型实习生` 是强相关同义岗位，但被 `数据开发实习生` 和 `Agent开发实习生` 压到第 4 名。
+- 根因是旧排序规则对“开发/工程/实习”这类泛技术信号加权较高，却缺少“算法/推荐”领域意图 boost；泛技术词会在部分 query 下压过更具体的领域意图。
+
+### 怎么修复的
+- 在 `job_relevance` 中新增领域意图识别和 boost：算法/推荐、后端/API、数据开发、安全、评测、Prompt。
+- 保留产品意图正向 boost，确保 `AI Agent 产品实习生` 和 `AI产品经理 Agent方向` 这类 query 不被工程岗位压过。
+- 修复后重新运行排序评测：`status=completed`、`case_count=13`、`candidate_count=130`、`pass_rate=1.0000`、`top1_accuracy=1.0000`、`avg_top3_recall=1.0000`、`avg_top5_recall=1.0000`、`avg_mrr=1.0000`、`avg_ndcg_at_5=0.9495`、`low_grade_above_strong_count=0`。
+- `推荐算法实习生` case 修复后 `top3_recall=1.0000`、`nDCG@5=0.9698`，`排序模型实习生` 不再被泛开发岗位压到 Top3 之后。
+
+### 未修复的问题及原因
+- 当前标注集仍是合成的离线标注，不是真实用户点击或投递转化数据；原因是项目还没有线上行为数据，现阶段先用可控噪声覆盖主要中文 query 意图。
+- 排序权重仍是规则版，不是学习排序模型；原因是数据规模还不足以训练稳定模型，现阶段可解释规则更适合开发期定位问题。
+- 中文分词仍是轻量规则和领域词表，不是完整 NLP 分词；原因是 source 层排序要保持低依赖、低延迟，后续如果引入真实标注数据再考虑专门的中文检索/排序模型。
+
+### 下一步怎么做
+- 把真实腾讯 source smoke 中出现的产品、正式岗、策划类混入样例沉淀进 `job_relevance_cases.json`。
+- 探测更多中文招聘源后，为每个 source 记录排序前后 top sample，比较排序改善幅度。
+- 为 job relevance evaluation 增加人工复核字段，逐步从合成标注过渡到真实 JD 标注。
+
 ## 2026-06-08 12:48 +08:00：增加中文岗位相关性排序并收敛默认岗位源
 
 ### 这次做了什么

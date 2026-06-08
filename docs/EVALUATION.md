@@ -351,6 +351,48 @@ POST /evaluations/agent-full-flow
 - 重复运行评测时，评测岗位 external_id 曾经撞 SQLite 唯一约束。现在每次 Agent full-flow evaluation 都会生成唯一 namespace，原始 ID 仍保存在 `eval_external_id`。
 - 推荐算法和 ML 平台两个弱匹配 case 被重新标注为“可分析/可定制，但不可一键投递”，更符合真实求职风险控制。
 
+## 中文岗位排序评测
+
+接口：
+
+```http
+POST /evaluations/job-relevance
+```
+
+评测内容：
+
+- 使用 `evals/job_relevance_cases.json`，覆盖 13 个 query、130 个候选岗位。
+- 中文主场景包括 Agent 开发实习、智能体校招、RAG 平台、AI Agent 产品、推荐算法、后端 FastAPI、LLM 评测、大模型安全、数据开发、Agent 工程师、AI 产品经理、Prompt 工程；英文 Agent Development Intern 只作为辅助样例。
+- 每个候选岗位有 0-4 级人工相关性标注：4 为最匹配，3 为强匹配，2 为相关但有关键缺口，1 为相邻岗位，0 为噪声。
+- 不访问外部招聘站，不调用 LLM，只评估 source 层确定性排序算法，避免网络波动或模型输出掩盖排序问题。
+- `case_results_json` 保留每个候选岗位的 `rank`、`grade`、`score` 和 `reasons`，用于定位具体误排原因。
+
+核心指标：
+
+| 指标 | 含义 |
+| --- | --- |
+| `top1_accuracy` | 每个 query 的第一名是否为最高人工 grade。 |
+| `avg_top3_recall` | Top3 是否召回所有 grade >= 3 的强相关岗位。 |
+| `avg_mrr` | 第一个强相关岗位的平均倒数排名。 |
+| `avg_ndcg_at_5` | 使用 0-4 级 relevance 的 graded nDCG@5。 |
+| `low_grade_above_strong_count` | grade <= 1 的噪声排在强相关岗位前面的次数。 |
+
+最新离线评测：
+
+| 指标 | 结果 |
+| --- | ---: |
+| case_count | 13 |
+| candidate_count | 130 |
+| pass_rate | 1.0000 |
+| top1_accuracy | 1.0000 |
+| avg_top3_recall | 1.0000 |
+| avg_top5_recall | 1.0000 |
+| avg_mrr | 1.0000 |
+| avg_ndcg_at_5 | 0.9495 |
+| low_grade_above_strong_count | 0 |
+
+本轮首次运行暴露出 `推荐算法实习生` case 的 `top3_recall=0.5000`：`排序模型实习生` 是强相关同义岗位，但旧规则把“开发/工程”这种泛技术信号排得过高，导致 `数据开发实习生`、`Agent开发实习生` 这类低相关岗位压过强相关岗位。修复方式是在 source 排序中加入领域意图 boost，包括算法/推荐、后端/API、数据开发、安全、评测和 Prompt；修复后该 case 的 `top3_recall=1.0000`、`nDCG@5=0.9698`，整体评测状态为 `completed`。
+
 ## 真实岗位源 Smoke
 
 接口：

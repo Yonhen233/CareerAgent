@@ -1,0 +1,1549 @@
+[
+  {
+    "name": "agent_dev_intern_cn",
+    "query": "Agent 开发实习生",
+    "intent": "agent_dev_intern",
+    "difficulty": "medium",
+    "noise_profile": "product_and_sales_noise",
+    "candidates": [
+      {
+        "id": "agent_dev_intern",
+        "title": "AI Agent开发实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/agent_dev_intern",
+        "jd_text": "参与 Agent 工作流、RAG 检索和 FastAPI 服务开发。",
+        "grade": 4,
+        "label": "最匹配：Agent + 开发 + 实习。"
+      },
+      {
+        "id": "agent_eval_intern",
+        "title": "Agent Evaluation Intern",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "Internship",
+        "apply_url": "https://example.com/jobs/agent_eval_intern",
+        "jd_text": "Build Agent eval pipeline, prompt regression and trace dashboards.",
+        "grade": 3,
+        "label": "强匹配：英文标题但岗位仍是 Agent 实习。"
+      },
+      {
+        "id": "agent_platform_engineer",
+        "title": "Agent平台开发工程师",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/agent_platform_engineer",
+        "jd_text": "负责 Agent 平台、工具调用和 RAG 服务稳定性。",
+        "grade": 2,
+        "label": "技能匹配但不是实习。"
+      },
+      {
+        "id": "agent_product_pm",
+        "title": "QQ-Agent产品经理",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "产品",
+        "apply_url": "https://example.com/jobs/agent_product_pm",
+        "jd_text": "负责 Agent 产品规划、需求分析和版本节奏。",
+        "grade": 1,
+        "label": "相关但偏产品。"
+      },
+      {
+        "id": "game_agent_planner",
+        "title": "游戏研发 Agent 产品策划",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "产品",
+        "apply_url": "https://example.com/jobs/game_agent_planner",
+        "jd_text": "负责游戏研发 Agent 的玩法策划和需求文档。",
+        "grade": 1,
+        "label": "标题含研发但实际偏策划。"
+      },
+      {
+        "id": "backend_intern",
+        "title": "后端开发实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/backend_intern",
+        "jd_text": "使用 FastAPI 和 SQL 开发业务接口。",
+        "grade": 1,
+        "label": "开发实习但缺 Agent。"
+      },
+      {
+        "id": "internal_tools_engineer",
+        "title": "Internal Tools Engineer",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/internal_tools_engineer",
+        "jd_text": "Build internal tools for engineering productivity.",
+        "grade": 0,
+        "label": "internal 不应被 intern 误判。"
+      },
+      {
+        "id": "ai_sales_intern",
+        "title": "AI Agent Sales Intern",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "Internship",
+        "apply_url": "https://example.com/jobs/ai_sales_intern",
+        "jd_text": "Support sales pipeline for AI Agent enterprise customers.",
+        "grade": 0,
+        "label": "有 Agent 和 Intern，但本质销售。"
+      },
+      {
+        "id": "generic_ai_sales_intern",
+        "title": "AI解决方案销售实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/generic_ai_sales_intern",
+        "jd_text": "负责客户线索跟进、方案演示和销售支持，了解 AI 产品即可。",
+        "grade": 0,
+        "label": "销售岗位，虽有实习和 AI，但不符合技术岗位意图。"
+      },
+      {
+        "id": "campus_activity_ai",
+        "title": "AI社群运营实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/campus_activity_ai",
+        "jd_text": "运营开发者社群、整理活动物料和用户反馈，不参与工程开发。",
+        "grade": 0,
+        "label": "运营岗位，容易被实习信号干扰。"
+      }
+    ]
+  },
+  {
+    "name": "agent_campus_dev_cn",
+    "query": "大模型智能体开发校招",
+    "intent": "agent_dev_campus",
+    "difficulty": "medium",
+    "noise_profile": "fulltime_and_product_noise",
+    "candidates": [
+      {
+        "id": "llm_agent_campus",
+        "title": "大模型智能体开发校招",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "校招",
+        "apply_url": "https://example.com/jobs/llm_agent_campus",
+        "jd_text": "参与大模型智能体应用、工具调用和检索增强生成开发。",
+        "grade": 4,
+        "label": "最匹配：大模型 + 智能体 + 开发 + 校招。"
+      },
+      {
+        "id": "agent_backend_campus",
+        "title": "AI Agent后端开发校招生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "校招",
+        "apply_url": "https://example.com/jobs/agent_backend_campus",
+        "jd_text": "负责 Agent 服务端、任务编排和 SQLite/RAG 数据链路。",
+        "grade": 3,
+        "label": "强匹配：Agent 工程校招。"
+      },
+      {
+        "id": "llm_algorithm_engineer",
+        "title": "大模型算法工程师",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/llm_algorithm_engineer",
+        "jd_text": "负责训练、推理优化和模型评测。",
+        "grade": 2,
+        "label": "大模型相关但不是校招智能体开发。"
+      },
+      {
+        "id": "agent_product_campus",
+        "title": "智能体产品校招",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "校招",
+        "apply_url": "https://example.com/jobs/agent_product_campus",
+        "jd_text": "负责智能体产品调研和需求设计。",
+        "grade": 1,
+        "label": "校招和智能体相关但偏产品。"
+      },
+      {
+        "id": "backend_campus",
+        "title": "后端开发校招",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "校招",
+        "apply_url": "https://example.com/jobs/backend_campus",
+        "jd_text": "负责业务服务和接口开发。",
+        "grade": 1,
+        "label": "开发校招但缺大模型/智能体。"
+      },
+      {
+        "id": "llm_content_ops",
+        "title": "大模型内容运营",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/llm_content_ops",
+        "jd_text": "维护内容库和用户反馈，不参与模型或工程开发。",
+        "grade": 0,
+        "label": "运营噪声。"
+      },
+      {
+        "id": "ai_sales_campus",
+        "title": "AI行业销售校招",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "校招",
+        "apply_url": "https://example.com/jobs/ai_sales_campus",
+        "jd_text": "面向企业客户做销售拓展。",
+        "grade": 0,
+        "label": "销售噪声。"
+      },
+      {
+        "id": "agent_visual_designer",
+        "title": "Agent视觉设计师",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/agent_visual_designer",
+        "jd_text": "负责视觉体验和品牌素材。",
+        "grade": 0,
+        "label": "设计噪声。"
+      },
+      {
+        "id": "generic_ai_sales_intern",
+        "title": "AI解决方案销售实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/generic_ai_sales_intern",
+        "jd_text": "负责客户线索跟进、方案演示和销售支持，了解 AI 产品即可。",
+        "grade": 0,
+        "label": "销售岗位，虽有实习和 AI，但不符合技术岗位意图。"
+      },
+      {
+        "id": "campus_activity_ai",
+        "title": "AI社群运营实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/campus_activity_ai",
+        "jd_text": "运营开发者社群、整理活动物料和用户反馈，不参与工程开发。",
+        "grade": 0,
+        "label": "运营岗位，容易被实习信号干扰。"
+      }
+    ]
+  },
+  {
+    "name": "rag_platform_intern_cn",
+    "query": "RAG 平台开发实习生",
+    "intent": "rag_platform_intern",
+    "difficulty": "hard",
+    "noise_profile": "semantic_neighbor_noise",
+    "candidates": [
+      {
+        "id": "rag_platform_intern",
+        "title": "RAG平台开发实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/rag_platform_intern",
+        "jd_text": "建设向量检索、PDF Chunk、reranker 和 FastAPI 平台能力。",
+        "grade": 4,
+        "label": "最匹配：RAG + 平台开发 + 实习。"
+      },
+      {
+        "id": "retrieval_engineer_intern",
+        "title": "检索增强生成工程实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/retrieval_engineer_intern",
+        "jd_text": "优化 embedding、召回排序和评测指标。",
+        "grade": 3,
+        "label": "强匹配：中文 RAG 同义表达。"
+      },
+      {
+        "id": "vector_db_engineer",
+        "title": "向量数据库开发工程师",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/vector_db_engineer",
+        "jd_text": "负责向量索引、召回性能和混合检索。",
+        "grade": 2,
+        "label": "相关但不是实习。"
+      },
+      {
+        "id": "backend_fastapi_intern",
+        "title": "FastAPI后端实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/backend_fastapi_intern",
+        "jd_text": "开发 REST API 和 SQLite 数据模型。",
+        "grade": 1,
+        "label": "平台技术相邻但缺 RAG。"
+      },
+      {
+        "id": "llm_prompt_intern",
+        "title": "提示词工程实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/llm_prompt_intern",
+        "jd_text": "设计 prompt 模板和输出格式。",
+        "grade": 1,
+        "label": "LLM 相邻但不是 RAG 平台。"
+      },
+      {
+        "id": "rag_pm",
+        "title": "RAG产品经理",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "产品",
+        "apply_url": "https://example.com/jobs/rag_pm",
+        "jd_text": "负责知识库产品需求和用户调研。",
+        "grade": 1,
+        "label": "RAG 相关但偏产品。"
+      },
+      {
+        "id": "search_ads_ops",
+        "title": "搜索广告运营",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/search_ads_ops",
+        "jd_text": "维护广告词和投放策略。",
+        "grade": 0,
+        "label": "搜索词噪声。"
+      },
+      {
+        "id": "data_entry_intern",
+        "title": "数据录入实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/data_entry_intern",
+        "jd_text": "整理 Excel 和文档。",
+        "grade": 0,
+        "label": "实习但低相关。"
+      },
+      {
+        "id": "generic_ai_sales_intern",
+        "title": "AI解决方案销售实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/generic_ai_sales_intern",
+        "jd_text": "负责客户线索跟进、方案演示和销售支持，了解 AI 产品即可。",
+        "grade": 0,
+        "label": "销售岗位，虽有实习和 AI，但不符合技术岗位意图。"
+      },
+      {
+        "id": "campus_activity_ai",
+        "title": "AI社群运营实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/campus_activity_ai",
+        "jd_text": "运营开发者社群、整理活动物料和用户反馈，不参与工程开发。",
+        "grade": 0,
+        "label": "运营岗位，容易被实习信号干扰。"
+      }
+    ]
+  },
+  {
+    "name": "agent_product_intern_cn",
+    "query": "AI Agent 产品实习生",
+    "intent": "agent_product_intern",
+    "difficulty": "hard",
+    "noise_profile": "engineering_overmatch_noise",
+    "candidates": [
+      {
+        "id": "agent_product_intern",
+        "title": "AI Agent产品实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/agent_product_intern",
+        "jd_text": "负责 Agent 产品需求、竞品分析、用户反馈和数据指标。",
+        "grade": 4,
+        "label": "最匹配：Agent + 产品 + 实习。"
+      },
+      {
+        "id": "agent_pm_campus",
+        "title": "智能体产品经理校招",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "校招",
+        "apply_url": "https://example.com/jobs/agent_pm_campus",
+        "jd_text": "规划智能体助手能力，跟进需求和上线指标。",
+        "grade": 3,
+        "label": "强匹配：产品校招，略非实习。"
+      },
+      {
+        "id": "ai_product_intern",
+        "title": "AI产品实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/ai_product_intern",
+        "jd_text": "负责 AI 应用需求分析和用户调研。",
+        "grade": 2,
+        "label": "产品实习但缺 Agent。"
+      },
+      {
+        "id": "agent_dev_intern_product_query",
+        "title": "AI Agent开发实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/agent_dev_intern_product_query",
+        "jd_text": "参与 Agent 后端和 RAG 服务开发。",
+        "grade": 1,
+        "label": "Agent 实习但偏工程，不应压过产品。"
+      },
+      {
+        "id": "llm_eval_intern_product_query",
+        "title": "LLM评测实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/llm_eval_intern_product_query",
+        "jd_text": "建设模型评测和 benchmark。",
+        "grade": 1,
+        "label": "LLM 相邻但不是产品。"
+      },
+      {
+        "id": "consumer_pm",
+        "title": "内容产品经理",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/consumer_pm",
+        "jd_text": "负责内容分发产品规划。",
+        "grade": 1,
+        "label": "产品相关但非 AI Agent。"
+      },
+      {
+        "id": "ai_sales_product_query",
+        "title": "AI客户成功实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/ai_sales_product_query",
+        "jd_text": "跟进客户部署和续费。",
+        "grade": 0,
+        "label": "商务噪声。"
+      },
+      {
+        "id": "frontend_intern_product_query",
+        "title": "前端开发实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/frontend_intern_product_query",
+        "jd_text": "开发 Web UI。",
+        "grade": 0,
+        "label": "实习但技术方向错误。"
+      },
+      {
+        "id": "generic_ai_sales_intern",
+        "title": "AI解决方案销售实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/generic_ai_sales_intern",
+        "jd_text": "负责客户线索跟进、方案演示和销售支持，了解 AI 产品即可。",
+        "grade": 0,
+        "label": "销售岗位，虽有实习和 AI，但不符合技术岗位意图。"
+      },
+      {
+        "id": "campus_activity_ai",
+        "title": "AI社群运营实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/campus_activity_ai",
+        "jd_text": "运营开发者社群、整理活动物料和用户反馈，不参与工程开发。",
+        "grade": 0,
+        "label": "运营岗位，容易被实习信号干扰。"
+      }
+    ]
+  },
+  {
+    "name": "recommendation_algorithm_intern_cn",
+    "query": "推荐算法实习生",
+    "intent": "recommendation_algorithm_intern",
+    "difficulty": "medium",
+    "noise_profile": "agent_and_data_noise",
+    "candidates": [
+      {
+        "id": "rec_algo_intern",
+        "title": "推荐算法实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/rec_algo_intern",
+        "jd_text": "负责召回排序、CTR 预估、A/B 实验和 PyTorch 模型训练。",
+        "grade": 4,
+        "label": "最匹配：推荐算法 + 实习。"
+      },
+      {
+        "id": "ranking_model_intern",
+        "title": "排序模型实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/ranking_model_intern",
+        "jd_text": "优化推荐排序模型、特征工程和离线评估。",
+        "grade": 3,
+        "label": "强匹配：推荐排序同义方向。"
+      },
+      {
+        "id": "rec_engineer_fulltime",
+        "title": "推荐算法工程师",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/rec_engineer_fulltime",
+        "jd_text": "负责推荐系统召回、粗排和精排。",
+        "grade": 2,
+        "label": "方向匹配但不是实习。"
+      },
+      {
+        "id": "data_dev_intern_rec",
+        "title": "数据开发实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/data_dev_intern_rec",
+        "jd_text": "建设 Spark、Kafka 和 SQL 任务。",
+        "grade": 1,
+        "label": "数据相邻但不是算法。"
+      },
+      {
+        "id": "agent_dev_intern_rec",
+        "title": "Agent开发实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/agent_dev_intern_rec",
+        "jd_text": "负责 Agent 工作流和 RAG 服务。",
+        "grade": 0,
+        "label": "Agent 实习但完全不是推荐算法。"
+      },
+      {
+        "id": "product_analytics_intern",
+        "title": "产品分析实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/product_analytics_intern",
+        "jd_text": "分析用户行为和转化漏斗。",
+        "grade": 1,
+        "label": "分析相邻但缺算法。"
+      },
+      {
+        "id": "search_ops",
+        "title": "搜索运营实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/search_ops",
+        "jd_text": "维护搜索词和运营策略。",
+        "grade": 0,
+        "label": "运营噪声。"
+      },
+      {
+        "id": "mlops_engineer_rec",
+        "title": "MLOps工程师",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/mlops_engineer_rec",
+        "jd_text": "负责模型部署和监控。",
+        "grade": 1,
+        "label": "ML 平台相邻但不做推荐算法。"
+      },
+      {
+        "id": "generic_ai_sales_intern",
+        "title": "AI解决方案销售实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/generic_ai_sales_intern",
+        "jd_text": "负责客户线索跟进、方案演示和销售支持，了解 AI 产品即可。",
+        "grade": 0,
+        "label": "销售岗位，虽有实习和 AI，但不符合技术岗位意图。"
+      },
+      {
+        "id": "campus_activity_ai",
+        "title": "AI社群运营实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/campus_activity_ai",
+        "jd_text": "运营开发者社群、整理活动物料和用户反馈，不参与工程开发。",
+        "grade": 0,
+        "label": "运营岗位，容易被实习信号干扰。"
+      }
+    ]
+  },
+  {
+    "name": "backend_fastapi_intern_cn",
+    "query": "后端开发实习生 FastAPI",
+    "intent": "backend_intern",
+    "difficulty": "easy",
+    "noise_profile": "ai_keyword_noise",
+    "candidates": [
+      {
+        "id": "fastapi_backend_intern",
+        "title": "FastAPI后端开发实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/fastapi_backend_intern",
+        "jd_text": "负责 Python、FastAPI、SQLAlchemy 和 SQLite 接口开发。",
+        "grade": 4,
+        "label": "最匹配：后端 + FastAPI + 实习。"
+      },
+      {
+        "id": "python_backend_intern",
+        "title": "Python后端实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/python_backend_intern",
+        "jd_text": "开发 API、数据库模型和异步任务。",
+        "grade": 3,
+        "label": "强匹配：Python 后端实习。"
+      },
+      {
+        "id": "backend_engineer_fulltime",
+        "title": "后端开发工程师",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/backend_engineer_fulltime",
+        "jd_text": "负责高并发服务、数据库和缓存。",
+        "grade": 2,
+        "label": "技术匹配但不是实习。"
+      },
+      {
+        "id": "agent_dev_intern_backend",
+        "title": "Agent开发实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/agent_dev_intern_backend",
+        "jd_text": "开发 Agent workflow 和 RAG。",
+        "grade": 1,
+        "label": "实习开发但不是后端 FastAPI 主方向。"
+      },
+      {
+        "id": "frontend_intern_backend",
+        "title": "前端开发实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/frontend_intern_backend",
+        "jd_text": "负责 React 页面。",
+        "grade": 0,
+        "label": "同为开发实习但方向错误。"
+      },
+      {
+        "id": "data_dev_intern_backend",
+        "title": "数据开发实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/data_dev_intern_backend",
+        "jd_text": "负责 Spark 和数仓任务。",
+        "grade": 1,
+        "label": "开发实习但非后端。"
+      },
+      {
+        "id": "api_doc_ops",
+        "title": "接口文档运营实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/api_doc_ops",
+        "jd_text": "整理 API 文档和客户问题。",
+        "grade": 0,
+        "label": "接口词噪声。"
+      },
+      {
+        "id": "fastapi_course_tutor",
+        "title": "Python课程助教",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "兼职",
+        "apply_url": "https://example.com/jobs/fastapi_course_tutor",
+        "jd_text": "辅导 FastAPI 课程作业。",
+        "grade": 0,
+        "label": "课程噪声。"
+      },
+      {
+        "id": "generic_ai_sales_intern",
+        "title": "AI解决方案销售实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/generic_ai_sales_intern",
+        "jd_text": "负责客户线索跟进、方案演示和销售支持，了解 AI 产品即可。",
+        "grade": 0,
+        "label": "销售岗位，虽有实习和 AI，但不符合技术岗位意图。"
+      },
+      {
+        "id": "campus_activity_ai",
+        "title": "AI社群运营实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/campus_activity_ai",
+        "jd_text": "运营开发者社群、整理活动物料和用户反馈，不参与工程开发。",
+        "grade": 0,
+        "label": "运营岗位，容易被实习信号干扰。"
+      }
+    ]
+  },
+  {
+    "name": "llm_eval_intern_cn",
+    "query": "LLM 评测实习生",
+    "intent": "llm_eval_intern",
+    "difficulty": "medium",
+    "noise_profile": "llm_dev_and_ops_noise",
+    "candidates": [
+      {
+        "id": "llm_eval_intern",
+        "title": "LLM评测实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/llm_eval_intern",
+        "jd_text": "建设 benchmark、模型质量评估、prompt regression 和 trace 分析。",
+        "grade": 4,
+        "label": "最匹配：LLM + 评测 + 实习。"
+      },
+      {
+        "id": "model_eval_intern",
+        "title": "大模型评估实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/model_eval_intern",
+        "jd_text": "负责模型安全、指令遵循和自动化评测。",
+        "grade": 3,
+        "label": "强匹配：中文评估同义。"
+      },
+      {
+        "id": "agent_eval_intern_llm",
+        "title": "Agent Evaluation Intern",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "Internship",
+        "apply_url": "https://example.com/jobs/agent_eval_intern_llm",
+        "jd_text": "Evaluate Agent workflows and guardrail failures.",
+        "grade": 3,
+        "label": "英文辅助强匹配。"
+      },
+      {
+        "id": "llm_dev_intern_eval",
+        "title": "大模型应用开发实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/llm_dev_intern_eval",
+        "jd_text": "开发 LLM 应用和工具调用。",
+        "grade": 1,
+        "label": "LLM 实习但不是评测。"
+      },
+      {
+        "id": "qa_intern_eval",
+        "title": "软件测试实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/qa_intern_eval",
+        "jd_text": "执行功能测试和缺陷回归。",
+        "grade": 1,
+        "label": "测试相邻但不是 LLM 评测。"
+      },
+      {
+        "id": "llm_ops_eval",
+        "title": "大模型运营实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/llm_ops_eval",
+        "jd_text": "整理用户反馈和内容标注。",
+        "grade": 0,
+        "label": "运营噪声。"
+      },
+      {
+        "id": "data_label_eval",
+        "title": "数据标注实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/data_label_eval",
+        "jd_text": "标注文本分类数据。",
+        "grade": 0,
+        "label": "标注噪声。"
+      },
+      {
+        "id": "backend_eval",
+        "title": "后端开发工程师",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/backend_eval",
+        "jd_text": "开发服务接口。",
+        "grade": 0,
+        "label": "工程泛噪声。"
+      },
+      {
+        "id": "generic_ai_sales_intern",
+        "title": "AI解决方案销售实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/generic_ai_sales_intern",
+        "jd_text": "负责客户线索跟进、方案演示和销售支持，了解 AI 产品即可。",
+        "grade": 0,
+        "label": "销售岗位，虽有实习和 AI，但不符合技术岗位意图。"
+      },
+      {
+        "id": "campus_activity_ai",
+        "title": "AI社群运营实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/campus_activity_ai",
+        "jd_text": "运营开发者社群、整理活动物料和用户反馈，不参与工程开发。",
+        "grade": 0,
+        "label": "运营岗位，容易被实习信号干扰。"
+      }
+    ]
+  },
+  {
+    "name": "llm_security_intern_cn",
+    "query": "大模型安全实习生",
+    "intent": "llm_security_intern",
+    "difficulty": "hard",
+    "noise_profile": "safety_policy_and_ops_noise",
+    "candidates": [
+      {
+        "id": "llm_security_intern",
+        "title": "大模型安全实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/llm_security_intern",
+        "jd_text": "评估提示词注入、越权工具调用、安全护栏和红队样例。",
+        "grade": 4,
+        "label": "最匹配：大模型 + 安全 + 实习。"
+      },
+      {
+        "id": "prompt_security_intern",
+        "title": "Prompt Security Intern",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "Internship",
+        "apply_url": "https://example.com/jobs/prompt_security_intern",
+        "jd_text": "Build prompt injection tests and LLM guardrails.",
+        "grade": 3,
+        "label": "英文辅助强匹配。"
+      },
+      {
+        "id": "ai_safety_eval",
+        "title": "AI安全评测工程师",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/ai_safety_eval",
+        "jd_text": "负责模型安全评测和风险 trace。",
+        "grade": 2,
+        "label": "方向匹配但非实习。"
+      },
+      {
+        "id": "security_backend",
+        "title": "后端安全工程师",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/security_backend",
+        "jd_text": "负责 Web 安全和漏洞修复。",
+        "grade": 1,
+        "label": "安全相关但非大模型。"
+      },
+      {
+        "id": "llm_eval_intern_security",
+        "title": "LLM评测实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/llm_eval_intern_security",
+        "jd_text": "评估模型质量和 benchmark。",
+        "grade": 1,
+        "label": "LLM 评测相邻但安全不足。"
+      },
+      {
+        "id": "policy_ops",
+        "title": "内容安全运营实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/policy_ops",
+        "jd_text": "处理内容审核策略和申诉。",
+        "grade": 0,
+        "label": "运营安全噪声。"
+      },
+      {
+        "id": "data_security_sales",
+        "title": "数据安全销售",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/data_security_sales",
+        "jd_text": "负责企业客户拓展。",
+        "grade": 0,
+        "label": "销售噪声。"
+      },
+      {
+        "id": "frontend_security",
+        "title": "前端开发实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/frontend_security",
+        "jd_text": "负责 Web 页面开发。",
+        "grade": 0,
+        "label": "实习噪声。"
+      },
+      {
+        "id": "generic_ai_sales_intern",
+        "title": "AI解决方案销售实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/generic_ai_sales_intern",
+        "jd_text": "负责客户线索跟进、方案演示和销售支持，了解 AI 产品即可。",
+        "grade": 0,
+        "label": "销售岗位，虽有实习和 AI，但不符合技术岗位意图。"
+      },
+      {
+        "id": "campus_activity_ai",
+        "title": "AI社群运营实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/campus_activity_ai",
+        "jd_text": "运营开发者社群、整理活动物料和用户反馈，不参与工程开发。",
+        "grade": 0,
+        "label": "运营岗位，容易被实习信号干扰。"
+      }
+    ]
+  },
+  {
+    "name": "data_engineering_intern_cn",
+    "query": "数据开发实习生",
+    "intent": "data_engineering_intern",
+    "difficulty": "easy",
+    "noise_profile": "analysis_and_ai_noise",
+    "candidates": [
+      {
+        "id": "data_dev_intern",
+        "title": "数据开发实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/data_dev_intern",
+        "jd_text": "建设 SQL、Spark、Kafka、Airflow 数据任务和质量校验。",
+        "grade": 4,
+        "label": "最匹配：数据开发 + 实习。"
+      },
+      {
+        "id": "data_pipeline_intern",
+        "title": "数据平台实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/data_pipeline_intern",
+        "jd_text": "维护数仓、调度任务和数据血缘。",
+        "grade": 3,
+        "label": "强匹配：数据平台实习。"
+      },
+      {
+        "id": "data_engineer_fulltime",
+        "title": "数据开发工程师",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/data_engineer_fulltime",
+        "jd_text": "负责离线数仓和实时链路。",
+        "grade": 2,
+        "label": "方向匹配但非实习。"
+      },
+      {
+        "id": "data_analysis_intern",
+        "title": "数据分析实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/data_analysis_intern",
+        "jd_text": "制作报表、分析指标和用户画像。",
+        "grade": 1,
+        "label": "数据相关但偏分析。"
+      },
+      {
+        "id": "backend_dev_intern_data",
+        "title": "后端开发实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/backend_dev_intern_data",
+        "jd_text": "开发业务接口和数据库模型。",
+        "grade": 1,
+        "label": "开发实习但非数据链路。"
+      },
+      {
+        "id": "ai_agent_intern_data",
+        "title": "Agent开发实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/ai_agent_intern_data",
+        "jd_text": "开发 Agent 和 RAG。",
+        "grade": 0,
+        "label": "Agent 噪声。"
+      },
+      {
+        "id": "data_ops",
+        "title": "数据运营实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/data_ops",
+        "jd_text": "维护活动数据和 Excel 报表。",
+        "grade": 0,
+        "label": "运营噪声。"
+      },
+      {
+        "id": "bi_product",
+        "title": "BI产品经理",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/bi_product",
+        "jd_text": "负责 BI 产品需求。",
+        "grade": 0,
+        "label": "产品噪声。"
+      },
+      {
+        "id": "generic_ai_sales_intern",
+        "title": "AI解决方案销售实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/generic_ai_sales_intern",
+        "jd_text": "负责客户线索跟进、方案演示和销售支持，了解 AI 产品即可。",
+        "grade": 0,
+        "label": "销售岗位，虽有实习和 AI，但不符合技术岗位意图。"
+      },
+      {
+        "id": "campus_activity_ai",
+        "title": "AI社群运营实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/campus_activity_ai",
+        "jd_text": "运营开发者社群、整理活动物料和用户反馈，不参与工程开发。",
+        "grade": 0,
+        "label": "运营岗位，容易被实习信号干扰。"
+      }
+    ]
+  },
+  {
+    "name": "agent_engineer_fulltime_cn",
+    "query": "Agent 工程师",
+    "intent": "agent_engineer",
+    "difficulty": "medium",
+    "noise_profile": "intern_and_product_noise",
+    "candidates": [
+      {
+        "id": "agent_engineer",
+        "title": "Agent工程师",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/agent_engineer",
+        "jd_text": "负责 Agent 编排、工具调用、RAG 和生产稳定性。",
+        "grade": 4,
+        "label": "最匹配：Agent 工程师。"
+      },
+      {
+        "id": "ai_agent_backend",
+        "title": "AI Agent后端工程师",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/ai_agent_backend",
+        "jd_text": "建设 Agent 服务、任务队列和检索链路。",
+        "grade": 3,
+        "label": "强匹配：Agent 后端工程。"
+      },
+      {
+        "id": "agent_intern_full_query",
+        "title": "Agent开发实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/agent_intern_full_query",
+        "jd_text": "参与 Agent 模块开发。",
+        "grade": 2,
+        "label": "相关但 query 没要求实习，资深度不完全匹配。"
+      },
+      {
+        "id": "llm_app_engineer",
+        "title": "大模型应用工程师",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/llm_app_engineer",
+        "jd_text": "开发 LLM 应用和 prompt 工具。",
+        "grade": 2,
+        "label": "LLM 应用相关但 Agent 不强。"
+      },
+      {
+        "id": "agent_product_full_query",
+        "title": "Agent产品经理",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "产品",
+        "apply_url": "https://example.com/jobs/agent_product_full_query",
+        "jd_text": "负责 Agent 产品规划。",
+        "grade": 1,
+        "label": "Agent 相关但偏产品。"
+      },
+      {
+        "id": "backend_engineer_agent_query",
+        "title": "后端工程师",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/backend_engineer_agent_query",
+        "jd_text": "负责服务端接口和数据库。",
+        "grade": 1,
+        "label": "工程相关但缺 Agent。"
+      },
+      {
+        "id": "ai_sales_agent_query",
+        "title": "AI Agent售前顾问",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/ai_sales_agent_query",
+        "jd_text": "面向客户做方案售前。",
+        "grade": 0,
+        "label": "售前商务噪声。"
+      },
+      {
+        "id": "prompt_ops_agent_query",
+        "title": "Prompt运营",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/prompt_ops_agent_query",
+        "jd_text": "维护提示词模板和内容审核。",
+        "grade": 0,
+        "label": "运营噪声。"
+      },
+      {
+        "id": "generic_ai_sales_intern",
+        "title": "AI解决方案销售实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/generic_ai_sales_intern",
+        "jd_text": "负责客户线索跟进、方案演示和销售支持，了解 AI 产品即可。",
+        "grade": 0,
+        "label": "销售岗位，虽有实习和 AI，但不符合技术岗位意图。"
+      },
+      {
+        "id": "campus_activity_ai",
+        "title": "AI社群运营实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/campus_activity_ai",
+        "jd_text": "运营开发者社群、整理活动物料和用户反馈，不参与工程开发。",
+        "grade": 0,
+        "label": "运营岗位，容易被实习信号干扰。"
+      }
+    ]
+  },
+  {
+    "name": "agent_product_manager_cn",
+    "query": "AI产品经理 Agent方向",
+    "intent": "agent_product_manager",
+    "difficulty": "hard",
+    "noise_profile": "engineering_overmatch_noise",
+    "candidates": [
+      {
+        "id": "agent_pm",
+        "title": "AI Agent产品经理",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "产品",
+        "apply_url": "https://example.com/jobs/agent_pm",
+        "jd_text": "负责 Agent 产品路线、需求优先级、指标设计和上线复盘。",
+        "grade": 4,
+        "label": "最匹配：AI Agent 产品经理。"
+      },
+      {
+        "id": "llm_pm",
+        "title": "大模型产品经理",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "产品",
+        "apply_url": "https://example.com/jobs/llm_pm",
+        "jd_text": "负责大模型应用产品规划和用户研究。",
+        "grade": 3,
+        "label": "强匹配：大模型产品。"
+      },
+      {
+        "id": "agent_product_intern_pm",
+        "title": "AI Agent产品实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/agent_product_intern_pm",
+        "jd_text": "协助 Agent 产品调研和需求分析。",
+        "grade": 2,
+        "label": "方向匹配但级别偏实习。"
+      },
+      {
+        "id": "agent_engineer_pm_query",
+        "title": "Agent工程师",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/agent_engineer_pm_query",
+        "jd_text": "开发 Agent 工作流和 RAG 服务。",
+        "grade": 1,
+        "label": "Agent 相关但偏工程。"
+      },
+      {
+        "id": "ai_project_manager",
+        "title": "AI项目经理",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/ai_project_manager",
+        "jd_text": "负责交付计划和客户沟通。",
+        "grade": 1,
+        "label": "管理相关但非产品。"
+      },
+      {
+        "id": "consumer_pm_agent_query",
+        "title": "内容产品经理",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "产品",
+        "apply_url": "https://example.com/jobs/consumer_pm_agent_query",
+        "jd_text": "负责内容产品体验和增长。",
+        "grade": 1,
+        "label": "产品相关但非 AI Agent。"
+      },
+      {
+        "id": "ai_sales_pm_query",
+        "title": "AI销售经理",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/ai_sales_pm_query",
+        "jd_text": "负责销售目标和客户拓展。",
+        "grade": 0,
+        "label": "销售噪声。"
+      },
+      {
+        "id": "frontend_pm_query",
+        "title": "前端开发工程师",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/frontend_pm_query",
+        "jd_text": "开发 Web 页面。",
+        "grade": 0,
+        "label": "工程噪声。"
+      },
+      {
+        "id": "generic_ai_sales_intern",
+        "title": "AI解决方案销售实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/generic_ai_sales_intern",
+        "jd_text": "负责客户线索跟进、方案演示和销售支持，了解 AI 产品即可。",
+        "grade": 0,
+        "label": "销售岗位，虽有实习和 AI，但不符合技术岗位意图。"
+      },
+      {
+        "id": "campus_activity_ai",
+        "title": "AI社群运营实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/campus_activity_ai",
+        "jd_text": "运营开发者社群、整理活动物料和用户反馈，不参与工程开发。",
+        "grade": 0,
+        "label": "运营岗位，容易被实习信号干扰。"
+      }
+    ]
+  },
+  {
+    "name": "prompt_engineering_intern_cn",
+    "query": "Prompt 工程实习生",
+    "intent": "prompt_engineering_intern",
+    "difficulty": "medium",
+    "noise_profile": "ops_and_generic_llm_noise",
+    "candidates": [
+      {
+        "id": "prompt_engineering_intern",
+        "title": "Prompt工程实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/prompt_engineering_intern",
+        "jd_text": "设计提示词工程、结构化输出、A/B 测试和 prompt regression。",
+        "grade": 4,
+        "label": "最匹配：Prompt 工程 + 实习。"
+      },
+      {
+        "id": "llm_prompt_intern",
+        "title": "大模型提示词实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/llm_prompt_intern",
+        "jd_text": "维护提示词模板、评测集和输出格式约束。",
+        "grade": 3,
+        "label": "强匹配：中文提示词同义。"
+      },
+      {
+        "id": "llm_app_intern_prompt",
+        "title": "大模型应用开发实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/llm_app_intern_prompt",
+        "jd_text": "开发 LLM 应用和工具调用。",
+        "grade": 2,
+        "label": "相关但 Prompt 不是主职责。"
+      },
+      {
+        "id": "prompt_ops",
+        "title": "Prompt运营实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/prompt_ops",
+        "jd_text": "整理模板、运营内容和用户反馈。",
+        "grade": 1,
+        "label": "Prompt 相关但偏运营。"
+      },
+      {
+        "id": "agent_dev_intern_prompt",
+        "title": "Agent开发实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/agent_dev_intern_prompt",
+        "jd_text": "开发 Agent workflow。",
+        "grade": 1,
+        "label": "LLM 相邻但非 Prompt 工程。"
+      },
+      {
+        "id": "copywriting_intern",
+        "title": "文案实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/copywriting_intern",
+        "jd_text": "撰写营销文案和活动推文。",
+        "grade": 0,
+        "label": "文案噪声。"
+      },
+      {
+        "id": "ai_sales_prompt",
+        "title": "AI销售实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/ai_sales_prompt",
+        "jd_text": "跟进客户需求和售前材料。",
+        "grade": 0,
+        "label": "销售噪声。"
+      },
+      {
+        "id": "backend_prompt",
+        "title": "后端开发工程师",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "全职",
+        "apply_url": "https://example.com/jobs/backend_prompt",
+        "jd_text": "开发服务端接口。",
+        "grade": 0,
+        "label": "工程噪声。"
+      },
+      {
+        "id": "generic_ai_sales_intern",
+        "title": "AI解决方案销售实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/generic_ai_sales_intern",
+        "jd_text": "负责客户线索跟进、方案演示和销售支持，了解 AI 产品即可。",
+        "grade": 0,
+        "label": "销售岗位，虽有实习和 AI，但不符合技术岗位意图。"
+      },
+      {
+        "id": "campus_activity_ai",
+        "title": "AI社群运营实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/campus_activity_ai",
+        "jd_text": "运营开发者社群、整理活动物料和用户反馈，不参与工程开发。",
+        "grade": 0,
+        "label": "运营岗位，容易被实习信号干扰。"
+      }
+    ]
+  },
+  {
+    "name": "agent_development_intern_en_aux",
+    "query": "Agent Development Intern",
+    "intent": "english_aux_agent_dev_intern",
+    "difficulty": "medium",
+    "noise_profile": "english_sales_noise",
+    "candidates": [
+      {
+        "id": "agent_development_intern_en",
+        "title": "Agent Development Intern",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "Internship",
+        "apply_url": "https://example.com/jobs/agent_development_intern_en",
+        "jd_text": "Build AI Agent workflows, RAG services and FastAPI APIs.",
+        "grade": 4,
+        "label": "最匹配英文辅助样例。"
+      },
+      {
+        "id": "agent_eval_intern_en",
+        "title": "Agent Evaluation Intern",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "Internship",
+        "apply_url": "https://example.com/jobs/agent_eval_intern_en",
+        "jd_text": "Evaluate Agent traces, guardrails and benchmark quality.",
+        "grade": 3,
+        "label": "强匹配英文辅助样例。"
+      },
+      {
+        "id": "ai_agent_engineer_en",
+        "title": "AI Agent Engineer",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "Full-time",
+        "apply_url": "https://example.com/jobs/ai_agent_engineer_en",
+        "jd_text": "Build Agent orchestration and tool calling systems.",
+        "grade": 2,
+        "label": "相关但非实习。"
+      },
+      {
+        "id": "agent_product_intern_en",
+        "title": "Agent Product Intern",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "Internship",
+        "apply_url": "https://example.com/jobs/agent_product_intern_en",
+        "jd_text": "Research product requirements and user feedback.",
+        "grade": 1,
+        "label": "Agent 实习但偏产品。"
+      },
+      {
+        "id": "account_exec_ai_en",
+        "title": "Account Executive, AI Agents",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "Full-time",
+        "apply_url": "https://example.com/jobs/account_exec_ai_en",
+        "jd_text": "Sell AI Agent products to enterprise customers.",
+        "grade": 0,
+        "label": "英文销售噪声。"
+      },
+      {
+        "id": "customer_success_ai_en",
+        "title": "Customer Success Intern",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "Internship",
+        "apply_url": "https://example.com/jobs/customer_success_ai_en",
+        "jd_text": "Support AI customers and renewals.",
+        "grade": 0,
+        "label": "客户成功噪声。"
+      },
+      {
+        "id": "internal_tools_en",
+        "title": "Internal Tools Engineer",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "Full-time",
+        "apply_url": "https://example.com/jobs/internal_tools_en",
+        "jd_text": "Build internal productivity tools.",
+        "grade": 0,
+        "label": "internal 边界噪声。"
+      },
+      {
+        "id": "backend_intern_en",
+        "title": "Backend Engineering Intern",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "Internship",
+        "apply_url": "https://example.com/jobs/backend_intern_en",
+        "jd_text": "Build APIs and databases.",
+        "grade": 1,
+        "label": "工程实习但缺 Agent。"
+      },
+      {
+        "id": "generic_ai_sales_intern",
+        "title": "AI解决方案销售实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/generic_ai_sales_intern",
+        "jd_text": "负责客户线索跟进、方案演示和销售支持，了解 AI 产品即可。",
+        "grade": 0,
+        "label": "销售岗位，虽有实习和 AI，但不符合技术岗位意图。"
+      },
+      {
+        "id": "campus_activity_ai",
+        "title": "AI社群运营实习生",
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": "实习",
+        "apply_url": "https://example.com/jobs/campus_activity_ai",
+        "jd_text": "运营开发者社群、整理活动物料和用户反馈，不参与工程开发。",
+        "grade": 0,
+        "label": "运营岗位，容易被实习信号干扰。"
+      }
+    ]
+  }
+]

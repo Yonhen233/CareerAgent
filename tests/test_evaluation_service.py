@@ -71,6 +71,24 @@ def test_jd_parser_evaluation_covers_noisy_realistic_cases(db_session):
     assert {"easy", "medium", "hard", "adversarial"} <= set(run.summary_json["difficulty_breakdown"])
 
 
+def test_job_relevance_evaluation_quantifies_chinese_ranking_quality(db_session):
+    run = EvaluationService().run_job_relevance_evaluation(db_session)
+
+    assert run.summary_json["evaluation_type"] == "job_relevance_ranking"
+    assert run.summary_json["case_count"] >= 12
+    assert run.summary_json["candidate_count"] >= 120
+    assert run.summary_json["pass_rate"] >= 0.9
+    assert run.summary_json["top1_accuracy"] >= 0.9
+    assert run.summary_json["avg_top3_recall"] >= 0.9
+    assert run.summary_json["avg_mrr"] >= 0.9
+    assert run.summary_json["avg_ndcg_at_5"] >= 0.9
+    assert run.summary_json["low_grade_above_strong_count"] == 0
+    assert "agent_dev_intern" in run.summary_json["intent_breakdown"]
+    assert any("实习" in item["query"] for item in run.case_results_json)
+    assert all(item["ranked_jobs"][0]["grade"] >= 3 for item in run.case_results_json)
+    assert run.case_results_json[0]["ranked_jobs"][0]["reasons"]
+
+
 def test_jd_parser_aliases_preferred_and_negative_context():
     from app.services.jd_parser import JDParserService
 

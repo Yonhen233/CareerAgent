@@ -1,0 +1,287 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+
+def candidate(uid: str, title: str, job_type: str, jd: str, grade: int, label: str) -> dict:
+    return {
+        "id": uid,
+        "title": title,
+        "company": "评测样例公司",
+        "location": "深圳",
+        "job_type": job_type,
+        "apply_url": f"https://example.com/jobs/{uid}",
+        "jd_text": jd,
+        "grade": grade,
+        "label": label,
+    }
+
+
+COMMON_NOISE = [
+    candidate(
+        "generic_ai_sales_intern",
+        "AI解决方案销售实习生",
+        "实习",
+        "负责客户线索跟进、方案演示和销售支持，了解 AI 产品即可。",
+        0,
+        "销售岗位，虽有实习和 AI，但不符合技术岗位意图。",
+    ),
+    candidate(
+        "campus_activity_ai",
+        "AI社群运营实习生",
+        "实习",
+        "运营开发者社群、整理活动物料和用户反馈，不参与工程开发。",
+        0,
+        "运营岗位，容易被实习信号干扰。",
+    ),
+]
+
+
+def cases() -> list[dict]:
+    return [
+        {
+            "name": "agent_dev_intern_cn",
+            "query": "Agent 开发实习生",
+            "intent": "agent_dev_intern",
+            "difficulty": "medium",
+            "noise_profile": "product_and_sales_noise",
+            "candidates": [
+                candidate("agent_dev_intern", "AI Agent开发实习生", "实习", "参与 Agent 工作流、RAG 检索和 FastAPI 服务开发。", 4, "最匹配：Agent + 开发 + 实习。"),
+                candidate("agent_eval_intern", "Agent Evaluation Intern", "Internship", "Build Agent eval pipeline, prompt regression and trace dashboards.", 3, "强匹配：英文标题但岗位仍是 Agent 实习。"),
+                candidate("agent_platform_engineer", "Agent平台开发工程师", "全职", "负责 Agent 平台、工具调用和 RAG 服务稳定性。", 2, "技能匹配但不是实习。"),
+                candidate("agent_product_pm", "QQ-Agent产品经理", "产品", "负责 Agent 产品规划、需求分析和版本节奏。", 1, "相关但偏产品。"),
+                candidate("game_agent_planner", "游戏研发 Agent 产品策划", "产品", "负责游戏研发 Agent 的玩法策划和需求文档。", 1, "标题含研发但实际偏策划。"),
+                candidate("backend_intern", "后端开发实习生", "实习", "使用 FastAPI 和 SQL 开发业务接口。", 1, "开发实习但缺 Agent。"),
+                candidate("internal_tools_engineer", "Internal Tools Engineer", "全职", "Build internal tools for engineering productivity.", 0, "internal 不应被 intern 误判。"),
+                candidate("ai_sales_intern", "AI Agent Sales Intern", "Internship", "Support sales pipeline for AI Agent enterprise customers.", 0, "有 Agent 和 Intern，但本质销售。"),
+                *COMMON_NOISE,
+            ],
+        },
+        {
+            "name": "agent_campus_dev_cn",
+            "query": "大模型智能体开发校招",
+            "intent": "agent_dev_campus",
+            "difficulty": "medium",
+            "noise_profile": "fulltime_and_product_noise",
+            "candidates": [
+                candidate("llm_agent_campus", "大模型智能体开发校招", "校招", "参与大模型智能体应用、工具调用和检索增强生成开发。", 4, "最匹配：大模型 + 智能体 + 开发 + 校招。"),
+                candidate("agent_backend_campus", "AI Agent后端开发校招生", "校招", "负责 Agent 服务端、任务编排和 SQLite/RAG 数据链路。", 3, "强匹配：Agent 工程校招。"),
+                candidate("llm_algorithm_engineer", "大模型算法工程师", "全职", "负责训练、推理优化和模型评测。", 2, "大模型相关但不是校招智能体开发。"),
+                candidate("agent_product_campus", "智能体产品校招", "校招", "负责智能体产品调研和需求设计。", 1, "校招和智能体相关但偏产品。"),
+                candidate("backend_campus", "后端开发校招", "校招", "负责业务服务和接口开发。", 1, "开发校招但缺大模型/智能体。"),
+                candidate("llm_content_ops", "大模型内容运营", "实习", "维护内容库和用户反馈，不参与模型或工程开发。", 0, "运营噪声。"),
+                candidate("ai_sales_campus", "AI行业销售校招", "校招", "面向企业客户做销售拓展。", 0, "销售噪声。"),
+                candidate("agent_visual_designer", "Agent视觉设计师", "全职", "负责视觉体验和品牌素材。", 0, "设计噪声。"),
+                *COMMON_NOISE,
+            ],
+        },
+        {
+            "name": "rag_platform_intern_cn",
+            "query": "RAG 平台开发实习生",
+            "intent": "rag_platform_intern",
+            "difficulty": "hard",
+            "noise_profile": "semantic_neighbor_noise",
+            "candidates": [
+                candidate("rag_platform_intern", "RAG平台开发实习生", "实习", "建设向量检索、PDF Chunk、reranker 和 FastAPI 平台能力。", 4, "最匹配：RAG + 平台开发 + 实习。"),
+                candidate("retrieval_engineer_intern", "检索增强生成工程实习生", "实习", "优化 embedding、召回排序和评测指标。", 3, "强匹配：中文 RAG 同义表达。"),
+                candidate("vector_db_engineer", "向量数据库开发工程师", "全职", "负责向量索引、召回性能和混合检索。", 2, "相关但不是实习。"),
+                candidate("backend_fastapi_intern", "FastAPI后端实习生", "实习", "开发 REST API 和 SQLite 数据模型。", 1, "平台技术相邻但缺 RAG。"),
+                candidate("llm_prompt_intern", "提示词工程实习生", "实习", "设计 prompt 模板和输出格式。", 1, "LLM 相邻但不是 RAG 平台。"),
+                candidate("rag_pm", "RAG产品经理", "产品", "负责知识库产品需求和用户调研。", 1, "RAG 相关但偏产品。"),
+                candidate("search_ads_ops", "搜索广告运营", "实习", "维护广告词和投放策略。", 0, "搜索词噪声。"),
+                candidate("data_entry_intern", "数据录入实习生", "实习", "整理 Excel 和文档。", 0, "实习但低相关。"),
+                *COMMON_NOISE,
+            ],
+        },
+        {
+            "name": "agent_product_intern_cn",
+            "query": "AI Agent 产品实习生",
+            "intent": "agent_product_intern",
+            "difficulty": "hard",
+            "noise_profile": "engineering_overmatch_noise",
+            "candidates": [
+                candidate("agent_product_intern", "AI Agent产品实习生", "实习", "负责 Agent 产品需求、竞品分析、用户反馈和数据指标。", 4, "最匹配：Agent + 产品 + 实习。"),
+                candidate("agent_pm_campus", "智能体产品经理校招", "校招", "规划智能体助手能力，跟进需求和上线指标。", 3, "强匹配：产品校招，略非实习。"),
+                candidate("ai_product_intern", "AI产品实习生", "实习", "负责 AI 应用需求分析和用户调研。", 2, "产品实习但缺 Agent。"),
+                candidate("agent_dev_intern_product_query", "AI Agent开发实习生", "实习", "参与 Agent 后端和 RAG 服务开发。", 1, "Agent 实习但偏工程，不应压过产品。"),
+                candidate("llm_eval_intern_product_query", "LLM评测实习生", "实习", "建设模型评测和 benchmark。", 1, "LLM 相邻但不是产品。"),
+                candidate("consumer_pm", "内容产品经理", "全职", "负责内容分发产品规划。", 1, "产品相关但非 AI Agent。"),
+                candidate("ai_sales_product_query", "AI客户成功实习生", "实习", "跟进客户部署和续费。", 0, "商务噪声。"),
+                candidate("frontend_intern_product_query", "前端开发实习生", "实习", "开发 Web UI。", 0, "实习但技术方向错误。"),
+                *COMMON_NOISE,
+            ],
+        },
+        {
+            "name": "recommendation_algorithm_intern_cn",
+            "query": "推荐算法实习生",
+            "intent": "recommendation_algorithm_intern",
+            "difficulty": "medium",
+            "noise_profile": "agent_and_data_noise",
+            "candidates": [
+                candidate("rec_algo_intern", "推荐算法实习生", "实习", "负责召回排序、CTR 预估、A/B 实验和 PyTorch 模型训练。", 4, "最匹配：推荐算法 + 实习。"),
+                candidate("ranking_model_intern", "排序模型实习生", "实习", "优化推荐排序模型、特征工程和离线评估。", 3, "强匹配：推荐排序同义方向。"),
+                candidate("rec_engineer_fulltime", "推荐算法工程师", "全职", "负责推荐系统召回、粗排和精排。", 2, "方向匹配但不是实习。"),
+                candidate("data_dev_intern_rec", "数据开发实习生", "实习", "建设 Spark、Kafka 和 SQL 任务。", 1, "数据相邻但不是算法。"),
+                candidate("agent_dev_intern_rec", "Agent开发实习生", "实习", "负责 Agent 工作流和 RAG 服务。", 0, "Agent 实习但完全不是推荐算法。"),
+                candidate("product_analytics_intern", "产品分析实习生", "实习", "分析用户行为和转化漏斗。", 1, "分析相邻但缺算法。"),
+                candidate("search_ops", "搜索运营实习生", "实习", "维护搜索词和运营策略。", 0, "运营噪声。"),
+                candidate("mlops_engineer_rec", "MLOps工程师", "全职", "负责模型部署和监控。", 1, "ML 平台相邻但不做推荐算法。"),
+                *COMMON_NOISE,
+            ],
+        },
+        {
+            "name": "backend_fastapi_intern_cn",
+            "query": "后端开发实习生 FastAPI",
+            "intent": "backend_intern",
+            "difficulty": "easy",
+            "noise_profile": "ai_keyword_noise",
+            "candidates": [
+                candidate("fastapi_backend_intern", "FastAPI后端开发实习生", "实习", "负责 Python、FastAPI、SQLAlchemy 和 SQLite 接口开发。", 4, "最匹配：后端 + FastAPI + 实习。"),
+                candidate("python_backend_intern", "Python后端实习生", "实习", "开发 API、数据库模型和异步任务。", 3, "强匹配：Python 后端实习。"),
+                candidate("backend_engineer_fulltime", "后端开发工程师", "全职", "负责高并发服务、数据库和缓存。", 2, "技术匹配但不是实习。"),
+                candidate("agent_dev_intern_backend", "Agent开发实习生", "实习", "开发 Agent workflow 和 RAG。", 1, "实习开发但不是后端 FastAPI 主方向。"),
+                candidate("frontend_intern_backend", "前端开发实习生", "实习", "负责 React 页面。", 0, "同为开发实习但方向错误。"),
+                candidate("data_dev_intern_backend", "数据开发实习生", "实习", "负责 Spark 和数仓任务。", 1, "开发实习但非后端。"),
+                candidate("api_doc_ops", "接口文档运营实习生", "实习", "整理 API 文档和客户问题。", 0, "接口词噪声。"),
+                candidate("fastapi_course_tutor", "Python课程助教", "兼职", "辅导 FastAPI 课程作业。", 0, "课程噪声。"),
+                *COMMON_NOISE,
+            ],
+        },
+        {
+            "name": "llm_eval_intern_cn",
+            "query": "LLM 评测实习生",
+            "intent": "llm_eval_intern",
+            "difficulty": "medium",
+            "noise_profile": "llm_dev_and_ops_noise",
+            "candidates": [
+                candidate("llm_eval_intern", "LLM评测实习生", "实习", "建设 benchmark、模型质量评估、prompt regression 和 trace 分析。", 4, "最匹配：LLM + 评测 + 实习。"),
+                candidate("model_eval_intern", "大模型评估实习生", "实习", "负责模型安全、指令遵循和自动化评测。", 3, "强匹配：中文评估同义。"),
+                candidate("agent_eval_intern_llm", "Agent Evaluation Intern", "Internship", "Evaluate Agent workflows and guardrail failures.", 3, "英文辅助强匹配。"),
+                candidate("llm_dev_intern_eval", "大模型应用开发实习生", "实习", "开发 LLM 应用和工具调用。", 1, "LLM 实习但不是评测。"),
+                candidate("qa_intern_eval", "软件测试实习生", "实习", "执行功能测试和缺陷回归。", 1, "测试相邻但不是 LLM 评测。"),
+                candidate("llm_ops_eval", "大模型运营实习生", "实习", "整理用户反馈和内容标注。", 0, "运营噪声。"),
+                candidate("data_label_eval", "数据标注实习生", "实习", "标注文本分类数据。", 0, "标注噪声。"),
+                candidate("backend_eval", "后端开发工程师", "全职", "开发服务接口。", 0, "工程泛噪声。"),
+                *COMMON_NOISE,
+            ],
+        },
+        {
+            "name": "llm_security_intern_cn",
+            "query": "大模型安全实习生",
+            "intent": "llm_security_intern",
+            "difficulty": "hard",
+            "noise_profile": "safety_policy_and_ops_noise",
+            "candidates": [
+                candidate("llm_security_intern", "大模型安全实习生", "实习", "评估提示词注入、越权工具调用、安全护栏和红队样例。", 4, "最匹配：大模型 + 安全 + 实习。"),
+                candidate("prompt_security_intern", "Prompt Security Intern", "Internship", "Build prompt injection tests and LLM guardrails.", 3, "英文辅助强匹配。"),
+                candidate("ai_safety_eval", "AI安全评测工程师", "全职", "负责模型安全评测和风险 trace。", 2, "方向匹配但非实习。"),
+                candidate("security_backend", "后端安全工程师", "全职", "负责 Web 安全和漏洞修复。", 1, "安全相关但非大模型。"),
+                candidate("llm_eval_intern_security", "LLM评测实习生", "实习", "评估模型质量和 benchmark。", 1, "LLM 评测相邻但安全不足。"),
+                candidate("policy_ops", "内容安全运营实习生", "实习", "处理内容审核策略和申诉。", 0, "运营安全噪声。"),
+                candidate("data_security_sales", "数据安全销售", "全职", "负责企业客户拓展。", 0, "销售噪声。"),
+                candidate("frontend_security", "前端开发实习生", "实习", "负责 Web 页面开发。", 0, "实习噪声。"),
+                *COMMON_NOISE,
+            ],
+        },
+        {
+            "name": "data_engineering_intern_cn",
+            "query": "数据开发实习生",
+            "intent": "data_engineering_intern",
+            "difficulty": "easy",
+            "noise_profile": "analysis_and_ai_noise",
+            "candidates": [
+                candidate("data_dev_intern", "数据开发实习生", "实习", "建设 SQL、Spark、Kafka、Airflow 数据任务和质量校验。", 4, "最匹配：数据开发 + 实习。"),
+                candidate("data_pipeline_intern", "数据平台实习生", "实习", "维护数仓、调度任务和数据血缘。", 3, "强匹配：数据平台实习。"),
+                candidate("data_engineer_fulltime", "数据开发工程师", "全职", "负责离线数仓和实时链路。", 2, "方向匹配但非实习。"),
+                candidate("data_analysis_intern", "数据分析实习生", "实习", "制作报表、分析指标和用户画像。", 1, "数据相关但偏分析。"),
+                candidate("backend_dev_intern_data", "后端开发实习生", "实习", "开发业务接口和数据库模型。", 1, "开发实习但非数据链路。"),
+                candidate("ai_agent_intern_data", "Agent开发实习生", "实习", "开发 Agent 和 RAG。", 0, "Agent 噪声。"),
+                candidate("data_ops", "数据运营实习生", "实习", "维护活动数据和 Excel 报表。", 0, "运营噪声。"),
+                candidate("bi_product", "BI产品经理", "全职", "负责 BI 产品需求。", 0, "产品噪声。"),
+                *COMMON_NOISE,
+            ],
+        },
+        {
+            "name": "agent_engineer_fulltime_cn",
+            "query": "Agent 工程师",
+            "intent": "agent_engineer",
+            "difficulty": "medium",
+            "noise_profile": "intern_and_product_noise",
+            "candidates": [
+                candidate("agent_engineer", "Agent工程师", "全职", "负责 Agent 编排、工具调用、RAG 和生产稳定性。", 4, "最匹配：Agent 工程师。"),
+                candidate("ai_agent_backend", "AI Agent后端工程师", "全职", "建设 Agent 服务、任务队列和检索链路。", 3, "强匹配：Agent 后端工程。"),
+                candidate("agent_intern_full_query", "Agent开发实习生", "实习", "参与 Agent 模块开发。", 2, "相关但 query 没要求实习，资深度不完全匹配。"),
+                candidate("llm_app_engineer", "大模型应用工程师", "全职", "开发 LLM 应用和 prompt 工具。", 2, "LLM 应用相关但 Agent 不强。"),
+                candidate("agent_product_full_query", "Agent产品经理", "产品", "负责 Agent 产品规划。", 1, "Agent 相关但偏产品。"),
+                candidate("backend_engineer_agent_query", "后端工程师", "全职", "负责服务端接口和数据库。", 1, "工程相关但缺 Agent。"),
+                candidate("ai_sales_agent_query", "AI Agent售前顾问", "全职", "面向客户做方案售前。", 0, "售前商务噪声。"),
+                candidate("prompt_ops_agent_query", "Prompt运营", "实习", "维护提示词模板和内容审核。", 0, "运营噪声。"),
+                *COMMON_NOISE,
+            ],
+        },
+        {
+            "name": "agent_product_manager_cn",
+            "query": "AI产品经理 Agent方向",
+            "intent": "agent_product_manager",
+            "difficulty": "hard",
+            "noise_profile": "engineering_overmatch_noise",
+            "candidates": [
+                candidate("agent_pm", "AI Agent产品经理", "产品", "负责 Agent 产品路线、需求优先级、指标设计和上线复盘。", 4, "最匹配：AI Agent 产品经理。"),
+                candidate("llm_pm", "大模型产品经理", "产品", "负责大模型应用产品规划和用户研究。", 3, "强匹配：大模型产品。"),
+                candidate("agent_product_intern_pm", "AI Agent产品实习生", "实习", "协助 Agent 产品调研和需求分析。", 2, "方向匹配但级别偏实习。"),
+                candidate("agent_engineer_pm_query", "Agent工程师", "全职", "开发 Agent 工作流和 RAG 服务。", 1, "Agent 相关但偏工程。"),
+                candidate("ai_project_manager", "AI项目经理", "全职", "负责交付计划和客户沟通。", 1, "管理相关但非产品。"),
+                candidate("consumer_pm_agent_query", "内容产品经理", "产品", "负责内容产品体验和增长。", 1, "产品相关但非 AI Agent。"),
+                candidate("ai_sales_pm_query", "AI销售经理", "全职", "负责销售目标和客户拓展。", 0, "销售噪声。"),
+                candidate("frontend_pm_query", "前端开发工程师", "全职", "开发 Web 页面。", 0, "工程噪声。"),
+                *COMMON_NOISE,
+            ],
+        },
+        {
+            "name": "prompt_engineering_intern_cn",
+            "query": "Prompt 工程实习生",
+            "intent": "prompt_engineering_intern",
+            "difficulty": "medium",
+            "noise_profile": "ops_and_generic_llm_noise",
+            "candidates": [
+                candidate("prompt_engineering_intern", "Prompt工程实习生", "实习", "设计提示词工程、结构化输出、A/B 测试和 prompt regression。", 4, "最匹配：Prompt 工程 + 实习。"),
+                candidate("llm_prompt_intern", "大模型提示词实习生", "实习", "维护提示词模板、评测集和输出格式约束。", 3, "强匹配：中文提示词同义。"),
+                candidate("llm_app_intern_prompt", "大模型应用开发实习生", "实习", "开发 LLM 应用和工具调用。", 2, "相关但 Prompt 不是主职责。"),
+                candidate("prompt_ops", "Prompt运营实习生", "实习", "整理模板、运营内容和用户反馈。", 1, "Prompt 相关但偏运营。"),
+                candidate("agent_dev_intern_prompt", "Agent开发实习生", "实习", "开发 Agent workflow。", 1, "LLM 相邻但非 Prompt 工程。"),
+                candidate("copywriting_intern", "文案实习生", "实习", "撰写营销文案和活动推文。", 0, "文案噪声。"),
+                candidate("ai_sales_prompt", "AI销售实习生", "实习", "跟进客户需求和售前材料。", 0, "销售噪声。"),
+                candidate("backend_prompt", "后端开发工程师", "全职", "开发服务端接口。", 0, "工程噪声。"),
+                *COMMON_NOISE,
+            ],
+        },
+        {
+            "name": "agent_development_intern_en_aux",
+            "query": "Agent Development Intern",
+            "intent": "english_aux_agent_dev_intern",
+            "difficulty": "medium",
+            "noise_profile": "english_sales_noise",
+            "candidates": [
+                candidate("agent_development_intern_en", "Agent Development Intern", "Internship", "Build AI Agent workflows, RAG services and FastAPI APIs.", 4, "最匹配英文辅助样例。"),
+                candidate("agent_eval_intern_en", "Agent Evaluation Intern", "Internship", "Evaluate Agent traces, guardrails and benchmark quality.", 3, "强匹配英文辅助样例。"),
+                candidate("ai_agent_engineer_en", "AI Agent Engineer", "Full-time", "Build Agent orchestration and tool calling systems.", 2, "相关但非实习。"),
+                candidate("agent_product_intern_en", "Agent Product Intern", "Internship", "Research product requirements and user feedback.", 1, "Agent 实习但偏产品。"),
+                candidate("account_exec_ai_en", "Account Executive, AI Agents", "Full-time", "Sell AI Agent products to enterprise customers.", 0, "英文销售噪声。"),
+                candidate("customer_success_ai_en", "Customer Success Intern", "Internship", "Support AI customers and renewals.", 0, "客户成功噪声。"),
+                candidate("internal_tools_en", "Internal Tools Engineer", "Full-time", "Build internal productivity tools.", 0, "internal 边界噪声。"),
+                candidate("backend_intern_en", "Backend Engineering Intern", "Internship", "Build APIs and databases.", 1, "工程实习但缺 Agent。"),
+                *COMMON_NOISE,
+            ],
+        },
+    ]
+
+
+def main() -> None:
+    output = Path("evals/job_relevance_cases.json")
+    output.write_text(json.dumps(cases(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"wrote {output}")
+
+
+if __name__ == "__main__":
+    main()
