@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 from app.core.config import get_settings
+from app.services.job_relevance import is_query_relevant_posting, rank_postings_for_query, source_posting_haystack
 
 
 @dataclass
@@ -37,7 +38,7 @@ class TencentCareersSource(JobSource):
         headers = {"User-Agent": settings.user_agent}
         params = {
             "pageIndex": 1,
-            "pageSize": min(max(limit, 1), 50),
+            "pageSize": min(max(limit * 3, 20), 50),
             "keyword": query,
             "language": "zh-cn",
             "area": "cn",
@@ -48,7 +49,7 @@ class TencentCareersSource(JobSource):
         data = response.json()
         posts = data.get("Data", {}).get("Posts", []) if isinstance(data, dict) else []
         results: list[JobPosting] = []
-        for post in posts[:limit]:
+        for post in posts:
             title = str(post.get("RecruitPostName") or post.get("PostName") or "").strip()
             if not title:
                 continue
@@ -74,7 +75,7 @@ class TencentCareersSource(JobSource):
                     payload=post,
                 )
             )
-        return results
+        return rank_postings_for_query(results, query)[:limit]
 
 
 class LeverCareersSource(JobSource):
@@ -104,22 +105,15 @@ class LeverCareersSource(JobSource):
                     continue
                 for row in rows:
                     posting = self._map_row(slug, row)
-                    haystack = " ".join(
-                        [
-                            posting.title,
-                            posting.raw_jd_text,
-                            posting.location or "",
-                            posting.job_type or "",
-                        ]
-                    ).lower()
-                    if query_tokens and not any(token in haystack for token in query_tokens):
+                    if query_tokens and not is_query_relevant_posting(posting, query):
                         continue
+                    haystack = source_posting_haystack(posting)
                     if location and location.lower() not in haystack:
                         continue
                     postings.append(posting)
                     if len(postings) >= per_company_limit * len(self.company_slugs):
                         break
-        return postings[:limit]
+        return rank_postings_for_query(postings, query)[:limit]
 
     def _map_row(self, slug: str, row: dict[str, Any]) -> JobPosting:
         categories = row.get("categories") or {}
@@ -155,7 +149,8 @@ class JobSourceRegistry:
         self.sources: dict[str, JobSource] = {}
         if settings.tencent_careers_enabled:
             self.sources[TencentCareersSource.name] = TencentCareersSource()
-        self.sources[LeverCareersSource.name] = LeverCareersSource()
+        if settings.lever_careers_enabled:
+            self.sources[LeverCareersSource.name] = LeverCareersSource()
 
     def select(self, names: list[str] | None = None) -> list[JobSource]:
         if not names:

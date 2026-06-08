@@ -198,7 +198,7 @@ function bindForms() {
       location: raw.location || null,
       limit: Number(raw.limit || 20),
       internship_only: event.currentTarget.internship_only.checked,
-      sources: ["tencent", "lever"],
+      sources: ["tencent"],
       store_results: true,
     };
     const body = await api("/jobs/search", { method: "POST", body: JSON.stringify(payload) });

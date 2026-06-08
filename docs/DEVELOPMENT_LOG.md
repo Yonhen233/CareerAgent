@@ -1,5 +1,42 @@
 # 开发日志
 
+## 2026-06-08 12:48 +08:00：增加中文岗位相关性排序并收敛默认岗位源
+
+### 这次做了什么
+- 新增 `app/services/job_relevance.py`，把岗位 source 层的中文相关性判断独立成可复用模块。
+- 排序规则显式提升 Agent/LLM/RAG、开发/工程、实习/校招信号，降低产品、销售、商务等与“Agent 开发实习生”意图不匹配的岗位。
+- 腾讯 source 从 `limit` 扩大到最多 `limit * 3` 的候选池后再排序截断，避免原始搜索顺序过早截断高质量岗位。
+- `JobSearchService` 在多 source 并发返回、去重之后再次执行统一排序，保证 API 搜索和 source smoke 使用同一套排序逻辑。
+- `real-job-source-smoke` 的 `sample_jobs` 新增 `relevance_score` 和 `relevance_reasons`，summary 新增 `avg_relevance_score` 和 `avg_top_relevance_score`。
+- 将默认岗位源收敛为 `["tencent"]`；Lever 这类海外 ATS source 默认关闭，仅作为显式开启的英文辅助源。
+- 更新 README、API 文档、架构文档、评测文档和开发文档，说明中文主场景、排序 trace 和默认 source 边界。
+- 新增 `tests/test_job_relevance.py`，覆盖中文 Agent 实习开发岗位排序、产品/销售降权和 `internal tools` 不被误判为 `intern`。
+
+### 发现了什么问题
+- 真实腾讯 query `Agent 开发实习生` 会返回 Agent 实习岗、开发工程岗、产品经理和策划类岗位的混合结果；只看关键词命中会把产品/策划岗位排得过高。
+- 原先默认 `sources=["tencent", "lever"]` 不符合中文主场景；Lever 与 Greenhouse 类似，更适合作为少量英文辅助，不应默认进入中文求职链路。
+- 只记录 `internship_like_rate`、`agent_related_rate` 等命中率还不够，无法解释具体岗位为什么排在前面；source smoke 需要能看到排序原因。
+- 第一次真实 smoke 打印完整 `case_results_json` 时，PowerShell 默认 GBK 输出遇到 JD 中的特殊空格字符产生 `UnicodeEncodeError`；source 请求和评测写库已成功，问题出在本地调试输出编码。
+
+### 怎么修复的
+- 用确定性中文相关性排序替代 source 原始顺序：排序分数由 query token、Agent/LLM/RAG、实习/校招、开发/工程、产品/运营、销售/商务、JD 非空和投递链接组成。
+- `intern` 判断改为词边界正则，避免 `internal tools` 这类真实英文噪声被误判成实习。
+- `JobSourceRegistry` 仅在 `LEVER_CAREERS_ENABLED=true` 时注册 Lever；`.env.example` 中显式写为 `false`。
+- 前端岗位搜索默认只提交 `sources=["tencent"]`，Pydantic `JobSearchRequest` 默认值也同步调整。
+- 真实 source smoke 已重新运行：`query=Agent 开发实习生`、`sources=tencent`、`limit=8`、`status=completed`、`reachable_source_rate=1.0000`、`result_source_rate=1.0000`、`total_result_count=8`、`non_empty_jd_rate=1.0000`、`apply_url_rate=1.0000`、`internship_like_rate=0.3750`、`query_relevance_rate=1.0000`、`agent_related_rate=1.0000`、`avg_relevance_score=18.8250`、`avg_top_relevance_score=27.2000`。
+- 排序后 top3 为 `Agent Development Intern 107276`、`Agent Evaluation Intern 107491`、`AI Agent Research & Application Intern 106432`；后续为 Agent/大模型/RAG 开发工程类岗位，产品经理/策划类岗位被降到 top8 之后。
+- 使用 `PYTHONIOENCODING=utf-8` 和 `python -X utf8` 重新打印真实 trace，确认 `sample_jobs` 中的 `relevance_score` 与 `relevance_reasons` 可读。
+
+### 未修复的问题及原因
+- `internship_like_rate` 仍为 0.3750；原因是本次腾讯候选池里实际只有 3 个明确实习岗位进入 top8，可通过增加中文岗位源和扩大候选池改善，不能靠排序凭空制造实习岗位。
+- 当前排序是规则版，不是学习排序或 LLM reranker；原因是 source 层需要低成本、稳定、可解释，后续应基于真实中文岗位点击/人工标注数据做权重校准。
+- PowerShell 默认 GBK 打印完整真实 JD JSON 仍可能遇到特殊字符；原因是终端编码问题，不影响 API JSON、数据库 trace 或 UTF-8 调试命令。
+
+### 下一步怎么做
+- 构建中文岗位排序标注集，覆盖实习、校招、正式岗、产品、算法、后端、销售和泛 AI 噪声，量化排序 NDCG/MRR。
+- 继续探测字节、阿里、美团、华为等中文自有招聘源，只接入能稳定返回公开中文 JD 的 source。
+- 针对“产品经理”“算法实习生”等不同中文 query 增加 query intent 测试，避免当前开发实习排序规则过拟合一个岗位。
+
 ## 2026-06-07 12:03 +08:00：切回中文主场景并撤销 Greenhouse 默认源方向
 
 ### 这次做了什么

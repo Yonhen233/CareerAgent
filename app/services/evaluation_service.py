@@ -16,6 +16,14 @@ from app.models.schemas import AgentRunRequest, GuidedProfileRequest
 from app.services.context_compressor import ContextCompressor
 from app.services.guardrails import ResumeGuardrailService
 from app.services.jd_parser import JDParserService
+from app.services.job_relevance import (
+    is_agent_related_posting,
+    is_internship_like_posting,
+    is_query_relevant_posting,
+    rank_postings_for_query,
+    score_job_posting,
+    source_posting_haystack,
+)
 from app.services.job_search import JobSearchService
 from app.services.job_sources import JobPosting, JobSourceRegistry
 from app.services.resume_tailor import ResumeTailorService
@@ -447,20 +455,29 @@ class EvaluationService:
             source_started = time.perf_counter()
             try:
                 postings = await source.search(query=query, location=location, limit=limit)
-                sample_jobs = [self._summarize_source_posting(posting) for posting in postings[:limit]]
+                ranked_postings = rank_postings_for_query(postings, query)
+                relevance_scores = [score_job_posting(posting, query).score for posting in ranked_postings]
+                sample_jobs = [
+                    self._summarize_source_posting(posting, query=query) for posting in ranked_postings[:limit]
+                ]
                 return {
                     "source": source.name,
                     "status": "completed",
                     "source_reachable": True,
-                    "has_results": bool(postings),
-                    "result_count": len(postings),
-                    "internship_like_count": sum(1 for posting in postings if self._is_internship_like_posting(posting)),
-                    "query_relevant_count": sum(
-                        1 for posting in postings if self._is_query_relevant_posting(posting, query)
+                    "has_results": bool(ranked_postings),
+                    "result_count": len(ranked_postings),
+                    "internship_like_count": sum(
+                        1 for posting in ranked_postings if self._is_internship_like_posting(posting)
                     ),
-                    "agent_related_count": sum(1 for posting in postings if self._is_agent_related_posting(posting)),
-                    "non_empty_jd_count": sum(1 for posting in postings if bool(posting.raw_jd_text.strip())),
-                    "apply_url_count": sum(1 for posting in postings if bool(posting.apply_url)),
+                    "query_relevant_count": sum(
+                        1 for posting in ranked_postings if self._is_query_relevant_posting(posting, query)
+                    ),
+                    "agent_related_count": sum(1 for posting in ranked_postings if self._is_agent_related_posting(posting)),
+                    "non_empty_jd_count": sum(1 for posting in ranked_postings if bool(posting.raw_jd_text.strip())),
+                    "apply_url_count": sum(1 for posting in ranked_postings if bool(posting.apply_url)),
+                    "relevance_score_sum": round(sum(relevance_scores), 4),
+                    "relevance_score_count": len(relevance_scores),
+                    "top_relevance_score": relevance_scores[0] if relevance_scores else 0.0,
                     "latency_ms": int((time.perf_counter() - source_started) * 1000),
                     "error": None,
                     "sample_jobs": sample_jobs,
@@ -477,6 +494,9 @@ class EvaluationService:
                     "agent_related_count": 0,
                     "non_empty_jd_count": 0,
                     "apply_url_count": 0,
+                    "relevance_score_sum": 0.0,
+                    "relevance_score_count": 0,
+                    "top_relevance_score": 0.0,
                     "latency_ms": int((time.perf_counter() - source_started) * 1000),
                     "error": format_exception(exc),
                     "sample_jobs": [],
@@ -1311,6 +1331,13 @@ class EvaluationService:
         internship_like_count = sum(int(item.get("internship_like_count") or 0) for item in case_results)
         query_relevant_count = sum(int(item.get("query_relevant_count") or 0) for item in case_results)
         agent_related_count = sum(int(item.get("agent_related_count") or 0) for item in case_results)
+        relevance_score_sum = sum(float(item.get("relevance_score_sum") or 0.0) for item in case_results)
+        relevance_score_count = sum(int(item.get("relevance_score_count") or 0) for item in case_results)
+        top_relevance_scores = [
+            float(item.get("top_relevance_score") or 0.0)
+            for item in case_results
+            if int(item.get("result_count") or 0) > 0
+        ]
         if source_error_count > 0 and total_result_count > 0:
             status = "completed_with_source_errors"
         elif (
@@ -1343,6 +1370,8 @@ class EvaluationService:
             "internship_like_rate": round(internship_like_count / result_denominator, 4),
             "query_relevance_rate": round(query_relevant_count / result_denominator, 4),
             "agent_related_rate": round(agent_related_count / result_denominator, 4),
+            "avg_relevance_score": round(relevance_score_sum / max(relevance_score_count, 1), 4),
+            "avg_top_relevance_score": round(sum(top_relevance_scores) / max(len(top_relevance_scores), 1), 4),
             "latency_ms": latency_ms,
             "source_errors": {
                 item["source"]: item.get("error")
@@ -1353,7 +1382,7 @@ class EvaluationService:
             "notes": [
                 "真实岗位源 smoke 只衡量 source 层健康度，不参与 agent_full_flow 的核心 pass_rate。",
                 "网络失败、招聘站空结果或接口变化会记录为 source_error/source_unavailable，而不是被静默吞掉。",
-                "岗位质量用 JD 非空、apply_url、internship-like、query relevance 和 Agent/AI relevance 命中率衡量，后续可接入解析和入库链路。",
+                "岗位质量用 JD 非空、apply_url、internship-like、query relevance、Agent/AI relevance 和 relevance score 衡量。",
             ],
         }
 
@@ -1563,7 +1592,8 @@ class EvaluationService:
             for group, items in sorted(grouped.items())
         }
 
-    def _summarize_source_posting(self, posting: JobPosting) -> dict[str, Any]:
+    def _summarize_source_posting(self, posting: JobPosting, *, query: str | None = None) -> dict[str, Any]:
+        relevance = score_job_posting(posting, query or "")
         return {
             "source": posting.source,
             "external_id": posting.external_id,
@@ -1575,57 +1605,21 @@ class EvaluationService:
             "jd_chars": len(posting.raw_jd_text or ""),
             "internship_like": self._is_internship_like_posting(posting),
             "agent_related": self._is_agent_related_posting(posting),
+            "relevance_score": relevance.score,
+            "relevance_reasons": relevance.reasons,
         }
 
     def _is_internship_like_posting(self, posting: JobPosting) -> bool:
-        haystack = " ".join(
-            [
-                posting.title,
-                posting.job_type or "",
-                posting.raw_jd_text[:800] if posting.raw_jd_text else "",
-            ]
-        ).lower()
-        return any(token in haystack for token in ["intern", "internship", "实习", "校招"])
+        return is_internship_like_posting(posting)
 
     def _is_query_relevant_posting(self, posting: JobPosting, query: str) -> bool:
-        haystack = self._source_posting_haystack(posting)
-        tokens = [
-            token
-            for token in re.split(r"[\s,/|;:()（）\-]+", query.lower())
-            if len(token.strip()) >= 2
-        ]
-        if not tokens and query.strip():
-            tokens = [query.strip().lower()]
-        return any(token in haystack for token in tokens)
+        return is_query_relevant_posting(posting, query)
 
     def _is_agent_related_posting(self, posting: JobPosting) -> bool:
-        haystack = self._source_posting_haystack(posting)
-        return any(
-            token in haystack
-            for token in [
-                "agent",
-                "rag",
-                "llm",
-                "ai",
-                "machine learning",
-                "生成式",
-                "大模型",
-                "智能体",
-                "算法",
-                "模型",
-            ]
-        )
+        return is_agent_related_posting(posting)
 
     def _source_posting_haystack(self, posting: JobPosting) -> str:
-        return " ".join(
-            [
-                posting.title or "",
-                posting.company or "",
-                posting.location or "",
-                posting.job_type or "",
-                posting.raw_jd_text or "",
-            ]
-        ).lower()
+        return source_posting_haystack(posting)
 
     async def _ingest_smoke_posting(self, db: Session, posting: JobPosting, *, query: str) -> dict[str, Any]:
         started = time.perf_counter()

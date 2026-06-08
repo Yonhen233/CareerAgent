@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models.entities import Job
 from app.services.jd_parser import JDParserService
+from app.services.job_relevance import is_internship_like_posting, rank_postings_for_query
 from app.services.job_sources import JobPosting, JobSourceRegistry
 from app.services.text_splitter import ResumeTextSplitter
 from app.services.vector_index import SQLiteVectorIndex
@@ -50,7 +51,7 @@ class JobSearchService:
         if internship_only:
             postings = [posting for posting in postings if self._is_internship_like(posting)]
 
-        postings = self._dedupe_postings(postings)[:limit]
+        postings = rank_postings_for_query(self._dedupe_postings(postings), query)[:limit]
         parsed_postings = await self._parse_postings_concurrently(postings)
 
         jobs: list[Job] = []
@@ -165,11 +166,4 @@ class JobSearchService:
         return output
 
     def _is_internship_like(self, posting: JobPosting) -> bool:
-        haystack = " ".join(
-            [
-                posting.title,
-                posting.job_type or "",
-                posting.raw_jd_text[:800],
-            ]
-        ).lower()
-        return any(token in haystack for token in ["intern", "internship", "实习", "校招"])
+        return is_internship_like_posting(posting)

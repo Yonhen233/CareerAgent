@@ -61,6 +61,7 @@ class Settings(BaseSettings):
         )
     )
     tencent_careers_enabled: bool = True
+    lever_careers_enabled: bool = False
     lever_company_slugs: str = "anthropic,cohere,scaleai,perplexityai"
 
     model_config = SettingsConfigDict(

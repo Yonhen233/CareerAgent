@@ -145,7 +145,8 @@ Reranker：
 
 已使用的并发点：
 
-- 岗位源搜索：腾讯、Lever 等 source 使用 `asyncio.gather` 并发请求。
+- 岗位源搜索：腾讯等 source 使用 `asyncio.gather` 并发请求；Lever 这类海外 ATS source 默认关闭，只作为显式开启的英文辅助源。
+- Source 返回后执行确定性中文相关性排序，按 Agent/LLM/RAG、开发/工程、实习/校招等正向信号提升岗位，按产品、销售、商务等偏离信号降权。
 - JD 解析：多个岗位的 JD 解析使用 semaphore 控制并发。
 - 外部 I/O：HTTP 请求、LLM 调用都走 async client。
 

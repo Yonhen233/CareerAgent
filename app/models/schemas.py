@@ -154,7 +154,7 @@ class JobSearchRequest(BaseModel):
     location: str | None = None
     internship_only: bool = True
     limit: int = Field(default=20, ge=1, le=80)
-    sources: list[str] = Field(default_factory=lambda: ["tencent", "lever"])
+    sources: list[str] = Field(default_factory=lambda: ["tencent"])
     store_results: bool = True
 
 

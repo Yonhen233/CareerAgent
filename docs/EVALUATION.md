@@ -362,7 +362,7 @@ POST /evaluations/real-job-source-smoke?query=Agent%20%E5%BC%80%E5%8F%91%E5%AE%9
 
 评测内容：
 
-- 并发访问真实岗位源，例如腾讯招聘公开接口和 Lever 公开岗位 API。
+- 并发访问真实岗位源；默认中文主链路使用腾讯招聘公开接口，Lever 这类海外 ATS 只在显式开启英文辅助源时参与。
 - 对每个 source 单独记录 `status`、`source_reachable`、`result_count`、`latency_ms`、`error` 和 `sample_jobs`。
 - 不调用 LLM 解析 JD，不写入主岗位库，只评估 source 层健康度，避免 LLM、embedding 或数据库状态掩盖招聘源问题。
 - 网络失败、招聘站接口变化、空结果都会进入 `source_errors` 或 `source_unavailable`，不污染 `agent_full_flow` 的核心 pass rate。
@@ -380,6 +380,8 @@ POST /evaluations/real-job-source-smoke?query=Agent%20%E5%BC%80%E5%8F%91%E5%AE%9
 | `internship_like_rate` | 返回岗位里标题、类型或 JD 命中 intern/实习/校招等信号的比例。 |
 | `query_relevance_rate` | 返回岗位里标题、类型或 JD 命中当前 query token 的比例。 |
 | `agent_related_rate` | 返回岗位里命中 Agent/RAG/LLM/AI/大模型/智能体等信号的比例。 |
+| `avg_relevance_score` | Source 层确定性中文相关性排序的平均分，越高代表越贴近当前 query 意图。 |
+| `avg_top_relevance_score` | 每个非空 source 的第一名岗位相关性分数均值。 |
 | `source_error_count` | 发生异常的岗位源数量。 |
 
 该评测的定位是 source 层真实环境探针：它可以暴露外部招聘站波动，但不会替代可控岗位源下的 Agent full-flow 回归。
@@ -399,9 +401,21 @@ POST /evaluations/real-job-source-smoke?query=Agent%20%E5%BC%80%E5%8F%91%E5%AE%9
 | internship_like_rate | 0.3750 |
 | query_relevance_rate | 1.0000 |
 | agent_related_rate | 1.0000 |
+| avg_relevance_score | 18.8250 |
+| avg_top_relevance_score | 27.2000 |
 | source_error_count | 0 |
 
-本次结果说明腾讯招聘公开接口当前可达，中文 query 可以返回 8 个 Agent 相关岗位，包括 Agent Development/Evaluation Intern、QQ-Agent 产品经理、元宝-Agent 架构工程师、腾讯视频-AI Agent 工程师等。`internship_like_rate=0.3750` 说明中文主场景下 source 会混入正式岗位和产品岗位，后续排序/过滤应以中文岗位质量为主，不应引入 Greenhouse 这类中国场景较弱的英文 ATS 作为默认源。
+排序后 top sample：
+
+| 排名 | 岗位 | relevance_score | 排序原因 |
+| ---: | --- | ---: | --- |
+| 1 | Agent Development Intern 107276 | 27.2000 | Agent/LLM/RAG、实习/校招、开发/工程 |
+| 2 | Agent Evaluation Intern 107491 | 26.9000 | Agent/LLM/RAG、实习/校招、开发/工程 |
+| 3 | AI Agent Research & Application Intern 106432 | 25.9000 | Agent/LLM/RAG、实习/校招、开发/工程 |
+| 4 | AI Agent开发工程师（游戏研发） | 15.7000 | Agent/LLM/RAG、开发/工程，缺少实习信号 |
+| 5 | 大模型算法工程师(RAG & Agent方向) | 14.7000 | Agent/LLM/RAG、开发/工程，缺少实习信号 |
+
+本次结果说明腾讯招聘公开接口当前可达，中文 query 可以返回 Agent 实习和大模型/RAG/Agent 开发工程类岗位。排序前真实搜索曾把 QQ-Agent 产品经理、游戏研发 Agent 产品策划等岗位混入 top 结果；现在 source 层排序会优先提升实习开发岗位，把产品/策划类岗位降到更靠后。`internship_like_rate=0.3750` 说明本次 top8 中仍只有 3 个实习岗位，原因是真实招聘源当前候选池里的实习岗位数量有限；这应通过后续增加中文岗位源和更大候选池改善，而不是引入 Greenhouse 这类中国场景较弱的英文 ATS 作为默认源。
 
 ## 真实 JD Ingest Smoke
 

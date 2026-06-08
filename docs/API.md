@@ -80,14 +80,15 @@ Content-Type: application/json
   "location": "上海",
   "internship_only": true,
   "limit": 20,
-  "sources": ["tencent", "lever"],
+  "sources": ["tencent"],
   "store_results": true
 }
 ```
 
 效果：
 
-- 并发请求多个岗位源。
+- 默认请求腾讯招聘中文岗位源；海外 ATS 类 source 仅作为显式开启的英文辅助源。
+- 对 source 返回结果执行中文岗位相关性排序，让 Agent/开发/实习信号强的岗位优先于产品、销售或泛 AI 岗位。
 - 并发解析多个 JD。
 - 顺序写入 SQLite，避免 Session 并发写入风险。
 - 对每个岗位生成 `job_chunks`。
