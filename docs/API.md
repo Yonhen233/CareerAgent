@@ -303,6 +303,14 @@ POST /evaluations/job-relevance
 
 该评测使用 `evals/job_relevance_cases.json`，不访问外部招聘站，也不调用 LLM，只衡量 source 层中文岗位相关性排序。数据集包含 13 个中文为主 query、130 个候选岗位，每个候选使用 0-4 级相关性标注。返回的 `summary_json` 包含 `pass_rate`、`top1_accuracy`、`avg_top3_recall`、`avg_top5_recall`、`avg_mrr`、`avg_ndcg_at_5`、`low_grade_above_strong_count`、`intent_breakdown`、`difficulty_breakdown` 和 `noise_breakdown`。`case_results_json` 会保留每个候选岗位的排序名次、人工 grade、排序分和 `relevance_reasons`。
 
+运行投递包 Guardrail 评测：
+
+```http
+POST /evaluations/application-packet
+```
+
+该评测使用 `evals/application_packet_cases.json`，不访问外部招聘站，也不调用 LLM，只验证投递包质量校验。返回的 `summary_json` 包含 `high_risk_recall`、`false_block_count`、`missed_high_risk_count`、`issue_code_hit_rate`、`risk_level_counts`、`difficulty_breakdown` 和 `noise_breakdown`。`case_results_json` 会保留每个 case 的 `actual_issue_codes`、`warning_codes` 和完整 validation 结果。
+
 运行真实岗位源 smoke：
 
 ```http
@@ -350,6 +358,7 @@ GET /evaluations/results
 - `top_job_accuracy`
 - `score_gate_accuracy`
 - `quick_apply_pass_rate`
+- `application_packet_pass_rate`
 - `fit_gate_block_count`
 - `trace_pass_rate`
 - `artifact_pass_rate`
@@ -408,3 +417,9 @@ Content-Type: application/json
 ```http
 GET /applications
 ```
+
+`automation_result_json` 会包含：
+
+- `mode=manual_confirm_required`
+- `final_submission=user_confirmed_only`
+- `packet_validation`：投递包 Guardrail 结果，包括 `passed`、`risk_level`、`issues`、`warnings` 和支持证据中的技能词。

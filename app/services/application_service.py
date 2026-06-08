@@ -6,12 +6,14 @@ from app.core.config import get_settings
 from app.core.llm import LLMClient
 from app.core.llm import LLMConfigurationError
 from app.models.entities import Application, Job, Profile, ResumeVersion
+from app.services.application_guardrails import ApplicationPacketGuardrail
 
 
 class ApplicationService:
     def __init__(self) -> None:
         self.settings = get_settings()
         self.llm = LLMClient()
+        self.guardrail = ApplicationPacketGuardrail()
 
     async def create_quick_apply_packet(
         self,
@@ -33,8 +35,23 @@ class ApplicationService:
         automation_result = {
             "browser_assist_requested": browser_assist,
             "mode": "manual_confirm_required",
-            "message": "CareerAgent prepares the application packet and target URL; final submission stays user-confirmed.",
+            "final_submission": "user_confirmed_only",
+            "message": "CareerAgent 只准备投递材料和目标链接；最终提交必须由用户人工确认。",
         }
+        validation = self.guardrail.validate(
+            profile=profile,
+            job=job,
+            resume_version=resume_version,
+            cover_letter=cover_letter,
+            outreach_message=outreach,
+            checklist=checklist,
+            automation_result=automation_result,
+        )
+        automation_result["packet_validation"] = validation
+        automation_result["validation_passed"] = validation["passed"]
+        if not validation["passed"]:
+            issue_codes = ", ".join(issue["code"] for issue in validation["issues"])
+            raise ValueError(f"Application packet guardrail failed: {issue_codes}")
         application = Application(
             profile_id=profile.id,
             job_id=job.id,
@@ -52,11 +69,7 @@ class ApplicationService:
         return application
 
     async def _cover_letter(self, profile: Profile, job: Job, resume_version: ResumeVersion | None) -> str:
-        fallback = (
-            f"您好，我是{profile.name or '候选人'}，希望申请 {job.company or ''} {job.title}。"
-            "我的项目经历集中在 Agent 工作流、RAG 检索、FastAPI 服务化和 SQLite 数据持久化，"
-            "可以较快参与真实业务中的 AI 应用开发、评测与工程落地。期待进一步沟通。"
-        )
+        fallback = self._fallback_cover_letter(profile, job, resume_version)
         if not self.llm.available:
             if not self.settings.llm_fallback_enabled:
                 raise LLMConfigurationError(
@@ -87,8 +100,35 @@ Resume version:
             return fallback
 
     async def _outreach_message(self, profile: Profile, job: Job) -> str:
+        skills = self._profile_skills(profile)
+        skill_text = "、".join(skills[:4]) if skills else "相关项目实践"
+        target_role = (profile.target_roles_json or [job.title])[0] if profile.target_roles_json else job.title
         return (
             f"您好，我关注到 {job.company or '贵司'} 的 {job.title} 岗位。"
-            f"我正在寻找 Agent 开发相关实习，已有 {', '.join((profile.structured_profile_json or {}).get('skills', [])[:6])} "
-            "等相关经验，希望有机会交流。"
+            f"我正在寻找 {target_role} 相关机会，已有 {skill_text} 等相关经历，"
+            "希望有机会进一步交流。"
         )
+
+    def _fallback_cover_letter(
+        self,
+        profile: Profile,
+        job: Job,
+        resume_version: ResumeVersion | None,
+    ) -> str:
+        skills = self._profile_skills(profile)
+        projects = (profile.structured_profile_json or {}).get("projects") or []
+        project = projects[0] if projects and isinstance(projects[0], dict) else {}
+        project_name = project.get("name") or "相关项目"
+        project_desc = project.get("description") or project.get("impact") or "积累了与岗位相关的工程实践"
+        skill_text = "、".join(skills[:6]) if skills else "岗位相关技能"
+        resume_note = "我已基于该岗位准备了定制简历，" if resume_version else ""
+        return (
+            f"您好，我是{profile.name or '候选人'}，希望申请 {job.company or '贵司'} 的 {job.title}。"
+            f"{resume_note}我的相关经历包括 {skill_text}。"
+            f"在 {project_name} 中，{project_desc}。"
+            "如果岗位需要更多材料，我可以继续补充项目细节和可验证成果。期待进一步沟通。"
+        )
+
+    def _profile_skills(self, profile: Profile) -> list[str]:
+        skills = (profile.structured_profile_json or {}).get("skills") or []
+        return [str(skill).strip() for skill in skills if str(skill).strip()]

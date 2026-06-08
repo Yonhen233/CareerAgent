@@ -338,6 +338,7 @@ POST /evaluations/agent-full-flow
 | score_gate_accuracy | 1.0000 |
 | tailor_pass_rate | 1.0000 |
 | quick_apply_pass_rate | 1.0000 |
+| application_packet_pass_rate | 1.0000 |
 | fit_gate_block_count | 3 |
 | trace_pass_rate | 1.0000 |
 | artifact_pass_rate | 1.0000 |
@@ -392,6 +393,46 @@ POST /evaluations/job-relevance
 | low_grade_above_strong_count | 0 |
 
 本轮首次运行暴露出 `推荐算法实习生` case 的 `top3_recall=0.5000`：`排序模型实习生` 是强相关同义岗位，但旧规则把“开发/工程”这种泛技术信号排得过高，导致 `数据开发实习生`、`Agent开发实习生` 这类低相关岗位压过强相关岗位。修复方式是在 source 排序中加入领域意图 boost，包括算法/推荐、后端/API、数据开发、安全、评测和 Prompt；修复后该 case 的 `top3_recall=1.0000`、`nDCG@5=0.9698`，整体评测状态为 `completed`。
+
+## 投递包 Guardrail 评测
+
+接口：
+
+```http
+POST /evaluations/application-packet
+```
+
+评测内容：
+
+- 使用 `evals/application_packet_cases.json`，覆盖 20 个中文投递包 case。
+- 正例包括 Agent、前端、数据、产品等非单一岗位投递包，验证动态 fallback 不再硬编码 Agent/RAG/FastAPI/SQLite。
+- 反例包括编造 MLflow/Kubernetes、非 Agent 岗位硬写 Agent 经验、缺少目标岗位、越过人工确认边界。
+- 缺少投递链接和外联文案过短当前作为 warning，不直接阻断。
+- 不调用外部招聘站，也不调用 LLM，只验证投递包最后一公里的事实校验和自动化边界。
+
+核心指标：
+
+| 指标 | 含义 |
+| --- | --- |
+| `high_risk_recall` | 应阻断的高风险投递包被正确阻断的比例。 |
+| `false_block_count` | 正常投递包被误拦截的数量。 |
+| `missed_high_risk_count` | 高风险投递包漏拦截的数量。 |
+| `issue_code_hit_rate` | 期望 issue code 是否被正确命中。 |
+| `avg_warning_count` | 每个 case 平均 warning 数量。 |
+
+最新离线评测：
+
+| 指标 | 结果 |
+| --- | ---: |
+| case_count | 20 |
+| pass_rate | 1.0000 |
+| high_risk_recall | 1.0000 |
+| false_block_count | 0 |
+| missed_high_risk_count | 0 |
+| issue_code_hit_rate | 1.0000 |
+| avg_warning_count | 0.5000 |
+
+本轮暴露并修复的问题：旧 fallback 求职信和外联文案总是强调 Agent/RAG/FastAPI/SQLite，即使候选人申请的是前端或数据岗位，也会产生不符合简历证据的能力声明。修复后 fallback 会根据 Profile skills、项目和目标 Job 动态生成；`ApplicationPacketGuardrail` 会把 unsupported claims、缺目标岗位和自动提交边界问题标为 high risk 并阻断创建。
 
 ## 真实岗位源 Smoke
 

@@ -31,7 +31,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
 - Agent 工作流：
   - `find_jobs_for_profile`：搜索岗位、解析 JD、入库、匹配、排序。
   - `tailor_resume_for_job`：匹配岗位、检索简历证据、定制简历、校验幻觉风险。
-  - `quick_apply`：生成投递包、求职信、外联文案、投递清单和状态记录。
+  - `quick_apply`：生成投递包、求职信、外联文案、投递清单和状态记录，并校验投递包是否编造事实或越过人工确认边界。
   - `quick_apply` 前置 `fit_gate`：低匹配岗位直接阻断，并把缺口写入 Agent step trace。
   - 每次 run 先生成 Plan-Execute 执行计划，并写入 Trace artifact。
   - 显式注册 Tool、Skill 和 SubAgent，计划产物会展示当前任务使用的能力边界。
@@ -49,6 +49,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - Agent full-flow 评测覆盖岗位搜索、匹配排序、简历定制、投递门禁、Trace 和 Artifact。
   - JD parser 评测用 30 个中英混合、带 preferred/negative/synonym 噪声的 JD case 衡量结构化质量。
   - Job relevance 评测用 13 个中文为主 query、130 个带 0-4 级人工相关性标注的候选岗位衡量 source 排序质量。
+  - Application packet 评测用 20 个中文投递包 case 衡量求职信/外联文案的事实校验、人工确认边界和误拦截率。
   - 真实岗位源 smoke 独立评估 source 层健康度，核心 full-flow 仍使用可控岗位源保证可重复。
   - 真实 JD ingest smoke 独立评估 parser/RAG 入库链路，并检查 query/title/JD 中的核心技能是否进入 structured JD，避免和 source 可达性混淆。
   - PDF Chunk、RAG 和 LLM workflow 都有独立评测集；LLM workflow 会真实跑简历解析、JD 解析、fit judge、简历定制和 Guardrail，并逐 case 写入中间 trace。
@@ -132,6 +133,7 @@ LLM_MODEL=DeepSeek-V4-Pro
 - `POST /evaluations/agent-full-flow`
 - `POST /evaluations/jd-parser`
 - `POST /evaluations/job-relevance`
+- `POST /evaluations/application-packet`
 - `POST /evaluations/real-job-source-smoke`
 - `POST /evaluations/real-job-ingest-smoke`
 - `POST /evaluations/llm-workflow`
@@ -156,7 +158,7 @@ pytest -q
 - 岗位匹配。
 - Agent 简历定制工作流。
 - LLM 调用日志。
-- 样例集、PDF Chunk、RAG、Agent full-flow、JD parser、Job relevance、真实岗位源 smoke、真实 JD ingest smoke、LLM workflow 量化评测。
+- 样例集、PDF Chunk、RAG、Agent full-flow、JD parser、Job relevance、Application packet、真实岗位源 smoke、真实 JD ingest smoke、LLM workflow 量化评测。
 
 ## 文档
 

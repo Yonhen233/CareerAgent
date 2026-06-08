@@ -14,6 +14,7 @@ from app.core.config import get_settings
 from app.models.entities import AgentArtifact, AgentStep, EvaluationRun, Job, JobChunk, Profile
 from app.models.schemas import AgentRunRequest, GuidedProfileRequest
 from app.services.context_compressor import ContextCompressor
+from app.services.application_guardrails import ApplicationPacketGuardrail
 from app.services.guardrails import ResumeGuardrailService
 from app.services.jd_parser import JDParserService
 from app.services.job_relevance import (
@@ -135,6 +136,7 @@ class EvaluationService:
         self.hash_embedding_service = EmbeddingService(settings=self.settings, provider="hash")
         self.reranker = RerankerService(settings=self.settings)
         self.context_compressor = ContextCompressor()
+        self.application_guardrail = ApplicationPacketGuardrail()
         self.jd_parser = JDParserService()
         self.job_search_service = JobSearchService()
         self.vector_index = SQLiteVectorIndex()
@@ -452,6 +454,21 @@ class EvaluationService:
         db.refresh(run)
         return run
 
+    def run_application_packet_evaluation(self, db: Session, *, dataset_path: Path | None = None) -> EvaluationRun:
+        path = dataset_path or self.settings.base_path / "evals" / "application_packet_cases.json"
+        cases = json.loads(path.read_text(encoding="utf-8"))
+        case_results = [self._run_application_packet_case(case) for case in cases]
+        summary = self._summarize_application_packet(case_results, path)
+        run = EvaluationRun(
+            name="application_packet_evaluation",
+            summary_json=summary,
+            case_results_json=case_results,
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        return run
+
     async def run_real_job_source_smoke(
         self,
         db: Session,
@@ -743,6 +760,7 @@ class EvaluationService:
             fit_gate_blocked = None
             resume_version_id = None
             application_id = None
+            application_packet_passed = None
             if top_job and case.get("run_tailor"):
                 tailor_run = await AgentOrchestrator().run(
                     db,
@@ -788,6 +806,9 @@ class EvaluationService:
                     fit_gate_blocked if expected_block else quick_apply_run.status == "completed"
                 )
                 application_id = quick_output.get("application_id")
+                packet_validation = quick_output.get("packet_validation") or {}
+                if not expected_block and quick_apply_run.status == "completed":
+                    application_packet_passed = packet_validation.get("passed") is True
 
             runs = [run for run in [find_run, tailor_run, quick_apply_run] if run is not None]
             trace_passed = all(self._run_has_completed_plan(db, run.id) for run in runs)
@@ -809,6 +830,7 @@ class EvaluationService:
                     "tailor_passed": tailor_passed,
                     "quick_apply_passed": quick_apply_passed,
                     "fit_gate_blocked": fit_gate_blocked,
+                    "application_packet_passed": application_packet_passed,
                     "trace_passed": trace_passed,
                     "artifact_passed": artifact_passed,
                     "resume_version_id": resume_version_id,
@@ -1296,12 +1318,19 @@ class EvaluationService:
             return False
         if case.get("run_quick_apply") and result.get("quick_apply_passed") is not True:
             return False
+        if (
+            case.get("run_quick_apply")
+            and not case.get("expect_quick_apply_blocked")
+            and result.get("application_packet_passed") is not True
+        ):
+            return False
         return True
 
     def _summarize_agent_full_flow(self, case_results: list[dict[str, Any]], dataset_path: Path) -> dict[str, Any]:
         count = max(len(case_results), 1)
         tailor_cases = [item for item in case_results if item.get("tailor_passed") is not None]
         quick_cases = [item for item in case_results if item.get("quick_apply_passed") is not None]
+        packet_cases = [item for item in case_results if item.get("application_packet_passed") is not None]
         blocked_cases = [item for item in case_results if item.get("fit_gate_blocked") is True]
         return {
             "evaluation_type": "agent_full_flow",
@@ -1313,6 +1342,7 @@ class EvaluationService:
             "score_gate_accuracy": self._avg_bool(case_results, "score_passed"),
             "tailor_pass_rate": self._avg_bool(tailor_cases, "tailor_passed"),
             "quick_apply_pass_rate": self._avg_bool(quick_cases, "quick_apply_passed"),
+            "application_packet_pass_rate": self._avg_bool(packet_cases, "application_packet_passed"),
             "fit_gate_block_count": len(blocked_cases),
             "trace_pass_rate": self._avg_bool(case_results, "trace_passed"),
             "artifact_pass_rate": self._avg_bool(case_results, "artifact_passed"),
@@ -1609,6 +1639,131 @@ class EvaluationService:
             }
             for group, items in sorted(grouped.items())
         }
+
+    def _run_application_packet_case(self, case: dict[str, Any]) -> dict[str, Any]:
+        profile_data = case["profile"]
+        job_data = case["job"]
+        packet = case["packet"]
+        profile = Profile(
+            name=profile_data.get("name"),
+            source_type="eval",
+            raw_resume_text=profile_data.get("raw_resume_text") or "",
+            structured_profile_json=profile_data.get("structured_profile") or {},
+        )
+        job = Job(
+            source="eval",
+            external_id=case["name"],
+            title=job_data["title"],
+            company=job_data.get("company"),
+            apply_url=job_data.get("apply_url"),
+            raw_jd_text=job_data.get("jd_text") or job_data["title"],
+            structured_jd_json=job_data.get("structured_jd") or {},
+        )
+        validation = self.application_guardrail.validate(
+            profile=profile,
+            job=job,
+            resume_version=None,
+            cover_letter=packet.get("cover_letter") or "",
+            outreach_message=packet.get("outreach_message") or "",
+            checklist=packet.get("checklist") or [],
+            automation_result=packet.get("automation_result") or {},
+        )
+        expected_passed = bool(case.get("expected_passed"))
+        expected_issue_codes = set(str(item) for item in case.get("expected_issue_codes") or [])
+        actual_issue_codes = {str(item.get("code")) for item in validation.get("issues") or []}
+        expected_issues_hit = expected_issue_codes <= actual_issue_codes
+        case_passed = validation["passed"] == expected_passed and expected_issues_hit
+        if expected_passed and not validation["passed"]:
+            case_passed = False
+        return {
+            "name": case["name"],
+            "difficulty": case.get("difficulty", "unknown"),
+            "noise_profile": case.get("noise_profile", "unknown"),
+            "expected_passed": expected_passed,
+            "expected_issue_codes": sorted(expected_issue_codes),
+            "actual_passed": validation["passed"],
+            "risk_level": validation["risk_level"],
+            "actual_issue_codes": sorted(actual_issue_codes),
+            "warning_codes": [str(item.get("code")) for item in validation.get("warnings") or []],
+            "expected_issue_codes_hit": expected_issues_hit,
+            "case_passed": case_passed,
+            "validation": validation,
+        }
+
+    def _summarize_application_packet(
+        self,
+        case_results: list[dict[str, Any]],
+        dataset_path: Path,
+    ) -> dict[str, Any]:
+        count = max(len(case_results), 1)
+        expected_block = [item for item in case_results if not item.get("expected_passed")]
+        expected_pass = [item for item in case_results if item.get("expected_passed")]
+        false_blocks = [item for item in expected_pass if not item.get("actual_passed")]
+        missed_blocks = [item for item in expected_block if item.get("actual_passed")]
+        issue_expectations = [item for item in expected_block if item.get("expected_issue_codes")]
+        return {
+            "evaluation_type": "application_packet_guardrail",
+            "status": "completed" if all(item.get("case_passed") for item in case_results) else "completed_with_quality_failures",
+            "dataset": dataset_path.name,
+            "case_count": len(case_results),
+            "pass_rate": round(sum(1 for item in case_results if item.get("case_passed")) / count, 4),
+            "high_risk_recall": round(
+                sum(1 for item in expected_block if not item.get("actual_passed")) / max(len(expected_block), 1),
+                4,
+            ),
+            "false_block_count": len(false_blocks),
+            "missed_high_risk_count": len(missed_blocks),
+            "issue_code_hit_rate": round(
+                sum(1 for item in issue_expectations if item.get("expected_issue_codes_hit"))
+                / max(len(issue_expectations), 1),
+                4,
+            ),
+            "avg_warning_count": round(
+                sum(len(item.get("warning_codes") or []) for item in case_results) / count,
+                4,
+            ),
+            "risk_level_counts": self._count_by_key(case_results, "risk_level"),
+            "failure_breakdown": self._count_application_packet_failures(case_results),
+            "difficulty_breakdown": self._summarize_application_packet_by_key(case_results, "difficulty"),
+            "noise_breakdown": self._summarize_application_packet_by_key(case_results, "noise_profile"),
+            "notes": [
+                "该评测只验证投递包质量 guardrail，不调用外部招聘站，也不调用 LLM。",
+                "好包应通过，编造技能、缺目标岗位或越过人工确认边界的投递包应被阻断。",
+                "missing_apply_url 和短外联文案目前作为 warning，不直接阻断投递包生成。",
+            ],
+        }
+
+    def _summarize_application_packet_by_key(self, rows: list[dict[str, Any]], key: str) -> dict[str, Any]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            grouped.setdefault(str(row.get(key) or "unknown"), []).append(row)
+        return {
+            group: {
+                "case_count": len(items),
+                "pass_rate": round(sum(1 for item in items if item.get("case_passed")) / max(len(items), 1), 4),
+                "high_risk_recall": round(
+                    sum(1 for item in items if not item.get("expected_passed") and not item.get("actual_passed"))
+                    / max(sum(1 for item in items if not item.get("expected_passed")), 1),
+                    4,
+                ),
+                "false_block_count": sum(
+                    1 for item in items if item.get("expected_passed") and not item.get("actual_passed")
+                ),
+            }
+            for group, items in sorted(grouped.items())
+        }
+
+    def _count_application_packet_failures(self, rows: list[dict[str, Any]]) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for row in rows:
+            if row.get("case_passed"):
+                continue
+            if row.get("expected_passed") != row.get("actual_passed"):
+                key = "false_block" if row.get("expected_passed") else "missed_high_risk"
+                counts[key] = counts.get(key, 0) + 1
+            if not row.get("expected_issue_codes_hit"):
+                counts["expected_issue_code_missed"] = counts.get("expected_issue_code_missed", 0) + 1
+        return counts
 
     def _run_job_relevance_case(self, case: dict[str, Any]) -> dict[str, Any]:
         postings = [
@@ -2165,6 +2320,7 @@ class EvaluationService:
             "score_gate_failed": lambda item: item.get("score_passed") is False,
             "tailor_failed": lambda item: item.get("tailor_passed") is False,
             "quick_apply_failed": lambda item: item.get("quick_apply_passed") is False,
+            "application_packet_failed": lambda item: item.get("application_packet_passed") is False,
             "trace_failed": lambda item: item.get("trace_passed") is False,
             "artifact_failed": lambda item: item.get("artifact_passed") is False,
         }

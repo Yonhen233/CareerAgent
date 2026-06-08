@@ -1,5 +1,40 @@
 # 开发日志
 
+## 2026-06-08 13:13 +08:00：新增投递包 Guardrail 并修复硬编码 Agent 兜底
+
+### 这次做了什么
+- 新增 `ApplicationPacketGuardrail`，在 `quick_apply` 创建投递包前校验求职信、外联文案、投递清单和自动化边界。
+- Guardrail 会检查 unsupported claims、目标岗位提及、人工确认边界、投递链接和文案长度。
+- `No MLflow`、`没有 Kubernetes 经验` 等缺口披露不会被当作支持证据，避免把否定证据误判成能力证明。
+- `ApplicationService` 的 fallback 求职信从硬编码 Agent/RAG/FastAPI/SQLite 改为根据 Profile skills、项目和目标岗位动态生成。
+- 外联文案也改为根据候选人 target role 或目标 job title 生成，不再固定写“Agent 开发相关实习”。
+- `automation_result_json` 新增 `final_submission=user_confirmed_only`、`packet_validation` 和 `validation_passed`；高风险 issue 会直接阻断投递包创建。
+- 新增 `scripts/generate_application_packet_eval.py` 和 `evals/application_packet_cases.json`，包含 20 个中文投递包 case。
+- 新增 `run_application_packet_evaluation` 和 `POST /evaluations/application-packet`，评估 high-risk recall、false block、missed high risk 和 issue code hit rate。
+
+### 发现了什么问题
+- 原 fallback 求职信不看目标岗位和候选人真实技能，总是写“Agent 工作流、RAG 检索、FastAPI 服务化和 SQLite 数据持久化”。
+- 这在 Agent 岗位样例里看起来合理，但一旦候选人申请前端、数据或产品岗位，就会变成事实编造，是典型“兜底文本掩盖产品风险”。
+- 直接从文本里看到某个技能也不能当作正向证据；例如“没有 MLflow 经验”应被视为缺口披露，而不是 MLflow 支持证据。
+- `quick_apply` 的自动化边界需要落到可检查字段里，只写自然语言说明不够；否则后续接浏览器辅助填写时容易误以为可以自动提交。
+
+### 怎么修复的
+- 用 `ApplicationPacketGuardrail` 做确定性校验：有“熟悉、掌握、负责、建设、落地、经验”等声明动词的技能，必须在 Profile、项目、经历或定制简历中有正向证据。
+- 对支持证据做句子级负向过滤，排除 `No/not/without/没有/不具备/缺少` 等缺口披露。
+- 将自动化边界结构化为 `mode=manual_confirm_required` 和 `final_submission=user_confirmed_only`，缺失时标记 high-risk 并阻断。
+- 缺少投递链接、外联文案过短先作为 warning，不直接阻断；原因是这类问题需要用户补充，但不一定代表文案编造或越权提交。
+- 投递包评测已运行：`case_count=20`、`pass_rate=1.0000`、`high_risk_recall=1.0000`、`false_block_count=0`、`missed_high_risk_count=0`、`issue_code_hit_rate=1.0000`、`avg_warning_count=0.5000`。
+
+### 未修复的问题及原因
+- Guardrail 仍是规则版，不是 LLM verifier；原因是投递前最后一公里需要稳定可解释，当前先用确定性规则覆盖高风险事实编造和自动提交边界。
+- 支持技能词表还不覆盖所有行业技能；原因是现阶段优先覆盖 Agent/LLM、前端、数据、ML 平台、推荐和 Prompt 等项目核心场景，后续应随真实 JD 扩展。
+- 缺少投递链接目前只是 warning；原因是很多手动粘贴 JD 没有 apply_url，阻断会影响本地使用，后续可以在真实投递模式下提升为阻断。
+
+### 下一步怎么做
+- 把 ApplicationPacketGuardrail 接入 UI 展示，让用户能直接看到 `issues` 和 `warnings`。
+- 增加真实 LLM 生成投递包的 smoke，检查 LLM 文案是否触发 unsupported claims。
+- 如果后续接浏览器辅助填写，必须把 `user_confirmed_only` 作为提交按钮前的硬门禁。
+
 ## 2026-06-08 13:01 +08:00：新增中文岗位排序标注集和 NDCG/MRR 评测
 
 ### 这次做了什么

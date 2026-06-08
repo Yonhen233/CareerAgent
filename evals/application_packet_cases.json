@@ -1,0 +1,1106 @@
+[
+  {
+    "name": "agent_packet_good_00",
+    "difficulty": "easy",
+    "noise_profile": "clean_supported_claims",
+    "profile": {
+      "name": "李明",
+      "skills": [
+        "Python",
+        "FastAPI",
+        "RAG",
+        "SQLite",
+        "Agent",
+        "Evaluation"
+      ],
+      "raw_resume_text": "李明 built CareerAgent with FastAPI RAG SQLite Agent evaluation.",
+      "structured_profile": {
+        "name": "李明",
+        "skills": [
+          "Python",
+          "FastAPI",
+          "RAG",
+          "SQLite",
+          "Agent",
+          "Evaluation"
+        ],
+        "projects": [
+          {
+            "name": "CareerAgent",
+            "description": "Built CareerAgent with FastAPI RAG SQLite Agent evaluation."
+          }
+        ],
+        "raw_text": "李明 built CareerAgent with FastAPI RAG SQLite Agent evaluation."
+      }
+    },
+    "job": {
+      "title": "Agent 开发实习生",
+      "company": "腾讯",
+      "jd_text": "负责 Agent 工作流、RAG 和 FastAPI 服务。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我是李明，希望申请腾讯的 Agent 开发实习生。我的相关经历包括 Python、FastAPI、RAG、SQLite、Agent 和 Evaluation，并在 CareerAgent 项目中做过可追踪评测。",
+      "outreach_message": "您好，我关注到腾讯的 Agent 开发实习生岗位，我有 Python、FastAPI、RAG 和 SQLite 相关经历，希望交流。",
+      "checklist": [
+        "确认目标岗位和投递链接",
+        "确认定制简历没有新增事实",
+        "提交前人工确认隐私授权和必填字段"
+      ],
+      "automation_result": {
+        "mode": "manual_confirm_required",
+        "final_submission": "user_confirmed_only"
+      }
+    },
+    "expected_passed": true,
+    "expected_issue_codes": []
+  },
+  {
+    "name": "frontend_packet_good_00",
+    "difficulty": "easy",
+    "noise_profile": "non_agent_role",
+    "profile": {
+      "name": "赵琳",
+      "skills": [
+        "React",
+        "TypeScript",
+        "CSS",
+        "Playwright",
+        "Accessibility"
+      ],
+      "raw_resume_text": "赵琳 built DashboardStudio with React TypeScript CSS Playwright accessibility.",
+      "structured_profile": {
+        "name": "赵琳",
+        "skills": [
+          "React",
+          "TypeScript",
+          "CSS",
+          "Playwright",
+          "Accessibility"
+        ],
+        "projects": [
+          {
+            "name": "DashboardStudio",
+            "description": "Built DashboardStudio with React TypeScript CSS Playwright accessibility."
+          }
+        ],
+        "raw_text": "赵琳 built DashboardStudio with React TypeScript CSS Playwright accessibility."
+      }
+    },
+    "job": {
+      "title": "前端开发实习生",
+      "company": "DesignOps",
+      "jd_text": "负责 React、TypeScript、CSS 和可访问性。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我是赵琳，希望申请 DesignOps 的前端开发实习生。我的相关经历包括 React、TypeScript、CSS、Playwright 和 Accessibility，并做过组件和视觉回归测试。",
+      "outreach_message": "您好，我关注到 DesignOps 的前端开发实习生岗位，我有 React 和 TypeScript 项目经历，希望交流。",
+      "checklist": [
+        "确认目标岗位和投递链接",
+        "确认定制简历没有新增事实",
+        "提交前人工确认隐私授权和必填字段"
+      ],
+      "automation_result": {
+        "mode": "manual_confirm_required",
+        "final_submission": "user_confirmed_only"
+      }
+    },
+    "expected_passed": true,
+    "expected_issue_codes": []
+  },
+  {
+    "name": "data_packet_good_00",
+    "difficulty": "easy",
+    "noise_profile": "data_role",
+    "profile": {
+      "name": "孙睿",
+      "skills": [
+        "Python",
+        "SQL",
+        "Airflow",
+        "dbt",
+        "Data Quality",
+        "Warehouse"
+      ],
+      "raw_resume_text": "孙睿 built PipelineMonitor with SQL Airflow dbt warehouse data quality.",
+      "structured_profile": {
+        "name": "孙睿",
+        "skills": [
+          "Python",
+          "SQL",
+          "Airflow",
+          "dbt",
+          "Data Quality",
+          "Warehouse"
+        ],
+        "projects": [
+          {
+            "name": "PipelineMonitor",
+            "description": "Built PipelineMonitor with SQL Airflow dbt warehouse data quality."
+          }
+        ],
+        "raw_text": "孙睿 built PipelineMonitor with SQL Airflow dbt warehouse data quality."
+      }
+    },
+    "job": {
+      "title": "数据开发实习生",
+      "company": "DataHub",
+      "jd_text": "负责 SQL、Airflow、dbt 和数仓质量。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我是孙睿，希望申请 DataHub 的数据开发实习生。我的相关经历包括 Python、SQL、Airflow、dbt、Data Quality 和 Warehouse，并做过数仓质量校验。",
+      "outreach_message": "您好，我关注到 DataHub 的数据开发实习生岗位，我有 SQL、Airflow 和 dbt 经历，希望交流。",
+      "checklist": [
+        "确认目标岗位和投递链接",
+        "确认定制简历没有新增事实",
+        "提交前人工确认隐私授权和必填字段"
+      ],
+      "automation_result": {
+        "mode": "manual_confirm_required",
+        "final_submission": "user_confirmed_only"
+      }
+    },
+    "expected_passed": true,
+    "expected_issue_codes": []
+  },
+  {
+    "name": "product_packet_good_00",
+    "difficulty": "medium",
+    "noise_profile": "product_role",
+    "profile": {
+      "name": "陈一",
+      "skills": [
+        "User Research",
+        "Metrics",
+        "PRD",
+        "A/B Testing"
+      ],
+      "raw_resume_text": "陈一 built AgentProductStudy with user research metrics PRD A/B Testing.",
+      "structured_profile": {
+        "name": "陈一",
+        "skills": [
+          "User Research",
+          "Metrics",
+          "PRD",
+          "A/B Testing"
+        ],
+        "projects": [
+          {
+            "name": "AgentProductStudy",
+            "description": "Built AgentProductStudy with user research metrics PRD A/B Testing."
+          }
+        ],
+        "raw_text": "陈一 built AgentProductStudy with user research metrics PRD A/B Testing."
+      }
+    },
+    "job": {
+      "title": "AI Agent 产品实习生",
+      "company": "ModelApp",
+      "jd_text": "负责用户研究、指标分析和 PRD。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我是陈一，希望申请 ModelApp 的 AI Agent 产品实习生。我的相关经历包括 User Research、Metrics、PRD 和 A/B Testing，并做过 Agent 产品调研。",
+      "outreach_message": "您好，我关注到 ModelApp 的 AI Agent 产品实习生岗位，我有用户研究和指标分析经历，希望交流。",
+      "checklist": [
+        "确认目标岗位和投递链接",
+        "确认定制简历没有新增事实",
+        "提交前人工确认隐私授权和必填字段"
+      ],
+      "automation_result": {
+        "mode": "manual_confirm_required",
+        "final_submission": "user_confirmed_only"
+      }
+    },
+    "expected_passed": true,
+    "expected_issue_codes": []
+  },
+  {
+    "name": "fabricated_mlflow_kubernetes_00",
+    "difficulty": "hard",
+    "noise_profile": "unsupported_platform_claims",
+    "profile": {
+      "name": "马晨",
+      "skills": [
+        "Python",
+        "PyTorch",
+        "Evaluation"
+      ],
+      "raw_resume_text": "马晨 built VisionBench with PyTorch model evaluation. No MLflow or Kubernetes experience.",
+      "structured_profile": {
+        "name": "马晨",
+        "skills": [
+          "Python",
+          "PyTorch",
+          "Evaluation"
+        ],
+        "projects": [
+          {
+            "name": "VisionBench",
+            "description": "Built VisionBench with PyTorch model evaluation."
+          }
+        ],
+        "raw_text": "马晨 built VisionBench with PyTorch model evaluation. No MLflow or Kubernetes experience."
+      }
+    },
+    "job": {
+      "title": "机器学习平台实习生",
+      "company": "MLWorks",
+      "jd_text": "维护 MLflow、Kubernetes 和模型评测平台。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我希望申请 MLWorks 的机器学习平台实习生。我熟悉 MLflow 和 Kubernetes，并有平台落地经验。",
+      "outreach_message": "您好，我关注到 MLWorks 的机器学习平台实习生岗位，我有 MLflow 和 Kubernetes 经验，希望交流。",
+      "checklist": [
+        "确认目标岗位和投递链接",
+        "确认定制简历没有新增事实",
+        "提交前人工确认隐私授权和必填字段"
+      ],
+      "automation_result": {
+        "mode": "manual_confirm_required",
+        "final_submission": "user_confirmed_only"
+      }
+    },
+    "expected_passed": false,
+    "expected_issue_codes": [
+      "unsupported_claims"
+    ]
+  },
+  {
+    "name": "fabricated_agent_for_frontend_00",
+    "difficulty": "hard",
+    "noise_profile": "old_hardcoded_agent_fallback",
+    "profile": {
+      "name": "赵琳",
+      "skills": [
+        "React",
+        "TypeScript",
+        "CSS",
+        "Playwright",
+        "Accessibility"
+      ],
+      "raw_resume_text": "赵琳 built DashboardStudio with React TypeScript CSS Playwright accessibility.",
+      "structured_profile": {
+        "name": "赵琳",
+        "skills": [
+          "React",
+          "TypeScript",
+          "CSS",
+          "Playwright",
+          "Accessibility"
+        ],
+        "projects": [
+          {
+            "name": "DashboardStudio",
+            "description": "Built DashboardStudio with React TypeScript CSS Playwright accessibility."
+          }
+        ],
+        "raw_text": "赵琳 built DashboardStudio with React TypeScript CSS Playwright accessibility."
+      }
+    },
+    "job": {
+      "title": "前端开发实习生",
+      "company": "DesignOps",
+      "jd_text": "负责 React、TypeScript、CSS 和可访问性。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我希望申请 DesignOps 的前端开发实习生。我的项目经历集中在 Agent 工作流、RAG 检索、FastAPI 服务化和 SQLite 数据持久化。",
+      "outreach_message": "您好，我关注到 DesignOps 的前端开发实习生岗位，我已有 Agent 和 RAG 经验，希望交流。",
+      "checklist": [
+        "确认目标岗位和投递链接",
+        "确认定制简历没有新增事实",
+        "提交前人工确认隐私授权和必填字段"
+      ],
+      "automation_result": {
+        "mode": "manual_confirm_required",
+        "final_submission": "user_confirmed_only"
+      }
+    },
+    "expected_passed": false,
+    "expected_issue_codes": [
+      "unsupported_claims"
+    ]
+  },
+  {
+    "name": "missing_job_target_00",
+    "difficulty": "medium",
+    "noise_profile": "generic_letter",
+    "profile": {
+      "name": "李明",
+      "skills": [
+        "Python",
+        "FastAPI",
+        "RAG",
+        "SQLite",
+        "Agent",
+        "Evaluation"
+      ],
+      "raw_resume_text": "李明 built CareerAgent with FastAPI RAG SQLite Agent evaluation.",
+      "structured_profile": {
+        "name": "李明",
+        "skills": [
+          "Python",
+          "FastAPI",
+          "RAG",
+          "SQLite",
+          "Agent",
+          "Evaluation"
+        ],
+        "projects": [
+          {
+            "name": "CareerAgent",
+            "description": "Built CareerAgent with FastAPI RAG SQLite Agent evaluation."
+          }
+        ],
+        "raw_text": "李明 built CareerAgent with FastAPI RAG SQLite Agent evaluation."
+      }
+    },
+    "job": {
+      "title": "Agent 开发实习生",
+      "company": "腾讯",
+      "jd_text": "负责 Agent 工作流、RAG 和 FastAPI 服务。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我对贵团队很感兴趣。我的相关经历包括 Python、FastAPI、RAG 和 SQLite，希望进一步沟通。",
+      "outreach_message": "您好，我有 Agent 和 RAG 项目经历，希望交流。",
+      "checklist": [
+        "确认目标岗位和投递链接",
+        "确认定制简历没有新增事实",
+        "提交前人工确认隐私授权和必填字段"
+      ],
+      "automation_result": {
+        "mode": "manual_confirm_required",
+        "final_submission": "user_confirmed_only"
+      }
+    },
+    "expected_passed": false,
+    "expected_issue_codes": [
+      "cover_letter_missing_job_target"
+    ]
+  },
+  {
+    "name": "auto_submit_boundary_violation_00",
+    "difficulty": "hard",
+    "noise_profile": "automation_boundary",
+    "profile": {
+      "name": "李明",
+      "skills": [
+        "Python",
+        "FastAPI",
+        "RAG",
+        "SQLite",
+        "Agent",
+        "Evaluation"
+      ],
+      "raw_resume_text": "李明 built CareerAgent with FastAPI RAG SQLite Agent evaluation.",
+      "structured_profile": {
+        "name": "李明",
+        "skills": [
+          "Python",
+          "FastAPI",
+          "RAG",
+          "SQLite",
+          "Agent",
+          "Evaluation"
+        ],
+        "projects": [
+          {
+            "name": "CareerAgent",
+            "description": "Built CareerAgent with FastAPI RAG SQLite Agent evaluation."
+          }
+        ],
+        "raw_text": "李明 built CareerAgent with FastAPI RAG SQLite Agent evaluation."
+      }
+    },
+    "job": {
+      "title": "Agent 开发实习生",
+      "company": "腾讯",
+      "jd_text": "负责 Agent 工作流、RAG 和 FastAPI 服务。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我是李明，希望申请腾讯的 Agent 开发实习生。我的相关经历包括 Python、FastAPI、RAG 和 SQLite。",
+      "outreach_message": "您好，我关注到腾讯的 Agent 开发实习生岗位，希望交流。",
+      "checklist": [
+        "确认目标岗位和投递链接"
+      ],
+      "automation_result": {
+        "mode": "auto_submit",
+        "final_submission": "agent_submitted"
+      }
+    },
+    "expected_passed": false,
+    "expected_issue_codes": [
+      "missing_manual_confirmation"
+    ]
+  },
+  {
+    "name": "missing_apply_url_warning_only_00",
+    "difficulty": "medium",
+    "noise_profile": "missing_url",
+    "profile": {
+      "name": "李明",
+      "skills": [
+        "Python",
+        "FastAPI",
+        "RAG",
+        "SQLite",
+        "Agent",
+        "Evaluation"
+      ],
+      "raw_resume_text": "李明 built CareerAgent with FastAPI RAG SQLite Agent evaluation.",
+      "structured_profile": {
+        "name": "李明",
+        "skills": [
+          "Python",
+          "FastAPI",
+          "RAG",
+          "SQLite",
+          "Agent",
+          "Evaluation"
+        ],
+        "projects": [
+          {
+            "name": "CareerAgent",
+            "description": "Built CareerAgent with FastAPI RAG SQLite Agent evaluation."
+          }
+        ],
+        "raw_text": "李明 built CareerAgent with FastAPI RAG SQLite Agent evaluation."
+      }
+    },
+    "job": {
+      "title": "Agent 开发实习生",
+      "company": "腾讯",
+      "jd_text": "负责 Agent 工作流、RAG 和 FastAPI 服务。",
+      "apply_url": null
+    },
+    "packet": {
+      "cover_letter": "您好，我是李明，希望申请腾讯的 Agent 开发实习生。我的相关经历包括 Python、FastAPI、RAG 和 SQLite。",
+      "outreach_message": "您好，我关注到腾讯的 Agent 开发实习生岗位，希望交流。",
+      "checklist": [
+        "确认目标岗位和投递链接",
+        "确认定制简历没有新增事实",
+        "提交前人工确认隐私授权和必填字段"
+      ],
+      "automation_result": {
+        "mode": "manual_confirm_required",
+        "final_submission": "user_confirmed_only"
+      }
+    },
+    "expected_passed": true,
+    "expected_issue_codes": []
+  },
+  {
+    "name": "short_outreach_warning_only_00",
+    "difficulty": "medium",
+    "noise_profile": "short_outreach",
+    "profile": {
+      "name": "李明",
+      "skills": [
+        "Python",
+        "FastAPI",
+        "RAG",
+        "SQLite",
+        "Agent",
+        "Evaluation"
+      ],
+      "raw_resume_text": "李明 built CareerAgent with FastAPI RAG SQLite Agent evaluation.",
+      "structured_profile": {
+        "name": "李明",
+        "skills": [
+          "Python",
+          "FastAPI",
+          "RAG",
+          "SQLite",
+          "Agent",
+          "Evaluation"
+        ],
+        "projects": [
+          {
+            "name": "CareerAgent",
+            "description": "Built CareerAgent with FastAPI RAG SQLite Agent evaluation."
+          }
+        ],
+        "raw_text": "李明 built CareerAgent with FastAPI RAG SQLite Agent evaluation."
+      }
+    },
+    "job": {
+      "title": "Agent 开发实习生",
+      "company": "腾讯",
+      "jd_text": "负责 Agent 工作流、RAG 和 FastAPI 服务。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我是李明，希望申请腾讯的 Agent 开发实习生。我的相关经历包括 Python、FastAPI、RAG、SQLite 和 Agent 项目评测。",
+      "outreach_message": "想交流",
+      "checklist": [
+        "确认目标岗位和投递链接",
+        "确认定制简历没有新增事实",
+        "提交前人工确认隐私授权和必填字段"
+      ],
+      "automation_result": {
+        "mode": "manual_confirm_required",
+        "final_submission": "user_confirmed_only"
+      }
+    },
+    "expected_passed": true,
+    "expected_issue_codes": []
+  },
+  {
+    "name": "agent_packet_good_01",
+    "difficulty": "easy",
+    "noise_profile": "clean_supported_claims",
+    "profile": {
+      "name": "李明",
+      "skills": [
+        "Python",
+        "FastAPI",
+        "RAG",
+        "SQLite",
+        "Agent",
+        "Evaluation"
+      ],
+      "raw_resume_text": "李明 built CareerAgent with FastAPI RAG SQLite Agent evaluation.",
+      "structured_profile": {
+        "name": "李明",
+        "skills": [
+          "Python",
+          "FastAPI",
+          "RAG",
+          "SQLite",
+          "Agent",
+          "Evaluation"
+        ],
+        "projects": [
+          {
+            "name": "CareerAgent",
+            "description": "Built CareerAgent with FastAPI RAG SQLite Agent evaluation."
+          }
+        ],
+        "raw_text": "李明 built CareerAgent with FastAPI RAG SQLite Agent evaluation."
+      }
+    },
+    "job": {
+      "title": "Agent 开发实习生",
+      "company": "腾讯",
+      "jd_text": "负责 Agent 工作流、RAG 和 FastAPI 服务。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我是李明，希望申请腾讯的 Agent 开发实习生。我的相关经历包括 Python、FastAPI、RAG、SQLite、Agent 和 Evaluation，并在 CareerAgent 项目中做过可追踪评测。",
+      "outreach_message": "您好，我关注到腾讯的 Agent 开发实习生岗位，我有 Python、FastAPI、RAG 和 SQLite 相关经历，希望交流。",
+      "checklist": [
+        "确认目标岗位和投递链接",
+        "确认定制简历没有新增事实",
+        "提交前人工确认隐私授权和必填字段"
+      ],
+      "automation_result": {
+        "mode": "manual_confirm_required",
+        "final_submission": "user_confirmed_only"
+      }
+    },
+    "expected_passed": true,
+    "expected_issue_codes": []
+  },
+  {
+    "name": "frontend_packet_good_01",
+    "difficulty": "easy",
+    "noise_profile": "non_agent_role",
+    "profile": {
+      "name": "赵琳",
+      "skills": [
+        "React",
+        "TypeScript",
+        "CSS",
+        "Playwright",
+        "Accessibility"
+      ],
+      "raw_resume_text": "赵琳 built DashboardStudio with React TypeScript CSS Playwright accessibility.",
+      "structured_profile": {
+        "name": "赵琳",
+        "skills": [
+          "React",
+          "TypeScript",
+          "CSS",
+          "Playwright",
+          "Accessibility"
+        ],
+        "projects": [
+          {
+            "name": "DashboardStudio",
+            "description": "Built DashboardStudio with React TypeScript CSS Playwright accessibility."
+          }
+        ],
+        "raw_text": "赵琳 built DashboardStudio with React TypeScript CSS Playwright accessibility."
+      }
+    },
+    "job": {
+      "title": "前端开发实习生",
+      "company": "DesignOps",
+      "jd_text": "负责 React、TypeScript、CSS 和可访问性。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我是赵琳，希望申请 DesignOps 的前端开发实习生。我的相关经历包括 React、TypeScript、CSS、Playwright 和 Accessibility，并做过组件和视觉回归测试。",
+      "outreach_message": "您好，我关注到 DesignOps 的前端开发实习生岗位，我有 React 和 TypeScript 项目经历，希望交流。",
+      "checklist": [
+        "确认目标岗位和投递链接",
+        "确认定制简历没有新增事实",
+        "提交前人工确认隐私授权和必填字段"
+      ],
+      "automation_result": {
+        "mode": "manual_confirm_required",
+        "final_submission": "user_confirmed_only"
+      }
+    },
+    "expected_passed": true,
+    "expected_issue_codes": []
+  },
+  {
+    "name": "data_packet_good_01",
+    "difficulty": "easy",
+    "noise_profile": "data_role",
+    "profile": {
+      "name": "孙睿",
+      "skills": [
+        "Python",
+        "SQL",
+        "Airflow",
+        "dbt",
+        "Data Quality",
+        "Warehouse"
+      ],
+      "raw_resume_text": "孙睿 built PipelineMonitor with SQL Airflow dbt warehouse data quality.",
+      "structured_profile": {
+        "name": "孙睿",
+        "skills": [
+          "Python",
+          "SQL",
+          "Airflow",
+          "dbt",
+          "Data Quality",
+          "Warehouse"
+        ],
+        "projects": [
+          {
+            "name": "PipelineMonitor",
+            "description": "Built PipelineMonitor with SQL Airflow dbt warehouse data quality."
+          }
+        ],
+        "raw_text": "孙睿 built PipelineMonitor with SQL Airflow dbt warehouse data quality."
+      }
+    },
+    "job": {
+      "title": "数据开发实习生",
+      "company": "DataHub",
+      "jd_text": "负责 SQL、Airflow、dbt 和数仓质量。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我是孙睿，希望申请 DataHub 的数据开发实习生。我的相关经历包括 Python、SQL、Airflow、dbt、Data Quality 和 Warehouse，并做过数仓质量校验。",
+      "outreach_message": "您好，我关注到 DataHub 的数据开发实习生岗位，我有 SQL、Airflow 和 dbt 经历，希望交流。",
+      "checklist": [
+        "确认目标岗位和投递链接",
+        "确认定制简历没有新增事实",
+        "提交前人工确认隐私授权和必填字段"
+      ],
+      "automation_result": {
+        "mode": "manual_confirm_required",
+        "final_submission": "user_confirmed_only"
+      }
+    },
+    "expected_passed": true,
+    "expected_issue_codes": []
+  },
+  {
+    "name": "product_packet_good_01",
+    "difficulty": "medium",
+    "noise_profile": "product_role",
+    "profile": {
+      "name": "陈一",
+      "skills": [
+        "User Research",
+        "Metrics",
+        "PRD",
+        "A/B Testing"
+      ],
+      "raw_resume_text": "陈一 built AgentProductStudy with user research metrics PRD A/B Testing.",
+      "structured_profile": {
+        "name": "陈一",
+        "skills": [
+          "User Research",
+          "Metrics",
+          "PRD",
+          "A/B Testing"
+        ],
+        "projects": [
+          {
+            "name": "AgentProductStudy",
+            "description": "Built AgentProductStudy with user research metrics PRD A/B Testing."
+          }
+        ],
+        "raw_text": "陈一 built AgentProductStudy with user research metrics PRD A/B Testing."
+      }
+    },
+    "job": {
+      "title": "AI Agent 产品实习生",
+      "company": "ModelApp",
+      "jd_text": "负责用户研究、指标分析和 PRD。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我是陈一，希望申请 ModelApp 的 AI Agent 产品实习生。我的相关经历包括 User Research、Metrics、PRD 和 A/B Testing，并做过 Agent 产品调研。",
+      "outreach_message": "您好，我关注到 ModelApp 的 AI Agent 产品实习生岗位，我有用户研究和指标分析经历，希望交流。",
+      "checklist": [
+        "确认目标岗位和投递链接",
+        "确认定制简历没有新增事实",
+        "提交前人工确认隐私授权和必填字段"
+      ],
+      "automation_result": {
+        "mode": "manual_confirm_required",
+        "final_submission": "user_confirmed_only"
+      }
+    },
+    "expected_passed": true,
+    "expected_issue_codes": []
+  },
+  {
+    "name": "fabricated_mlflow_kubernetes_01",
+    "difficulty": "hard",
+    "noise_profile": "unsupported_platform_claims",
+    "profile": {
+      "name": "马晨",
+      "skills": [
+        "Python",
+        "PyTorch",
+        "Evaluation"
+      ],
+      "raw_resume_text": "马晨 built VisionBench with PyTorch model evaluation. No MLflow or Kubernetes experience.",
+      "structured_profile": {
+        "name": "马晨",
+        "skills": [
+          "Python",
+          "PyTorch",
+          "Evaluation"
+        ],
+        "projects": [
+          {
+            "name": "VisionBench",
+            "description": "Built VisionBench with PyTorch model evaluation."
+          }
+        ],
+        "raw_text": "马晨 built VisionBench with PyTorch model evaluation. No MLflow or Kubernetes experience."
+      }
+    },
+    "job": {
+      "title": "机器学习平台实习生",
+      "company": "MLWorks",
+      "jd_text": "维护 MLflow、Kubernetes 和模型评测平台。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我希望申请 MLWorks 的机器学习平台实习生。我熟悉 MLflow 和 Kubernetes，并有平台落地经验。",
+      "outreach_message": "您好，我关注到 MLWorks 的机器学习平台实习生岗位，我有 MLflow 和 Kubernetes 经验，希望交流。",
+      "checklist": [
+        "确认目标岗位和投递链接",
+        "确认定制简历没有新增事实",
+        "提交前人工确认隐私授权和必填字段"
+      ],
+      "automation_result": {
+        "mode": "manual_confirm_required",
+        "final_submission": "user_confirmed_only"
+      }
+    },
+    "expected_passed": false,
+    "expected_issue_codes": [
+      "unsupported_claims"
+    ]
+  },
+  {
+    "name": "fabricated_agent_for_frontend_01",
+    "difficulty": "hard",
+    "noise_profile": "old_hardcoded_agent_fallback",
+    "profile": {
+      "name": "赵琳",
+      "skills": [
+        "React",
+        "TypeScript",
+        "CSS",
+        "Playwright",
+        "Accessibility"
+      ],
+      "raw_resume_text": "赵琳 built DashboardStudio with React TypeScript CSS Playwright accessibility.",
+      "structured_profile": {
+        "name": "赵琳",
+        "skills": [
+          "React",
+          "TypeScript",
+          "CSS",
+          "Playwright",
+          "Accessibility"
+        ],
+        "projects": [
+          {
+            "name": "DashboardStudio",
+            "description": "Built DashboardStudio with React TypeScript CSS Playwright accessibility."
+          }
+        ],
+        "raw_text": "赵琳 built DashboardStudio with React TypeScript CSS Playwright accessibility."
+      }
+    },
+    "job": {
+      "title": "前端开发实习生",
+      "company": "DesignOps",
+      "jd_text": "负责 React、TypeScript、CSS 和可访问性。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我希望申请 DesignOps 的前端开发实习生。我的项目经历集中在 Agent 工作流、RAG 检索、FastAPI 服务化和 SQLite 数据持久化。",
+      "outreach_message": "您好，我关注到 DesignOps 的前端开发实习生岗位，我已有 Agent 和 RAG 经验，希望交流。",
+      "checklist": [
+        "确认目标岗位和投递链接",
+        "确认定制简历没有新增事实",
+        "提交前人工确认隐私授权和必填字段"
+      ],
+      "automation_result": {
+        "mode": "manual_confirm_required",
+        "final_submission": "user_confirmed_only"
+      }
+    },
+    "expected_passed": false,
+    "expected_issue_codes": [
+      "unsupported_claims"
+    ]
+  },
+  {
+    "name": "missing_job_target_01",
+    "difficulty": "medium",
+    "noise_profile": "generic_letter",
+    "profile": {
+      "name": "李明",
+      "skills": [
+        "Python",
+        "FastAPI",
+        "RAG",
+        "SQLite",
+        "Agent",
+        "Evaluation"
+      ],
+      "raw_resume_text": "李明 built CareerAgent with FastAPI RAG SQLite Agent evaluation.",
+      "structured_profile": {
+        "name": "李明",
+        "skills": [
+          "Python",
+          "FastAPI",
+          "RAG",
+          "SQLite",
+          "Agent",
+          "Evaluation"
+        ],
+        "projects": [
+          {
+            "name": "CareerAgent",
+            "description": "Built CareerAgent with FastAPI RAG SQLite Agent evaluation."
+          }
+        ],
+        "raw_text": "李明 built CareerAgent with FastAPI RAG SQLite Agent evaluation."
+      }
+    },
+    "job": {
+      "title": "Agent 开发实习生",
+      "company": "腾讯",
+      "jd_text": "负责 Agent 工作流、RAG 和 FastAPI 服务。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我对贵团队很感兴趣。我的相关经历包括 Python、FastAPI、RAG 和 SQLite，希望进一步沟通。",
+      "outreach_message": "您好，我有 Agent 和 RAG 项目经历，希望交流。",
+      "checklist": [
+        "确认目标岗位和投递链接",
+        "确认定制简历没有新增事实",
+        "提交前人工确认隐私授权和必填字段"
+      ],
+      "automation_result": {
+        "mode": "manual_confirm_required",
+        "final_submission": "user_confirmed_only"
+      }
+    },
+    "expected_passed": false,
+    "expected_issue_codes": [
+      "cover_letter_missing_job_target"
+    ]
+  },
+  {
+    "name": "auto_submit_boundary_violation_01",
+    "difficulty": "hard",
+    "noise_profile": "automation_boundary",
+    "profile": {
+      "name": "李明",
+      "skills": [
+        "Python",
+        "FastAPI",
+        "RAG",
+        "SQLite",
+        "Agent",
+        "Evaluation"
+      ],
+      "raw_resume_text": "李明 built CareerAgent with FastAPI RAG SQLite Agent evaluation.",
+      "structured_profile": {
+        "name": "李明",
+        "skills": [
+          "Python",
+          "FastAPI",
+          "RAG",
+          "SQLite",
+          "Agent",
+          "Evaluation"
+        ],
+        "projects": [
+          {
+            "name": "CareerAgent",
+            "description": "Built CareerAgent with FastAPI RAG SQLite Agent evaluation."
+          }
+        ],
+        "raw_text": "李明 built CareerAgent with FastAPI RAG SQLite Agent evaluation."
+      }
+    },
+    "job": {
+      "title": "Agent 开发实习生",
+      "company": "腾讯",
+      "jd_text": "负责 Agent 工作流、RAG 和 FastAPI 服务。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我是李明，希望申请腾讯的 Agent 开发实习生。我的相关经历包括 Python、FastAPI、RAG 和 SQLite。",
+      "outreach_message": "您好，我关注到腾讯的 Agent 开发实习生岗位，希望交流。",
+      "checklist": [
+        "确认目标岗位和投递链接"
+      ],
+      "automation_result": {
+        "mode": "auto_submit",
+        "final_submission": "agent_submitted"
+      }
+    },
+    "expected_passed": false,
+    "expected_issue_codes": [
+      "missing_manual_confirmation"
+    ]
+  },
+  {
+    "name": "missing_apply_url_warning_only_01",
+    "difficulty": "medium",
+    "noise_profile": "missing_url",
+    "profile": {
+      "name": "李明",
+      "skills": [
+        "Python",
+        "FastAPI",
+        "RAG",
+        "SQLite",
+        "Agent",
+        "Evaluation"
+      ],
+      "raw_resume_text": "李明 built CareerAgent with FastAPI RAG SQLite Agent evaluation.",
+      "structured_profile": {
+        "name": "李明",
+        "skills": [
+          "Python",
+          "FastAPI",
+          "RAG",
+          "SQLite",
+          "Agent",
+          "Evaluation"
+        ],
+        "projects": [
+          {
+            "name": "CareerAgent",
+            "description": "Built CareerAgent with FastAPI RAG SQLite Agent evaluation."
+          }
+        ],
+        "raw_text": "李明 built CareerAgent with FastAPI RAG SQLite Agent evaluation."
+      }
+    },
+    "job": {
+      "title": "Agent 开发实习生",
+      "company": "腾讯",
+      "jd_text": "负责 Agent 工作流、RAG 和 FastAPI 服务。",
+      "apply_url": null
+    },
+    "packet": {
+      "cover_letter": "您好，我是李明，希望申请腾讯的 Agent 开发实习生。我的相关经历包括 Python、FastAPI、RAG 和 SQLite。",
+      "outreach_message": "您好，我关注到腾讯的 Agent 开发实习生岗位，希望交流。",
+      "checklist": [
+        "确认目标岗位和投递链接",
+        "确认定制简历没有新增事实",
+        "提交前人工确认隐私授权和必填字段"
+      ],
+      "automation_result": {
+        "mode": "manual_confirm_required",
+        "final_submission": "user_confirmed_only"
+      }
+    },
+    "expected_passed": true,
+    "expected_issue_codes": []
+  },
+  {
+    "name": "short_outreach_warning_only_01",
+    "difficulty": "medium",
+    "noise_profile": "short_outreach",
+    "profile": {
+      "name": "李明",
+      "skills": [
+        "Python",
+        "FastAPI",
+        "RAG",
+        "SQLite",
+        "Agent",
+        "Evaluation"
+      ],
+      "raw_resume_text": "李明 built CareerAgent with FastAPI RAG SQLite Agent evaluation.",
+      "structured_profile": {
+        "name": "李明",
+        "skills": [
+          "Python",
+          "FastAPI",
+          "RAG",
+          "SQLite",
+          "Agent",
+          "Evaluation"
+        ],
+        "projects": [
+          {
+            "name": "CareerAgent",
+            "description": "Built CareerAgent with FastAPI RAG SQLite Agent evaluation."
+          }
+        ],
+        "raw_text": "李明 built CareerAgent with FastAPI RAG SQLite Agent evaluation."
+      }
+    },
+    "job": {
+      "title": "Agent 开发实习生",
+      "company": "腾讯",
+      "jd_text": "负责 Agent 工作流、RAG 和 FastAPI 服务。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我是李明，希望申请腾讯的 Agent 开发实习生。我的相关经历包括 Python、FastAPI、RAG、SQLite 和 Agent 项目评测。",
+      "outreach_message": "想交流",
+      "checklist": [
+        "确认目标岗位和投递链接",
+        "确认定制简历没有新增事实",
+        "提交前人工确认隐私授权和必填字段"
+      ],
+      "automation_result": {
+        "mode": "manual_confirm_required",
+        "final_submission": "user_confirmed_only"
+      }
+    },
+    "expected_passed": true,
+    "expected_issue_codes": []
+  }
+]

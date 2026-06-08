@@ -49,6 +49,7 @@ def test_agent_full_flow_evaluation_covers_orchestrator_components(db_session):
     assert run.summary_json["top_job_accuracy"] == 1.0
     assert run.summary_json["score_gate_accuracy"] == 1.0
     assert run.summary_json["quick_apply_pass_rate"] == 1.0
+    assert run.summary_json["application_packet_pass_rate"] == 1.0
     assert run.summary_json["trace_pass_rate"] == 1.0
     assert run.summary_json["artifact_pass_rate"] == 1.0
     assert run.summary_json["fit_gate_block_count"] >= 3
@@ -87,6 +88,22 @@ def test_job_relevance_evaluation_quantifies_chinese_ranking_quality(db_session)
     assert any("实习" in item["query"] for item in run.case_results_json)
     assert all(item["ranked_jobs"][0]["grade"] >= 3 for item in run.case_results_json)
     assert run.case_results_json[0]["ranked_jobs"][0]["reasons"]
+
+
+def test_application_packet_evaluation_catches_fabrication_and_boundary_risks(db_session):
+    run = EvaluationService().run_application_packet_evaluation(db_session)
+
+    assert run.summary_json["evaluation_type"] == "application_packet_guardrail"
+    assert run.summary_json["case_count"] >= 20
+    assert run.summary_json["pass_rate"] == 1.0
+    assert run.summary_json["high_risk_recall"] == 1.0
+    assert run.summary_json["false_block_count"] == 0
+    assert run.summary_json["missed_high_risk_count"] == 0
+    assert run.summary_json["issue_code_hit_rate"] == 1.0
+    assert "unsupported_claims" in {
+        code for item in run.case_results_json for code in item.get("actual_issue_codes", [])
+    }
+    assert any("missing_apply_url" in item.get("warning_codes", []) for item in run.case_results_json)
 
 
 def test_jd_parser_aliases_preferred_and_negative_context():

@@ -139,6 +139,26 @@ POST /evaluations/job-relevance
 
 核心指标包括 `top1_accuracy`、`avg_top3_recall`、`avg_mrr`、`avg_ndcg_at_5` 和 `low_grade_above_strong_count`。如果失败，优先查看 `case_results_json[].ranked_jobs[].reasons`，判断是 query intent 缺失、泛技术词过强，还是产品/销售/运营噪声没有被降权。
 
+投递包 Guardrail 评测使用：
+
+```text
+evals/application_packet_cases.json
+```
+
+重新生成数据集：
+
+```bash
+python scripts/generate_application_packet_eval.py
+```
+
+运行投递包评测：
+
+```http
+POST /evaluations/application-packet
+```
+
+核心指标包括 `high_risk_recall`、`false_block_count`、`missed_high_risk_count` 和 `issue_code_hit_rate`。如果失败，优先查看 `case_results_json[].validation.issues`，判断是投递包编造事实、缺目标岗位、误拦截正常文案，还是人工确认边界缺失。
+
 ## LLM 调试
 
 查看最近调用：

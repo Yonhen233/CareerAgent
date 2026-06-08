@@ -127,6 +127,16 @@ RAG 证据不再只按向量分和关键词分排序，`MatcherService.retrieve_
 
 这个设计让开发期评测更接近真实求职场景：Agent 可以建议继续补项目或定制简历，但不能把证据不足的岗位静默投出去。
 
+## 投递包 Guardrail
+
+`quick_apply` 通过 `fit_gate` 后，还会对投递包执行 `ApplicationPacketGuardrail`：
+
+- 求职信必须提到目标公司或岗位，避免生成泛化模板。
+- 求职信和外联文案中如果出现“熟悉、掌握、负责、建设、落地、经验”等能力声明，声明的技能必须能在 Profile、项目、经历或定制简历中找到正向证据。
+- `No MLflow`、`没有 Kubernetes 经验` 等缺口披露不会被当作支持证据。
+- 投递包必须保留 `manual_confirm_required` 和 `user_confirmed_only`，系统只准备材料和链接，不自动提交最终申请。
+- 缺少投递链接、外联文案过短等问题记录为 warning；编造事实或越过人工确认边界记录为 high-risk issue 并阻断投递包创建。
+
 ## 当前 Tool
 
 `GET /agent/tools` 可以查看工具注册表。当前工具包括：

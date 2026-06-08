@@ -251,6 +251,7 @@ class AgentOrchestrator:
         return payload
 
     def _application_payload(self, application: Application) -> dict[str, Any]:
+        automation_result = application.automation_result_json or {}
         return {
             "application_id": application.id,
             "profile_id": application.profile_id,
@@ -259,4 +260,6 @@ class AgentOrchestrator:
             "status": application.status,
             "apply_url": application.apply_url,
             "checklist": application.checklist_json,
+            "packet_validation": automation_result.get("packet_validation"),
+            "automation_result": automation_result,
         }
