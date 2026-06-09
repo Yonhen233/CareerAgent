@@ -469,6 +469,8 @@ POST /evaluations/interview-prep
 - 检查 `research_checklist_json` 是否生成牛客网、OfferShow、小红书等同岗位面经调研 query。
 - 检查已导入面经是否进入 `source_evidence_json`，并生成 `source_backed_interview_experience` 问题。
 - 检查缺口技能是否进入 `gap_drills_json`，避免把 `没有 MLflow`、`没有 Kubernetes 集群维护经验` 这类缺口披露误写成已掌握。
+- 检查每道题是否有唯一 `question_id`，并且 `source_perspective` 覆盖同岗位面经/面经调研、简历项目技术栈和其他可能面试问题。
+- 检查 Markdown 交付包是否可渲染，且包含问题来源分布、外部调研清单和证据边界。
 
 核心指标：
 
@@ -478,6 +480,9 @@ POST /evaluations/interview-prep
 | `research_source_pass_rate` | 牛客网、OfferShow、小红书调研线索是否完整生成。 |
 | `gap_drill_pass_rate` | 缺口技能是否进入诚实披露 drill。 |
 | `source_backed_pass_rate` | 提供已导入面经的 case 是否生成来源支撑问题。 |
+| `question_id_pass_rate` | 每道题是否有稳定且唯一的题目 ID。 |
+| `source_perspective_pass_rate` | 是否同时覆盖同岗位面经、简历项目技术栈和其他可能面试问题。 |
+| `markdown_export_pass_rate` | Markdown 交付包是否包含来源分布、调研清单和证据边界。 |
 | `avg_source_backed_question_count` | 每个面试包平均来源支撑问题数。 |
 | `avg_question_count` | 每个面试包平均题目数。 |
 | `avg_required_skill_coverage_rate` | JD 必备技能是否被题目或缺口 drill 覆盖。 |
@@ -493,6 +498,9 @@ POST /evaluations/interview-prep
 | gap_drill_pass_rate | 1.0000 |
 | source_backed_pass_rate | 1.0000 |
 | experience_site_pass_rate | 1.0000 |
+| question_id_pass_rate | 1.0000 |
+| source_perspective_pass_rate | 1.0000 |
+| markdown_export_pass_rate | 1.0000 |
 | avg_question_count | 25.4444 |
 | avg_research_item_count | 4.0000 |
 | avg_source_backed_experience_count | 0.1111 |

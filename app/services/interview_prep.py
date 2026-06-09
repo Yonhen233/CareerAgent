@@ -57,6 +57,7 @@ class InterviewPrepService:
             self._general_interview_questions(profile, job),
         ]
         question_sets = [item for item in question_sets if item["questions"]]
+        self._attach_question_ids(question_sets)
         gap_drills = self._gap_drills(job, missing)
         research_checklist = self._research_checklist(job, required, missing)
         coverage = self._coverage(
@@ -82,7 +83,7 @@ class InterviewPrepService:
             ),
             "preparation_focus": self._preparation_focus(match, missing, evidence),
             "boundary": "缺少证据的技能只能作为待补强或诚实披露，不能包装成已交付经验。",
-            "source_perspectives": ["同岗位面经调研", "简历项目技术栈深挖", "通用面试与协作问题"],
+            "source_perspectives": ["同岗位面经/面经调研", "简历项目技术栈深挖", "其他可能面试问题"],
         }
         prep = InterviewPrep(
             profile_id=profile.id,
@@ -101,6 +102,11 @@ class InterviewPrepService:
         db.commit()
         db.refresh(prep)
         return prep
+
+    def _attach_question_ids(self, question_sets: list[dict[str, Any]]) -> None:
+        for group_index, group in enumerate(question_sets, start=1):
+            for question_index, question in enumerate(group.get("questions") or [], start=1):
+                question.setdefault("question_id", f"q{group_index:02d}_{question_index:02d}")
 
     def _source_backed_experience_questions(
         self,
@@ -210,6 +216,7 @@ class InterviewPrepService:
                     "evidence_refs": [self._evidence_ref(item, index)],
                     "risk_level": self._question_risk(item),
                     "skills": skills,
+                    "source_perspective": "resume_project_evidence",
                 }
             )
         if not questions and profile.raw_resume_text:
@@ -221,6 +228,7 @@ class InterviewPrepService:
                     "evidence_refs": [],
                     "risk_level": "medium",
                     "skills": matched[:3],
+                    "source_perspective": "resume_project_evidence",
                 }
             )
         return {"category": "项目深挖", "questions": questions}
@@ -447,8 +455,21 @@ class InterviewPrepService:
             for question in questions
             if question.get("source_perspective") == "source_backed_interview_experience"
         ]
+        source_perspective_counts: dict[str, int] = {}
+        for question in questions:
+            source = str(question.get("source_perspective") or "unknown")
+            source_perspective_counts[source] = source_perspective_counts.get(source, 0) + 1
+        core_perspective_counts = {
+            "online_experience": source_perspective_counts.get("online_experience_research", 0)
+            + source_perspective_counts.get("source_backed_interview_experience", 0),
+            "resume_project_stack": source_perspective_counts.get("resume_project_stack", 0),
+            "other_interview_questions": source_perspective_counts.get("general_interview", 0)
+            + source_perspective_counts.get("jd_technical_depth", 0)
+            + source_perspective_counts.get("jd_gap_drill", 0),
+        }
         source_evidence = experience_evidence or []
-        passed = required_covered and missing_covered and len(questions) >= 6
+        core_perspectives_passed = all(count > 0 for count in core_perspective_counts.values())
+        passed = required_covered and missing_covered and core_perspectives_passed and len(questions) >= 6
         return {
             "passed": passed,
             "required_skill_count": len(required_norm),
@@ -457,11 +478,16 @@ class InterviewPrepService:
             "research_item_count": 4,
             "source_backed_experience_count": len(source_evidence),
             "source_backed_question_count": len(source_backed_questions),
+            "source_perspective_counts": dict(sorted(source_perspective_counts.items())),
+            "core_perspective_counts": core_perspective_counts,
+            "core_perspectives_passed": core_perspectives_passed,
             "research_mode": "source_backed_and_checklist" if source_evidence else "checklist_only",
             "source_perspectives": [
                 "source_backed_interview_experience",
                 "online_experience_research",
+                "resume_project_evidence",
                 "resume_project_stack",
+                "jd_technical_depth",
                 "jd_gap_drill",
                 "general_interview",
             ],

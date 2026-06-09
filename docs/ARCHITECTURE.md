@@ -21,6 +21,7 @@ CareerAgent 的目标不是“一个 Prompt 生成简历”，而是一个可观
 - `resume_versions`：定制简历版本。
 - `applications`：投递包和投递状态。
 - `interview_preps`：面试准备包，包含题组、缺口 drill、外部调研清单、已导入面经引用和覆盖指标。
+- `interview_practice_items`：面试准备包按题练习状态，保存题目 ID、状态、信心分和备注。
 - `interview_experiences`：用户导入的牛客网、OfferShow、小红书等同岗面经材料，保存原文、抽取题目、技术主题、轮次和可信度信号。
 - `agent_runs`：Agent 工作流运行记录。
 - `agent_steps`：Agent 步骤级 Trace。
@@ -91,7 +92,9 @@ CareerAgent 的目标不是“一个 Prompt 生成简历”，而是一个可观
 3. 运行 `matcher.match_job`，得到匹配分、已匹配技能、缺口技能和 RAG Top evidence。
 4. `InterviewPrepService` 优先读取已导入的同岗面经材料，生成 source-backed 面经追问；没有导入材料时仍生成牛客网/OfferShow/小红书等可执行调研线索。
 5. 从简历项目技术栈、JD 缺口、工程协作和通用行为问题生成完整面试准备包。
-6. 保存题组、缺口 drill、外部调研清单、面经证据引用和 coverage 指标。
+6. 为每道题分配稳定 `question_id` 和 `source_perspective`，把同岗位面经、简历项目技术栈和其他可能面试问题三类来源写入 coverage。
+7. `InterviewPrepDeliveryService` 负责 Markdown 导出、题目列表展开、来源分布统计和按题练习状态。
+8. 保存题组、缺口 drill、外部调研清单、面经证据引用、coverage 指标和练习进度。
 
 当前不会声称已经自动抓取牛客网、OfferShow 或小红书的真实帖子；这些平台可能有登录、反爬、内容噪声和时效性问题。系统支持用户导入真实面经文本/链接，未导入时生成 `research_checklist` 可执行 query。后续如果接真实抓取，应单独做面经 source smoke，把网络失败和内容质量作为 source 层指标。
 

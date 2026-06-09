@@ -52,7 +52,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - JD parser 评测用 30 个中英混合、带 preferred/negative/synonym 噪声的 JD case 衡量结构化质量。
   - Job relevance 评测用 13 个中文为主 query、130 个带 0-4 级人工相关性标注的候选岗位衡量 source 排序质量。
   - Application packet 评测用 20 个中文投递包 case 衡量求职信/外联文案的事实校验、人工确认边界和误拦截率。
-  - Interview prep 评测用 9 个中文为主 case 衡量面经源调研线索、已导入面经证据、项目技术栈追问、缺口 drill 和通用问题覆盖。
+  - Interview prep 评测用 9 个中文为主 case 衡量面经源调研线索、已导入面经证据、项目技术栈追问、缺口 drill、通用问题、题目 ID、来源分布和 Markdown 交付质量。
   - 真实岗位源 smoke 独立评估 source 层健康度，核心 full-flow 仍使用可控岗位源保证可重复。
   - 真实 JD ingest smoke 独立评估 parser/RAG 入库链路，并检查 query/title/JD 中的核心技能是否进入 structured JD，避免和 source 可达性混淆。
   - PDF Chunk、RAG 和 LLM workflow 都有独立评测集；LLM workflow 会真实跑简历解析、JD 解析、fit judge、简历定制和 Guardrail，并逐 case 写入中间 trace。
@@ -117,7 +117,7 @@ LLM_MODEL=DeepSeek-V4-Pro
 - `/ui/agent-runs`：运行 Agent 并查看步骤。
 - `/ui/resumes`：查看和下载定制简历版本。
 - `/ui/applications`：查看投递包、投递状态、Guardrail issues/warnings 和人工确认边界。
-- `/ui/interview-prep`：导入同岗面经材料，生成和查看面试准备包。
+- `/ui/interview-prep`：导入同岗面经材料，生成和查看面试准备包，导出 Markdown，并记录按题练习状态。
 
 ## 常用 API
 
@@ -132,6 +132,10 @@ LLM_MODEL=DeepSeek-V4-Pro
 - `GET /agent/runs/{run_id}/steps`
 - `POST /resumes/tailor`
 - `POST /interview-prep`
+- `GET /interview-prep/{prep_id}/questions`
+- `GET /interview-prep/{prep_id}/markdown`
+- `GET /interview-prep/{prep_id}/practice`
+- `PUT /interview-prep/{prep_id}/practice`
 - `POST /interview-prep/experiences`
 - `GET /interview-prep/experiences`
 - `GET /llm/debug/logs`

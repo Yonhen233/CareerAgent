@@ -296,6 +296,9 @@ Content-Type: application/json
 ```http
 GET /interview-prep
 GET /interview-prep/{prep_id}
+GET /interview-prep/{prep_id}/questions
+GET /interview-prep/{prep_id}/markdown
+GET /interview-prep/{prep_id}/practice
 GET /interview-prep/experiences
 GET /interview-prep/experiences?job_id=1
 GET /interview-prep/experiences/{experience_id}
@@ -303,13 +306,31 @@ GET /interview-prep/experiences/{experience_id}
 
 导入同岗面经材料使用 `POST /interview-prep/experiences`。请求体包含 `source_site`、`source_url`、`title`、`company`、`role_keyword` 和 `raw_text`；返回的 `extracted_questions_json`、`topics_json`、`rounds_json` 和 `credibility_json` 都来自导入文本本身，不会在文本缺失时编造具体面经题。生成面试准备包时可以传入 `experience_ids`，系统会把这些来源作为 `source_backed_interview_experience` 证据引用。
 
+按题练习状态：
+
+```http
+PUT /interview-prep/{prep_id}/practice
+Content-Type: application/json
+```
+
+```json
+{
+  "question_id": "q01_01",
+  "status": "ready",
+  "confidence_score": 4,
+  "notes": "已按项目背景、技术取舍和指标准备 90 秒回答。"
+}
+```
+
+`status` 支持 `todo`、`practicing`、`ready` 和 `deferred`。`question_id` 必须来自 `GET /interview-prep/{prep_id}/questions`，不存在时直接返回 422，方便开发期通过 trace 排查数据问题。`GET /interview-prep/{prep_id}/markdown` 返回可下载的 Markdown 面试包，包含基本信息、问题来源分布、练习状态、题组、缺口 drill、外部调研清单和证据边界。
+
 返回：
 
 - `summary_json`：岗位、匹配分、fit level、匹配技能、缺口技能和准备重点。
 - `question_sets_json`：按同岗位面经、高频技术追问、简历项目技术栈、缺口追问、工程协作和通用问题分组的问题。
 - `gap_drills_json`：对缺口技能的诚实披露话术和最小补齐任务。
 - `research_checklist_json`：牛客网、OfferShow、小红书和搜索引擎的同岗位面经/业务调研 query。当前只生成调研线索，不声称已经抓取真实帖子。
-- `coverage_json`：题目数、必备技能覆盖率、缺口 drill 覆盖率、证据题占比和是否通过。
+- `coverage_json`：题目数、必备技能覆盖率、缺口 drill 覆盖率、证据题占比、来源分布、三角度覆盖和是否通过。
 
 ## LLM 调用调试
 
@@ -387,7 +408,7 @@ POST /evaluations/application-packet
 POST /evaluations/interview-prep
 ```
 
-该评测使用 `evals/interview_prep_cases.json`，不访问牛客网、OfferShow、小红书等外部平台，只验证面试包是否覆盖同岗位面经调研线索、已导入面经证据、简历项目技术栈追问、JD 缺口 drill 和通用面试问题。返回的 `summary_json` 包含 `pass_rate`、`category_pass_rate`、`research_source_pass_rate`、`source_backed_pass_rate`、`experience_site_pass_rate`、`gap_drill_pass_rate`、`avg_question_count`、`avg_source_backed_question_count`、`avg_required_skill_coverage_rate`、`difficulty_breakdown` 和 `role_type_breakdown`。
+该评测使用 `evals/interview_prep_cases.json`，不访问牛客网、OfferShow、小红书等外部平台，只验证面试包是否覆盖同岗位面经调研线索、已导入面经证据、简历项目技术栈追问、JD 缺口 drill 和通用面试问题。返回的 `summary_json` 包含 `pass_rate`、`category_pass_rate`、`research_source_pass_rate`、`source_backed_pass_rate`、`experience_site_pass_rate`、`gap_drill_pass_rate`、`question_id_pass_rate`、`source_perspective_pass_rate`、`markdown_export_pass_rate`、`avg_question_count`、`avg_source_backed_question_count`、`avg_required_skill_coverage_rate`、`difficulty_breakdown` 和 `role_type_breakdown`。
 
 运行真实岗位源 smoke：
 

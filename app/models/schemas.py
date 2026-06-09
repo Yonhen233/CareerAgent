@@ -348,6 +348,26 @@ class InterviewPrepResponse(BaseModel):
     created_at: datetime
 
 
+class InterviewPracticeItemUpdateRequest(BaseModel):
+    question_id: str = Field(min_length=1, max_length=128)
+    status: Literal["todo", "practicing", "ready", "deferred"] = "todo"
+    confidence_score: int = Field(default=0, ge=0, le=5)
+    notes: str | None = None
+
+
+class InterviewPracticeItemResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    interview_prep_id: int
+    question_id: str
+    status: str
+    confidence_score: int
+    notes: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
 class InterviewExperienceCreateRequest(BaseModel):
     job_id: int | None = None
     source_site: str = Field(min_length=1, max_length=80)

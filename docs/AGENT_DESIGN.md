@@ -148,6 +148,14 @@ RAG 证据不再只按向量分和关键词分排序，`MatcherService.retrieve_
 - 缺口 drill：对 `missing_skills` 生成诚实披露话术和最小补齐任务。
 - 通用面试与行为问题：覆盖动机、失败复盘、模糊需求拆解和协作推进。
 
+每道题都有稳定 `question_id` 和 `source_perspective`。当前核心来源视角是：
+
+- `online_experience_research` / `source_backed_interview_experience`：网上同岗位面经，包括用户导入的真实面经和牛客网、OfferShow、小红书等调研线索。
+- `resume_project_stack` / `resume_project_evidence`：简历项目涉及的技术栈与交付证据。
+- `general_interview` / `jd_technical_depth` / `jd_gap_drill`：其他可能面试问题，包括通用行为题、JD 技术追问和缺口追问。
+
+`InterviewPrepDeliveryService` 负责把准备包渲染成 Markdown，并记录 `todo`、`practicing`、`ready`、`deferred` 等按题练习状态。评测会检查题号唯一性、来源视角覆盖和 Markdown 导出，而不只检查最终生成了一段文本。
+
 当前不直接抓取牛客网、OfferShow、小红书帖子，原因是这些平台公开可达性、登录态、反爬和内容真实性都不稳定。系统支持用户导入真实面经文本/链接，`InterviewExperienceService` 只从原文抽取问题、轮次、技术主题和可信度信号，不会在文本缺失时编造具体帖子。真实自动抓取应作为独立 source 层能力接入，并配套 source smoke；核心面试包生成链路先保持可重复、可评测。否定证据优先级高于正向动作词，例如“没有 Kubernetes 集群维护经验”不能因为包含“维护”就被当成 Kubernetes 支持证据。
 
 ## 当前 Tool

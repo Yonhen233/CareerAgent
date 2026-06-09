@@ -3,6 +3,7 @@ import asyncio
 from app.agents.orchestrator import AgentOrchestrator
 from app.models.entities import Job, Profile
 from app.models.schemas import AgentRunRequest
+from app.services.interview_delivery import InterviewPrepDeliveryService
 from app.services.interview_experience import InterviewExperienceService
 from app.services.interview_prep import InterviewPrepService
 from app.services.text_splitter import ResumeTextSplitter
@@ -165,3 +166,58 @@ def test_interview_prep_uses_imported_source_backed_experience_questions(db_sess
     assert prep.coverage_json["source_backed_question_count"] >= 2
     assert source_questions
     assert any(ref.get("source_site") == "牛客网" for question in source_questions for ref in question["evidence_refs"])
+
+
+def test_interview_prep_delivery_exports_markdown_and_tracks_practice(db_session):
+    profile, job = _seed_profile_job(db_session)
+    prep = InterviewPrepService().create_interview_prep(db_session, profile=profile, job=job)
+    delivery = InterviewPrepDeliveryService()
+    questions = delivery.question_items(prep)
+
+    assert questions
+    assert all(item["question_id"] for item in questions)
+    source_summary = delivery.source_perspective_summary(prep)
+    assert source_summary["core_perspectives"]["online_experience"] > 0
+    assert source_summary["core_perspectives"]["resume_project_stack"] > 0
+    assert source_summary["core_perspectives"]["other_interview_questions"] > 0
+
+    first_question_id = questions[0]["question_id"]
+    row = delivery.upsert_practice_item(
+        db_session,
+        prep,
+        question_id=first_question_id,
+        status="ready",
+        confidence_score=4,
+        notes="已按项目背景、行动、指标准备 90 秒回答。",
+    )
+    summary = delivery.progress_summary(prep, [row])
+    markdown = delivery.render_markdown(prep, practice_items=[row])
+
+    assert row.status == "ready"
+    assert summary["ready_count"] == 1
+    assert summary["ready_rate"] > 0
+    assert first_question_id in markdown
+    assert "状态：ready" in markdown
+    assert "信心：4/5" in markdown
+    assert "问题来源分布" in markdown
+    assert "牛客/OfferShow/小红书调研" in markdown
+    assert "简历项目技术栈" in markdown
+    assert "证据边界" in markdown
+
+
+def test_interview_practice_rejects_unknown_question_id(db_session):
+    profile, job = _seed_profile_job(db_session)
+    prep = InterviewPrepService().create_interview_prep(db_session, profile=profile, job=job)
+
+    try:
+        InterviewPrepDeliveryService().upsert_practice_item(
+            db_session,
+            prep,
+            question_id="q99_99",
+            status="ready",
+            confidence_score=5,
+        )
+    except ValueError as exc:
+        assert "does not belong" in str(exc)
+    else:
+        raise AssertionError("unknown question_id should be rejected")

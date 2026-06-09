@@ -16,6 +16,7 @@ from app.models.schemas import AgentRunRequest, GuidedProfileRequest
 from app.services.context_compressor import ContextCompressor
 from app.services.application_guardrails import ApplicationPacketGuardrail
 from app.services.guardrails import ResumeGuardrailService
+from app.services.interview_delivery import InterviewPrepDeliveryService
 from app.services.interview_prep import InterviewPrepService
 from app.services.jd_parser import JDParserService
 from app.services.job_relevance import (
@@ -139,6 +140,7 @@ class EvaluationService:
         self.context_compressor = ContextCompressor()
         self.application_guardrail = ApplicationPacketGuardrail()
         self.interview_prep_service = InterviewPrepService(matcher=self.matcher)
+        self.interview_delivery = InterviewPrepDeliveryService()
         self.jd_parser = JDParserService()
         self.job_search_service = JobSearchService()
         self.vector_index = SQLiteVectorIndex()
@@ -1806,6 +1808,26 @@ class EvaluationService:
         research_sites = {item.get("site") for item in prep.research_checklist_json or []}
         drill_skills = {str(item.get("skill") or "") for item in prep.gap_drills_json or []}
         questions = [question for group in prep.question_sets_json or [] for question in group.get("questions", [])]
+        delivery_questions = self.interview_delivery.question_items(prep)
+        question_ids = [item["question_id"] for item in delivery_questions]
+        source_perspective_summary = self.interview_delivery.source_perspective_summary(prep)
+        core_perspective_counts = source_perspective_summary.get("core_perspectives") or {}
+        question_id_passed = (
+            len(question_ids) == len(questions)
+            and all(question_ids)
+            and len(set(question_ids)) == len(question_ids)
+        )
+        source_perspective_passed = all(
+            int(core_perspective_counts.get(key) or 0) > 0
+            for key in ("online_experience", "resume_project_stack", "other_interview_questions")
+        )
+        markdown = self.interview_delivery.render_markdown(prep)
+        markdown_export_passed = (
+            prep.title in markdown
+            and "## 问题来源分布" in markdown
+            and "## 外部调研清单" in markdown
+            and "## 证据边界" in markdown
+        )
         question_text = json.dumps(questions, ensure_ascii=False)
         source_evidence = prep.source_evidence_json or []
         experience_sources = [
@@ -1835,6 +1857,9 @@ class EvaluationService:
             and gap_passed
             and experience_site_passed
             and source_backed_passed
+            and question_id_passed
+            and source_perspective_passed
+            and markdown_export_passed
             and len(questions) >= min_question_count
             and keyword_hit_rate >= float(case.get("min_keyword_hit_rate") or 0.6)
         )
@@ -1850,6 +1875,10 @@ class EvaluationService:
             "source_backed_experience_count": len(experience_sources),
             "source_backed_question_count": int((prep.coverage_json or {}).get("source_backed_question_count") or 0),
             "coverage": prep.coverage_json,
+            "question_id_passed": question_id_passed,
+            "source_perspective_passed": source_perspective_passed,
+            "markdown_export_passed": markdown_export_passed,
+            "source_perspective_summary": source_perspective_summary,
             "category_passed": category_passed,
             "research_passed": research_passed,
             "gap_passed": gap_passed,
@@ -1888,6 +1917,9 @@ class EvaluationService:
             "gap_drill_pass_rate": self._avg_bool(case_results, "gap_passed"),
             "experience_site_pass_rate": self._avg_bool(case_results, "experience_site_passed"),
             "source_backed_pass_rate": self._avg_bool(case_results, "source_backed_passed"),
+            "question_id_pass_rate": self._avg_bool(case_results, "question_id_passed"),
+            "source_perspective_pass_rate": self._avg_bool(case_results, "source_perspective_passed"),
+            "markdown_export_pass_rate": self._avg_bool(case_results, "markdown_export_passed"),
             "avg_keyword_hit_rate": self._avg_number(case_results, "keyword_hit_rate"),
             "avg_required_skill_coverage_rate": self._avg_number(
                 [{"value": (item.get("coverage") or {}).get("required_skill_coverage_rate")} for item in case_results],
@@ -1915,6 +1947,8 @@ class EvaluationService:
                 "research_source_pass_rate": self._avg_bool(items, "research_passed"),
                 "gap_drill_pass_rate": self._avg_bool(items, "gap_passed"),
                 "source_backed_pass_rate": self._avg_bool(items, "source_backed_passed"),
+                "source_perspective_pass_rate": self._avg_bool(items, "source_perspective_passed"),
+                "markdown_export_pass_rate": self._avg_bool(items, "markdown_export_passed"),
             }
             for group, items in sorted(grouped.items())
         }
@@ -1927,6 +1961,9 @@ class EvaluationService:
             "gap_drill_failed": lambda item: item.get("gap_passed") is False,
             "experience_site_failed": lambda item: item.get("experience_site_passed") is False,
             "source_backed_failed": lambda item: item.get("source_backed_passed") is False,
+            "question_id_failed": lambda item: item.get("question_id_passed") is False,
+            "source_perspective_failed": lambda item: item.get("source_perspective_passed") is False,
+            "markdown_export_failed": lambda item: item.get("markdown_export_passed") is False,
             "keyword_hit_low": lambda item: self._coerce_float(item.get("keyword_hit_rate")) < 0.6,
         }
         return {name: sum(1 for item in rows if check(item)) for name, check in checks.items()}

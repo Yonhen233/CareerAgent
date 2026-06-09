@@ -42,6 +42,19 @@ function tags(values) {
   return `<div class="tags">${(values || []).slice(0, 8).map((x) => `<span class="tag">${escapeHtml(x)}</span>`).join("")}</div>`;
 }
 
+function interviewSourceLabel(source) {
+  const labels = {
+    source_backed_interview_experience: "已导入面经",
+    online_experience_research: "同岗面经调研",
+    resume_project_evidence: "项目证据",
+    resume_project_stack: "项目技术栈",
+    jd_technical_depth: "JD 技术",
+    jd_gap_drill: "缺口追问",
+    general_interview: "通用问题",
+  };
+  return labels[source] || source || "未标注";
+}
+
 function validationList(items, emptyText) {
   if (!items || !items.length) return `<div class="meta">${escapeHtml(emptyText)}</div>`;
   return `<ul class="compact-list">${items.map((item) => `
@@ -199,6 +212,7 @@ async function loadInterviewPreps() {
   renderItems("#interview-prep-list", rows, (row) => {
     const summary = row.summary_json || {};
     const coverage = row.coverage_json || {};
+    const coreSources = coverage.core_perspective_counts || {};
     const questionSets = row.question_sets_json || [];
     const drills = row.gap_drills_json || [];
     const research = row.research_checklist_json || [];
@@ -208,19 +222,23 @@ async function loadInterviewPreps() {
           <span>#${row.id} ${escapeHtml(row.title)}</span>
           <span class="status-pill ${coverage.passed ? "ok" : ""}">${coverage.passed ? "ready" : "review"}</span>
         </div>
-        <div class="meta">Profile ${row.profile_id} · Job ${row.job_id} · ${escapeHtml(summary.fit_level || "unknown")} · score ${escapeHtml(summary.overall_score ?? "-")}</div>
+        <div class="meta">Profile ${row.profile_id} / Job ${row.job_id} / ${escapeHtml(summary.fit_level || "unknown")} / score ${escapeHtml(summary.overall_score ?? "-")}</div>
+        <p><a class="button ghost" href="/interview-prep/${row.id}/markdown"><i data-lucide="download"></i> Markdown</a></p>
         <div class="validation-panel ${coverage.passed ? "validation-ok" : "validation-risk"}">
           <div class="validation-grid">
             <div><strong>题目数</strong><div class="meta">${coverage.question_count || 0}</div></div>
             <div><strong>必备技能覆盖</strong><div class="meta">${Math.round((coverage.required_skill_coverage_rate || 0) * 100)}%</div></div>
             <div><strong>缺口 Drill</strong><div class="meta">${coverage.gap_drill_count || 0}</div></div>
             <div><strong>证据题占比</strong><div class="meta">${Math.round((coverage.evidence_backed_question_rate || 0) * 100)}%</div></div>
+            <div><strong>面经角度</strong><div class="meta">${coreSources.online_experience || 0}</div></div>
+            <div><strong>项目技术栈</strong><div class="meta">${coreSources.resume_project_stack || 0}</div></div>
+            <div><strong>其他问题</strong><div class="meta">${coreSources.other_interview_questions || 0}</div></div>
           </div>
         </div>
         ${questionSets.map((group) => `
           <h3>${escapeHtml(group.category)}</h3>
           <ul class="compact-list">${(group.questions || []).slice(0, 4).map((q) => `
-            <li><span class="tag">${escapeHtml(q.risk_level || "low")}</span>${escapeHtml(q.question)}</li>
+            <li><span class="tag">${escapeHtml(q.question_id || "-")}</span><span class="tag">${escapeHtml(interviewSourceLabel(q.source_perspective))}</span><span class="tag">${escapeHtml(q.risk_level || "low")}</span>${escapeHtml(q.question)}</li>
           `).join("")}</ul>
         `).join("")}
         ${drills.length ? `<h3>缺口 Drill</h3><ul class="compact-list">${drills.slice(0, 5).map((item) => `<li><span class="tag">${escapeHtml(item.skill)}</span>${escapeHtml(item.honest_strategy)}</li>`).join("")}</ul>` : ""}
@@ -413,6 +431,22 @@ function bindForms() {
     toast("Interview experience imported");
     event.currentTarget.reset();
     loadInterviewExperiences();
+  });
+
+  $("#interview-practice-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const raw = formJson(event.currentTarget);
+    await api(`/interview-prep/${Number(raw.prep_id)}/practice`, {
+      method: "PUT",
+      body: JSON.stringify({
+        question_id: raw.question_id,
+        status: raw.status || "todo",
+        confidence_score: Number(raw.confidence_score || 0),
+        notes: raw.notes || null,
+      }),
+    });
+    toast("Practice status updated");
+    loadInterviewPreps();
   });
 
   document.querySelectorAll("[data-refresh]").forEach((button) => {

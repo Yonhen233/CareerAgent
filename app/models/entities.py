@@ -192,6 +192,33 @@ class InterviewPrep(Base):
     profile: Mapped[Profile] = relationship(back_populates="interview_preps")
     job: Mapped[Job] = relationship(back_populates="interview_preps")
     match_result: Mapped[MatchResult | None] = relationship()
+    practice_items: Mapped[list["InterviewPracticeItem"]] = relationship(
+        back_populates="interview_prep",
+        cascade="all, delete-orphan",
+    )
+
+
+class InterviewPracticeItem(Base):
+    __tablename__ = "interview_practice_items"
+    __table_args__ = (
+        UniqueConstraint("interview_prep_id", "question_id", name="uq_interview_practice_question"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    interview_prep_id: Mapped[int] = mapped_column(ForeignKey("interview_preps.id"), nullable=False, index=True)
+    question_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="todo", index=True)
+    confidence_score: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+    interview_prep: Mapped[InterviewPrep] = relationship(back_populates="practice_items")
 
 
 class InterviewExperience(Base):

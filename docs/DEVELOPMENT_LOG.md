@@ -1,5 +1,38 @@
 # 开发日志
 
+## 2026-06-09 11:33 +08:00：面试包交付层和三角度覆盖评测增强
+
+### 这次做了什么
+- 新增 `InterviewPracticeItem` 数据模型，用 `interview_prep_id + question_id` 记录每道面试题的练习状态、信心分和备注。
+- 新增 `InterviewPrepDeliveryService`，负责展开题目列表、统计来源分布、导出 Markdown 面试包和更新按题练习状态。
+- `InterviewPrepService` 给每道题补稳定 `question_id` 和 `source_perspective`，并在 `coverage_json` 中记录同岗位面经/面经调研、简历项目技术栈、其他可能面试问题三类核心来源计数。
+- 新增 `GET /interview-prep/{prep_id}/questions`、`GET /interview-prep/{prep_id}/practice`、`PUT /interview-prep/{prep_id}/practice` 和 `GET /interview-prep/{prep_id}/markdown`。
+- `/ui/interview-prep` 增加 Markdown 导出入口、按题练习状态表单，以及面试包卡片上的三角度来源计数。
+- 面试准备包评测新增 `question_id_pass_rate`、`source_perspective_pass_rate` 和 `markdown_export_pass_rate`，不再只检查题组名称。
+- README、API、架构、Agent 设计和评测文档已更新为中文说明。
+
+### 发现的问题
+- 只检查“同岗位面经与高频追问 / 简历项目技术栈追问 / 通用面试与行为问题”这些题组名还不够，真实产品里需要能追踪每道题到底来自网上同岗面经、简历技术栈还是其他面试问题。
+- 项目深挖题原本没有显式 `source_perspective`，后续评测或导出时会变成“未知来源”，不利于判断面试包是否来源单一。
+- 只有生成结果没有交付形态时，用户无法拿着面试包直接练习，也无法记录哪些问题已经准备好。
+
+### 怎么修复
+- 为问题来源建立结构化标签：`source_backed_interview_experience`、`online_experience_research`、`resume_project_evidence`、`resume_project_stack`、`jd_technical_depth`、`jd_gap_drill` 和 `general_interview`。
+- 把三角度覆盖写入 `coverage_json.core_perspective_counts`：同岗面经/面经调研、简历项目技术栈、其他可能面试问题必须都有题。
+- Markdown 导出包含基本信息、问题来源分布、练习状态、题组、缺口 drill、外部调研清单和证据边界。
+- 评测 case result 增加题号唯一性、来源视角覆盖和 Markdown 导出检查；summary 和 failure breakdown 同步暴露这些指标。
+- 全量测试通过：`59 passed`。独立面试准备包评测结果：`case_count=9`、`pass_rate=1.0000`、`question_id_pass_rate=1.0000`、`source_perspective_pass_rate=1.0000`、`markdown_export_pass_rate=1.0000`、`avg_question_count=25.4444`。
+
+### 未修复的问题
+- 还没有自动抓取牛客网、OfferShow、小红书正文；原因仍然是登录态、反爬、内容噪声和时效性不稳定，需要作为独立 source smoke 接入，不能混进核心可重复回归。
+- 面试包仍是结构化规则生成，没有做多篇面经的 LLM 聚合去重；原因是本轮优先补齐可交付、可练习、可量化验收的产品闭环。
+- 还没有 PDF 导出；原因是 Markdown 已经满足可读和可提交材料的基础交付，PDF 应作为后续文档渲染层处理。
+
+### 下一步
+- 增加面经 source smoke，分别记录牛客网、OfferShow、小红书的可达性、登录限制、空结果、岗位相关性和内容时间。
+- 在导入多篇面经后增加 LLM 摘要/去重增强层，但保留原文引用、来源 URL 和可信度分。
+- 给面试包增加模拟问答记录和薄弱题复习队列，把 `practice_items` 从状态记录扩展成练习闭环。
+
 ## 2026-06-09 10:58 +08:00：面试包接入已导入同岗面经证据
 
 ### 这次做了什么
