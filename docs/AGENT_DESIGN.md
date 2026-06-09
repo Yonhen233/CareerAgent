@@ -148,13 +148,13 @@ RAG 证据不再只按向量分和关键词分排序，`MatcherService.retrieve_
 - 缺口 drill：对 `missing_skills` 生成诚实披露话术和最小补齐任务。
 - 通用面试与行为问题：覆盖动机、失败复盘、模糊需求拆解和协作推进。
 
-每道题都有稳定 `question_id` 和 `source_perspective`。当前核心来源视角是：
+每道题都有稳定 `question_id`、可追溯的 `source_perspective` 和用于产品验收的 `preparation_angle`。两层标签的职责不同：`source_perspective` 说明题目来自已导入面经、调研线索、项目证据、JD 深挖还是缺口 drill；`preparation_angle` 把这些来源归并成真实准备时更容易理解的三个角度：
 
-- `online_experience_research` / `source_backed_interview_experience`：网上同岗位面经，包括用户导入的真实面经和牛客网、OfferShow、小红书等调研线索。
-- `resume_project_stack` / `resume_project_evidence`：简历项目涉及的技术栈与交付证据。
-- `general_interview` / `jd_technical_depth` / `jd_gap_drill`：其他可能面试问题，包括通用行为题、JD 技术追问和缺口追问。
+- `same_role_interview_experience`：网上同岗位面经，包括用户导入的真实面经和牛客网、OfferShow、小红书等调研线索。
+- `resume_project_tech_stack`：简历项目涉及的技术栈与交付证据。
+- `other_possible_interview_questions`：其他可能面试问题，包括通用行为题、JD 技术追问和缺口追问。
 
-`InterviewPrepDeliveryService` 负责把准备包渲染成 Markdown，并记录 `todo`、`practicing`、`ready`、`deferred` 等按题练习状态。评测会检查题号唯一性、来源视角覆盖和 Markdown 导出，而不只检查最终生成了一段文本。
+`summary_json.preparation_angles` 会记录每个角度的输入来源、题目数和准备重点；`coverage_json.preparation_angle_counts` 和 `preparation_angles_passed` 用来量化三视角覆盖。`InterviewPrepDeliveryService` 负责把准备包渲染成 Markdown，并记录 `todo`、`practicing`、`ready`、`deferred` 等按题练习状态。评测会检查题号唯一性、来源视角覆盖、准备角度覆盖和 Markdown 导出，而不只检查最终生成了一段文本。
 
 当前不把牛客网、OfferShow、小红书公开搜索结果直接写入面试包，原因是这些平台公开可达性、登录态、反爬、客户端渲染和内容真实性都不稳定。系统支持用户导入真实面经文本/链接，`InterviewExperienceService` 只从原文抽取问题、轮次、技术主题和可信度信号，不会在文本缺失时编造具体帖子。`interview-source-smoke` 已作为独立 source 层能力接入，用来记录三类平台的可达性、空结果、面经信号、query relevance 和内容可抽取性；`/ui/evaluations` 只会把候选标题、URL 和摘要预填到人工确认表单，用户补全正文并确认后才写入 `InterviewExperience`。核心面试包生成链路仍保持可重复、可评测。否定证据优先级高于正向动作词，例如“没有 Kubernetes 集群维护经验”不能因为包含“维护”就被当成 Kubernetes 支持证据。
 

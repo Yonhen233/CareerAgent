@@ -1,5 +1,37 @@
 # 开发日志
 
+## 2026-06-09 23:04 +08:00：面试包三类准备角度结构化
+
+### 这次做了什么
+- `InterviewPrepService` 为每道题新增 `preparation_angle` 和 `preparation_angle_label`，把题目归并为“网上同岗位面经”“简历项目技术栈”“其他可能面试问题”三类准备角度。
+- `summary_json.preparation_angles` 新增每个角度的输入来源、题目数、准备重点和对应题源类型；`coverage_json` 新增 `preparation_angle_counts`、`preparation_angle_labels` 和 `preparation_angles_passed`。
+- `InterviewPrepDeliveryService` 的题目展开、来源统计和 Markdown 导出都展示准备角度，Markdown 新增“准备角度”章节。
+- `/ui/interview-prep` 的准备记录卡片新增三视角覆盖状态、准备角度列表，并在题目标签里展示准备角度。
+- `interview_prep` 评测新增 `preparation_angle_pass_rate`，并要求 Markdown 包含“准备角度”章节。
+- README、Agent 设计文档和评测文档已更新中文说明。
+
+### 发现的问题
+- 面试包之前虽然有 `source_perspective`，但它更偏“题目来源追溯”，不能直接表达真实准备时的三类视角。
+- 只靠题组名和来源分布，后续新增题型时可能出现“来源标签还在，但面试包没有清晰三视角计划”的虚假通过。
+- 页面列表只展示面经角度、项目技术栈、其他问题的计数，没有说明每类问题的输入来源和准备重点。
+
+### 怎么修复
+- 增加 `source_perspective -> preparation_angle` 的稳定映射：导入/调研面经归入网上同岗位面经，项目证据/技术栈归入简历项目技术栈，JD 技术深挖/缺口/通用行为题归入其他可能面试问题。
+- 面试包生成时统一补齐题目 ID、来源视角和准备角度元数据，避免页面、导出和评测各自推断。
+- 评测强制检查三类准备角度都存在，并把 `preparation_angle_pass_rate` 写入 summary。
+- 目标测试通过：`28 passed`；全量回归通过：`62 passed`；`node --check app/static/js/main.js` 通过。
+- 页面 smoke 通过：`GET /ui/interview-prep` 返回 `200`，页面包含 `interview-prep-form` 和“面试准备包”；应用内浏览器加载页面后主 JS 存在，控制台无 error。
+
+### 未修复的问题
+- 还没有基于多篇已确认面经做 LLM 聚合去重；原因是需要保留每个问题的原文引用、来源 URL 和可信度，不能简单把多篇面经混成一段摘要。
+- 还没有把面试包按三类角度做独立练习进度统计；原因是本轮先把生成、展示、导出和评测的结构化标签打通。
+- 还没有自动抓取牛客网、OfferShow、小红书正文；原因仍然是登录态、反爬、客户端渲染和授权边界，需要继续走 source smoke + 人工确认导入。
+
+### 下一步
+- 在多篇已导入面经基础上增加 LLM 摘要/去重增强层，同时保留原文引用、来源 URL 和可信度分。
+- 给面试准备页增加按准备角度聚合的练习进度、薄弱题复习队列和模拟问答记录。
+- 给评测工作台增加 LLM workflow、RAG strategy 和 real-job-ingest smoke 的运行入口与中间 trace 展示。
+
 ## 2026-06-09 22:18 +08:00：导入面经后提供面试包快捷入口
 
 ### 这次做了什么

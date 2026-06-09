@@ -9,6 +9,23 @@ from app.services.interview_experience import InterviewExperienceService
 from app.services.matcher import MatcherService, normalize_skill
 
 
+INTERVIEW_PREP_ANGLE_LABELS = {
+    "same_role_interview_experience": "网上同岗位面经",
+    "resume_project_tech_stack": "简历项目技术栈",
+    "other_possible_interview_questions": "其他可能面试问题",
+}
+
+SOURCE_PERSPECTIVE_TO_ANGLE = {
+    "source_backed_interview_experience": "same_role_interview_experience",
+    "online_experience_research": "same_role_interview_experience",
+    "resume_project_evidence": "resume_project_tech_stack",
+    "resume_project_stack": "resume_project_tech_stack",
+    "jd_technical_depth": "other_possible_interview_questions",
+    "jd_gap_drill": "other_possible_interview_questions",
+    "general_interview": "other_possible_interview_questions",
+}
+
+
 class InterviewPrepService:
     """Build an evidence-backed interview preparation packet from Profile, JD, and match trace."""
 
@@ -57,7 +74,7 @@ class InterviewPrepService:
             self._general_interview_questions(profile, job),
         ]
         question_sets = [item for item in question_sets if item["questions"]]
-        self._attach_question_ids(question_sets)
+        self._attach_question_metadata(question_sets)
         gap_drills = self._gap_drills(job, missing)
         research_checklist = self._research_checklist(job, required, missing)
         coverage = self._coverage(
@@ -70,6 +87,16 @@ class InterviewPrepService:
             experience_evidence=experience_evidence,
         )
         source_evidence = [*experience_evidence, *evidence]
+        preparation_angles = self._preparation_angles(
+            profile=profile,
+            job=job,
+            question_sets=question_sets,
+            research_checklist=research_checklist,
+            coverage=coverage,
+            experience_evidence=experience_evidence,
+            required=required,
+            missing=missing,
+        )
         summary = {
             "position": job.title,
             "company": job.company,
@@ -84,6 +111,7 @@ class InterviewPrepService:
             "preparation_focus": self._preparation_focus(match, missing, evidence),
             "boundary": "缺少证据的技能只能作为待补强或诚实披露，不能包装成已交付经验。",
             "source_perspectives": ["同岗位面经/面经调研", "简历项目技术栈深挖", "其他可能面试问题"],
+            "preparation_angles": preparation_angles,
         }
         prep = InterviewPrep(
             profile_id=profile.id,
@@ -96,17 +124,20 @@ class InterviewPrepService:
             research_checklist_json=research_checklist,
             source_evidence_json=source_evidence,
             coverage_json=coverage,
-            generation_mode="structured_rules_v2_source_backed",
+            generation_mode="structured_rules_v3_preparation_angles",
         )
         db.add(prep)
         db.commit()
         db.refresh(prep)
         return prep
 
-    def _attach_question_ids(self, question_sets: list[dict[str, Any]]) -> None:
+    def _attach_question_metadata(self, question_sets: list[dict[str, Any]]) -> None:
         for group_index, group in enumerate(question_sets, start=1):
             for question_index, question in enumerate(group.get("questions") or [], start=1):
                 question.setdefault("question_id", f"q{group_index:02d}_{question_index:02d}")
+                angle = self._angle_for_source(str(question.get("source_perspective") or ""))
+                question.setdefault("preparation_angle", angle)
+                question.setdefault("preparation_angle_label", INTERVIEW_PREP_ANGLE_LABELS[angle])
 
     def _source_backed_experience_questions(
         self,
@@ -467,9 +498,20 @@ class InterviewPrepService:
             + source_perspective_counts.get("jd_technical_depth", 0)
             + source_perspective_counts.get("jd_gap_drill", 0),
         }
+        preparation_angle_counts = {key: 0 for key in INTERVIEW_PREP_ANGLE_LABELS}
+        for question in questions:
+            angle = str(question.get("preparation_angle") or self._angle_for_source(str(question.get("source_perspective") or "")))
+            preparation_angle_counts[angle] = preparation_angle_counts.get(angle, 0) + 1
         source_evidence = experience_evidence or []
         core_perspectives_passed = all(count > 0 for count in core_perspective_counts.values())
-        passed = required_covered and missing_covered and core_perspectives_passed and len(questions) >= 6
+        preparation_angles_passed = all(preparation_angle_counts.get(key, 0) > 0 for key in INTERVIEW_PREP_ANGLE_LABELS)
+        passed = (
+            required_covered
+            and missing_covered
+            and core_perspectives_passed
+            and preparation_angles_passed
+            and len(questions) >= 6
+        )
         return {
             "passed": passed,
             "required_skill_count": len(required_norm),
@@ -481,6 +523,9 @@ class InterviewPrepService:
             "source_perspective_counts": dict(sorted(source_perspective_counts.items())),
             "core_perspective_counts": core_perspective_counts,
             "core_perspectives_passed": core_perspectives_passed,
+            "preparation_angle_counts": preparation_angle_counts,
+            "preparation_angle_labels": INTERVIEW_PREP_ANGLE_LABELS,
+            "preparation_angles_passed": preparation_angles_passed,
             "research_mode": "source_backed_and_checklist" if source_evidence else "checklist_only",
             "source_perspectives": [
                 "source_backed_interview_experience",
@@ -504,8 +549,80 @@ class InterviewPrepService:
             "high_risk_question_count": len(high_risk_questions),
         }
 
+    def _preparation_angles(
+        self,
+        *,
+        profile: Profile,
+        job: Job,
+        question_sets: list[dict[str, Any]],
+        research_checklist: list[dict[str, Any]],
+        coverage: dict[str, Any],
+        experience_evidence: list[dict[str, Any]],
+        required: list[str],
+        missing: list[str],
+    ) -> list[dict[str, Any]]:
+        counts = coverage.get("preparation_angle_counts") or {}
+        stack = self._profile_tech_stack(profile)[:8]
+        project_names = [
+            str(project.get("name"))
+            for project in (profile.structured_profile_json or {}).get("projects", []) or []
+            if isinstance(project, dict) and str(project.get("name") or "").strip()
+        ][:5]
+        research_sites = [str(item.get("site")) for item in research_checklist if item.get("site")]
+        source_sites = sorted({str(item.get("source_site")) for item in experience_evidence if item.get("source_site")})
+
+        return [
+            {
+                "angle": "same_role_interview_experience",
+                "label": INTERVIEW_PREP_ANGLE_LABELS["same_role_interview_experience"],
+                "question_count": int(counts.get("same_role_interview_experience") or 0),
+                "source_inputs": [
+                    f"已导入同岗面经 {len(experience_evidence)} 篇" if experience_evidence else "暂无已导入正文，先生成同岗面经调研线索",
+                    "调研平台：" + "、".join(research_sites[:3]),
+                    "已确认来源：" + ("、".join(source_sites) if source_sites else "待人工确认"),
+                ],
+                "focus": [
+                    "优先看牛客网、OfferShow、小红书等同岗位面经里的轮次、追问和高频技术点。",
+                    "把外部问题映射到自己的简历项目证据或缺口 drill，不把搜索摘要当作已确认事实。",
+                ],
+                "question_source_types": ["source_backed_interview_experience", "online_experience_research"],
+            },
+            {
+                "angle": "resume_project_tech_stack",
+                "label": INTERVIEW_PREP_ANGLE_LABELS["resume_project_tech_stack"],
+                "question_count": int(counts.get("resume_project_tech_stack") or 0),
+                "source_inputs": [
+                    "项目：" + ("、".join(project_names) if project_names else "从简历原文抽取项目主线"),
+                    "技术栈：" + ("、".join(stack[:6]) if stack else "暂无结构化技术栈，使用 RAG 项目证据补齐"),
+                ],
+                "focus": [
+                    "围绕架构位置、技术选型、替代方案、性能指标、失败边界和本人贡献深挖。",
+                    "简历写到的技术必须准备可追问回答，避免只会罗列名词。",
+                ],
+                "question_source_types": ["resume_project_evidence", "resume_project_stack"],
+            },
+            {
+                "angle": "other_possible_interview_questions",
+                "label": INTERVIEW_PREP_ANGLE_LABELS["other_possible_interview_questions"],
+                "question_count": int(counts.get("other_possible_interview_questions") or 0),
+                "source_inputs": [
+                    "JD 必备技能：" + ("、".join(required[:6]) if required else "未结构化出必备技能"),
+                    "待补齐技能：" + ("、".join(missing[:6]) if missing else "暂无明显缺口"),
+                    "岗位职责：" + self._short_text("；".join(str(item) for item in (job.structured_jd_json or {}).get("responsibilities", [])[:3]), 100),
+                ],
+                "focus": [
+                    "覆盖 JD 技术深挖、缺口诚实披露、工程协作、动机和行为问题。",
+                    "对没有证据的技能直接进入补齐计划，不用兜底话术伪装成经验。",
+                ],
+                "question_source_types": ["jd_technical_depth", "jd_gap_drill", "general_interview"],
+            },
+        ]
+
     def _skills(self, job: Job, key: str) -> list[str]:
         return self._unique([str(item).strip() for item in (job.structured_jd_json or {}).get(key, []) if str(item).strip()])
+
+    def _angle_for_source(self, source_perspective: str) -> str:
+        return SOURCE_PERSPECTIVE_TO_ANGLE.get(source_perspective, "other_possible_interview_questions")
 
     def _evidence(self, match: MatchResult) -> list[dict[str, Any]]:
         return [

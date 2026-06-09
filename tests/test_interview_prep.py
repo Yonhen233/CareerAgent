@@ -77,10 +77,20 @@ def test_interview_prep_covers_online_project_and_general_perspectives(db_sessio
     prep = InterviewPrepService().create_interview_prep(db_session, profile=profile, job=job)
 
     categories = {group["category"] for group in prep.question_sets_json}
+    questions = [question for group in prep.question_sets_json for question in group.get("questions", [])]
+    preparation_angles = {item["angle"]: item for item in prep.summary_json["preparation_angles"]}
     assert "同岗位面经与高频追问" in categories
     assert "简历项目技术栈追问" in categories
     assert "通用面试与行为问题" in categories
+    assert set(preparation_angles) == {
+        "same_role_interview_experience",
+        "resume_project_tech_stack",
+        "other_possible_interview_questions",
+    }
+    assert all(item["question_count"] > 0 for item in preparation_angles.values())
+    assert {question["preparation_angle"] for question in questions} >= set(preparation_angles)
     assert prep.coverage_json["passed"] is True
+    assert prep.coverage_json["preparation_angles_passed"] is True
     assert prep.coverage_json["required_skill_coverage_rate"] == 1.0
     assert prep.coverage_json["missing_skill_drill_rate"] == 1.0
     assert {item["site"] for item in prep.research_checklist_json} >= {"牛客网", "OfferShow", "小红书"}
@@ -180,6 +190,9 @@ def test_interview_prep_delivery_exports_markdown_and_tracks_practice(db_session
     assert source_summary["core_perspectives"]["online_experience"] > 0
     assert source_summary["core_perspectives"]["resume_project_stack"] > 0
     assert source_summary["core_perspectives"]["other_interview_questions"] > 0
+    assert source_summary["preparation_angle_counts"]["same_role_interview_experience"] > 0
+    assert source_summary["preparation_angle_counts"]["resume_project_tech_stack"] > 0
+    assert source_summary["preparation_angle_counts"]["other_possible_interview_questions"] > 0
 
     first_question_id = questions[0]["question_id"]
     row = delivery.upsert_practice_item(
@@ -200,8 +213,11 @@ def test_interview_prep_delivery_exports_markdown_and_tracks_practice(db_session
     assert "状态：ready" in markdown
     assert "信心：4/5" in markdown
     assert "问题来源分布" in markdown
+    assert "准备角度" in markdown
+    assert "网上同岗位面经" in markdown
     assert "牛客/OfferShow/小红书调研" in markdown
     assert "简历项目技术栈" in markdown
+    assert "其他可能面试问题" in markdown
     assert "证据边界" in markdown
 
 

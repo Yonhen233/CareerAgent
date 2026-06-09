@@ -55,6 +55,15 @@ function interviewSourceLabel(source) {
   return labels[source] || source || "未标注";
 }
 
+function interviewAngleLabel(angle) {
+  const labels = {
+    same_role_interview_experience: "网上同岗面经",
+    resume_project_tech_stack: "项目技术栈",
+    other_possible_interview_questions: "其他问题",
+  };
+  return labels[angle] || angle || "其他问题";
+}
+
 function validationList(items, emptyText) {
   if (!items || !items.length) return `<div class="meta">${escapeHtml(emptyText)}</div>`;
   return `<ul class="compact-list">${items.map((item) => `
@@ -213,6 +222,7 @@ async function loadInterviewPreps() {
     const summary = row.summary_json || {};
     const coverage = row.coverage_json || {};
     const coreSources = coverage.core_perspective_counts || {};
+    const preparationAngles = summary.preparation_angles || preparationAnglesFromCoverage(coverage);
     const questionSets = row.question_sets_json || [];
     const drills = row.gap_drills_json || [];
     const research = row.research_checklist_json || [];
@@ -233,12 +243,14 @@ async function loadInterviewPreps() {
             <div><strong>面经角度</strong><div class="meta">${coreSources.online_experience || 0}</div></div>
             <div><strong>项目技术栈</strong><div class="meta">${coreSources.resume_project_stack || 0}</div></div>
             <div><strong>其他问题</strong><div class="meta">${coreSources.other_interview_questions || 0}</div></div>
+            <div><strong>三视角覆盖</strong><div class="meta">${coverage.preparation_angles_passed ? "通过" : "待补"}</div></div>
           </div>
         </div>
+        ${renderPreparationAngles(preparationAngles)}
         ${questionSets.map((group) => `
           <h3>${escapeHtml(group.category)}</h3>
           <ul class="compact-list">${(group.questions || []).slice(0, 4).map((q) => `
-            <li><span class="tag">${escapeHtml(q.question_id || "-")}</span><span class="tag">${escapeHtml(interviewSourceLabel(q.source_perspective))}</span><span class="tag">${escapeHtml(q.risk_level || "low")}</span>${escapeHtml(q.question)}</li>
+            <li><span class="tag">${escapeHtml(q.question_id || "-")}</span><span class="tag">${escapeHtml(interviewAngleLabel(q.preparation_angle))}</span><span class="tag">${escapeHtml(interviewSourceLabel(q.source_perspective))}</span><span class="tag">${escapeHtml(q.risk_level || "low")}</span>${escapeHtml(q.question)}</li>
           `).join("")}</ul>
         `).join("")}
         ${drills.length ? `<h3>缺口 Drill</h3><ul class="compact-list">${drills.slice(0, 5).map((item) => `<li><span class="tag">${escapeHtml(item.skill)}</span>${escapeHtml(item.honest_strategy)}</li>`).join("")}</ul>` : ""}
@@ -246,6 +258,34 @@ async function loadInterviewPreps() {
       </article>
     `;
   });
+}
+
+function renderPreparationAngles(angles) {
+  if (!angles || !angles.length) return "";
+  return `
+    <h3>准备角度</h3>
+    <ul class="compact-list">${angles.map((angle) => {
+      const inputs = (angle.source_inputs || []).filter(Boolean).slice(0, 2).join("；");
+      const focus = (angle.focus || []).filter(Boolean).slice(0, 1).join("；");
+      return `
+        <li>
+          <span class="tag">${escapeHtml(angle.label || interviewAngleLabel(angle.angle))}</span>
+          <span class="tag">${escapeHtml(angle.question_count || 0)} 题</span>
+          ${escapeHtml(inputs || focus || "")}
+        </li>
+      `;
+    }).join("")}</ul>
+  `;
+}
+
+function preparationAnglesFromCoverage(coverage) {
+  const counts = coverage.preparation_angle_counts || {};
+  const labels = coverage.preparation_angle_labels || {};
+  return Object.keys(counts).map((angle) => ({
+    angle,
+    label: labels[angle] || interviewAngleLabel(angle),
+    question_count: counts[angle] || 0,
+  }));
 }
 
 async function loadInterviewExperiences() {

@@ -20,6 +20,22 @@ SOURCE_PERSPECTIVE_LABELS = {
     "general_interview": "通用面试与协作",
 }
 
+PREPARATION_ANGLE_LABELS = {
+    "same_role_interview_experience": "网上同岗位面经",
+    "resume_project_tech_stack": "简历项目技术栈",
+    "other_possible_interview_questions": "其他可能面试问题",
+}
+
+SOURCE_PERSPECTIVE_TO_ANGLE = {
+    "source_backed_interview_experience": "same_role_interview_experience",
+    "online_experience_research": "same_role_interview_experience",
+    "resume_project_evidence": "resume_project_tech_stack",
+    "resume_project_stack": "resume_project_tech_stack",
+    "jd_technical_depth": "other_possible_interview_questions",
+    "jd_gap_drill": "other_possible_interview_questions",
+    "general_interview": "other_possible_interview_questions",
+}
+
 
 class InterviewPrepDeliveryService:
     """Render interview prep packets and track per-question practice progress."""
@@ -30,6 +46,8 @@ class InterviewPrepDeliveryService:
             category = str(group.get("category") or f"题组 {group_index}")
             for question_index, question in enumerate(group.get("questions") or [], start=1):
                 question_id = str(question.get("question_id") or f"q{group_index:02d}_{question_index:02d}")
+                source_perspective = str(question.get("source_perspective") or "")
+                angle = str(question.get("preparation_angle") or self.preparation_angle_for_source(source_perspective))
                 items.append(
                     {
                         "question_id": question_id,
@@ -39,8 +57,10 @@ class InterviewPrepDeliveryService:
                         "answer_points": [str(item) for item in question.get("answer_points") or []],
                         "risk_level": str(question.get("risk_level") or "low"),
                         "skills": [str(item) for item in question.get("skills") or []],
-                        "source_perspective": str(question.get("source_perspective") or ""),
-                        "source_label": self.source_label(str(question.get("source_perspective") or "")),
+                        "source_perspective": source_perspective,
+                        "source_label": self.source_label(source_perspective),
+                        "preparation_angle": angle,
+                        "preparation_angle_label": self.preparation_angle_label(angle),
                         "evidence_refs": question.get("evidence_refs") or [],
                     }
                 )
@@ -49,13 +69,22 @@ class InterviewPrepDeliveryService:
     def source_label(self, source_perspective: str) -> str:
         return SOURCE_PERSPECTIVE_LABELS.get(source_perspective, source_perspective or "未标注来源")
 
+    def preparation_angle_for_source(self, source_perspective: str) -> str:
+        return SOURCE_PERSPECTIVE_TO_ANGLE.get(source_perspective, "other_possible_interview_questions")
+
+    def preparation_angle_label(self, angle: str) -> str:
+        return PREPARATION_ANGLE_LABELS.get(angle, angle or "其他可能面试问题")
+
     def source_perspective_summary(self, prep: InterviewPrep) -> dict[str, Any]:
         items = self.question_items(prep)
         counts = Counter(item["source_perspective"] or "unknown" for item in items)
+        angle_counts = Counter(item["preparation_angle"] or "other_possible_interview_questions" for item in items)
         return {
             "total_question_count": len(items),
             "counts": dict(sorted(counts.items())),
             "labels": {key: self.source_label(key) for key in sorted(counts)},
+            "preparation_angle_counts": dict(sorted(angle_counts.items())),
+            "preparation_angle_labels": {key: self.preparation_angle_label(key) for key in sorted(angle_counts)},
             "core_perspectives": {
                 "online_experience": counts.get("online_experience_research", 0)
                 + counts.get("source_backed_interview_experience", 0),
@@ -172,6 +201,21 @@ class InterviewPrepDeliveryService:
                 lines.append(f"- {label}：{count}")
             lines.append("")
 
+        preparation_angles = summary.get("preparation_angles") or self._preparation_angles_from_summary(perspective_summary)
+        if preparation_angles:
+            lines.extend(["## 准备角度", ""])
+            for angle in preparation_angles:
+                lines.append(f"### {angle.get('label') or self.preparation_angle_label(str(angle.get('angle') or ''))}")
+                lines.append("")
+                lines.append(f"- 题目数：{angle.get('question_count', 0)}")
+                source_inputs = angle.get("source_inputs") or []
+                if source_inputs:
+                    lines.append("- 输入来源：" + "；".join(str(item) for item in source_inputs if str(item).strip()))
+                focus = angle.get("focus") or []
+                if focus:
+                    lines.append("- 准备重点：" + "；".join(str(item) for item in focus if str(item).strip()))
+                lines.append("")
+
         focus = summary.get("preparation_focus") or []
         if focus:
             lines.extend(["## 准备重点", ""])
@@ -203,6 +247,11 @@ class InterviewPrepDeliveryService:
                     lines.append(f"- 风险：{question.get('risk_level')}")
                 if question.get("source_perspective"):
                     lines.append(f"- 来源：{self.source_label(str(question.get('source_perspective')))}")
+                angle = str(
+                    question.get("preparation_angle")
+                    or self.preparation_angle_for_source(str(question.get("source_perspective") or ""))
+                )
+                lines.append(f"- 准备角度：{self.preparation_angle_label(angle)}")
                 if question.get("skills"):
                     lines.append("- 技能：" + "、".join(str(item) for item in question.get("skills") or []))
                 if question.get("intent"):
@@ -245,3 +294,15 @@ class InterviewPrepDeliveryService:
             ]
         )
         return "\n".join(lines).strip() + "\n"
+
+    def _preparation_angles_from_summary(self, perspective_summary: dict[str, Any]) -> list[dict[str, Any]]:
+        counts = perspective_summary.get("preparation_angle_counts") or {}
+        return [
+            {
+                "angle": angle,
+                "label": self.preparation_angle_label(angle),
+                "question_count": counts.get(angle, 0),
+            }
+            for angle in PREPARATION_ANGLE_LABELS
+            if counts.get(angle, 0)
+        ]

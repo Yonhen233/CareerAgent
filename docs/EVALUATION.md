@@ -8,7 +8,7 @@ CareerAgent 的评测分为九类：
 - JD Parser 评测：衡量真实 JD 结构化解析质量，避免核心技能漏抽或把可选技能误写成 required。
 - LLM 实景流程评测：真实调用 LLM 判断岗位适配度并按 JD 改写简历。
 - Agent 全流程评测：覆盖岗位搜索、匹配排序、简历定制、一键投递门禁、Trace 和 Artifact。
-- 面试准备包评测：衡量同岗位面经调研线索、简历项目技术栈、缺口 drill 和通用问题覆盖。
+- 面试准备包评测：衡量网上同岗位面经、简历项目技术栈、其他可能面试问题三类准备角度，以及同岗面经调研线索、缺口 drill 和通用问题覆盖。
 - 真实岗位源 Smoke：只评测招聘源可达性、结果数量和岗位质量，不参与核心 Agent 回归 pass rate。
 - 真实 JD Ingest Smoke：只评测真实 JD 解析、SQLite 入库、JD chunk、embedding/reranker 和检索 probe，不参与核心 Agent 回归 pass rate。
 
@@ -470,7 +470,8 @@ POST /evaluations/interview-prep
 - 检查已导入面经是否进入 `source_evidence_json`，并生成 `source_backed_interview_experience` 问题。
 - 检查缺口技能是否进入 `gap_drills_json`，避免把 `没有 MLflow`、`没有 Kubernetes 集群维护经验` 这类缺口披露误写成已掌握。
 - 检查每道题是否有唯一 `question_id`，并且 `source_perspective` 覆盖同岗位面经/面经调研、简历项目技术栈和其他可能面试问题。
-- 检查 Markdown 交付包是否可渲染，且包含问题来源分布、外部调研清单和证据边界。
+- 检查每道题是否带有 `preparation_angle`，且 `summary_json.preparation_angles` 和 `coverage_json.preparation_angle_counts` 显式覆盖网上同岗位面经、简历项目技术栈、其他可能面试问题三类准备角度。
+- 检查 Markdown 交付包是否可渲染，且包含问题来源分布、准备角度、外部调研清单和证据边界。
 
 核心指标：
 
@@ -482,7 +483,8 @@ POST /evaluations/interview-prep
 | `source_backed_pass_rate` | 提供已导入面经的 case 是否生成来源支撑问题。 |
 | `question_id_pass_rate` | 每道题是否有稳定且唯一的题目 ID。 |
 | `source_perspective_pass_rate` | 是否同时覆盖同岗位面经、简历项目技术栈和其他可能面试问题。 |
-| `markdown_export_pass_rate` | Markdown 交付包是否包含来源分布、调研清单和证据边界。 |
+| `preparation_angle_pass_rate` | 是否显式覆盖网上同岗位面经、简历项目技术栈、其他可能面试问题三类准备角度。 |
+| `markdown_export_pass_rate` | Markdown 交付包是否包含来源分布、准备角度、调研清单和证据边界。 |
 | `avg_source_backed_question_count` | 每个面试包平均来源支撑问题数。 |
 | `avg_question_count` | 每个面试包平均题目数。 |
 | `avg_required_skill_coverage_rate` | JD 必备技能是否被题目或缺口 drill 覆盖。 |
@@ -500,6 +502,7 @@ POST /evaluations/interview-prep
 | experience_site_pass_rate | 1.0000 |
 | question_id_pass_rate | 1.0000 |
 | source_perspective_pass_rate | 1.0000 |
+| preparation_angle_pass_rate | 1.0000 |
 | markdown_export_pass_rate | 1.0000 |
 | avg_question_count | 25.4444 |
 | avg_research_item_count | 4.0000 |
