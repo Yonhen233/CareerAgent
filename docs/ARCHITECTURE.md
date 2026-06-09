@@ -98,6 +98,8 @@ CareerAgent 的目标不是“一个 Prompt 生成简历”，而是一个可观
 
 当前不会声称已经自动抓取牛客网、OfferShow 或小红书的真实帖子；这些平台可能有登录、反爬、内容噪声和时效性问题。系统支持用户导入真实面经文本/链接，未导入时生成 `research_checklist` 可执行 query。后续如果接真实抓取，应单独做面经 source smoke，把网络失败和内容质量作为 source 层指标。
 
+当前已提供 `interview-source-smoke` 评测入口，由 `app/services/interview_sources.py` 对牛客网、OfferShow、小红书公开搜索页做非侵入式探测。它只记录可达性、空结果、面经信号、query relevance 和内容可抽取性，不写入核心面试包，也不绕过登录或反爬。
+
 ## 混合向量检索
 
 当前实现采用“SQLite 权威存储 + 可选 Chroma 镜像”的设计。

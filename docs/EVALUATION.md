@@ -511,6 +511,38 @@ POST /evaluations/interview-prep
 
 新增 source-backed 面经 case 后又暴露两个边界：第一，真实粘贴的面经常是一整段短文本，多个问题之间不一定换行，抽取器必须先按中文/英文问号、句号、分号切句，再判断是否为问题；第二，评测运行在持久 SQLite 时，历史导入的面经可能被后续 case 自动检索到，造成评测污染。修复后 `experience_ids=None` 表示产品自动检索相关面经，`experience_ids=[]` 表示评测隔离空集合。
 
+## 面经来源 Smoke
+
+接口：
+
+```http
+POST /evaluations/interview-source-smoke
+POST /evaluations/interview-source-smoke?query=Agent%20%E5%BC%80%E5%8F%91%E5%AE%9E%E4%B9%A0%E7%94%9F%20%E9%9D%A2%E7%BB%8F&limit=5&sources=nowcoder
+```
+
+评测内容：
+
+- 并发探测牛客网、OfferShow、小红书公开搜索页。
+- 不绕过登录、不处理反爬、不抓取需要授权的正文，也不把 smoke 结果写入 `interview_experiences`。
+- 每个 source 记录 `status`、`source_reachable`、`result_count`、`latency_ms`、`error` 和 `sample_experiences`。
+- 把可达但空结果、搜索页客户端渲染、登录限制、低质量结果和网络错误都保留为 source 层指标，不影响面试包核心回归。
+
+核心指标：
+
+| 指标 | 含义 |
+| --- | --- |
+| `reachable_source_rate` | 可访问的面经来源比例。 |
+| `result_source_rate` | 返回至少一个候选结果的来源比例。 |
+| `total_result_count` | 本次 smoke 返回的候选面经总数。 |
+| `url_rate` | 候选结果里包含可追踪 URL 的比例。 |
+| `interview_signal_rate` | 候选结果里命中面经、面试、一面、二面、笔试、追问等信号的比例。 |
+| `query_relevance_rate` | 候选结果里命中当前岗位 query token 的比例。 |
+| `content_extractable_rate` | 候选结果是否至少有可用于摘要或导入的标题/摘要文本。 |
+| `source_error_count` | 发生网络、登录、反爬或解析异常的来源数量。 |
+| `source_empty` | 可达但没有返回候选结果的来源列表。 |
+
+该评测的定位是面经 source 层探针：它可以暴露“牛客网可访问但无结果”“小红书需要登录/客户端渲染”“OfferShow 搜索页结构变化”等问题，但不会替代 `interview_prep` 的可重复生成质量评测。真实结果质量足够时，下一步才应进入“导入为 source-backed 面经证据”的人工确认流程。
+
 ## 真实岗位源 Smoke
 
 接口：

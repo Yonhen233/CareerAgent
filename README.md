@@ -29,6 +29,9 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - Source 层有确定性的中文岗位相关性排序，会优先提升 Agent/LLM/RAG、开发/工程和实习/校招信号，降低产品、销售、商务等不匹配岗位。
   - `real-job-source-smoke` 会单独记录岗位源可达性、返回数量、JD 非空率、投递链接率、query relevance、Agent/AI relevance、relevance score 和 source errors，不让外部网络波动影响核心回归。
   - `real-job-ingest-smoke` 单独验证真实 JD 的 LLM 解析、SQLite upsert、JD chunk、embedding/reranker provider、检索 probe 和 parser quality probe。
+- 面经来源：
+  - 用户可以导入牛客网、OfferShow、小红书等同岗面经正文，系统只从原文抽取问题、轮次、主题和可信度。
+  - `interview-source-smoke` 独立探测牛客网、OfferShow、小红书公开搜索页的可达性、空结果、面经信号、query relevance 和内容可抽取性，不绕过登录或反爬，也不影响核心面试包回归。
 - Agent 工作流：
   - `find_jobs_for_profile`：搜索岗位、解析 JD、入库、匹配、排序。
   - `tailor_resume_for_job`：匹配岗位、检索简历证据、定制简历、校验幻觉风险。
@@ -53,6 +56,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - Job relevance 评测用 13 个中文为主 query、130 个带 0-4 级人工相关性标注的候选岗位衡量 source 排序质量。
   - Application packet 评测用 20 个中文投递包 case 衡量求职信/外联文案的事实校验、人工确认边界和误拦截率。
   - Interview prep 评测用 9 个中文为主 case 衡量面经源调研线索、已导入面经证据、项目技术栈追问、缺口 drill、通用问题、题目 ID、来源分布和 Markdown 交付质量。
+  - Interview source smoke 单独衡量牛客网、OfferShow、小红书等外部面经来源健康度，核心面试包仍使用可控样例和用户导入文本保证可重复。
   - 真实岗位源 smoke 独立评估 source 层健康度，核心 full-flow 仍使用可控岗位源保证可重复。
   - 真实 JD ingest smoke 独立评估 parser/RAG 入库链路，并检查 query/title/JD 中的核心技能是否进入 structured JD，避免和 source 可达性混淆。
   - PDF Chunk、RAG 和 LLM workflow 都有独立评测集；LLM workflow 会真实跑简历解析、JD 解析、fit judge、简历定制和 Guardrail，并逐 case 写入中间 trace。
@@ -147,6 +151,7 @@ LLM_MODEL=DeepSeek-V4-Pro
 - `POST /evaluations/job-relevance`
 - `POST /evaluations/application-packet`
 - `POST /evaluations/interview-prep`
+- `POST /evaluations/interview-source-smoke`
 - `POST /evaluations/real-job-source-smoke`
 - `POST /evaluations/real-job-ingest-smoke`
 - `POST /evaluations/llm-workflow`

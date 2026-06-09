@@ -17,6 +17,7 @@ from app.services.context_compressor import ContextCompressor
 from app.services.application_guardrails import ApplicationPacketGuardrail
 from app.services.guardrails import ResumeGuardrailService
 from app.services.interview_delivery import InterviewPrepDeliveryService
+from app.services.interview_sources import InterviewExperienceSearchResult, InterviewExperienceSourceRegistry
 from app.services.interview_prep import InterviewPrepService
 from app.services.jd_parser import JDParserService
 from app.services.job_relevance import (
@@ -568,6 +569,72 @@ class EvaluationService:
         )
         run = EvaluationRun(
             name="real_job_source_smoke",
+            summary_json=summary,
+            case_results_json=case_results,
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        return run
+
+    async def run_interview_source_smoke(
+        self,
+        db: Session,
+        *,
+        query: str = "Agent 开发实习生 面经",
+        limit: int = 5,
+        sources: list[str] | None = None,
+        source_registry: InterviewExperienceSourceRegistry | None = None,
+    ) -> EvaluationRun:
+        registry = source_registry or InterviewExperienceSourceRegistry()
+        selected_sources = registry.select(sources)
+        started = time.perf_counter()
+
+        async def _probe(source: Any) -> dict[str, Any]:
+            source_started = time.perf_counter()
+            try:
+                rows = await source.search(query=query, limit=limit)
+                sample_experiences = [self._summarize_interview_source_result(row, query=query) for row in rows[:limit]]
+                return {
+                    "source": source.name,
+                    "status": "completed",
+                    "source_reachable": True,
+                    "has_results": bool(rows),
+                    "result_count": len(rows),
+                    "url_count": sum(1 for row in rows if row.url),
+                    "interview_signal_count": sum(1 for row in rows if self._has_interview_signal(row)),
+                    "query_relevant_count": sum(1 for row in rows if self._is_interview_query_relevant(row, query)),
+                    "content_extractable_count": sum(1 for row in rows if self._has_extractable_interview_content(row)),
+                    "latency_ms": int((time.perf_counter() - source_started) * 1000),
+                    "error": None,
+                    "sample_experiences": sample_experiences,
+                }
+            except Exception as exc:  # noqa: BLE001
+                return {
+                    "source": source.name,
+                    "status": "source_error",
+                    "source_reachable": False,
+                    "has_results": False,
+                    "result_count": 0,
+                    "url_count": 0,
+                    "interview_signal_count": 0,
+                    "query_relevant_count": 0,
+                    "content_extractable_count": 0,
+                    "latency_ms": int((time.perf_counter() - source_started) * 1000),
+                    "error": format_exception(exc),
+                    "sample_experiences": [],
+                }
+
+        case_results = await asyncio.gather(*[_probe(source) for source in selected_sources])
+        summary = self._summarize_interview_source_smoke(
+            case_results,
+            query=query,
+            limit=limit,
+            source_names=[source.name for source in selected_sources],
+            latency_ms=int((time.perf_counter() - started) * 1000),
+        )
+        run = EvaluationRun(
+            name="interview_source_smoke",
             summary_json=summary,
             case_results_json=case_results,
         )
@@ -1454,6 +1521,72 @@ class EvaluationService:
             ],
         }
 
+    def _summarize_interview_source_smoke(
+        self,
+        case_results: list[dict[str, Any]],
+        *,
+        query: str,
+        limit: int,
+        source_names: list[str],
+        latency_ms: int,
+    ) -> dict[str, Any]:
+        source_count = max(len(source_names), 1)
+        total_result_count = sum(int(item.get("result_count") or 0) for item in case_results)
+        reachable_count = sum(1 for item in case_results if item.get("source_reachable"))
+        result_source_count = sum(1 for item in case_results if item.get("has_results"))
+        source_error_count = sum(1 for item in case_results if item.get("status") == "source_error")
+        url_count = sum(int(item.get("url_count") or 0) for item in case_results)
+        interview_signal_count = sum(int(item.get("interview_signal_count") or 0) for item in case_results)
+        query_relevant_count = sum(int(item.get("query_relevant_count") or 0) for item in case_results)
+        content_extractable_count = sum(int(item.get("content_extractable_count") or 0) for item in case_results)
+        denominator = max(total_result_count, 1)
+        quality_passed = total_result_count > 0 and interview_signal_count > 0 and query_relevant_count > 0
+        if source_error_count > 0 and total_result_count > 0:
+            status = "completed_with_source_errors"
+        elif reachable_count == len(source_names) and result_source_count == len(source_names) and quality_passed:
+            status = "completed"
+        elif reachable_count == len(source_names) and total_result_count > 0:
+            status = "completed_with_low_quality_results"
+        elif reachable_count == len(source_names):
+            status = "completed_with_empty_sources"
+        elif total_result_count > 0:
+            status = "completed_with_source_errors"
+        else:
+            status = "source_unavailable"
+        return {
+            "evaluation_type": "interview_source_smoke",
+            "status": status,
+            "query": query,
+            "limit": limit,
+            "sources": source_names,
+            "source_count": len(source_names),
+            "reachable_source_rate": round(reachable_count / source_count, 4),
+            "result_source_rate": round(result_source_count / source_count, 4),
+            "source_error_count": source_error_count,
+            "total_result_count": total_result_count,
+            "url_rate": round(url_count / denominator, 4),
+            "interview_signal_rate": round(interview_signal_count / denominator, 4),
+            "query_relevance_rate": round(query_relevant_count / denominator, 4),
+            "content_extractable_rate": round(content_extractable_count / denominator, 4),
+            "latency_ms": latency_ms,
+            "source_errors": {
+                item["source"]: item.get("error")
+                for item in case_results
+                if item.get("status") == "source_error"
+            },
+            "source_empty": [
+                item["source"]
+                for item in case_results
+                if item.get("source_reachable") and not item.get("has_results")
+            ],
+            "core_regression_independent": True,
+            "notes": [
+                "面经 source smoke 只衡量牛客网、OfferShow、小红书等外部内容源健康度，不参与 interview_prep 核心 pass_rate。",
+                "登录、反爬、客户端渲染、空结果和低质量搜索结果都会显式进入 source 层指标。",
+                "核心面试包仍依赖已导入面经和可重复评测；真实平台抓取结果只能作为增强证据。",
+            ],
+        }
+
     async def _run_jd_parser_case(self, db: Session, case: dict[str, Any]) -> dict[str, Any]:
         started = time.perf_counter()
         expected_required = [str(item) for item in case.get("expected_required_skills", [])]
@@ -2176,6 +2309,52 @@ class EvaluationService:
             "relevance_score": relevance.score,
             "relevance_reasons": relevance.reasons,
         }
+
+    def _summarize_interview_source_result(
+        self,
+        row: InterviewExperienceSearchResult,
+        *,
+        query: str,
+    ) -> dict[str, Any]:
+        return {
+            "source": row.source,
+            "title": row.title,
+            "url": row.url,
+            "snippet_chars": len(row.snippet or ""),
+            "raw_text_chars": len(row.raw_text or ""),
+            "interview_signal": self._has_interview_signal(row),
+            "query_relevant": self._is_interview_query_relevant(row, query),
+            "content_extractable": self._has_extractable_interview_content(row),
+            "snippet_preview": self._short_text(row.snippet or row.raw_text, 160),
+        }
+
+    def _has_interview_signal(self, row: InterviewExperienceSearchResult) -> bool:
+        haystack = self._interview_source_haystack(row)
+        return any(term in haystack for term in ["面经", "面试", "一面", "二面", "三面", "笔试", "追问", "offer"])
+
+    def _is_interview_query_relevant(self, row: InterviewExperienceSearchResult, query: str) -> bool:
+        haystack = self._interview_source_haystack(row)
+        query_terms = [
+            term.lower()
+            for term in re.split(r"[\s,，/]+", query)
+            if len(term.strip()) >= 2 and term not in {"面经", "面试", "实习"}
+        ]
+        if not query_terms:
+            query_terms = ["agent"]
+        return any(term in haystack for term in query_terms)
+
+    def _has_extractable_interview_content(self, row: InterviewExperienceSearchResult) -> bool:
+        text = " ".join(part for part in [row.raw_text, row.snippet, row.title] if part)
+        return len(text.strip()) >= 30 and self._has_interview_signal(row)
+
+    def _interview_source_haystack(self, row: InterviewExperienceSearchResult) -> str:
+        return f"{row.source} {row.title} {row.url or ''} {row.snippet} {row.raw_text}".lower()
+
+    def _short_text(self, value: Any, limit: int = 160) -> str:
+        text = " ".join(str(value or "").split())
+        if len(text) <= limit:
+            return text
+        return text[: limit - 1].rstrip() + "..."
 
     def _is_internship_like_posting(self, posting: JobPosting) -> bool:
         return is_internship_like_posting(posting)

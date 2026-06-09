@@ -410,6 +410,15 @@ POST /evaluations/interview-prep
 
 该评测使用 `evals/interview_prep_cases.json`，不访问牛客网、OfferShow、小红书等外部平台，只验证面试包是否覆盖同岗位面经调研线索、已导入面经证据、简历项目技术栈追问、JD 缺口 drill 和通用面试问题。返回的 `summary_json` 包含 `pass_rate`、`category_pass_rate`、`research_source_pass_rate`、`source_backed_pass_rate`、`experience_site_pass_rate`、`gap_drill_pass_rate`、`question_id_pass_rate`、`source_perspective_pass_rate`、`markdown_export_pass_rate`、`avg_question_count`、`avg_source_backed_question_count`、`avg_required_skill_coverage_rate`、`difficulty_breakdown` 和 `role_type_breakdown`。
 
+运行面经来源 smoke：
+
+```http
+POST /evaluations/interview-source-smoke
+POST /evaluations/interview-source-smoke?query=Agent%20%E5%BC%80%E5%8F%91%E5%AE%9E%E4%B9%A0%E7%94%9F%20%E9%9D%A2%E7%BB%8F&limit=5&sources=nowcoder&sources=offershow
+```
+
+该评测默认探测牛客网、OfferShow 和小红书公开搜索页，只记录 source 层健康度，不绕过登录、不处理反爬、不把结果写入 `interview_experiences`，也不影响 `interview-prep` 核心回归。返回的 `summary_json` 包含 `reachable_source_rate`、`result_source_rate`、`total_result_count`、`url_rate`、`interview_signal_rate`、`query_relevance_rate`、`content_extractable_rate`、`source_errors`、`source_empty` 和 `core_regression_independent`。`case_results_json` 会按 source 保存 `latency_ms`、错误、结果数量和 `sample_experiences`。
+
 运行真实岗位源 smoke：
 
 ```http

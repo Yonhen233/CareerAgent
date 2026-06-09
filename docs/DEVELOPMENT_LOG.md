@@ -1,5 +1,35 @@
 # 开发日志
 
+## 2026-06-09 20:51 +08:00：新增面经来源 Source Smoke
+
+### 这次做了什么
+- 新增 `app/services/interview_sources.py`，为牛客网、OfferShow、小红书提供公开搜索页的非侵入式面经来源探测。
+- 新增 `EvaluationService.run_interview_source_smoke`，并发记录每个面经 source 的可达性、结果数量、面经信号、query relevance、内容可抽取性、错误和样例结果。
+- 新增 `POST /evaluations/interview-source-smoke`，默认 query 为 `Agent 开发实习生 面经`，支持 `limit` 和重复 `sources` 参数。
+- 新增 fake source 测试，覆盖正常返回、登录/反爬类错误、可达但空结果、可达但低质量结果。
+- README、API、架构、Agent 设计和评测文档已补充中文说明。
+
+### 发现的问题
+- “网上同岗位面经”不能简单等价于“自动抓正文”：牛客网、OfferShow、小红书都可能遇到登录态、反爬、客户端渲染、搜索页结构变化和内容噪声。
+- 只记录 source 是否报错不够；生产排查时还需要知道是空结果、低质量结果、没有面经信号，还是只有标题/摘要而没有可导入正文。
+- 如果把真实平台探测直接混进 `interview_prep` 核心评测，会让外部网络波动污染面试包生成质量，无法区分是 Agent 生成差还是平台不可达。
+
+### 怎么修复
+- 把面经平台接入限定为独立 source smoke：默认只探测公开搜索页，不绕过登录或反爬，不写入 `interview_experiences`，不影响核心面试包 pass rate。
+- summary 增加 `reachable_source_rate`、`result_source_rate`、`url_rate`、`interview_signal_rate`、`query_relevance_rate`、`content_extractable_rate`、`source_errors` 和 `source_empty`。
+- 状态区分 `completed`、`completed_with_source_errors`、`completed_with_empty_sources`、`completed_with_low_quality_results` 和 `source_unavailable`。
+- 全量测试通过：`61 passed`。新增 API smoke 通过：`POST /evaluations/interview-source-smoke?limit=1&sources=unknown` 返回 `201`，`evaluation_type=interview_source_smoke`，`core_regression_independent=true`。
+
+### 未修复的问题
+- 还没有把真实平台返回结果自动导入为 `InterviewExperience`；原因是当前 smoke 只能证明 source 层是否有候选结果，不能证明正文真实、完整、可授权使用。
+- 还没有针对每个平台写深度解析器；原因是公开页面结构和登录限制不稳定，直接写强解析很容易变成脆弱爬虫，应先通过 source smoke 收集稳定性证据。
+- 没有绕过小红书等平台的登录和反爬；原因是该项目应保持真实产品边界，优先记录限制和人工导入流程，而不是做不可维护的反爬对抗。
+
+### 下一步
+- 在 UI 或评测页面展示 `interview-source-smoke` 最新结果，让用户知道当前哪些面经源可用、哪些需要手动导入。
+- 对高质量候选结果增加人工确认导入流程：用户确认来源、正文和岗位相关性后，再写入 `interview_experiences`。
+- 在多篇导入面经基础上增加 LLM 摘要/去重增强层，但保留原文引用、来源 URL 和可信度分。
+
 ## 2026-06-09 11:33 +08:00：面试包交付层和三角度覆盖评测增强
 
 ### 这次做了什么

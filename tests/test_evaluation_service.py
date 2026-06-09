@@ -4,6 +4,7 @@ from pathlib import Path
 
 from app.models.entities import Job, JobChunk
 from app.services.job_sources import JobPosting
+from app.services.interview_sources import InterviewExperienceSearchResult
 from app.services.evaluation_service import EvaluationService
 
 
@@ -121,6 +122,91 @@ def test_interview_prep_evaluation_covers_sources_stack_and_gap_drills(db_sessio
     assert run.summary_json["avg_source_backed_question_count"] > 0
     assert run.summary_json["avg_question_count"] >= 12
     assert "agent_development" in run.summary_json["role_type_breakdown"]
+
+
+def test_interview_source_smoke_records_platform_health(db_session):
+    class HealthySource:
+        name = "healthy_nowcoder"
+
+        async def search(self, *, query: str, limit: int):
+            return [
+                InterviewExperienceSearchResult(
+                    source=self.name,
+                    title="腾讯 Agent 开发实习面经 一面",
+                    url="https://example.com/nowcoder/agent-interview",
+                    snippet=f"{query}：一面问 RAG 召回率、FastAPI 并发和 Agent Trace。",
+                )
+            ][:limit]
+
+    class BrokenSource:
+        name = "blocked_xhs"
+
+        async def search(self, *, query: str, limit: int):
+            raise RuntimeError("login required")
+
+    class FakeRegistry:
+        def select(self, names=None):
+            return [HealthySource(), BrokenSource()]
+
+    run = asyncio.run(
+        EvaluationService().run_interview_source_smoke(
+            db_session,
+            query="Agent 开发实习生 面经",
+            limit=3,
+            source_registry=FakeRegistry(),
+        )
+    )
+
+    assert run.summary_json["evaluation_type"] == "interview_source_smoke"
+    assert run.summary_json["status"] == "completed_with_source_errors"
+    assert run.summary_json["reachable_source_rate"] == 0.5
+    assert run.summary_json["result_source_rate"] == 0.5
+    assert run.summary_json["total_result_count"] == 1
+    assert run.summary_json["interview_signal_rate"] == 1.0
+    assert run.summary_json["query_relevance_rate"] == 1.0
+    assert run.summary_json["content_extractable_rate"] == 1.0
+    assert run.summary_json["core_regression_independent"] is True
+    assert "blocked_xhs" in run.summary_json["source_errors"]
+    assert run.case_results_json[0]["sample_experiences"][0]["interview_signal"] is True
+
+
+def test_interview_source_smoke_marks_empty_and_low_quality_sources(db_session):
+    class LowQualitySource:
+        name = "low_quality"
+
+        async def search(self, *, query: str, limit: int):
+            return [
+                InterviewExperienceSearchResult(
+                    source=self.name,
+                    title="校园生活分享",
+                    url="https://example.com/post",
+                    snippet="校园社团活动记录，和岗位技术内容无关。",
+                )
+            ]
+
+    class EmptySource:
+        name = "empty"
+
+        async def search(self, *, query: str, limit: int):
+            return []
+
+    class FakeRegistry:
+        def select(self, names=None):
+            return [LowQualitySource(), EmptySource()]
+
+    run = asyncio.run(
+        EvaluationService().run_interview_source_smoke(
+            db_session,
+            query="Agent 开发实习生 面经",
+            source_registry=FakeRegistry(),
+        )
+    )
+
+    assert run.summary_json["status"] == "completed_with_low_quality_results"
+    assert run.summary_json["reachable_source_rate"] == 1.0
+    assert run.summary_json["result_source_rate"] == 0.5
+    assert run.summary_json["interview_signal_rate"] == 0.0
+    assert run.summary_json["source_empty"] == ["empty"]
 
 
 def test_jd_parser_aliases_preferred_and_negative_context():
