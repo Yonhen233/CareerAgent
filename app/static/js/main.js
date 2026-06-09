@@ -267,6 +267,91 @@ async function loadInterviewExperiences() {
   });
 }
 
+function metricCell(label, value) {
+  return `<div><strong>${escapeHtml(label)}</strong><div class="meta">${escapeHtml(value)}</div></div>`;
+}
+
+function percent(value) {
+  return `${Math.round(Number(value || 0) * 100)}%`;
+}
+
+function evaluationSummaryGrid(summary) {
+  const type = summary.evaluation_type || "";
+  if (type === "interview_source_smoke") {
+    return `
+      ${metricCell("可达源", percent(summary.reachable_source_rate))}
+      ${metricCell("有结果源", percent(summary.result_source_rate))}
+      ${metricCell("结果数", summary.total_result_count || 0)}
+      ${metricCell("面经信号", percent(summary.interview_signal_rate))}
+      ${metricCell("岗位相关", percent(summary.query_relevance_rate))}
+      ${metricCell("可抽取", percent(summary.content_extractable_rate))}
+    `;
+  }
+  return `
+    ${metricCell("状态", summary.status || "-")}
+    ${metricCell("样例数", summary.case_count ?? summary.total_result_count ?? "-")}
+    ${metricCell("通过率", summary.pass_rate !== undefined ? percent(summary.pass_rate) : "-")}
+  `;
+}
+
+function renderInterviewSourceSmoke(run) {
+  const summary = run?.summary_json || {};
+  const cases = run?.case_results_json || [];
+  if (!run || summary.evaluation_type !== "interview_source_smoke") {
+    return `<div class="item meta">暂无面经源探测结果</div>`;
+  }
+  return `
+    <article class="item">
+      <div class="item-title">
+        <span>#${run.id} ${escapeHtml(summary.query || "面经源探测")}</span>
+        <span class="status-pill ${summary.status === "completed" ? "ok" : ""}">${escapeHtml(summary.status || run.status)}</span>
+      </div>
+      <div class="meta">sources=${escapeHtml((summary.sources || []).join(", "))} / latency=${escapeHtml(summary.latency_ms || 0)}ms</div>
+      <div class="validation-panel ${summary.status === "completed" ? "validation-ok" : "validation-risk"}">
+        <div class="validation-grid">${evaluationSummaryGrid(summary)}</div>
+      </div>
+      ${summary.source_errors && Object.keys(summary.source_errors).length ? `<h3>源错误</h3><pre>${escapeHtml(JSON.stringify(summary.source_errors, null, 2))}</pre>` : ""}
+      ${cases.map((row) => `
+        <h3>${escapeHtml(row.source)} <span class="tag">${escapeHtml(row.status)}</span></h3>
+        <div class="meta">可达=${escapeHtml(row.source_reachable)} / 结果=${escapeHtml(row.result_count || 0)} / 耗时=${escapeHtml(row.latency_ms || 0)}ms</div>
+        <ul class="compact-list">${(row.sample_experiences || []).slice(0, 3).map((item) => `
+          <li>
+            <span class="tag">${item.interview_signal ? "面经" : "弱信号"}</span>
+            <span class="tag">${item.query_relevant ? "相关" : "低相关"}</span>
+            ${item.url ? `<a href="${escapeHtml(item.url)}" target="_blank">${escapeHtml(item.title)}</a>` : escapeHtml(item.title)}
+            <div class="meta">${escapeHtml(item.snippet_preview || "")}</div>
+          </li>
+        `).join("")}</ul>
+      `).join("")}
+    </article>
+  `;
+}
+
+async function loadEvaluationRuns() {
+  const rows = await api("/evaluations/results");
+  const latestInterviewSource = rows.find((row) => row.summary_json?.evaluation_type === "interview_source_smoke");
+  const sourceTarget = $("#interview-source-smoke-result");
+  if (sourceTarget) {
+    sourceTarget.innerHTML = renderInterviewSourceSmoke(latestInterviewSource);
+  }
+  renderItems("#evaluation-runs-list", rows, (row) => {
+    const summary = row.summary_json || {};
+    return `
+      <article class="item">
+        <div class="item-title">
+          <span>#${row.id} ${escapeHtml(row.name)}</span>
+          <span class="status-pill ${summary.status === "completed" ? "ok" : ""}">${escapeHtml(summary.status || "recorded")}</span>
+        </div>
+        <div class="meta">${escapeHtml(summary.evaluation_type || row.name)} / ${escapeHtml(row.created_at || "")}</div>
+        <div class="validation-panel">
+          <div class="validation-grid">${evaluationSummaryGrid(summary)}</div>
+        </div>
+      </article>
+    `;
+  });
+  if (window.lucide) window.lucide.createIcons();
+}
+
 function bindForms() {
   $("#upload-profile-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -449,6 +534,22 @@ function bindForms() {
     loadInterviewPreps();
   });
 
+  $("#interview-source-smoke-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const raw = formJson(event.currentTarget);
+    const params = new URLSearchParams();
+    params.set("query", raw.query || "Agent 开发实习生 面经");
+    params.set("limit", String(Number(raw.limit || 5)));
+    (raw.sources || "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .forEach((source) => params.append("sources", source));
+    await api(`/evaluations/interview-source-smoke?${params.toString()}`, { method: "POST" });
+    toast("面经源探测完成");
+    await loadEvaluationRuns();
+  });
+
   document.querySelectorAll("[data-refresh]").forEach((button) => {
     button.addEventListener("click", () => {
       const key = button.dataset.refresh;
@@ -462,6 +563,7 @@ function bindForms() {
       if (key === "applications") loadApplications();
       if (key === "interview-prep") loadInterviewPreps();
       if (key === "interview-experience") loadInterviewExperiences();
+      if (key === "evaluations") loadEvaluationRuns();
     });
   });
 }
@@ -483,6 +585,7 @@ async function bootstrap() {
       await loadInterviewExperiences();
       await loadInterviewPreps();
     }
+    if (page === "evaluations") await loadEvaluationRuns();
   } catch (error) {
     toast(error.message);
   }

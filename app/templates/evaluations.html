@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="workspace-grid">
+  <div class="panel span-5">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">Interview sources</p>
+        <h1>面经源探测</h1>
+      </div>
+    </div>
+    <form id="interview-source-smoke-form" class="form-grid">
+      <label class="wide">Query<input name="query" value="Agent 开发实习生 面经" required></label>
+      <label>Limit<input name="limit" type="number" min="1" max="10" value="5"></label>
+      <label>Sources<input name="sources" value="nowcoder,offershow,xiaohongshu"></label>
+      <button class="primary" type="submit"><i data-lucide="radar"></i> 运行探测</button>
+    </form>
+  </div>
+
+  <div class="panel span-7">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">Latest</p>
+        <h2>最近面经源结果</h2>
+      </div>
+      <button class="ghost" data-refresh="evaluations"><i data-lucide="refresh-cw"></i> 刷新</button>
+    </div>
+    <div id="interview-source-smoke-result" class="result-list"></div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-heading compact">
+    <div>
+      <p class="eyebrow">History</p>
+      <h2>评测记录</h2>
+    </div>
+  </div>
+  <div id="evaluation-runs-list" class="result-list"></div>
+</section>
+{% endblock %}

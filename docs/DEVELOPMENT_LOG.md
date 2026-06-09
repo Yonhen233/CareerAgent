@@ -1,5 +1,37 @@
 # 开发日志
 
+## 2026-06-09 20:58 +08:00：新增评测工作台展示面经源探测
+
+### 这次做了什么
+- 新增 `/ui/evaluations` 页面，并加入顶部导航和首页高频操作。
+- 评测页面支持填写 query、limit 和 source 列表运行 `POST /evaluations/interview-source-smoke`。
+- 页面会展示最近一次面经源探测的 summary、source errors、source 级状态、耗时和样例结果。
+- 最近评测记录列表会展示不同评测的状态、样例数和通过率/核心指标。
+- 补充前端页面测试，确保 `/ui/evaluations` 可渲染并包含 `interview-source-smoke-form` 和 `evaluation-runs-list`。
+- README 和评测文档已更新中文说明。
+
+### 发现的问题
+- 只有 API 的 source smoke 对开发者足够，但不利于产品调试；用户无法直观看到哪些面经源可达、哪些为空、哪些返回低质量结果。
+- 面经平台失败不能只通过 toast 或异常提示暴露；需要显示 source 级结果，否则会误以为面试包生成能力失败。
+- 最近评测结果如果只保存在 `evaluation_runs` 里，缺少页面入口时很难形成持续改进闭环。
+
+### 怎么修复
+- 新增评测工作台，把 `interview-source-smoke` 的运行入口和最新结果展示放在同一页。
+- 面经源结果卡片展示 `reachable_source_rate`、`result_source_rate`、`interview_signal_rate`、`query_relevance_rate` 和 `content_extractable_rate`。
+- source errors 和 sample experiences 直接展示在页面中，便于判断是登录/反爬、空结果还是内容弱相关。
+- 前端页面测试通过：`tests/test_frontend_pages.py` 共 `2 passed`；全量回归通过：`62 passed`；`node --check app/static/js/main.js` 通过。
+- 页面/API smoke 通过：`GET /ui/evaluations` 返回 `200`，页面包含 `interview-source-smoke-form` 和 `evaluation-runs-list`；`POST /evaluations/interview-source-smoke?limit=1&sources=unknown` 返回 `201`。
+
+### 未修复的问题
+- 还没有把高质量 sample 一键转为待确认导入；原因是当前 source smoke 只证明候选结果存在，不证明正文完整和可授权使用。
+- 评测页面还没有覆盖所有评测的专用运行表单；原因是本轮优先打通面经 source smoke 的可操作闭环，其他评测可以后续逐步挂载。
+- 页面没有做长任务进度流；原因是当前 source smoke 规模小，后续真实 LLM workflow 评测页面需要单独设计 trace 流式展示。
+
+### 下一步
+- 增加“候选面经 -> 人工确认 -> 导入 `InterviewExperience`”流程，把 source smoke 和面试包生成连接起来。
+- 给评测工作台增加 LLM workflow、RAG strategy 和 real-job-ingest smoke 的运行入口与中间 trace 展示。
+- 对多篇已导入面经增加 LLM 摘要/去重增强层，同时保留原文引用和可信度分。
+
 ## 2026-06-09 20:51 +08:00：新增面经来源 Source Smoke
 
 ### 这次做了什么
