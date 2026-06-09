@@ -1,5 +1,37 @@
 # 开发日志
 
+## 2026-06-09 22:18 +08:00：导入面经后提供面试包快捷入口
+
+### 这次做了什么
+- `/ui/evaluations` 的人工确认导入表单新增导入结果区域。
+- 面经导入成功后，页面展示新建 `InterviewExperience` ID、抽取题目数、主题、样例问题和来源信息。
+- 新增“用该面经生成面试包”快捷入口，跳转到 `/ui/interview-prep?experience_ids={id}`。
+- `/ui/interview-prep` 会读取 URL 里的 `experience_ids` 和 `job_id`，自动预填生成面试包表单。
+- 前端测试新增 `interview-source-import-result` 断言，固定导入结果容器。
+- README 和评测文档已更新中文说明。
+
+### 发现的问题
+- 上一轮虽然能从候选面经人工确认导入，但导入成功后只显示 toast，用户仍然要手动记住 ID 再去面试页填写 `experience_ids`。
+- 这种断点会降低真实使用效率，也容易让用户忘记指定刚导入的面经，导致面试包只使用调研线索而没有 source-backed 真实问题。
+- 如果直接自动生成面试包，又会绕过 Profile ID、Job ID 和用户确认，不符合当前人工确认边界。
+
+### 怎么修复
+- 保持“导入后不自动生成面试包”，但展示可点击的快捷入口，把已确认的 `experience_ids` 带到面试准备页。
+- 面试准备页只做表单预填，仍要求用户填写 Profile ID / Job ID 并手动点击生成。
+- 导入结果卡展示抽取题目数和主题，帮助用户判断这份面经是否足够有用。
+- 全量回归通过：`62 passed`；`node --check app/static/js/main.js` 通过。
+- 页面 smoke 通过：`GET /ui/evaluations` 返回 `200`，页面包含 `interview-source-import-result`；静态 JS 包含 `renderImportedInterviewExperience`、`experience_ids` 和 `prefillInterviewPrepFromQuery`。
+
+### 未修复的问题
+- 还没有导入成功后自动展示新建面经在 `/ui/interview-prep` 的列表刷新结果；原因是当前跳转入口已经足够让用户进入面试准备页，跨页面同步可以后续做。
+- 还没有支持多篇候选面经一次性合并导入；原因是多篇面经需要去重、可信度聚合和来源边界，不能简单拼接。
+- 还没有 LLM 面经摘要/去重；原因是应基于已确认正文，而不是搜索摘要。
+
+### 下一步
+- 在多篇已导入面经基础上增加 LLM 摘要/去重增强层，同时保留原文引用、来源 URL 和可信度分。
+- 给评测工作台增加 LLM workflow、RAG strategy 和 real-job-ingest smoke 的运行入口与中间 trace 展示。
+- 面试准备页支持从 URL 自动触发“查看相关已导入面经”，减少跨页面上下文丢失。
+
 ## 2026-06-09 22:05 +08:00：候选面经接入人工确认导入草稿
 
 ### 这次做了什么

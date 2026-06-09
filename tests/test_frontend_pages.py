@@ -27,4 +27,5 @@ def test_evaluations_page_exposes_interview_source_smoke_controls():
     assert response.status_code == 200
     assert "interview-source-smoke-form" in response.text
     assert "interview-source-import-form" in response.text
+    assert "interview-source-import-result" in response.text
     assert "evaluation-runs-list" in response.text

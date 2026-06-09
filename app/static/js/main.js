@@ -377,9 +377,13 @@ function prefillInterviewSourceImport(button) {
   const title = button.dataset.title || "";
   const url = button.dataset.url || "";
   const snippet = button.dataset.snippet || "";
+  const query = $("#interview-source-smoke-form")?.elements?.query?.value || "";
   form.source_site.value = sourceSiteLabel(source);
   form.source_url.value = url;
   form.title.value = title;
+  if (query && form.role_keyword && !form.role_keyword.value) {
+    form.role_keyword.value = query.replaceAll("面经", "").trim();
+  }
   form.raw_text.value = [
     title,
     snippet,
@@ -388,6 +392,40 @@ function prefillInterviewSourceImport(button) {
   ].filter(Boolean).join("\n");
   form.raw_text.focus();
   toast("已填入候选面经草稿，请人工补全后再导入");
+}
+
+function renderImportedInterviewExperience(row) {
+  const questions = row.extracted_questions_json || [];
+  const topics = row.topics_json || [];
+  const params = new URLSearchParams();
+  params.set("experience_ids", String(row.id));
+  if (row.job_id) params.set("job_id", String(row.job_id));
+  return `
+    <article class="item">
+      <div class="item-title">
+        <span>已导入面经 #${row.id}</span>
+        <span class="status-pill ${questions.length ? "ok" : ""}">${questions.length} questions</span>
+      </div>
+      <div class="meta">${escapeHtml(row.source_site)} / Job ${row.job_id || "-"} / ${escapeHtml(row.title || row.role_keyword || "")}</div>
+      ${topics.length ? tags(topics) : ""}
+      <p><a class="button ghost" href="/ui/interview-prep?${params.toString()}"><i data-lucide="messages-square"></i> 用该面经生成面试包</a></p>
+      <ul class="compact-list">${questions.slice(0, 4).map((item) => `<li>${escapeHtml(item.question)}</li>`).join("")}</ul>
+    </article>
+  `;
+}
+
+function prefillInterviewPrepFromQuery() {
+  const form = $("#interview-prep-form");
+  if (!form) return;
+  const params = new URLSearchParams(window.location.search);
+  const experienceIds = params.get("experience_ids");
+  const jobId = params.get("job_id");
+  if (experienceIds && form.experience_ids) {
+    form.experience_ids.value = experienceIds;
+  }
+  if (jobId && form.job_id) {
+    form.job_id.value = jobId;
+  }
 }
 
 function bindForms() {
@@ -591,7 +629,7 @@ function bindForms() {
   $("#interview-source-import-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const raw = formJson(event.currentTarget);
-    await api("/interview-prep/experiences", {
+    const created = await api("/interview-prep/experiences", {
       method: "POST",
       body: JSON.stringify({
         job_id: raw.job_id ? Number(raw.job_id) : null,
@@ -603,6 +641,11 @@ function bindForms() {
         raw_text: raw.raw_text,
       }),
     });
+    const result = $("#interview-source-import-result");
+    if (result) {
+      result.innerHTML = renderImportedInterviewExperience(created);
+      if (window.lucide) window.lucide.createIcons();
+    }
     toast("面经已导入，可在面试页引用");
     event.currentTarget.reset();
   });
@@ -645,6 +688,7 @@ async function bootstrap() {
     if (page === "resumes") await loadResumes();
     if (page === "applications") await loadApplications();
     if (page === "interview_prep") {
+      prefillInterviewPrepFromQuery();
       await loadInterviewExperiences();
       await loadInterviewPreps();
     }
