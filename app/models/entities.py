@@ -36,6 +36,7 @@ class Profile(Base):
     matches: Mapped[list["MatchResult"]] = relationship(back_populates="profile")
     resume_versions: Mapped[list["ResumeVersion"]] = relationship(back_populates="profile")
     applications: Mapped[list["Application"]] = relationship(back_populates="profile")
+    interview_preps: Mapped[list["InterviewPrep"]] = relationship(back_populates="profile")
     agent_runs: Mapped[list["AgentRun"]] = relationship(back_populates="profile")
 
 
@@ -84,6 +85,7 @@ class Job(Base):
     chunks: Mapped[list["JobChunk"]] = relationship(back_populates="job", cascade="all, delete-orphan")
     resume_versions: Mapped[list["ResumeVersion"]] = relationship(back_populates="job")
     applications: Mapped[list["Application"]] = relationship(back_populates="job")
+    interview_preps: Mapped[list["InterviewPrep"]] = relationship(back_populates="job")
     agent_runs: Mapped[list["AgentRun"]] = relationship(back_populates="job")
 
 
@@ -167,6 +169,28 @@ class Application(Base):
     profile: Mapped[Profile] = relationship(back_populates="applications")
     job: Mapped[Job] = relationship(back_populates="applications")
     resume_version: Mapped[ResumeVersion | None] = relationship(back_populates="applications")
+
+
+class InterviewPrep(Base):
+    __tablename__ = "interview_preps"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    profile_id: Mapped[int] = mapped_column(ForeignKey("profiles.id"), nullable=False, index=True)
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"), nullable=False, index=True)
+    match_result_id: Mapped[int | None] = mapped_column(ForeignKey("match_results.id"), nullable=True, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    summary_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    question_sets_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    gap_drills_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    research_checklist_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    source_evidence_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    coverage_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    generation_mode: Mapped[str] = mapped_column(String(64), nullable=False, default="structured_rules_v1")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+    profile: Mapped[Profile] = relationship(back_populates="interview_preps")
+    job: Mapped[Job] = relationship(back_populates="interview_preps")
+    match_result: Mapped[MatchResult | None] = relationship()
 
 
 class AgentRun(Base):

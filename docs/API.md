@@ -212,6 +212,18 @@ Content-Type: application/json
 }
 ```
 
+### 生成面试准备包
+
+```json
+{
+  "task_type": "prepare_interview_for_job",
+  "profile_id": 1,
+  "job_id": 1
+}
+```
+
+返回的 `output_json` 包含 `interview_prep_id`、`coverage`、题组数量、缺口 drill 数量和调研项数量。该任务会写入 `interview_prep` artifact。
+
 ### 查询 Trace
 
 ```http
@@ -240,6 +252,37 @@ GET /agent/subagents
 `GET /agent/subagents` 返回 SubAgent 职责、拥有的 skill、读取/写入边界和上下文策略。
 
 上下文治理不作为独立 skill/subagent 暴露，而是在 Agent 执行计划的 `context_policy`、简历版本的 `context_compression` 和 LLM workflow 的逐 case trace 中查看。
+
+## 面试准备包
+
+生成：
+
+```http
+POST /interview-prep
+Content-Type: application/json
+```
+
+```json
+{
+  "profile_id": 1,
+  "job_id": 1
+}
+```
+
+查询：
+
+```http
+GET /interview-prep
+GET /interview-prep/{prep_id}
+```
+
+返回：
+
+- `summary_json`：岗位、匹配分、fit level、匹配技能、缺口技能和准备重点。
+- `question_sets_json`：按同岗位面经、高频技术追问、简历项目技术栈、缺口追问、工程协作和通用问题分组的问题。
+- `gap_drills_json`：对缺口技能的诚实披露话术和最小补齐任务。
+- `research_checklist_json`：牛客网、OfferShow、小红书和搜索引擎的同岗位面经/业务调研 query。当前只生成调研线索，不声称已经抓取真实帖子。
+- `coverage_json`：题目数、必备技能覆盖率、缺口 drill 覆盖率、证据题占比和是否通过。
 
 ## LLM 调用调试
 
@@ -310,6 +353,14 @@ POST /evaluations/application-packet
 ```
 
 该评测使用 `evals/application_packet_cases.json`，不访问外部招聘站，也不调用 LLM，只验证投递包质量校验。返回的 `summary_json` 包含 `high_risk_recall`、`false_block_count`、`missed_high_risk_count`、`issue_code_hit_rate`、`risk_level_counts`、`difficulty_breakdown` 和 `noise_breakdown`。`case_results_json` 会保留每个 case 的 `actual_issue_codes`、`warning_codes` 和完整 validation 结果。
+
+运行面试准备包评测：
+
+```http
+POST /evaluations/interview-prep
+```
+
+该评测使用 `evals/interview_prep_cases.json`，不访问牛客网、OfferShow、小红书等外部平台，只验证面试包是否覆盖同岗位面经调研线索、简历项目技术栈追问、JD 缺口 drill 和通用面试问题。返回的 `summary_json` 包含 `pass_rate`、`category_pass_rate`、`research_source_pass_rate`、`gap_drill_pass_rate`、`avg_question_count`、`avg_required_skill_coverage_rate`、`difficulty_breakdown` 和 `role_type_breakdown`。
 
 运行真实岗位源 smoke：
 

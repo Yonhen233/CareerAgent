@@ -7,6 +7,7 @@ from app.models.entities import Application, Job, Profile, ResumeVersion
 from app.models.schemas import AgentRunRequest
 from app.agents.tools import AgentPlanner
 from app.services.application_service import ApplicationService
+from app.services.interview_prep import InterviewPrepService
 from app.services.job_search import JobSearchService
 from app.services.matcher import MatcherService
 from app.services.resume_tailor import ResumeTailorService
@@ -22,6 +23,7 @@ class AgentOrchestrator:
         matcher: MatcherService | None = None,
         tailor: ResumeTailorService | None = None,
         application: ApplicationService | None = None,
+        interview_prep: InterviewPrepService | None = None,
         planner: AgentPlanner | None = None,
     ) -> None:
         self.trace = trace or TraceService()
@@ -29,6 +31,7 @@ class AgentOrchestrator:
         self.matcher = matcher or MatcherService()
         self.tailor = tailor or ResumeTailorService()
         self.application = application or ApplicationService()
+        self.interview_prep = interview_prep or InterviewPrepService()
         self.planner = planner or AgentPlanner()
 
     async def run(self, db: Session, request: AgentRunRequest):
@@ -56,6 +59,8 @@ class AgentOrchestrator:
                 output = await self._tailor_resume_for_job(db, run.id, request)
             elif request.task_type == "quick_apply":
                 output = await self._quick_apply(db, run.id, request)
+            elif request.task_type == "prepare_interview_for_job":
+                output = await self._prepare_interview_for_job(db, run.id, request)
             else:
                 raise ValueError(f"Unsupported task_type: {request.task_type}")
             output["execution_plan"] = plan
@@ -214,6 +219,45 @@ class AgentOrchestrator:
         payload["fit_gate"] = fit_gate
         return payload
 
+    async def _prepare_interview_for_job(self, db: Session, run_id: int, request: AgentRunRequest) -> dict[str, Any]:
+        profile = await self.trace.step(
+            db,
+            run_id=run_id,
+            step_name="load_profile",
+            tool_name="ProfileRepository",
+            input_json={"profile_id": request.profile_id},
+            handler=lambda: self._load_profile(db, request.profile_id),
+        )
+        job = await self.trace.step(
+            db,
+            run_id=run_id,
+            step_name="load_job",
+            tool_name="JobRepository",
+            input_json={"job_id": request.job_id},
+            handler=lambda: self._load_job(db, request.job_id),
+        )
+        match = await self.trace.step(
+            db,
+            run_id=run_id,
+            step_name="match_job",
+            tool_name="MatcherService",
+            input_json={"profile_id": profile.id, "job_id": job.id},
+            handler=lambda: self._async_value(self.matcher.create_match_result(db, profile, job)),
+        )
+        prep = await self.trace.step(
+            db,
+            run_id=run_id,
+            step_name="generate_interview_prep",
+            tool_name="InterviewPrepService",
+            input_json={"profile_id": profile.id, "job_id": job.id, "match_result_id": match.id},
+            handler=lambda: self._async_value(
+                self.interview_prep.create_interview_prep(db, profile=profile, job=job, match_result=match)
+            ),
+        )
+        payload = self._interview_prep_payload(prep)
+        self.trace.add_artifact(db, run_id=run_id, artifact_type="interview_prep", payload=payload)
+        return payload
+
     async def _load_profile(self, db: Session, profile_id: int | None) -> Profile:
         if profile_id is None:
             raise ValueError("profile_id is required.")
@@ -262,4 +306,18 @@ class AgentOrchestrator:
             "checklist": application.checklist_json,
             "packet_validation": automation_result.get("packet_validation"),
             "automation_result": automation_result,
+        }
+
+    def _interview_prep_payload(self, prep) -> dict[str, Any]:
+        return {
+            "interview_prep_id": prep.id,
+            "profile_id": prep.profile_id,
+            "job_id": prep.job_id,
+            "match_result_id": prep.match_result_id,
+            "title": prep.title,
+            "summary": prep.summary_json,
+            "coverage": prep.coverage_json,
+            "question_set_count": len(prep.question_sets_json or []),
+            "gap_drill_count": len(prep.gap_drills_json or []),
+            "research_item_count": len(prep.research_checklist_json or []),
         }

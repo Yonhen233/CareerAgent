@@ -91,6 +91,13 @@ AGENT_TOOLS: list[AgentToolSpec] = [
         side_effects=["sqlite_write", "optional_llm_call", "llm_call_log"],
         mcp_candidate=True,
     ),
+    AgentToolSpec(
+        name="interview_prep.generate_packet",
+        purpose="基于 JD、匹配结果和 RAG 证据生成面试问题、回答要点、缺口 drill 和调研清单。",
+        input_schema={"profile": "Profile", "job": "Job", "match_result": "MatchResult"},
+        output_schema={"interview_prep": "InterviewPrep"},
+        side_effects=["sqlite_write", "embedding_model_call", "reranker_call"],
+    ),
 ]
 
 
@@ -145,6 +152,18 @@ class AgentPlanner:
                 ),
             ]
             react_loops = []
+        elif task_type == "prepare_interview_for_job":
+            steps = [
+                self._step("load_profile", "profile_repository.load_profile", "读取候选人简历事实。"),
+                self._step("load_job", "job_repository.load_job", "读取目标 JD 和结构化要求。"),
+                self._step("match_job", "matcher.match_job", "生成匹配、缺口和 RAG 证据。"),
+                self._step(
+                    "generate_interview_prep",
+                    "interview_prep.generate_packet",
+                    "生成可追溯的中文面试准备包，不把缺口包装成已掌握。",
+                ),
+            ]
+            react_loops = []
         else:
             steps = []
             react_loops = []
@@ -166,7 +185,7 @@ class AgentPlanner:
         return {"step": name, "tool": tool, "purpose": purpose}
 
     def _context_policy(self, task_type: str) -> dict[str, Any]:
-        needs_llm_context = task_type in {"tailor_resume_for_job", "quick_apply"}
+        needs_llm_context = task_type in {"tailor_resume_for_job", "quick_apply", "prepare_interview_for_job"}
         return {
             "progressive_disclosure": needs_llm_context,
             "compression_strategy": "progressive_disclosure_budgeted_packet" if needs_llm_context else "not_required",

@@ -16,6 +16,7 @@ from app.models.schemas import AgentRunRequest, GuidedProfileRequest
 from app.services.context_compressor import ContextCompressor
 from app.services.application_guardrails import ApplicationPacketGuardrail
 from app.services.guardrails import ResumeGuardrailService
+from app.services.interview_prep import InterviewPrepService
 from app.services.jd_parser import JDParserService
 from app.services.job_relevance import (
     is_agent_related_posting,
@@ -137,6 +138,7 @@ class EvaluationService:
         self.reranker = RerankerService(settings=self.settings)
         self.context_compressor = ContextCompressor()
         self.application_guardrail = ApplicationPacketGuardrail()
+        self.interview_prep_service = InterviewPrepService(matcher=self.matcher)
         self.jd_parser = JDParserService()
         self.job_search_service = JobSearchService()
         self.vector_index = SQLiteVectorIndex()
@@ -461,6 +463,25 @@ class EvaluationService:
         summary = self._summarize_application_packet(case_results, path)
         run = EvaluationRun(
             name="application_packet_evaluation",
+            summary_json=summary,
+            case_results_json=case_results,
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        return run
+
+    def run_interview_prep_evaluation(self, db: Session, *, dataset_path: Path | None = None) -> EvaluationRun:
+        path = dataset_path or self.settings.base_path / "evals" / "interview_prep_cases.json"
+        cases = json.loads(path.read_text(encoding="utf-8"))
+        namespace = f"interview_eval:{uuid.uuid4().hex[:8]}"
+        case_results = [
+            self._run_interview_prep_case(db, case, namespace=f"{namespace}:{index}")
+            for index, case in enumerate(cases)
+        ]
+        summary = self._summarize_interview_prep(case_results, path)
+        run = EvaluationRun(
+            name="interview_prep_evaluation",
             summary_json=summary,
             case_results_json=case_results,
         )
@@ -1732,6 +1753,139 @@ class EvaluationService:
                 "missing_apply_url 和短外联文案目前作为 warning，不直接阻断投递包生成。",
             ],
         }
+
+    def _run_interview_prep_case(self, db: Session, case: dict[str, Any], *, namespace: str) -> dict[str, Any]:
+        profile_data = case["profile"]
+        job_data = case["job"]
+        profile = Profile(
+            name=profile_data.get("name"),
+            headline=profile_data.get("headline"),
+            target_roles_json=profile_data.get("target_roles") or ["Agent 开发实习生"],
+            source_type="eval_interview_prep",
+            raw_resume_text=profile_data.get("raw_resume_text") or "",
+            structured_profile_json=profile_data.get("structured_profile") or {},
+        )
+        job = Job(
+            source="eval_interview_prep",
+            external_id=f"{namespace}:{case['name']}",
+            title=job_data["title"],
+            company=job_data.get("company"),
+            location=job_data.get("location"),
+            job_type=job_data.get("job_type") or "实习",
+            apply_url=job_data.get("apply_url"),
+            raw_jd_text=job_data.get("jd_text") or job_data["title"],
+            structured_jd_json=job_data.get("structured_jd") or {},
+        )
+        db.add_all([profile, job])
+        db.commit()
+        db.refresh(profile)
+        db.refresh(job)
+        chunks = ResumeTextSplitter().build_resume_chunks(profile.structured_profile_json)
+        self.vector_index.upsert_profile_chunks(db, profile.id, chunks)
+        prep = self.interview_prep_service.create_interview_prep(db, profile=profile, job=job)
+
+        categories = {group.get("category") for group in prep.question_sets_json or []}
+        research_sites = {item.get("site") for item in prep.research_checklist_json or []}
+        drill_skills = {str(item.get("skill") or "") for item in prep.gap_drills_json or []}
+        questions = [question for group in prep.question_sets_json or [] for question in group.get("questions", [])]
+        question_text = json.dumps(questions, ensure_ascii=False)
+        expected_categories = set(case.get("expected_categories") or [])
+        expected_research_sites = set(case.get("expected_research_sites") or [])
+        expected_gap_drills = set(case.get("expected_gap_drills") or [])
+        expected_keywords = [str(item) for item in case.get("expected_question_keywords") or []]
+
+        category_passed = expected_categories <= categories
+        research_passed = expected_research_sites <= research_sites
+        gap_passed = expected_gap_drills <= drill_skills
+        keyword_hit_rate = self._keyword_hit_rate(question_text, expected_keywords)
+        min_question_count = int(case.get("min_question_count") or 8)
+        case_passed = (
+            prep.coverage_json.get("passed") is True
+            and category_passed
+            and research_passed
+            and gap_passed
+            and len(questions) >= min_question_count
+            and keyword_hit_rate >= float(case.get("min_keyword_hit_rate") or 0.6)
+        )
+        return {
+            "name": case["name"],
+            "difficulty": case.get("difficulty", "unknown"),
+            "role_type": case.get("role_type", "unknown"),
+            "case_passed": case_passed,
+            "interview_prep_id": prep.id,
+            "question_count": len(questions),
+            "gap_drill_count": len(prep.gap_drills_json or []),
+            "research_item_count": len(prep.research_checklist_json or []),
+            "coverage": prep.coverage_json,
+            "category_passed": category_passed,
+            "research_passed": research_passed,
+            "gap_passed": gap_passed,
+            "keyword_hit_rate": keyword_hit_rate,
+            "expected_categories": sorted(expected_categories),
+            "actual_categories": sorted(str(item) for item in categories if item),
+            "expected_research_sites": sorted(expected_research_sites),
+            "actual_research_sites": sorted(str(item) for item in research_sites if item),
+            "expected_gap_drills": sorted(expected_gap_drills),
+            "actual_gap_drills": sorted(drill_skills),
+        }
+
+    def _summarize_interview_prep(
+        self,
+        case_results: list[dict[str, Any]],
+        dataset_path: Path,
+    ) -> dict[str, Any]:
+        count = max(len(case_results), 1)
+        return {
+            "evaluation_type": "interview_prep",
+            "status": "completed" if all(item.get("case_passed") for item in case_results) else "completed_with_quality_failures",
+            "dataset": dataset_path.name,
+            "case_count": len(case_results),
+            "pass_rate": round(sum(1 for item in case_results if item.get("case_passed")) / count, 4),
+            "avg_question_count": self._avg_number(case_results, "question_count"),
+            "avg_gap_drill_count": self._avg_number(case_results, "gap_drill_count"),
+            "avg_research_item_count": self._avg_number(case_results, "research_item_count"),
+            "category_pass_rate": self._avg_bool(case_results, "category_passed"),
+            "research_source_pass_rate": self._avg_bool(case_results, "research_passed"),
+            "gap_drill_pass_rate": self._avg_bool(case_results, "gap_passed"),
+            "avg_keyword_hit_rate": self._avg_number(case_results, "keyword_hit_rate"),
+            "avg_required_skill_coverage_rate": self._avg_number(
+                [{"value": (item.get("coverage") or {}).get("required_skill_coverage_rate")} for item in case_results],
+                "value",
+            ),
+            "difficulty_breakdown": self._summarize_interview_prep_by_key(case_results, "difficulty"),
+            "role_type_breakdown": self._summarize_interview_prep_by_key(case_results, "role_type"),
+            "failure_breakdown": self._count_interview_prep_failures(case_results),
+            "notes": [
+                "该评测不访问外部平台，先验证面试包是否生成牛客/OfferShow/小红书等同岗位面经调研线索。",
+                "面试题必须覆盖同岗位面经、简历项目技术栈、JD 缺口和通用行为问题。",
+                "缺少证据的技能必须进入 gap drill，不能包装成已掌握经验。",
+            ],
+        }
+
+    def _summarize_interview_prep_by_key(self, rows: list[dict[str, Any]], key: str) -> dict[str, Any]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            grouped.setdefault(str(row.get(key) or "unknown"), []).append(row)
+        return {
+            group: {
+                "case_count": len(items),
+                "pass_rate": round(sum(1 for item in items if item.get("case_passed")) / max(len(items), 1), 4),
+                "avg_question_count": self._avg_number(items, "question_count"),
+                "research_source_pass_rate": self._avg_bool(items, "research_passed"),
+                "gap_drill_pass_rate": self._avg_bool(items, "gap_passed"),
+            }
+            for group, items in sorted(grouped.items())
+        }
+
+    def _count_interview_prep_failures(self, rows: list[dict[str, Any]]) -> dict[str, int]:
+        checks = {
+            "coverage_failed": lambda item: (item.get("coverage") or {}).get("passed") is not True,
+            "category_failed": lambda item: item.get("category_passed") is False,
+            "research_failed": lambda item: item.get("research_passed") is False,
+            "gap_drill_failed": lambda item: item.get("gap_passed") is False,
+            "keyword_hit_low": lambda item: self._coerce_float(item.get("keyword_hit_rate")) < 0.6,
+        }
+        return {name: sum(1 for item in rows if check(item)) for name, check in checks.items()}
 
     def _summarize_application_packet_by_key(self, rows: list[dict[str, Any]], key: str) -> dict[str, Any]:
         grouped: dict[str, list[dict[str, Any]]] = {}

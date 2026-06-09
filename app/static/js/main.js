@@ -194,6 +194,42 @@ async function loadApplications() {
   `);
 }
 
+async function loadInterviewPreps() {
+  const rows = await api("/interview-prep");
+  renderItems("#interview-prep-list", rows, (row) => {
+    const summary = row.summary_json || {};
+    const coverage = row.coverage_json || {};
+    const questionSets = row.question_sets_json || [];
+    const drills = row.gap_drills_json || [];
+    const research = row.research_checklist_json || [];
+    return `
+      <article class="item">
+        <div class="item-title">
+          <span>#${row.id} ${escapeHtml(row.title)}</span>
+          <span class="status-pill ${coverage.passed ? "ok" : ""}">${coverage.passed ? "ready" : "review"}</span>
+        </div>
+        <div class="meta">Profile ${row.profile_id} · Job ${row.job_id} · ${escapeHtml(summary.fit_level || "unknown")} · score ${escapeHtml(summary.overall_score ?? "-")}</div>
+        <div class="validation-panel ${coverage.passed ? "validation-ok" : "validation-risk"}">
+          <div class="validation-grid">
+            <div><strong>题目数</strong><div class="meta">${coverage.question_count || 0}</div></div>
+            <div><strong>必备技能覆盖</strong><div class="meta">${Math.round((coverage.required_skill_coverage_rate || 0) * 100)}%</div></div>
+            <div><strong>缺口 Drill</strong><div class="meta">${coverage.gap_drill_count || 0}</div></div>
+            <div><strong>证据题占比</strong><div class="meta">${Math.round((coverage.evidence_backed_question_rate || 0) * 100)}%</div></div>
+          </div>
+        </div>
+        ${questionSets.map((group) => `
+          <h3>${escapeHtml(group.category)}</h3>
+          <ul class="compact-list">${(group.questions || []).slice(0, 4).map((q) => `
+            <li><span class="tag">${escapeHtml(q.risk_level || "low")}</span>${escapeHtml(q.question)}</li>
+          `).join("")}</ul>
+        `).join("")}
+        ${drills.length ? `<h3>缺口 Drill</h3><ul class="compact-list">${drills.slice(0, 5).map((item) => `<li><span class="tag">${escapeHtml(item.skill)}</span>${escapeHtml(item.honest_strategy)}</li>`).join("")}</ul>` : ""}
+        ${research.length ? `<h3>外部调研清单</h3><ul class="compact-list">${research.map((item) => `<li><span class="tag">${escapeHtml(item.site || item.topic)}</span>${escapeHtml(item.topic)}：${escapeHtml(item.query)}</li>`).join("")}</ul>` : ""}
+      </article>
+    `;
+  });
+}
+
 function bindForms() {
   $("#upload-profile-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -318,6 +354,21 @@ function bindForms() {
     loadApplications();
   });
 
+  $("#interview-prep-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const raw = formJson(event.currentTarget);
+    await api("/interview-prep", {
+      method: "POST",
+      body: JSON.stringify({
+        profile_id: Number(raw.profile_id),
+        job_id: Number(raw.job_id),
+      }),
+    });
+    toast("Interview prep created");
+    event.currentTarget.reset();
+    loadInterviewPreps();
+  });
+
   document.querySelectorAll("[data-refresh]").forEach((button) => {
     button.addEventListener("click", () => {
       const key = button.dataset.refresh;
@@ -329,6 +380,7 @@ function bindForms() {
       }
       if (key === "resumes") loadResumes();
       if (key === "applications") loadApplications();
+      if (key === "interview-prep") loadInterviewPreps();
     });
   });
 }
@@ -346,6 +398,7 @@ async function bootstrap() {
     if (page === "agent_runs") await loadRuns();
     if (page === "resumes") await loadResumes();
     if (page === "applications") await loadApplications();
+    if (page === "interview_prep") await loadInterviewPreps();
   } catch (error) {
     toast(error.message);
   }

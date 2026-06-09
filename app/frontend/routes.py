@@ -37,3 +37,8 @@ def resumes(request: Request):
 @router.get("/ui/applications", response_class=HTMLResponse)
 def applications(request: Request):
     return templates.TemplateResponse(request, "applications.html", {"page": "applications"})
+
+
+@router.get("/ui/interview-prep", response_class=HTMLResponse)
+def interview_prep(request: Request):
+    return templates.TemplateResponse(request, "interview_prep.html", {"page": "interview_prep"})

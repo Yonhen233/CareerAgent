@@ -235,7 +235,7 @@ class ResumeVersionResponse(BaseModel):
 
 
 class AgentRunRequest(BaseModel):
-    task_type: Literal["find_jobs_for_profile", "tailor_resume_for_job", "quick_apply"]
+    task_type: Literal["find_jobs_for_profile", "tailor_resume_for_job", "quick_apply", "prepare_interview_for_job"]
     profile_id: int | None = None
     job_id: int | None = None
     resume_version_id: int | None = None
@@ -321,4 +321,27 @@ class ApplicationResponse(BaseModel):
     outreach_message: str | None
     checklist_json: list[str]
     automation_result_json: dict[str, Any] | None
+    created_at: datetime
+
+
+class InterviewPrepRequest(BaseModel):
+    profile_id: int
+    job_id: int
+
+
+class InterviewPrepResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    profile_id: int
+    job_id: int
+    match_result_id: int | None
+    title: str
+    summary_json: dict[str, Any]
+    question_sets_json: list[dict[str, Any]]
+    gap_drills_json: list[dict[str, Any]]
+    research_checklist_json: list[dict[str, Any]]
+    source_evidence_json: list[dict[str, Any]]
+    coverage_json: dict[str, Any]
+    generation_mode: str
     created_at: datetime

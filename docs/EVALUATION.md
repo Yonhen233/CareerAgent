@@ -1,6 +1,6 @@
 # 量化评测方案
 
-CareerAgent 的评测分为八类：
+CareerAgent 的评测分为九类：
 
 - 基础匹配评测：Profile/JD 匹配质量。
 - PDF Chunk 策略评测：不同 PDF 切分方案对证据召回的影响。
@@ -8,6 +8,7 @@ CareerAgent 的评测分为八类：
 - JD Parser 评测：衡量真实 JD 结构化解析质量，避免核心技能漏抽或把可选技能误写成 required。
 - LLM 实景流程评测：真实调用 LLM 判断岗位适配度并按 JD 改写简历。
 - Agent 全流程评测：覆盖岗位搜索、匹配排序、简历定制、一键投递门禁、Trace 和 Artifact。
+- 面试准备包评测：衡量同岗位面经调研线索、简历项目技术栈、缺口 drill 和通用问题覆盖。
 - 真实岗位源 Smoke：只评测招聘源可达性、结果数量和岗位质量，不参与核心 Agent 回归 pass rate。
 - 真实 JD Ingest Smoke：只评测真实 JD 解析、SQLite 入库、JD chunk、embedding/reranker 和检索 probe，不参与核心 Agent 回归 pass rate。
 
@@ -119,6 +120,24 @@ evals/agent_full_flow_cases.json
 - 每个 case 包含 guided profile、候选岗位列表、期望 Top1 岗位、期望分数区间、是否运行 tailor、是否运行 quick_apply、是否期望投递门禁拦截。
 - 评测会检查 Top1 岗位准确率、分数门禁、tailor Guardrail、quick apply 行为、Agent step trace 和 execution plan artifact。
 - 岗位 external_id 每次评测运行都会带唯一 namespace，重复运行不会撞 SQLite 唯一约束；原始岗位 ID 保存在 `eval_external_id` 里用于断言。
+
+### 面试准备包数据
+
+```text
+evals/interview_prep_cases.json
+```
+
+规模：
+
+- 8 个面试准备案例。
+- 中文岗位为主，英文 LLM Application Intern 只作为辅助样例。
+- 覆盖 Agent 开发、前端、数据开发、推荐算法、AI 产品、ML 平台和弱匹配候选人。
+
+数据设计：
+
+- 每个 case 包含 Profile、目标 JD、期望题组、期望外部调研源、期望缺口 drill 和题目关键词。
+- 外部调研源只检查牛客网、OfferShow、小红书等 query 是否生成；不把真实平台可达性混入核心质量评测。
+- 缺口 case 刻意加入 `没有 MLflow`、`没有 Kubernetes 集群维护经验`、`没有构建过 Agent 系统` 等否定证据，验证面试包不会把缺口包装成已掌握经验。
 
 ## 标注标准
 
@@ -433,6 +452,47 @@ POST /evaluations/application-packet
 | avg_warning_count | 0.5000 |
 
 本轮暴露并修复的问题：旧 fallback 求职信和外联文案总是强调 Agent/RAG/FastAPI/SQLite，即使候选人申请的是前端或数据岗位，也会产生不符合简历证据的能力声明。修复后 fallback 会根据 Profile skills、项目和目标 Job 动态生成；`ApplicationPacketGuardrail` 会把 unsupported claims、缺目标岗位和自动提交边界问题标为 high risk 并阻断创建。
+
+## 面试准备包评测
+
+接口：
+
+```http
+POST /evaluations/interview-prep
+```
+
+评测内容：
+
+- 使用 `evals/interview_prep_cases.json`，覆盖 8 个中文为主 case，少量英文岗位作为辅助。
+- 覆盖 Agent 开发、前端、数据开发、推荐算法、AI 产品、ML 平台、弱匹配 Agent 候选人和英文 LLM Application 岗位。
+- 检查题组是否包含同岗位面经与高频追问、简历项目技术栈追问、通用面试与行为问题。
+- 检查 `research_checklist_json` 是否生成牛客网、OfferShow、小红书等同岗位面经调研 query。
+- 检查缺口技能是否进入 `gap_drills_json`，避免把 `没有 MLflow`、`没有 Kubernetes 集群维护经验` 这类缺口披露误写成已掌握。
+
+核心指标：
+
+| 指标 | 含义 |
+| --- | --- |
+| `category_pass_rate` | 必需题组是否完整覆盖。 |
+| `research_source_pass_rate` | 牛客网、OfferShow、小红书调研线索是否完整生成。 |
+| `gap_drill_pass_rate` | 缺口技能是否进入诚实披露 drill。 |
+| `avg_question_count` | 每个面试包平均题目数。 |
+| `avg_required_skill_coverage_rate` | JD 必备技能是否被题目或缺口 drill 覆盖。 |
+
+最新离线评测：
+
+| 指标 | 结果 |
+| --- | ---: |
+| case_count | 8 |
+| pass_rate | 1.0000 |
+| category_pass_rate | 1.0000 |
+| research_source_pass_rate | 1.0000 |
+| gap_drill_pass_rate | 1.0000 |
+| avg_question_count | 24.8750 |
+| avg_research_item_count | 4.0000 |
+| avg_required_skill_coverage_rate | 1.0000 |
+
+本轮暴露并修复的问题：中文句号没有参与句子切分时，`没有 MLflow 生产经验` 会和前一句“构建 CareerAgent”粘在一起；同时“没有 Kubernetes 集群维护经验”会同时命中否定词“没有”和正向词“维护”。修复后 matcher 使用中文/英文标点切分句子，并让否定证据优先级高于正向动作词。
 
 ## 真实岗位源 Smoke
 

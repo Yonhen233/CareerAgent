@@ -106,6 +106,18 @@ def test_application_packet_evaluation_catches_fabrication_and_boundary_risks(db
     assert any("missing_apply_url" in item.get("warning_codes", []) for item in run.case_results_json)
 
 
+def test_interview_prep_evaluation_covers_sources_stack_and_gap_drills(db_session):
+    run = EvaluationService().run_interview_prep_evaluation(db_session)
+
+    assert run.summary_json["evaluation_type"] == "interview_prep"
+    assert run.summary_json["case_count"] >= 8
+    assert run.summary_json["pass_rate"] == 1.0
+    assert run.summary_json["research_source_pass_rate"] == 1.0
+    assert run.summary_json["gap_drill_pass_rate"] == 1.0
+    assert run.summary_json["avg_question_count"] >= 12
+    assert "agent_development" in run.summary_json["role_type_breakdown"]
+
+
 def test_jd_parser_aliases_preferred_and_negative_context():
     from app.services.jd_parser import JDParserService
 

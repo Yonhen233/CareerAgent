@@ -79,6 +79,16 @@ AGENT_SKILLS: list[AgentSkillSpec] = [
         context_policy="只读取 Profile 摘要、目标 JD 摘要和最终定制简历。",
         output_contract={"application": "dict", "checklist": "list"},
     ),
+    AgentSkillSpec(
+        name="interview_preparation",
+        status="active",
+        owner_subagent="interview_coach",
+        purpose="根据 JD、匹配结果和证据生成面试问题、回答要点、缺口 drill 和外部调研清单。",
+        trigger="用户准备某个岗位面试或投递后复盘时。",
+        tools=["matcher.match_job", "interview_prep.generate_packet"],
+        context_policy="只读取结构化 JD、匹配结果、Top evidence 和缺口；缺少证据的技能必须作为缺口披露。",
+        output_contract={"question_sets": "list", "gap_drills": "list", "research_checklist": "list"},
+    ),
 ]
 
 
@@ -96,5 +106,6 @@ def active_skill_names_for_task(task_type: str) -> list[str]:
             "resume_tailoring",
         ],
         "quick_apply": ["resume_tailoring", "application_packet"],
+        "prepare_interview_for_job": ["evidence_retrieval", "fit_assessment", "interview_preparation"],
     }
     return mapping.get(task_type, [])

@@ -9,6 +9,7 @@
 - `MatcherService`：主匹配逻辑仍是可解释规则 + RAG evidence，不把最终匹配分数完全交给 LLM。
 - `ResumeTailorService._llm_tailor`：根据 JD 和检索证据生成定制简历。
 - `ApplicationService`：生成求职信和外联文案。
+- `InterviewPrepService`：当前使用结构化规则生成面试准备包，不强制调用 LLM；后续如果接入真实面经抓取，可用 LLM 对多来源面经做去重、归因和风险标注。
 - `EvaluationService._llm_judge_suitability`：真实调用 LLM 判断岗位是否适配，用于评测 prompt 边界。
 
 所有 LLM 调用都通过 `LLMClient` 记录：
@@ -38,6 +39,7 @@
 - `fit_judge`：判断岗位适配度。
 - `resume_writer`：生成定制简历并接受 Guardrail。
 - `application_operator`：生成投递包。
+- `interview_coach`：生成面试准备包、缺口 drill 和调研清单。
 
 这里的“SubAgent”只表示任务责任边界，不把上下文压缩做成单独 subagent。上下文治理是 Orchestrator/LLM 调用前的 runtime policy，由 `ContextCompressor` 处理；这样更接近主流 Agent 工程实践，也避免为了形式感制造一个不会独立推理的 subagent。
 
@@ -136,6 +138,17 @@ RAG 证据不再只按向量分和关键词分排序，`MatcherService.retrieve_
 - `No MLflow`、`没有 Kubernetes 经验` 等缺口披露不会被当作支持证据。
 - 投递包必须保留 `manual_confirm_required` 和 `user_confirmed_only`，系统只准备材料和链接，不自动提交最终申请。
 - 缺少投递链接、外联文案过短等问题记录为 warning；编造事实或越过人工确认边界记录为 high-risk issue 并阻断投递包创建。
+
+## 面试准备包
+
+`prepare_interview_for_job` 补齐投递后的面试准备阶段。它读取结构化 JD、`match_result`、Top evidence 和缺口技能，生成：
+
+- 同岗位面经与高频追问：给出牛客网、OfferShow、小红书等平台的调研 query，并把可能高频问题映射到 JD 核心技能。
+- 简历项目技术栈追问：从 Profile skills、项目 `tech_stack` 和 RAG 证据出发，追问架构位置、技术取舍、替代方案和指标。
+- 缺口 drill：对 `missing_skills` 生成诚实披露话术和最小补齐任务。
+- 通用面试与行为问题：覆盖动机、失败复盘、模糊需求拆解和协作推进。
+
+当前不直接抓取牛客网、OfferShow、小红书帖子，原因是这些平台公开可达性、登录态、反爬和内容真实性都不稳定。真实抓取应作为独立 source 层能力接入，并配套 source smoke；核心面试包生成链路先保持可重复、可评测。否定证据优先级高于正向动作词，例如“没有 Kubernetes 集群维护经验”不能因为包含“维护”就被当成 Kubernetes 支持证据。
 
 ## 当前 Tool
 

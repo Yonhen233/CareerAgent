@@ -64,6 +64,14 @@ SUBAGENTS: list[SubAgentSpec] = [
         writes=["application_packet", "cover_letter", "outreach_message"],
         context_policy="只读取最终简历版本和岗位摘要。",
     ),
+    SubAgentSpec(
+        name="interview_coach",
+        purpose="把岗位要求、候选人证据和能力缺口转成面试准备问题与诚实回答策略。",
+        owns_skills=["interview_preparation"],
+        reads=["structured_jd", "match_result", "ranked_evidence"],
+        writes=["interview_prep", "question_sets", "gap_drills", "research_checklist"],
+        context_policy="只读取 Top evidence 和缺口摘要；缺少证据时输出披露策略，不生成虚假经历。",
+    ),
 ]
 
 
@@ -77,6 +85,7 @@ TASK_SUBAGENTS = {
         "resume_writer",
     ],
     "quick_apply": ["profile_analyst", "job_analyst", "resume_writer", "application_operator"],
+    "prepare_interview_for_job": ["profile_analyst", "job_analyst", "evidence_curator", "fit_judge", "interview_coach"],
 }
 
 

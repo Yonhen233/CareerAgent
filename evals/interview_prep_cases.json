@@ -1,0 +1,314 @@
+[
+  {
+    "name": "agent_intern_with_mlflow_gap",
+    "difficulty": "medium",
+    "role_type": "agent_development",
+    "profile": {
+      "name": "陈同学",
+      "headline": "Agent 开发实习生候选人",
+      "target_roles": ["Agent 开发实习生"],
+      "raw_resume_text": "构建 CareerAgent，使用 Python、FastAPI、SQLite、RAG 和 Agent Trace。实现 PDF chunk、岗位匹配评测和投递 Guardrail。没有 MLflow 生产经验。",
+      "structured_profile": {
+        "skills": ["Python", "FastAPI", "SQLite", "RAG", "Agent Trace"],
+        "projects": [
+          {
+            "name": "CareerAgent",
+            "description": "构建中文求职助手 Agent，支持 PDF chunk、RAG 检索、岗位匹配和投递 Guardrail。",
+            "tech_stack": ["Python", "FastAPI", "SQLite", "RAG"],
+            "impact": "用评测集跟踪 JD parser、RAG 和投递包质量。"
+          }
+        ],
+        "raw_text": "构建 CareerAgent，使用 Python、FastAPI、SQLite、RAG 和 Agent Trace。没有 MLflow 生产经验。"
+      }
+    },
+    "job": {
+      "title": "Agent 开发实习生",
+      "company": "腾讯",
+      "jd_text": "负责 Agent 应用开发，使用 Python、FastAPI、RAG、SQLite 和评测体系，了解 MLflow 加分。需要参与需求拆解、效果评估和系统优化。",
+      "structured_jd": {
+        "required_skills": ["Python", "FastAPI", "RAG", "SQLite", "MLflow"],
+        "preferred_skills": ["Agent Trace", "Evaluation"],
+        "responsibilities": ["开发 Agent 应用", "建设 RAG 检索与评测链路", "参与需求拆解和效果评估"],
+        "keywords": ["Agent", "Guardrail", "PDF Chunk"]
+      }
+    },
+    "expected_categories": ["同岗位面经与高频追问", "简历项目技术栈追问", "通用面试与行为问题"],
+    "expected_research_sites": ["牛客网", "OfferShow", "小红书"],
+    "expected_gap_drills": ["MLflow"],
+    "expected_question_keywords": ["Agent", "RAG", "FastAPI", "MLflow"],
+    "min_question_count": 12
+  },
+  {
+    "name": "frontend_intern_accessibility_gap",
+    "difficulty": "medium",
+    "role_type": "frontend",
+    "profile": {
+      "name": "赵同学",
+      "headline": "前端开发实习生候选人",
+      "target_roles": ["前端开发实习生"],
+      "raw_resume_text": "实现组件库文档站，使用 React、TypeScript、CSS 和 Playwright，完成表单状态和可视回归测试。没有无障碍专项经验。",
+      "structured_profile": {
+        "skills": ["React", "TypeScript", "CSS", "Playwright"],
+        "projects": [
+          {
+            "name": "组件库工作台",
+            "description": "实现设计系统组件、表单校验和 Playwright 冒烟测试。",
+            "tech_stack": ["React", "TypeScript", "CSS", "Playwright"],
+            "impact": "覆盖 30 个组件状态。"
+          }
+        ],
+        "raw_text": "React TypeScript CSS Playwright 组件库。没有无障碍专项经验。"
+      }
+    },
+    "job": {
+      "title": "前端工程实习生",
+      "company": "字节",
+      "jd_text": "参与 Web 前端开发，要求 React、TypeScript、CSS 工程化、可访问性和自动化测试经验。",
+      "structured_jd": {
+        "required_skills": ["React", "TypeScript", "CSS", "Accessibility", "Playwright"],
+        "preferred_skills": ["Storybook"],
+        "responsibilities": ["开发 Web 业务页面", "维护组件质量", "建设自动化测试"],
+        "keywords": ["前端", "组件库", "可访问性"]
+      }
+    },
+    "expected_categories": ["同岗位面经与高频追问", "简历项目技术栈追问", "通用面试与行为问题"],
+    "expected_research_sites": ["牛客网", "OfferShow", "小红书"],
+    "expected_gap_drills": ["Accessibility"],
+    "expected_question_keywords": ["React", "TypeScript", "Accessibility"],
+    "min_question_count": 12
+  },
+  {
+    "name": "data_engineering_airflow_gap",
+    "difficulty": "medium",
+    "role_type": "data_engineering",
+    "profile": {
+      "name": "林同学",
+      "headline": "数据开发实习生候选人",
+      "target_roles": ["数据开发实习生"],
+      "raw_resume_text": "建设数据质量看板，使用 SQL、Python、dbt 和 Warehouse，输出异常校验报告。没有 Airflow 生产调度经验。",
+      "structured_profile": {
+        "skills": ["SQL", "Python", "dbt", "Warehouse", "Data Quality"],
+        "projects": [
+          {
+            "name": "数据质量看板",
+            "description": "用 SQL 和 Python 生成数据质量规则、日报和异常校验。",
+            "tech_stack": ["SQL", "Python", "dbt"],
+            "impact": "覆盖 12 张核心表。"
+          }
+        ],
+        "raw_text": "SQL Python dbt Warehouse Data Quality。没有 Airflow 生产调度经验。"
+      }
+    },
+    "job": {
+      "title": "数据开发实习生",
+      "company": "美团",
+      "jd_text": "负责离线数据链路开发，要求 SQL、Python、Airflow、数据质量和仓库建模能力。",
+      "structured_jd": {
+        "required_skills": ["SQL", "Python", "Airflow", "Data Quality", "Warehouse"],
+        "preferred_skills": ["Spark"],
+        "responsibilities": ["开发离线数据链路", "维护数据质量", "建设指标口径"],
+        "keywords": ["数据开发", "调度", "数仓"]
+      }
+    },
+    "expected_categories": ["同岗位面经与高频追问", "简历项目技术栈追问", "通用面试与行为问题"],
+    "expected_research_sites": ["牛客网", "OfferShow", "小红书"],
+    "expected_gap_drills": ["Airflow"],
+    "expected_question_keywords": ["SQL", "Airflow", "Data Quality"],
+    "min_question_count": 12
+  },
+  {
+    "name": "recommendation_intern_feature_store_gap",
+    "difficulty": "hard",
+    "role_type": "recommendation",
+    "profile": {
+      "name": "周同学",
+      "headline": "推荐算法实习生候选人",
+      "target_roles": ["推荐算法实习生"],
+      "raw_resume_text": "实现新闻推荐召回实验，使用 Python、PyTorch、Ranking、CTR 特征和离线 NDCG 评测。没有 Feature Store 实战。",
+      "structured_profile": {
+        "skills": ["Python", "PyTorch", "Ranking", "CTR", "NDCG"],
+        "projects": [
+          {
+            "name": "新闻推荐实验",
+            "description": "实现召回和排序 baseline，使用 NDCG 与点击率 proxy 做离线评估。",
+            "tech_stack": ["Python", "PyTorch", "Ranking"],
+            "impact": "NDCG@10 提升 8%。"
+          }
+        ],
+        "raw_text": "Python PyTorch Ranking CTR NDCG。没有 Feature Store 实战。"
+      }
+    },
+    "job": {
+      "title": "推荐算法实习生",
+      "company": "快手",
+      "jd_text": "参与推荐系统召回排序优化，要求 Python、PyTorch、CTR、Ranking 和 Feature Store 经验。",
+      "structured_jd": {
+        "required_skills": ["Python", "PyTorch", "CTR", "Ranking", "Feature Store"],
+        "preferred_skills": ["A/B Testing"],
+        "responsibilities": ["优化召回排序链路", "分析实验指标", "维护特征"],
+        "keywords": ["推荐系统", "排序模型", "特征平台"]
+      }
+    },
+    "expected_categories": ["同岗位面经与高频追问", "简历项目技术栈追问", "通用面试与行为问题"],
+    "expected_research_sites": ["牛客网", "OfferShow", "小红书"],
+    "expected_gap_drills": ["Feature Store"],
+    "expected_question_keywords": ["Ranking", "Feature Store", "CTR"],
+    "min_question_count": 12
+  },
+  {
+    "name": "ai_product_agent_role",
+    "difficulty": "medium",
+    "role_type": "product",
+    "profile": {
+      "name": "王同学",
+      "headline": "AI 产品实习生候选人",
+      "target_roles": ["AI 产品实习生"],
+      "raw_resume_text": "做过校园知识库问答产品原型，负责需求访谈、PRD、用户反馈整理和 Prompt 测试。没有线上 A/B 实验经验。",
+      "structured_profile": {
+        "skills": ["PRD", "User Research", "Prompt", "Knowledge Base"],
+        "projects": [
+          {
+            "name": "校园知识库问答",
+            "description": "整理用户需求，设计问答流程和 Prompt 测试方案。",
+            "tech_stack": ["Prompt", "Knowledge Base"],
+            "impact": "访谈 20 名同学并整理 40 条反馈。"
+          }
+        ],
+        "raw_text": "PRD User Research Prompt Knowledge Base。没有线上 A/B 实验经验。"
+      }
+    },
+    "job": {
+      "title": "AI Agent 产品实习生",
+      "company": "阿里",
+      "jd_text": "参与 AI Agent 产品需求分析、用户研究、Prompt 评测和 A/B Testing。",
+      "structured_jd": {
+        "required_skills": ["User Research", "PRD", "Prompt", "A/B Testing"],
+        "preferred_skills": ["Agent"],
+        "responsibilities": ["梳理产品需求", "设计实验指标", "分析用户反馈"],
+        "keywords": ["AI 产品", "Agent", "用户研究"]
+      }
+    },
+    "expected_categories": ["同岗位面经与高频追问", "简历项目技术栈追问", "通用面试与行为问题"],
+    "expected_research_sites": ["牛客网", "OfferShow", "小红书"],
+    "expected_gap_drills": ["A/B Testing"],
+    "expected_question_keywords": ["PRD", "Prompt", "A/B Testing"],
+    "min_question_count": 12
+  },
+  {
+    "name": "ml_platform_k8s_gap",
+    "difficulty": "hard",
+    "role_type": "ml_platform",
+    "profile": {
+      "name": "黄同学",
+      "headline": "机器学习平台实习生候选人",
+      "target_roles": ["机器学习平台实习生"],
+      "raw_resume_text": "实现模型评测 dashboard，使用 Python、PyTorch、Docker 和指标看板。没有 Kubernetes 集群维护经验。",
+      "structured_profile": {
+        "skills": ["Python", "PyTorch", "Docker", "Evaluation"],
+        "projects": [
+          {
+            "name": "模型评测 Dashboard",
+            "description": "用 Python 和 PyTorch 跑 baseline，Docker 封装评测环境。",
+            "tech_stack": ["Python", "PyTorch", "Docker"],
+            "impact": "减少手动评测时间。"
+          }
+        ],
+        "raw_text": "Python PyTorch Docker Evaluation。没有 Kubernetes 集群维护经验。"
+      }
+    },
+    "job": {
+      "title": "机器学习平台实习生",
+      "company": "华为",
+      "jd_text": "参与模型训练和评测平台建设，要求 Python、PyTorch、Docker、Kubernetes 和 MLflow。",
+      "structured_jd": {
+        "required_skills": ["Python", "PyTorch", "Docker", "Kubernetes", "MLflow"],
+        "preferred_skills": ["Model Evaluation"],
+        "responsibilities": ["维护训练评测平台", "建设模型指标看板", "优化部署流程"],
+        "keywords": ["机器学习平台", "MLOps"]
+      }
+    },
+    "expected_categories": ["同岗位面经与高频追问", "简历项目技术栈追问", "通用面试与行为问题"],
+    "expected_research_sites": ["牛客网", "OfferShow", "小红书"],
+    "expected_gap_drills": ["Kubernetes", "MLflow"],
+    "expected_question_keywords": ["Docker", "Kubernetes", "MLflow"],
+    "min_question_count": 12
+  },
+  {
+    "name": "weak_agent_only_coursework",
+    "difficulty": "adversarial",
+    "role_type": "agent_development",
+    "profile": {
+      "name": "刘同学",
+      "headline": "想转 Agent 开发",
+      "target_roles": ["Agent 开发实习生"],
+      "raw_resume_text": "课程中阅读过 Agent 和 RAG 文章，计划学习 Tool Calling。没有构建过 Agent 系统。",
+      "structured_profile": {
+        "skills": ["Python"],
+        "projects": [
+          {
+            "name": "课程阅读报告",
+            "description": "阅读 Agent 和 RAG 文章，计划学习 Tool Calling。",
+            "tech_stack": ["Python"],
+            "impact": "课程作业。"
+          }
+        ],
+        "raw_text": "课程中阅读过 Agent 和 RAG 文章，计划学习 Tool Calling。没有构建过 Agent 系统。"
+      }
+    },
+    "job": {
+      "title": "Agent 开发实习生",
+      "company": "腾讯",
+      "jd_text": "负责 Agent 工作流开发，要求 Python、RAG、Tool Calling、FastAPI 和评测经验。",
+      "structured_jd": {
+        "required_skills": ["Python", "RAG", "Tool Calling", "FastAPI", "Evaluation"],
+        "preferred_skills": ["Guardrail"],
+        "responsibilities": ["开发 Agent 工作流", "调试工具调用", "建设评测"],
+        "keywords": ["Agent", "RAG", "工具调用"]
+      }
+    },
+    "expected_categories": ["同岗位面经与高频追问", "简历项目技术栈追问", "通用面试与行为问题"],
+    "expected_research_sites": ["牛客网", "OfferShow", "小红书"],
+    "expected_gap_drills": ["RAG", "Tool Calling", "FastAPI", "Evaluation"],
+    "expected_question_keywords": ["Tool Calling", "RAG", "FastAPI"],
+    "min_question_count": 12
+  },
+  {
+    "name": "english_auxiliary_agent_role",
+    "difficulty": "medium",
+    "role_type": "english_auxiliary",
+    "profile": {
+      "name": "Sun",
+      "headline": "LLM Application Intern candidate",
+      "target_roles": ["LLM Application Intern"],
+      "raw_resume_text": "Built a FastAPI RAG assistant with SQLite traces and evaluation dashboards. No LangGraph production workflow.",
+      "structured_profile": {
+        "skills": ["Python", "FastAPI", "RAG", "SQLite", "Evaluation"],
+        "projects": [
+          {
+            "name": "CareerAgent",
+            "description": "Built a FastAPI RAG assistant with SQLite traces and evaluation dashboards.",
+            "tech_stack": ["Python", "FastAPI", "RAG", "SQLite"],
+            "impact": "Tracked quality with offline evaluation cases."
+          }
+        ],
+        "raw_text": "Built a FastAPI RAG assistant with SQLite traces and evaluation dashboards. No LangGraph production workflow."
+      }
+    },
+    "job": {
+      "title": "LLM Application Intern",
+      "company": "AI Lab",
+      "jd_text": "Build LLM applications with FastAPI, RAG, evaluation, LangGraph and tool calling.",
+      "structured_jd": {
+        "required_skills": ["FastAPI", "RAG", "Evaluation", "LangGraph", "Tool Calling"],
+        "preferred_skills": ["SQLite"],
+        "responsibilities": ["Build LLM workflows", "Evaluate retrieval quality", "Debug tool calls"],
+        "keywords": ["LLM", "Agent", "RAG"]
+      }
+    },
+    "expected_categories": ["同岗位面经与高频追问", "简历项目技术栈追问", "通用面试与行为问题"],
+    "expected_research_sites": ["牛客网", "OfferShow", "小红书"],
+    "expected_gap_drills": ["LangGraph", "Tool Calling"],
+    "expected_question_keywords": ["RAG", "LangGraph", "Tool Calling"],
+    "min_question_count": 12
+  }
+]

@@ -1,4 +1,5 @@
 from difflib import SequenceMatcher
+import re
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -298,7 +299,11 @@ class MatcherService:
         sentences = self._sentences_with_skill(resume_text.lower(), skill)
         if not sentences:
             return True
-        positive = [sentence for sentence in sentences if self._contains_positive_evidence(sentence)]
+        positive = [
+            sentence
+            for sentence in sentences
+            if self._contains_positive_evidence(sentence) and not self._contains_negative_evidence(sentence)
+        ]
         if positive:
             return True
         non_negative = [sentence for sentence in sentences if not self._contains_negative_evidence(sentence)]
@@ -322,7 +327,7 @@ class MatcherService:
         terms = skill_terms(skill)
         sentences = [
             sentence.strip()
-            for sentence in text.replace("\n", ". ").split(".")
+            for sentence in re.split(r"[。！？!?；;\n.]+", text)
             if sentence.strip()
         ]
         return [sentence for sentence in sentences if any(term in sentence for term in terms)]

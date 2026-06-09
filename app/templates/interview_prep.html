@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <div class="panel-heading compact">
+    <div>
+      <p class="eyebrow">Interview prep</p>
+      <h1>面试准备包</h1>
+    </div>
+  </div>
+  <form id="interview-prep-form" class="form-grid">
+    <label>Profile ID<input name="profile_id" type="number" min="1" required></label>
+    <label>Job ID<input name="job_id" type="number" min="1" required></label>
+    <button class="primary" type="submit"><i data-lucide="messages-square"></i> 生成面试准备包</button>
+  </form>
+</section>
+<section class="panel">
+  <div class="panel-heading compact">
+    <div>
+      <p class="eyebrow">Packets</p>
+      <h2>准备记录</h2>
+    </div>
+    <button class="ghost" data-refresh="interview-prep"><i data-lucide="refresh-cw"></i> 刷新</button>
+  </div>
+  <div id="interview-prep-list" class="result-list"></div>
+</section>
+{% endblock %}

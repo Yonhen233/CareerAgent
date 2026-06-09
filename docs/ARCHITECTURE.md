@@ -20,6 +20,7 @@ CareerAgent 的目标不是“一个 Prompt 生成简历”，而是一个可观
 - `match_results`：岗位匹配结果。
 - `resume_versions`：定制简历版本。
 - `applications`：投递包和投递状态。
+- `interview_preps`：面试准备包，包含题组、缺口 drill、外部调研清单和覆盖指标。
 - `agent_runs`：Agent 工作流运行记录。
 - `agent_steps`：Agent 步骤级 Trace。
 - `agent_artifacts`：Agent 产物。
@@ -38,6 +39,7 @@ CareerAgent 的目标不是“一个 Prompt 生成简历”，而是一个可观
 - `fit_assessment`
 - `resume_tailoring`
 - `application_packet`
+- `interview_preparation`
 
 `app/agents/subagents.py` 保存工程责任边界，例如 `fit_judge`、`resume_writer`、`application_operator`。上下文压缩不再注册成独立 subagent，而是由 `ContextCompressor` 作为 LLM 调用前的 runtime policy 执行。
 
@@ -80,6 +82,16 @@ CareerAgent 的目标不是“一个 Prompt 生成简历”，而是一个可观
 5. 生成求职信和外联文案。
 6. 运行 `ApplicationPacketGuardrail`，检查投递包是否编造未支持的能力、是否提到目标岗位、是否保留人工确认边界。
 7. 保存投递清单、投递链接、Guardrail 结果和状态。
+
+### `prepare_interview_for_job`
+
+1. `plan_task` 生成 Plan-Execute 执行计划。
+2. 加载 Profile 和 Job。
+3. 运行 `matcher.match_job`，得到匹配分、已匹配技能、缺口技能和 RAG Top evidence。
+4. `InterviewPrepService` 从三个角度生成面试准备包：牛客网/OfferShow/小红书等同岗位面经调研线索、简历项目技术栈深挖、JD 缺口与通用面试问题。
+5. 保存题组、缺口 drill、外部调研清单、证据引用和 coverage 指标。
+
+当前不会声称已经抓取牛客网、OfferShow 或小红书的真实帖子；这些平台可能有登录、反爬、内容噪声和时效性问题，因此先作为 `research_checklist` 的可执行 query。后续如果接真实抓取，应单独做面经 source smoke，把网络失败和内容质量作为 source 层指标。
 
 ## 混合向量检索
 
@@ -133,6 +145,7 @@ Reranker：
 - `resume_tailor.tailor_resume`
 - `guardrail.verify_resume`
 - `application.create_quick_apply_packet`
+- `interview_prep.generate_packet`
 
 当前不强制引入 MCP。原因是这些工具都在同一 FastAPI 进程内，直接 Python 调用更简单、可测、可追踪。适合 MCP 化的边界是外部能力：
 

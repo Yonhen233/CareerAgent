@@ -1,5 +1,38 @@
 # 开发日志
 
+## 2026-06-09 09:56 +08:00：新增面试准备包与面经调研视角
+
+### 这次做了什么
+- 新增 `InterviewPrep` 数据模型，持久化面试准备包、题组、缺口 drill、外部调研清单、证据引用和 coverage 指标。
+- 新增 `InterviewPrepService`、`POST /interview-prep`、`GET /interview-prep` 和 `/ui/interview-prep` 页面。
+- Agent 新增 `prepare_interview_for_job` 任务，执行 `load_profile -> load_job -> match_job -> generate_interview_prep`，并写入 `interview_prep` artifact。
+- Tool/Skill/SubAgent 注册表新增 `interview_prep.generate_packet`、`interview_preparation` 和 `interview_coach`。
+- 面试包从三个主要角度生成：牛客网/OfferShow/小红书同岗位面经调研线索、简历项目技术栈深挖、JD 缺口与通用行为问题。
+- 新增 `evals/interview_prep_cases.json` 和 `POST /evaluations/interview-prep`，用 8 个中文为主 case 量化题源覆盖、调研源覆盖、缺口 drill 和必备技能覆盖。
+
+### 发现了什么问题
+- 初版面试包只围绕 JD 和 RAG 证据出题，不够贴近真实准备场景；真实面试准备还需要同岗位面经、简历项目技术栈和通用行为问题。
+- 首轮测试发现 `没有 MLflow 生产经验` 会被误判成 MLflow 正向证据，原因是 matcher 只按英文句号切句，中文句号没有切开前一句“构建 CareerAgent”和后一句缺口披露。
+- 第二轮评测发现 `没有 Kubernetes 集群维护经验` 仍被误判，原因是该句同时命中否定词“没有”和正向动作词“维护”，旧逻辑让正向词覆盖了否定证据。
+- 牛客网、OfferShow、小红书存在登录态、反爬、内容真实性和时效性问题，不能在核心离线评测里假装已经稳定抓取真实面经。
+
+### 怎么修复的
+- 面试包题组新增 `同岗位面经与高频追问`、`简历项目技术栈追问` 和 `通用面试与行为问题`，并保留技术深挖、缺口追问和工程协作题。
+- `research_checklist_json` 生成牛客网、OfferShow、小红书和搜索引擎 query，明确这是可执行调研线索，不是已抓取事实。
+- `MatcherService._sentences_with_skill` 改为按中文/英文标点切句，避免中文缺口披露和前文正向项目粘连。
+- `MatcherService._skill_has_positive_or_neutral_support` 改为否定证据优先：同一句里即使命中“维护/构建”等正向词，只要存在 `没有/No/without` 等否定信号，就不能算作支持证据。
+- 面试准备评测修复后通过：`case_count=8`、`pass_rate=1.0000`、`research_source_pass_rate=1.0000`、`gap_drill_pass_rate=1.0000`、`avg_question_count=24.8750`、`avg_required_skill_coverage_rate=1.0000`。
+
+### 未修复的问题及原因
+- 还没有真实抓取牛客网、OfferShow、小红书帖子；原因是这些平台的公开可达性和内容质量不稳定，应作为独立 source 层能力接入，并用 smoke 区分网络失败、登录限制、空结果和低质量内容。
+- 面试问题目前是结构化规则生成，不是 LLM 综合多篇面经后的归纳；原因是本轮先建立可重复、可评测的面试准备包骨架，后续再把真实面经摘要和 LLM 去重作为增强层。
+- 面试包还没有导出 Markdown/PDF；原因是本轮优先补齐生成链路、Trace 和评测，导出属于交付体验优化。
+
+### 下一步怎么做
+- 增加面经 source smoke：分别探测牛客网、OfferShow、小红书的可达性、搜索结果数量、内容时间和岗位相关性。
+- 支持用户粘贴面经文本，让系统把真实面经与 JD/简历证据对齐生成二次面试包。
+- 给面试准备包增加 Markdown 导出和“按题练习/标记已准备”状态。
+
 ## 2026-06-08 13:28 +08:00：收紧中文岗位源边界
 
 ### 这次做了什么
