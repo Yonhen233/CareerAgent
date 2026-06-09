@@ -275,6 +275,15 @@ function percent(value) {
   return `${Math.round(Number(value || 0) * 100)}%`;
 }
 
+function sourceSiteLabel(source) {
+  const labels = {
+    nowcoder: "牛客网",
+    offershow: "OfferShow",
+    xiaohongshu: "小红书",
+  };
+  return labels[source] || source || "";
+}
+
 function evaluationSummaryGrid(summary) {
   const type = summary.evaluation_type || "";
   if (type === "interview_source_smoke") {
@@ -319,6 +328,15 @@ function renderInterviewSourceSmoke(run) {
             <span class="tag">${item.interview_signal ? "面经" : "弱信号"}</span>
             <span class="tag">${item.query_relevant ? "相关" : "低相关"}</span>
             ${item.url ? `<a href="${escapeHtml(item.url)}" target="_blank">${escapeHtml(item.title)}</a>` : escapeHtml(item.title)}
+            <button
+              class="ghost"
+              type="button"
+              data-import-interview-candidate
+              data-source="${escapeHtml(item.source || row.source || "")}"
+              data-title="${escapeHtml(item.title || "")}"
+              data-url="${escapeHtml(item.url || "")}"
+              data-snippet="${escapeHtml(item.snippet_preview || "")}"
+            ><i data-lucide="copy-plus"></i> 填入导入草稿</button>
             <div class="meta">${escapeHtml(item.snippet_preview || "")}</div>
           </li>
         `).join("")}</ul>
@@ -350,6 +368,26 @@ async function loadEvaluationRuns() {
     `;
   });
   if (window.lucide) window.lucide.createIcons();
+}
+
+function prefillInterviewSourceImport(button) {
+  const form = $("#interview-source-import-form");
+  if (!form) return;
+  const source = button.dataset.source || "";
+  const title = button.dataset.title || "";
+  const url = button.dataset.url || "";
+  const snippet = button.dataset.snippet || "";
+  form.source_site.value = sourceSiteLabel(source);
+  form.source_url.value = url;
+  form.title.value = title;
+  form.raw_text.value = [
+    title,
+    snippet,
+    url ? `来源链接：${url}` : "",
+    "请在导入前补充完整真实面经正文、轮次和追问；不要只保留搜索摘要。",
+  ].filter(Boolean).join("\n");
+  form.raw_text.focus();
+  toast("已填入候选面经草稿，请人工补全后再导入");
 }
 
 function bindForms() {
@@ -550,6 +588,25 @@ function bindForms() {
     await loadEvaluationRuns();
   });
 
+  $("#interview-source-import-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const raw = formJson(event.currentTarget);
+    await api("/interview-prep/experiences", {
+      method: "POST",
+      body: JSON.stringify({
+        job_id: raw.job_id ? Number(raw.job_id) : null,
+        source_site: raw.source_site,
+        source_url: raw.source_url || null,
+        title: raw.title || null,
+        company: raw.company || null,
+        role_keyword: raw.role_keyword || null,
+        raw_text: raw.raw_text,
+      }),
+    });
+    toast("面经已导入，可在面试页引用");
+    event.currentTarget.reset();
+  });
+
   document.querySelectorAll("[data-refresh]").forEach((button) => {
     button.addEventListener("click", () => {
       const key = button.dataset.refresh;
@@ -565,6 +622,12 @@ function bindForms() {
       if (key === "interview-experience") loadInterviewExperiences();
       if (key === "evaluations") loadEvaluationRuns();
     });
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element)) return;
+    const button = event.target.closest("[data-import-interview-candidate]");
+    if (button) prefillInterviewSourceImport(button);
   });
 }
 

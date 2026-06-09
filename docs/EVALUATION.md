@@ -543,7 +543,7 @@ POST /evaluations/interview-source-smoke?query=Agent%20%E5%BC%80%E5%8F%91%E5%AE%
 
 该评测的定位是面经 source 层探针：它可以暴露“牛客网可访问但无结果”“小红书需要登录/客户端渲染”“OfferShow 搜索页结构变化”等问题，但不会替代 `interview_prep` 的可重复生成质量评测。真实结果质量足够时，下一步才应进入“导入为 source-backed 面经证据”的人工确认流程。
 
-`/ui/evaluations` 提供面经源探测工作台，可以填写 query、limit 和 source 列表运行 `interview-source-smoke`，并展示最新 summary、source errors、空源、source 级耗时和样例结果。这个页面面向开发和调试，不把外部平台失败解释成核心 Agent 失败。
+`/ui/evaluations` 提供面经源探测工作台，可以填写 query、limit 和 source 列表运行 `interview-source-smoke`，并展示最新 summary、source errors、空源、source 级耗时和样例结果。页面里的“填入导入草稿”只会把候选标题、URL 和摘要预填到人工确认表单；用户必须补全真实面经正文后再提交到 `interview_experiences`。这个页面面向开发和调试，不把外部平台失败解释成核心 Agent 失败，也不把搜索摘要自动当作 source-backed 证据。
 
 ## 真实岗位源 Smoke
 

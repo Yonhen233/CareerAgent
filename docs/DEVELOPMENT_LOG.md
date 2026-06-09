@@ -1,5 +1,36 @@
 # 开发日志
 
+## 2026-06-09 22:05 +08:00：候选面经接入人工确认导入草稿
+
+### 这次做了什么
+- `/ui/evaluations` 新增“确认导入候选面经”表单，字段复用 `POST /interview-prep/experiences` 的导入协议。
+- 面经 source smoke 的 sample 结果新增“填入导入草稿”按钮，可把来源平台、标题、URL 和摘要预填到人工确认表单。
+- 用户必须补全或确认真实面经正文后再提交，提交后写入 `interview_experiences`，后续可在面试准备包里作为 source-backed 证据引用。
+- 前端测试新增断言，确保评测页同时包含 `interview-source-smoke-form`、`interview-source-import-form` 和 `evaluation-runs-list`。
+- README、Agent 设计和评测文档已更新中文说明。
+
+### 发现的问题
+- source smoke 的 sample 只代表搜索页候选线索，不代表完整、真实、可授权使用的面经正文。
+- 如果直接提供“一键导入”会让搜索摘要变成伪证据，后续面试包可能引用不完整或错误的问题。
+- 面经导入表单只在 `/ui/interview-prep` 页面时，用户需要在评测页和面试页之间来回复制，调试链路不顺。
+
+### 怎么修复
+- 在评测页内增加人工确认表单，但仍复用后端 `InterviewExperienceService` 的原文抽取、主题识别和可信度计算。
+- “填入导入草稿”只做预填，不自动提交；预填正文中明确提醒用户补充完整真实面经正文、轮次和追问。
+- 提交后仍走 `POST /interview-prep/experiences` 的校验，短文本或无效文本会直接报错，不静默兜底。
+- 全量回归通过：`62 passed`；`node --check app/static/js/main.js` 通过。
+- 页面 smoke 通过：`GET /ui/evaluations` 返回 `200`，页面包含 `interview-source-import-form`，静态 JS 包含 `data-import-interview-candidate` 和 `prefillInterviewSourceImport`。
+
+### 未修复的问题
+- 还没有从候选 URL 自动抓取正文；原因是多数平台存在登录、反爬、客户端渲染和授权边界，自动抓正文应在 source 稳定性证据足够后单独设计。
+- 还没有把导入成功后的面经 ID 自动带回面试包生成表单；原因是本轮先打通候选到导入的最小人工确认闭环，下一步再连接生成面试包。
+- 还没有对候选摘要做 LLM 去重；原因是摘要不一定完整，去重应基于已确认导入的正文。
+
+### 下一步
+- 导入成功后展示新建 `InterviewExperience` ID，并提供“用该面经生成面试包”的快捷入口。
+- 在多篇已导入面经基础上增加 LLM 摘要/去重增强层，同时保留原文引用、来源 URL 和可信度分。
+- 给评测工作台增加 LLM workflow、RAG strategy 和 real-job-ingest smoke 的运行入口与中间 trace 展示。
+
 ## 2026-06-09 20:58 +08:00：新增评测工作台展示面经源探测
 
 ### 这次做了什么

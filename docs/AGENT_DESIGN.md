@@ -156,7 +156,7 @@ RAG 证据不再只按向量分和关键词分排序，`MatcherService.retrieve_
 
 `InterviewPrepDeliveryService` 负责把准备包渲染成 Markdown，并记录 `todo`、`practicing`、`ready`、`deferred` 等按题练习状态。评测会检查题号唯一性、来源视角覆盖和 Markdown 导出，而不只检查最终生成了一段文本。
 
-当前不把牛客网、OfferShow、小红书公开搜索结果直接写入面试包，原因是这些平台公开可达性、登录态、反爬、客户端渲染和内容真实性都不稳定。系统支持用户导入真实面经文本/链接，`InterviewExperienceService` 只从原文抽取问题、轮次、技术主题和可信度信号，不会在文本缺失时编造具体帖子。`interview-source-smoke` 已作为独立 source 层能力接入，用来记录三类平台的可达性、空结果、面经信号、query relevance 和内容可抽取性；核心面试包生成链路仍保持可重复、可评测。否定证据优先级高于正向动作词，例如“没有 Kubernetes 集群维护经验”不能因为包含“维护”就被当成 Kubernetes 支持证据。
+当前不把牛客网、OfferShow、小红书公开搜索结果直接写入面试包，原因是这些平台公开可达性、登录态、反爬、客户端渲染和内容真实性都不稳定。系统支持用户导入真实面经文本/链接，`InterviewExperienceService` 只从原文抽取问题、轮次、技术主题和可信度信号，不会在文本缺失时编造具体帖子。`interview-source-smoke` 已作为独立 source 层能力接入，用来记录三类平台的可达性、空结果、面经信号、query relevance 和内容可抽取性；`/ui/evaluations` 只会把候选标题、URL 和摘要预填到人工确认表单，用户补全正文并确认后才写入 `InterviewExperience`。核心面试包生成链路仍保持可重复、可评测。否定证据优先级高于正向动作词，例如“没有 Kubernetes 集群维护经验”不能因为包含“维护”就被当成 Kubernetes 支持证据。
 
 ## 当前 Tool
 
