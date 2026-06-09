@@ -1,6 +1,6 @@
 # CareerAgent
 
-CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Agent。它不是单次 Prompt 演示，而是一个工程化工作流：从 PDF 简历或问答式信息采集开始，解析候选人画像，搜索真实招聘站岗位，存储并检索职位 JD，做岗位匹配评分，基于 RAG 证据定制简历，记录 LLM 调用与 Agent Trace，生成可人工确认的投递包，并根据同岗位面经线索、简历项目技术栈和 JD 缺口整理面试准备包。
+CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Agent。它不是单次 Prompt 演示，而是一个工程化工作流：从 PDF 简历或问答式信息采集开始，解析候选人画像，搜索真实招聘站岗位，存储并检索职位 JD，做岗位匹配评分，基于 RAG 证据定制简历，记录 LLM 调用与 Agent Trace，生成可人工确认的投递包，并根据已导入同岗面经证据、面经调研线索、简历项目技术栈和 JD 缺口整理面试准备包。
 
 默认演示场景是中文求职场景下的“Agent 开发实习生”，英文岗位只作为少量辅助测试；数据模型和服务层可以扩展到其他技术岗位。
 
@@ -33,7 +33,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - `find_jobs_for_profile`：搜索岗位、解析 JD、入库、匹配、排序。
   - `tailor_resume_for_job`：匹配岗位、检索简历证据、定制简历、校验幻觉风险。
   - `quick_apply`：生成投递包、求职信、外联文案、投递清单和状态记录，并校验投递包是否编造事实或越过人工确认边界。
-  - `prepare_interview_for_job`：基于 JD、匹配结果和 RAG 证据生成面试准备包，覆盖同岗位面经调研线索、简历项目技术栈追问、缺口 drill 和通用行为问题。
+  - `prepare_interview_for_job`：基于 JD、匹配结果、RAG 证据和已导入同岗面经生成面试准备包，覆盖 source-backed 面经追问、面经调研线索、简历项目技术栈追问、缺口 drill 和通用行为问题。
   - `quick_apply` 前置 `fit_gate`：低匹配岗位直接阻断，并把缺口写入 Agent step trace。
   - 每次 run 先生成 Plan-Execute 执行计划，并写入 Trace artifact。
   - 显式注册 Tool、Skill 和 SubAgent，计划产物会展示当前任务使用的能力边界。
@@ -52,7 +52,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - JD parser 评测用 30 个中英混合、带 preferred/negative/synonym 噪声的 JD case 衡量结构化质量。
   - Job relevance 评测用 13 个中文为主 query、130 个带 0-4 级人工相关性标注的候选岗位衡量 source 排序质量。
   - Application packet 评测用 20 个中文投递包 case 衡量求职信/外联文案的事实校验、人工确认边界和误拦截率。
-  - Interview prep 评测用 8 个中文为主 case 衡量面经源调研线索、项目技术栈追问、缺口 drill 和通用问题覆盖。
+  - Interview prep 评测用 9 个中文为主 case 衡量面经源调研线索、已导入面经证据、项目技术栈追问、缺口 drill 和通用问题覆盖。
   - 真实岗位源 smoke 独立评估 source 层健康度，核心 full-flow 仍使用可控岗位源保证可重复。
   - 真实 JD ingest smoke 独立评估 parser/RAG 入库链路，并检查 query/title/JD 中的核心技能是否进入 structured JD，避免和 source 可达性混淆。
   - PDF Chunk、RAG 和 LLM workflow 都有独立评测集；LLM workflow 会真实跑简历解析、JD 解析、fit judge、简历定制和 Guardrail，并逐 case 写入中间 trace。
@@ -117,7 +117,7 @@ LLM_MODEL=DeepSeek-V4-Pro
 - `/ui/agent-runs`：运行 Agent 并查看步骤。
 - `/ui/resumes`：查看和下载定制简历版本。
 - `/ui/applications`：查看投递包、投递状态、Guardrail issues/warnings 和人工确认边界。
-- `/ui/interview-prep`：生成和查看面试准备包。
+- `/ui/interview-prep`：导入同岗面经材料，生成和查看面试准备包。
 
 ## 常用 API
 
@@ -132,6 +132,8 @@ LLM_MODEL=DeepSeek-V4-Pro
 - `GET /agent/runs/{run_id}/steps`
 - `POST /resumes/tailor`
 - `POST /interview-prep`
+- `POST /interview-prep/experiences`
+- `GET /interview-prep/experiences`
 - `GET /llm/debug/logs`
 - `POST /evaluations/run`
 - `POST /evaluations/pdf-chunk-strategies`

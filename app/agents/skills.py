@@ -85,7 +85,7 @@ AGENT_SKILLS: list[AgentSkillSpec] = [
         owner_subagent="interview_coach",
         purpose="根据 JD、匹配结果和证据生成面试问题、回答要点、缺口 drill 和外部调研清单。",
         trigger="用户准备某个岗位面试或投递后复盘时。",
-        tools=["matcher.match_job", "interview_prep.generate_packet"],
+        tools=["matcher.match_job", "interview_experience.import_text", "interview_prep.generate_packet"],
         context_policy="只读取结构化 JD、匹配结果、Top evidence 和缺口；缺少证据的技能必须作为缺口披露。",
         output_contract={"question_sets": "list", "gap_drills": "list", "research_checklist": "list"},
     ),

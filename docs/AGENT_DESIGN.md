@@ -9,7 +9,7 @@
 - `MatcherService`：主匹配逻辑仍是可解释规则 + RAG evidence，不把最终匹配分数完全交给 LLM。
 - `ResumeTailorService._llm_tailor`：根据 JD 和检索证据生成定制简历。
 - `ApplicationService`：生成求职信和外联文案。
-- `InterviewPrepService`：当前使用结构化规则生成面试准备包，不强制调用 LLM；后续如果接入真实面经抓取，可用 LLM 对多来源面经做去重、归因和风险标注。
+- `InterviewPrepService`：当前使用结构化规则生成面试准备包，不强制调用 LLM；已支持引用用户导入的真实同岗面经。后续如果接入自动抓取或多篇面经聚合，可用 LLM 做去重、归因和风险标注。
 - `EvaluationService._llm_judge_suitability`：真实调用 LLM 判断岗位是否适配，用于评测 prompt 边界。
 
 所有 LLM 调用都通过 `LLMClient` 记录：
@@ -143,12 +143,12 @@ RAG 证据不再只按向量分和关键词分排序，`MatcherService.retrieve_
 
 `prepare_interview_for_job` 补齐投递后的面试准备阶段。它读取结构化 JD、`match_result`、Top evidence 和缺口技能，生成：
 
-- 同岗位面经与高频追问：给出牛客网、OfferShow、小红书等平台的调研 query，并把可能高频问题映射到 JD 核心技能。
+- 同岗位面经与高频追问：优先引用已导入的牛客网、OfferShow、小红书等同岗面经文本，生成 source-backed 追问；没有导入材料时给出可执行调研 query，并把可能高频问题映射到 JD 核心技能。
 - 简历项目技术栈追问：从 Profile skills、项目 `tech_stack` 和 RAG 证据出发，追问架构位置、技术取舍、替代方案和指标。
 - 缺口 drill：对 `missing_skills` 生成诚实披露话术和最小补齐任务。
 - 通用面试与行为问题：覆盖动机、失败复盘、模糊需求拆解和协作推进。
 
-当前不直接抓取牛客网、OfferShow、小红书帖子，原因是这些平台公开可达性、登录态、反爬和内容真实性都不稳定。真实抓取应作为独立 source 层能力接入，并配套 source smoke；核心面试包生成链路先保持可重复、可评测。否定证据优先级高于正向动作词，例如“没有 Kubernetes 集群维护经验”不能因为包含“维护”就被当成 Kubernetes 支持证据。
+当前不直接抓取牛客网、OfferShow、小红书帖子，原因是这些平台公开可达性、登录态、反爬和内容真实性都不稳定。系统支持用户导入真实面经文本/链接，`InterviewExperienceService` 只从原文抽取问题、轮次、技术主题和可信度信号，不会在文本缺失时编造具体帖子。真实自动抓取应作为独立 source 层能力接入，并配套 source smoke；核心面试包生成链路先保持可重复、可评测。否定证据优先级高于正向动作词，例如“没有 Kubernetes 集群维护经验”不能因为包含“维护”就被当成 Kubernetes 支持证据。
 
 ## 当前 Tool
 

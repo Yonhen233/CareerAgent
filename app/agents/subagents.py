@@ -69,7 +69,7 @@ SUBAGENTS: list[SubAgentSpec] = [
         purpose="把岗位要求、候选人证据和能力缺口转成面试准备问题与诚实回答策略。",
         owns_skills=["interview_preparation"],
         reads=["structured_jd", "match_result", "ranked_evidence"],
-        writes=["interview_prep", "question_sets", "gap_drills", "research_checklist"],
+        writes=["interview_prep", "question_sets", "gap_drills", "research_checklist", "interview_experience_evidence"],
         context_policy="只读取 Top evidence 和缺口摘要；缺少证据时输出披露策略，不生成虚假经历。",
     ),
 ]

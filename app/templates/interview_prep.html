@@ -10,9 +10,41 @@
   <form id="interview-prep-form" class="form-grid">
     <label>Profile ID<input name="profile_id" type="number" min="1" required></label>
     <label>Job ID<input name="job_id" type="number" min="1" required></label>
+    <label>Experience IDs<input name="experience_ids" placeholder="可选，如 1,2,3"></label>
     <button class="primary" type="submit"><i data-lucide="messages-square"></i> 生成面试准备包</button>
   </form>
 </section>
+
+<section class="panel">
+  <div class="panel-heading compact">
+    <div>
+      <p class="eyebrow">Interview sources</p>
+      <h2>导入同岗面经材料</h2>
+    </div>
+  </div>
+  <form id="interview-experience-form" class="form-grid">
+    <label>Job ID<input name="job_id" type="number" min="1" placeholder="可选"></label>
+    <label>来源平台<input name="source_site" placeholder="牛客网 / OfferShow / 小红书" required></label>
+    <label>来源链接<input name="source_url" placeholder="可选"></label>
+    <label>标题<input name="title" placeholder="如 腾讯 Agent 实习一面"></label>
+    <label>公司<input name="company" placeholder="可选"></label>
+    <label>岗位关键词<input name="role_keyword" placeholder="如 Agent 开发实习生"></label>
+    <label class="wide">面经正文<textarea name="raw_text" rows="7" required placeholder="粘贴真实面经问题、轮次、追问和备注"></textarea></label>
+    <button class="primary" type="submit"><i data-lucide="import"></i> 导入面经</button>
+  </form>
+</section>
+
+<section class="panel">
+  <div class="panel-heading compact">
+    <div>
+      <p class="eyebrow">Sources</p>
+      <h2>已导入面经</h2>
+    </div>
+    <button class="ghost" data-refresh="interview-experience"><i data-lucide="refresh-cw"></i> 刷新</button>
+  </div>
+  <div id="interview-experience-list" class="result-list"></div>
+</section>
+
 <section class="panel">
   <div class="panel-heading compact">
     <div>

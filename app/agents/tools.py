@@ -98,6 +98,14 @@ AGENT_TOOLS: list[AgentToolSpec] = [
         output_schema={"interview_prep": "InterviewPrep"},
         side_effects=["sqlite_write", "embedding_model_call", "reranker_call"],
     ),
+    AgentToolSpec(
+        name="interview_experience.import_text",
+        purpose="导入牛客网、OfferShow、小红书等同岗面经文本，抽取真实问题、轮次、技术主题和可信度信号。",
+        input_schema={"source_site": "str", "raw_text": "str", "job_id": "int|None"},
+        output_schema={"interview_experience": "InterviewExperience"},
+        side_effects=["sqlite_write"],
+        mcp_candidate=True,
+    ),
 ]
 
 

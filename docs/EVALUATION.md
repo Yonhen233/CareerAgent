@@ -129,14 +129,14 @@ evals/interview_prep_cases.json
 
 规模：
 
-- 8 个面试准备案例。
+- 9 个面试准备案例，其中 1 个 case 带已导入牛客网同岗面经材料，用于验证 source-backed 面经追问。
 - 中文岗位为主，英文 LLM Application Intern 只作为辅助样例。
 - 覆盖 Agent 开发、前端、数据开发、推荐算法、AI 产品、ML 平台和弱匹配候选人。
 
 数据设计：
 
 - 每个 case 包含 Profile、目标 JD、期望题组、期望外部调研源、期望缺口 drill 和题目关键词。
-- 外部调研源只检查牛客网、OfferShow、小红书等 query 是否生成；不把真实平台可达性混入核心质量评测。
+- 外部调研源检查牛客网、OfferShow、小红书等 query 是否生成；如果 case 提供已导入面经，还会检查 source-backed 问题数量和来源站点，不把真实平台网络可达性混入核心质量评测。
 - 缺口 case 刻意加入 `没有 MLflow`、`没有 Kubernetes 集群维护经验`、`没有构建过 Agent 系统` 等否定证据，验证面试包不会把缺口包装成已掌握经验。
 
 ## 标注标准
@@ -463,10 +463,11 @@ POST /evaluations/interview-prep
 
 评测内容：
 
-- 使用 `evals/interview_prep_cases.json`，覆盖 8 个中文为主 case，少量英文岗位作为辅助。
+- 使用 `evals/interview_prep_cases.json`，覆盖 9 个中文为主 case，少量英文岗位作为辅助；其中 1 个 case 带已导入牛客网面经文本。
 - 覆盖 Agent 开发、前端、数据开发、推荐算法、AI 产品、ML 平台、弱匹配 Agent 候选人和英文 LLM Application 岗位。
 - 检查题组是否包含同岗位面经与高频追问、简历项目技术栈追问、通用面试与行为问题。
 - 检查 `research_checklist_json` 是否生成牛客网、OfferShow、小红书等同岗位面经调研 query。
+- 检查已导入面经是否进入 `source_evidence_json`，并生成 `source_backed_interview_experience` 问题。
 - 检查缺口技能是否进入 `gap_drills_json`，避免把 `没有 MLflow`、`没有 Kubernetes 集群维护经验` 这类缺口披露误写成已掌握。
 
 核心指标：
@@ -476,6 +477,8 @@ POST /evaluations/interview-prep
 | `category_pass_rate` | 必需题组是否完整覆盖。 |
 | `research_source_pass_rate` | 牛客网、OfferShow、小红书调研线索是否完整生成。 |
 | `gap_drill_pass_rate` | 缺口技能是否进入诚实披露 drill。 |
+| `source_backed_pass_rate` | 提供已导入面经的 case 是否生成来源支撑问题。 |
+| `avg_source_backed_question_count` | 每个面试包平均来源支撑问题数。 |
 | `avg_question_count` | 每个面试包平均题目数。 |
 | `avg_required_skill_coverage_rate` | JD 必备技能是否被题目或缺口 drill 覆盖。 |
 
@@ -483,16 +486,22 @@ POST /evaluations/interview-prep
 
 | 指标 | 结果 |
 | --- | ---: |
-| case_count | 8 |
+| case_count | 9 |
 | pass_rate | 1.0000 |
 | category_pass_rate | 1.0000 |
 | research_source_pass_rate | 1.0000 |
 | gap_drill_pass_rate | 1.0000 |
-| avg_question_count | 24.8750 |
+| source_backed_pass_rate | 1.0000 |
+| experience_site_pass_rate | 1.0000 |
+| avg_question_count | 25.4444 |
 | avg_research_item_count | 4.0000 |
+| avg_source_backed_experience_count | 0.1111 |
+| avg_source_backed_question_count | 0.3333 |
 | avg_required_skill_coverage_rate | 1.0000 |
 
 本轮暴露并修复的问题：中文句号没有参与句子切分时，`没有 MLflow 生产经验` 会和前一句“构建 CareerAgent”粘在一起；同时“没有 Kubernetes 集群维护经验”会同时命中否定词“没有”和正向词“维护”。修复后 matcher 使用中文/英文标点切分句子，并让否定证据优先级高于正向动作词。
+
+新增 source-backed 面经 case 后又暴露两个边界：第一，真实粘贴的面经常是一整段短文本，多个问题之间不一定换行，抽取器必须先按中文/英文问号、句号、分号切句，再判断是否为问题；第二，评测运行在持久 SQLite 时，历史导入的面经可能被后续 case 自动检索到，造成评测污染。修复后 `experience_ids=None` 表示产品自动检索相关面经，`experience_ids=[]` 表示评测隔离空集合。
 
 ## 真实岗位源 Smoke
 

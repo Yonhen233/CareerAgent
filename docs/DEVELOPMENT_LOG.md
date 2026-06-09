@@ -1,5 +1,36 @@
 # 开发日志
 
+## 2026-06-09 10:58 +08:00：面试包接入已导入同岗面经证据
+
+### 这次做了什么
+- 新增 `InterviewExperience` 数据模型，保存牛客网、OfferShow、小红书等同岗面经原文、来源链接、岗位关键词、抽取题目、技术主题、轮次和可信度信号。
+- 新增 `InterviewExperienceService`，从用户导入的真实面经文本中抽取问题、轮次、主题和可信度；不会在文本没有明确问题时编造具体面经题。
+- `InterviewPrepService` 增加 source-backed 面经追问：生成面试包时会优先引用已导入面经，并在 `source_evidence_json`、`coverage_json` 和题目 `evidence_refs` 中保留来源、可信度和原始问题。
+- `POST /interview-prep/experiences`、`GET /interview-prep/experiences` 和 `/ui/interview-prep` 面试页支持导入和查看同岗面经材料；生成面试包时可传 `experience_ids`。
+- Agent Tool/Skill/SubAgent 注册表增加 `interview_experience.import_text`，让面经导入成为显式工具能力，而不是隐藏 CRUD。
+- `evals/interview_prep_cases.json` 增加 1 个带牛客网面经文本的中文 hard case，评测新增 `source_backed_pass_rate`、`experience_site_pass_rate`、`avg_source_backed_experience_count` 和 `avg_source_backed_question_count`。
+
+### 发现的问题
+- 面经材料经常是整段粘贴，不一定按问题换行；初版抽取器只对长段落切句，导致“RAG 怎么评估？FastAPI 如何定位？SQLite 有什么边界？”被吞成 1 个问题。
+- 评测如果运行在持久 SQLite 上，历史导入的面经会被后续 case 自动检索到，导致 source-backed 指标被污染，不能反映当前 case 自身是否提供面经。
+- 高相关面经来源只取前 2 个问题时，hard case 的真实面经覆盖不足；真实面试准备中，一个高相关来源保留 3 个问题更合理。
+
+### 怎么修复
+- `InterviewExperienceService._candidate_lines` 改为先按中文/英文问号、句号和分号切句，再判断是否像问题。
+- 区分 `experience_ids=None` 和 `experience_ids=[]`：前者表示产品路径自动检索相关面经，后者表示评测隔离空集合，避免历史数据污染。
+- source-backed 面经追问改为每个高相关来源最多使用 3 个真实问题，并把问题来源写入 `evidence_refs`。
+- 面试准备评测重新运行通过：`case_count=9`、`pass_rate=1.0000`、`source_backed_pass_rate=1.0000`、`experience_site_pass_rate=1.0000`、`avg_question_count=25.4444`、`avg_source_backed_experience_count=0.1111`、`avg_source_backed_question_count=0.3333`。
+
+### 未修复的问题
+- 还没有自动搜索/抓取牛客网、OfferShow、小红书正文；原因是这些平台存在登录态、反爬、内容时效和真实性问题，自动抓取应作为独立 source smoke，而不是混进核心可重复评测。
+- 面经整理目前是规则抽取，不做多篇面经 LLM 归纳去重；原因是本轮先保证 source-backed 证据链、评测隔离和 UI/API 闭环。
+- 面试准备包还没有 Markdown/PDF 导出和“已练习/待复习”状态；原因是本轮优先打通真实面经证据进入面试包的主链路。
+
+### 下一步
+- 增加面经 source smoke，分别记录牛客网、OfferShow、小红书的可达性、登录限制、空结果、岗位相关性和内容时间。
+- 给面经导入增加 LLM 摘要/去重增强层，但保留原文引用和可信度分，不让模型摘要替代证据。
+- 增加面试准备包 Markdown 导出和按题练习状态，形成投递后的面试准备闭环。
+
 ## 2026-06-09 09:56 +08:00：新增面试准备包与面经调研视角
 
 ### 这次做了什么

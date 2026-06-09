@@ -230,6 +230,25 @@ async function loadInterviewPreps() {
   });
 }
 
+async function loadInterviewExperiences() {
+  const rows = await api("/interview-prep/experiences");
+  renderItems("#interview-experience-list", rows, (row) => {
+    const credibility = row.credibility_json || {};
+    const questions = row.extracted_questions_json || [];
+    return `
+      <article class="item">
+        <div class="item-title">
+          <span>#${row.id} ${escapeHtml(row.title || row.role_keyword || "同岗面经")}</span>
+          <span class="status-pill ${questions.length ? "ok" : ""}">${questions.length} questions</span>
+        </div>
+        <div class="meta">${escapeHtml(row.source_site)} / Job ${row.job_id || "-"} / credibility ${escapeHtml(credibility.score ?? "-")}</div>
+        ${tags(row.topics_json || [])}
+        <ul class="compact-list">${questions.slice(0, 4).map((item) => `<li>${escapeHtml(item.question)}</li>`).join("")}</ul>
+      </article>
+    `;
+  });
+}
+
 function bindForms() {
   $("#upload-profile-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -357,16 +376,43 @@ function bindForms() {
   $("#interview-prep-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const raw = formJson(event.currentTarget);
+    const payload = {
+      profile_id: Number(raw.profile_id),
+      job_id: Number(raw.job_id),
+    };
+    if (raw.experience_ids) {
+      payload.experience_ids = raw.experience_ids
+        .split(",")
+        .map((x) => Number(x.trim()))
+        .filter(Boolean);
+    }
     await api("/interview-prep", {
       method: "POST",
-      body: JSON.stringify({
-        profile_id: Number(raw.profile_id),
-        job_id: Number(raw.job_id),
-      }),
+      body: JSON.stringify(payload),
     });
     toast("Interview prep created");
     event.currentTarget.reset();
     loadInterviewPreps();
+  });
+
+  $("#interview-experience-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const raw = formJson(event.currentTarget);
+    await api("/interview-prep/experiences", {
+      method: "POST",
+      body: JSON.stringify({
+        job_id: raw.job_id ? Number(raw.job_id) : null,
+        source_site: raw.source_site,
+        source_url: raw.source_url || null,
+        title: raw.title || null,
+        company: raw.company || null,
+        role_keyword: raw.role_keyword || null,
+        raw_text: raw.raw_text,
+      }),
+    });
+    toast("Interview experience imported");
+    event.currentTarget.reset();
+    loadInterviewExperiences();
   });
 
   document.querySelectorAll("[data-refresh]").forEach((button) => {
@@ -381,6 +427,7 @@ function bindForms() {
       if (key === "resumes") loadResumes();
       if (key === "applications") loadApplications();
       if (key === "interview-prep") loadInterviewPreps();
+      if (key === "interview-experience") loadInterviewExperiences();
     });
   });
 }
@@ -398,7 +445,10 @@ async function bootstrap() {
     if (page === "agent_runs") await loadRuns();
     if (page === "resumes") await loadResumes();
     if (page === "applications") await loadApplications();
-    if (page === "interview_prep") await loadInterviewPreps();
+    if (page === "interview_prep") {
+      await loadInterviewExperiences();
+      await loadInterviewPreps();
+    }
   } catch (error) {
     toast(error.message);
   }

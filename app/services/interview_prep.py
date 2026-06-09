@@ -5,14 +5,20 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.entities import InterviewPrep, Job, MatchResult, Profile
+from app.services.interview_experience import InterviewExperienceService
 from app.services.matcher import MatcherService, normalize_skill
 
 
 class InterviewPrepService:
     """Build an evidence-backed interview preparation packet from Profile, JD, and match trace."""
 
-    def __init__(self, matcher: MatcherService | None = None) -> None:
+    def __init__(
+        self,
+        matcher: MatcherService | None = None,
+        experience_service: InterviewExperienceService | None = None,
+    ) -> None:
         self.matcher = matcher or MatcherService()
+        self.experience_service = experience_service or InterviewExperienceService()
 
     def create_interview_prep(
         self,
@@ -21,9 +27,19 @@ class InterviewPrepService:
         profile: Profile,
         job: Job,
         match_result: MatchResult | None = None,
+        experience_ids: list[int] | None = None,
     ) -> InterviewPrep:
         match = match_result or self.matcher.create_match_result(db, profile, job)
         evidence = self._evidence(match)
+        experience_rows = self.experience_service.find_relevant_for_job(
+            db,
+            job=job,
+            experience_ids=experience_ids,
+        )
+        experience_evidence = [
+            self.experience_service.to_evidence(row, score)
+            for row, score in experience_rows
+        ]
         required = self._skills(job, "required_skills")
         preferred = self._skills(job, "preferred_skills")
         keywords = self._skills(job, "keywords")
@@ -31,6 +47,7 @@ class InterviewPrepService:
         missing = [str(item) for item in match.missing_skills_json or []]
 
         question_sets = [
+            self._source_backed_experience_questions(job, experience_evidence, required, missing),
             self._online_experience_questions(job, required, missing),
             self._project_deep_dive_questions(profile, job, evidence, matched),
             self._project_stack_questions(profile, job, evidence),
@@ -49,7 +66,9 @@ class InterviewPrepService:
             question_sets=question_sets,
             gap_drills=gap_drills,
             evidence=evidence,
+            experience_evidence=experience_evidence,
         )
+        source_evidence = [*experience_evidence, *evidence]
         summary = {
             "position": job.title,
             "company": job.company,
@@ -57,6 +76,10 @@ class InterviewPrepService:
             "fit_level": self._fit_level(match.overall_score),
             "matched_skills": matched[:10],
             "missing_skills": missing[:10],
+            "interview_experience_source_count": len(experience_evidence),
+            "interview_experience_sites": sorted(
+                {str(item.get("source_site")) for item in experience_evidence if item.get("source_site")}
+            ),
             "preparation_focus": self._preparation_focus(match, missing, evidence),
             "boundary": "缺少证据的技能只能作为待补强或诚实披露，不能包装成已交付经验。",
             "source_perspectives": ["同岗位面经调研", "简历项目技术栈深挖", "通用面试与协作问题"],
@@ -70,14 +93,61 @@ class InterviewPrepService:
             question_sets_json=question_sets,
             gap_drills_json=gap_drills,
             research_checklist_json=research_checklist,
-            source_evidence_json=evidence,
+            source_evidence_json=source_evidence,
             coverage_json=coverage,
-            generation_mode="structured_rules_v1",
+            generation_mode="structured_rules_v2_source_backed",
         )
         db.add(prep)
         db.commit()
         db.refresh(prep)
         return prep
+
+    def _source_backed_experience_questions(
+        self,
+        job: Job,
+        experience_evidence: list[dict[str, Any]],
+        required: list[str],
+        missing: list[str],
+    ) -> dict[str, Any]:
+        questions = []
+        focus = self._unique([*required[:4], *missing[:3]])
+        focus_text = "、".join(focus[:4]) if focus else job.title
+        for source in experience_evidence[:5]:
+            source_questions = source.get("questions") or []
+            credibility = source.get("credibility") or {}
+            risk_level = "low" if float(credibility.get("score") or 0) >= 0.65 else "medium"
+            for item in source_questions[:3]:
+                raw_question = str(item.get("question") or "").strip()
+                if not raw_question:
+                    continue
+                topics = [str(topic) for topic in (item.get("topics") or source.get("topics") or []) if str(topic).strip()]
+                questions.append(
+                    {
+                        "question": (
+                            f"导入面经（{source.get('source_site')}）提到：{raw_question} "
+                            f"请结合 {job.title} 和你的简历证据准备回答。"
+                        ),
+                        "intent": "把真实同岗面经问题映射到当前 JD、简历项目证据和能力缺口，避免只背通用题库。",
+                        "answer_points": [
+                            f"先标注来源：{source.get('source_site')} / {source.get('title') or source.get('role_keyword') or job.title}。",
+                            f"围绕 {focus_text} 说明可引用的项目、指标或缺口边界。",
+                            "如果该题涉及未交付技能，只能说明相邻经验和补齐计划，不能包装成生产经验。",
+                        ],
+                        "evidence_refs": [
+                            {
+                                "ref": f"interview_experience:{source.get('source_id')}",
+                                "source_site": source.get("source_site"),
+                                "source_url": source.get("source_url"),
+                                "credibility_score": credibility.get("score"),
+                                "preview": item.get("source_quote") or source.get("text_preview"),
+                            }
+                        ],
+                        "risk_level": risk_level,
+                        "skills": topics[:5] or focus[:3],
+                        "source_perspective": "source_backed_interview_experience",
+                    }
+                )
+        return {"category": "已导入面经追问", "questions": questions[:10]}
 
     def _online_experience_questions(
         self,
@@ -356,6 +426,7 @@ class InterviewPrepService:
         question_sets: list[dict[str, Any]],
         gap_drills: list[dict[str, Any]],
         evidence: list[dict[str, Any]],
+        experience_evidence: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         questions = [question for group in question_sets for question in group.get("questions", [])]
         covered_skills = {
@@ -371,6 +442,12 @@ class InterviewPrepService:
         missing_covered = missing_norm <= drill_norm if missing_norm else True
         evidence_backed = [question for question in questions if question.get("evidence_refs")]
         high_risk_questions = [question for question in questions if question.get("risk_level") == "high"]
+        source_backed_questions = [
+            question
+            for question in questions
+            if question.get("source_perspective") == "source_backed_interview_experience"
+        ]
+        source_evidence = experience_evidence or []
         passed = required_covered and missing_covered and len(questions) >= 6
         return {
             "passed": passed,
@@ -378,7 +455,16 @@ class InterviewPrepService:
             "question_count": len(questions),
             "gap_drill_count": len(gap_drills),
             "research_item_count": 4,
-            "source_perspectives": ["online_experience_research", "resume_project_stack", "jd_gap_drill", "general_interview"],
+            "source_backed_experience_count": len(source_evidence),
+            "source_backed_question_count": len(source_backed_questions),
+            "research_mode": "source_backed_and_checklist" if source_evidence else "checklist_only",
+            "source_perspectives": [
+                "source_backed_interview_experience",
+                "online_experience_research",
+                "resume_project_stack",
+                "jd_gap_drill",
+                "general_interview",
+            ],
             "required_skill_coverage_rate": round(
                 len(required_norm & (covered_skills | drill_norm)) / max(len(required_norm), 1),
                 4,
@@ -388,6 +474,7 @@ class InterviewPrepService:
             else 1.0,
             "evidence_backed_question_rate": round(len(evidence_backed) / max(len(questions), 1), 4),
             "evidence_count": len(evidence),
+            "interview_experience_evidence_count": len(source_evidence),
             "high_risk_question_count": len(high_risk_questions),
         }
 

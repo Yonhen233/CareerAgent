@@ -265,7 +265,29 @@ Content-Type: application/json
 ```json
 {
   "profile_id": 1,
-  "job_id": 1
+  "job_id": 1,
+  "experience_ids": [1, 2]
+}
+```
+
+`experience_ids` 可选；不传时系统会自动检索相关面经，传空数组时不会引用任何导入面经，适合评测隔离。
+
+导入同岗面经材料：
+
+```http
+POST /interview-prep/experiences
+Content-Type: application/json
+```
+
+```json
+{
+  "job_id": 1,
+  "source_site": "牛客网",
+  "source_url": "https://www.nowcoder.com/discuss/example",
+  "title": "腾讯 Agent 开发实习一面",
+  "company": "腾讯",
+  "role_keyword": "Agent 开发实习生",
+  "raw_text": "一面：面试官问 RAG 的 chunk 切分策略怎么选？追问：FastAPI 并发接口如何记录 trace？"
 }
 ```
 
@@ -274,7 +296,12 @@ Content-Type: application/json
 ```http
 GET /interview-prep
 GET /interview-prep/{prep_id}
+GET /interview-prep/experiences
+GET /interview-prep/experiences?job_id=1
+GET /interview-prep/experiences/{experience_id}
 ```
+
+导入同岗面经材料使用 `POST /interview-prep/experiences`。请求体包含 `source_site`、`source_url`、`title`、`company`、`role_keyword` 和 `raw_text`；返回的 `extracted_questions_json`、`topics_json`、`rounds_json` 和 `credibility_json` 都来自导入文本本身，不会在文本缺失时编造具体面经题。生成面试准备包时可以传入 `experience_ids`，系统会把这些来源作为 `source_backed_interview_experience` 证据引用。
 
 返回：
 
@@ -360,7 +387,7 @@ POST /evaluations/application-packet
 POST /evaluations/interview-prep
 ```
 
-该评测使用 `evals/interview_prep_cases.json`，不访问牛客网、OfferShow、小红书等外部平台，只验证面试包是否覆盖同岗位面经调研线索、简历项目技术栈追问、JD 缺口 drill 和通用面试问题。返回的 `summary_json` 包含 `pass_rate`、`category_pass_rate`、`research_source_pass_rate`、`gap_drill_pass_rate`、`avg_question_count`、`avg_required_skill_coverage_rate`、`difficulty_breakdown` 和 `role_type_breakdown`。
+该评测使用 `evals/interview_prep_cases.json`，不访问牛客网、OfferShow、小红书等外部平台，只验证面试包是否覆盖同岗位面经调研线索、已导入面经证据、简历项目技术栈追问、JD 缺口 drill 和通用面试问题。返回的 `summary_json` 包含 `pass_rate`、`category_pass_rate`、`research_source_pass_rate`、`source_backed_pass_rate`、`experience_site_pass_rate`、`gap_drill_pass_rate`、`avg_question_count`、`avg_source_backed_question_count`、`avg_required_skill_coverage_rate`、`difficulty_breakdown` 和 `role_type_breakdown`。
 
 运行真实岗位源 smoke：
 

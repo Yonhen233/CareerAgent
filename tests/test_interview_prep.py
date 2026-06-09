@@ -3,6 +3,7 @@ import asyncio
 from app.agents.orchestrator import AgentOrchestrator
 from app.models.entities import Job, Profile
 from app.models.schemas import AgentRunRequest
+from app.services.interview_experience import InterviewExperienceService
 from app.services.interview_prep import InterviewPrepService
 from app.services.text_splitter import ResumeTextSplitter
 from app.services.vector_index import SQLiteVectorIndex
@@ -104,3 +105,63 @@ def test_interview_prep_agent_workflow_records_artifact(db_session):
         "fit_assessment",
         "interview_preparation",
     ]
+
+
+def test_interview_experience_import_extracts_questions_topics_and_credibility(db_session):
+    raw_text = (
+        "牛客网 腾讯 Agent 开发实习一面。"
+        "一面：面试官问 RAG 召回率怎么评估？"
+        "追问：如果 FastAPI 接口并发变高，你会怎么定位瓶颈？"
+        "二面：问 SQLite 存储 trace 和向量检索元数据有什么边界？"
+    )
+
+    row = InterviewExperienceService().create_experience(
+        db_session,
+        source_site="nowcoder",
+        source_url="https://www.nowcoder.com/discuss/example",
+        title="腾讯 Agent 开发实习一面",
+        company="腾讯",
+        role_keyword="Agent 开发实习生",
+        raw_text=raw_text,
+    )
+
+    assert row.source_site == "牛客网"
+    assert len(row.extracted_questions_json) >= 3
+    assert {"RAG", "FastAPI", "SQLite"} <= set(row.topics_json)
+    assert row.credibility_json["score"] >= 0.75
+    assert row.credibility_json["has_url"] is True
+
+
+def test_interview_prep_uses_imported_source_backed_experience_questions(db_session):
+    profile, job = _seed_profile_job(db_session)
+    experience = InterviewExperienceService().create_experience(
+        db_session,
+        job=job,
+        source_site="牛客网",
+        source_url="https://www.nowcoder.com/discuss/source-backed-agent",
+        title="腾讯 Agent 实习面经",
+        raw_text=(
+            "一面：面试官问 RAG 的 chunk 切分策略怎么选？"
+            "追问：FastAPI 并发接口如何记录 trace？"
+            "二面：如果 MLflow 没有生产经验，你怎么诚实说明？"
+        ),
+    )
+
+    prep = InterviewPrepService().create_interview_prep(
+        db_session,
+        profile=profile,
+        job=job,
+        experience_ids=[experience.id],
+    )
+    source_questions = [
+        question
+        for group in prep.question_sets_json
+        for question in group.get("questions", [])
+        if question.get("source_perspective") == "source_backed_interview_experience"
+    ]
+
+    assert prep.summary_json["interview_experience_source_count"] == 1
+    assert prep.coverage_json["research_mode"] == "source_backed_and_checklist"
+    assert prep.coverage_json["source_backed_question_count"] >= 2
+    assert source_questions
+    assert any(ref.get("source_site") == "牛客网" for question in source_questions for ref in question["evidence_refs"])

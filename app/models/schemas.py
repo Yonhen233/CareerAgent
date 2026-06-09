@@ -327,6 +327,7 @@ class ApplicationResponse(BaseModel):
 class InterviewPrepRequest(BaseModel):
     profile_id: int
     job_id: int
+    experience_ids: list[int] | None = None
 
 
 class InterviewPrepResponse(BaseModel):
@@ -344,4 +345,32 @@ class InterviewPrepResponse(BaseModel):
     source_evidence_json: list[dict[str, Any]]
     coverage_json: dict[str, Any]
     generation_mode: str
+    created_at: datetime
+
+
+class InterviewExperienceCreateRequest(BaseModel):
+    job_id: int | None = None
+    source_site: str = Field(min_length=1, max_length=80)
+    source_url: str | None = None
+    title: str | None = None
+    company: str | None = None
+    role_keyword: str | None = None
+    raw_text: str = Field(min_length=20)
+
+
+class InterviewExperienceResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    job_id: int | None
+    source_site: str
+    source_url: str | None
+    title: str | None
+    company: str | None
+    role_keyword: str | None
+    raw_text: str
+    extracted_questions_json: list[dict[str, Any]]
+    topics_json: list[str]
+    rounds_json: list[str]
+    credibility_json: dict[str, Any]
     created_at: datetime

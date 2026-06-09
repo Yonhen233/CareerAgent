@@ -1782,21 +1782,50 @@ class EvaluationService:
         db.refresh(job)
         chunks = ResumeTextSplitter().build_resume_chunks(profile.structured_profile_json)
         self.vector_index.upsert_profile_chunks(db, profile.id, chunks)
-        prep = self.interview_prep_service.create_interview_prep(db, profile=profile, job=job)
+        experience_ids = []
+        for source_item in case.get("interview_experiences") or []:
+            experience = self.interview_prep_service.experience_service.create_experience(
+                db,
+                job=job if source_item.get("attach_to_job", True) else None,
+                source_site=str(source_item.get("source_site") or "manual"),
+                source_url=source_item.get("source_url"),
+                title=source_item.get("title"),
+                company=source_item.get("company") or job.company,
+                role_keyword=source_item.get("role_keyword") or job.title,
+                raw_text=str(source_item.get("raw_text") or ""),
+            )
+            experience_ids.append(experience.id)
+        prep = self.interview_prep_service.create_interview_prep(
+            db,
+            profile=profile,
+            job=job,
+            experience_ids=experience_ids,
+        )
 
         categories = {group.get("category") for group in prep.question_sets_json or []}
         research_sites = {item.get("site") for item in prep.research_checklist_json or []}
         drill_skills = {str(item.get("skill") or "") for item in prep.gap_drills_json or []}
         questions = [question for group in prep.question_sets_json or [] for question in group.get("questions", [])]
         question_text = json.dumps(questions, ensure_ascii=False)
+        source_evidence = prep.source_evidence_json or []
+        experience_sources = [
+            item for item in source_evidence if item.get("evidence_type") == "interview_experience"
+        ]
+        experience_sites = {item.get("source_site") for item in experience_sources}
         expected_categories = set(case.get("expected_categories") or [])
         expected_research_sites = set(case.get("expected_research_sites") or [])
         expected_gap_drills = set(case.get("expected_gap_drills") or [])
+        expected_experience_sites = set(case.get("expected_experience_sites") or [])
         expected_keywords = [str(item) for item in case.get("expected_question_keywords") or []]
+        expected_source_backed_min = int(case.get("expected_source_backed_min") or 0)
 
         category_passed = expected_categories <= categories
         research_passed = expected_research_sites <= research_sites
         gap_passed = expected_gap_drills <= drill_skills
+        experience_site_passed = expected_experience_sites <= experience_sites
+        source_backed_passed = (
+            int((prep.coverage_json or {}).get("source_backed_question_count") or 0) >= expected_source_backed_min
+        )
         keyword_hit_rate = self._keyword_hit_rate(question_text, expected_keywords)
         min_question_count = int(case.get("min_question_count") or 8)
         case_passed = (
@@ -1804,6 +1833,8 @@ class EvaluationService:
             and category_passed
             and research_passed
             and gap_passed
+            and experience_site_passed
+            and source_backed_passed
             and len(questions) >= min_question_count
             and keyword_hit_rate >= float(case.get("min_keyword_hit_rate") or 0.6)
         )
@@ -1816,10 +1847,14 @@ class EvaluationService:
             "question_count": len(questions),
             "gap_drill_count": len(prep.gap_drills_json or []),
             "research_item_count": len(prep.research_checklist_json or []),
+            "source_backed_experience_count": len(experience_sources),
+            "source_backed_question_count": int((prep.coverage_json or {}).get("source_backed_question_count") or 0),
             "coverage": prep.coverage_json,
             "category_passed": category_passed,
             "research_passed": research_passed,
             "gap_passed": gap_passed,
+            "experience_site_passed": experience_site_passed,
+            "source_backed_passed": source_backed_passed,
             "keyword_hit_rate": keyword_hit_rate,
             "expected_categories": sorted(expected_categories),
             "actual_categories": sorted(str(item) for item in categories if item),
@@ -1827,6 +1862,8 @@ class EvaluationService:
             "actual_research_sites": sorted(str(item) for item in research_sites if item),
             "expected_gap_drills": sorted(expected_gap_drills),
             "actual_gap_drills": sorted(drill_skills),
+            "expected_experience_sites": sorted(expected_experience_sites),
+            "actual_experience_sites": sorted(str(item) for item in experience_sites if item),
         }
 
     def _summarize_interview_prep(
@@ -1844,9 +1881,13 @@ class EvaluationService:
             "avg_question_count": self._avg_number(case_results, "question_count"),
             "avg_gap_drill_count": self._avg_number(case_results, "gap_drill_count"),
             "avg_research_item_count": self._avg_number(case_results, "research_item_count"),
+            "avg_source_backed_experience_count": self._avg_number(case_results, "source_backed_experience_count"),
+            "avg_source_backed_question_count": self._avg_number(case_results, "source_backed_question_count"),
             "category_pass_rate": self._avg_bool(case_results, "category_passed"),
             "research_source_pass_rate": self._avg_bool(case_results, "research_passed"),
             "gap_drill_pass_rate": self._avg_bool(case_results, "gap_passed"),
+            "experience_site_pass_rate": self._avg_bool(case_results, "experience_site_passed"),
+            "source_backed_pass_rate": self._avg_bool(case_results, "source_backed_passed"),
             "avg_keyword_hit_rate": self._avg_number(case_results, "keyword_hit_rate"),
             "avg_required_skill_coverage_rate": self._avg_number(
                 [{"value": (item.get("coverage") or {}).get("required_skill_coverage_rate")} for item in case_results],
@@ -1873,6 +1914,7 @@ class EvaluationService:
                 "avg_question_count": self._avg_number(items, "question_count"),
                 "research_source_pass_rate": self._avg_bool(items, "research_passed"),
                 "gap_drill_pass_rate": self._avg_bool(items, "gap_passed"),
+                "source_backed_pass_rate": self._avg_bool(items, "source_backed_passed"),
             }
             for group, items in sorted(grouped.items())
         }
@@ -1883,6 +1925,8 @@ class EvaluationService:
             "category_failed": lambda item: item.get("category_passed") is False,
             "research_failed": lambda item: item.get("research_passed") is False,
             "gap_drill_failed": lambda item: item.get("gap_passed") is False,
+            "experience_site_failed": lambda item: item.get("experience_site_passed") is False,
+            "source_backed_failed": lambda item: item.get("source_backed_passed") is False,
             "keyword_hit_low": lambda item: self._coerce_float(item.get("keyword_hit_rate")) < 0.6,
         }
         return {name: sum(1 for item in rows if check(item)) for name, check in checks.items()}

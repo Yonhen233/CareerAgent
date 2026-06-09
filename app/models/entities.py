@@ -86,6 +86,7 @@ class Job(Base):
     resume_versions: Mapped[list["ResumeVersion"]] = relationship(back_populates="job")
     applications: Mapped[list["Application"]] = relationship(back_populates="job")
     interview_preps: Mapped[list["InterviewPrep"]] = relationship(back_populates="job")
+    interview_experiences: Mapped[list["InterviewExperience"]] = relationship(back_populates="job")
     agent_runs: Mapped[list["AgentRun"]] = relationship(back_populates="job")
 
 
@@ -191,6 +192,26 @@ class InterviewPrep(Base):
     profile: Mapped[Profile] = relationship(back_populates="interview_preps")
     job: Mapped[Job] = relationship(back_populates="interview_preps")
     match_result: Mapped[MatchResult | None] = relationship()
+
+
+class InterviewExperience(Base):
+    __tablename__ = "interview_experiences"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.id"), nullable=True, index=True)
+    source_site: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    source_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    company: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    role_keyword: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    raw_text: Mapped[str] = mapped_column(Text, nullable=False)
+    extracted_questions_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    topics_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    rounds_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    credibility_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+    job: Mapped[Job | None] = relationship(back_populates="interview_experiences")
 
 
 class AgentRun(Base):

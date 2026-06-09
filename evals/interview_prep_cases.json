@@ -311,4 +311,53 @@
     "expected_question_keywords": ["RAG", "LangGraph", "Tool Calling"],
     "min_question_count": 12
   }
+,
+  {
+    "name": "source_backed_agent_interview_experience",
+    "difficulty": "hard",
+    "role_type": "agent_development",
+    "profile": {
+      "name": "陈同学",
+      "headline": "Agent 开发实习生候选人",
+      "target_roles": ["Agent 开发实习生"],
+      "raw_resume_text": "构建 CareerAgent，使用 Python、FastAPI、SQLite、RAG 和 Agent Trace。实现 PDF chunk、岗位匹配评测和投递 Guardrail。没有 MLflow 生产经验。",
+      "structured_profile": {
+        "skills": ["Python", "FastAPI", "SQLite", "RAG", "Agent Trace"],
+        "projects": [
+          {
+            "name": "CareerAgent",
+            "description": "构建中文求职助手 Agent，支持 PDF chunk、RAG 检索、岗位匹配、简历定制、面试准备包和投递 Guardrail。",
+            "tech_stack": ["Python", "FastAPI", "SQLite", "RAG"],
+            "impact": "用评测集追踪 JD parser、RAG、面试包和投递包质量。"
+          }
+        ],
+        "raw_text": "构建 CareerAgent，使用 Python、FastAPI、SQLite、RAG 和 Agent Trace。没有 MLflow 生产经验。"
+      }
+    },
+    "job": {
+      "title": "Agent 开发实习生",
+      "company": "腾讯",
+      "jd_text": "负责 Agent 应用开发，使用 Python、FastAPI、RAG、SQLite 和评测体系，了解 MLflow 加分。需要参与需求拆解、效果评估和系统优化。",
+      "structured_jd": {
+        "required_skills": ["Python", "FastAPI", "RAG", "SQLite", "MLflow"],
+        "preferred_skills": ["Agent Trace", "Evaluation"],
+        "responsibilities": ["开发 Agent 应用", "建设 RAG 检索与评测链路", "参与需求拆解和效果评估"],
+        "keywords": ["Agent", "Guardrail", "PDF Chunk"]
+      }
+    },
+    "interview_experiences": [
+      {
+        "source_site": "牛客网",
+        "source_url": "https://www.nowcoder.com/discuss/example-agent-intern",
+        "title": "腾讯 Agent 开发实习一面",
+        "raw_text": "一面：面试官问 RAG 的 chunk 切分策略怎么选？追问：如果 FastAPI 接口并发变高，trace 怎么记录？二面：问 SQLite 存 JD chunk 和向量元数据有什么边界？HR 面：如果 MLflow 没有生产经验，你会怎么诚实说明？"
+      }
+    ],
+    "expected_research_sites": ["牛客网", "OfferShow", "小红书"],
+    "expected_experience_sites": ["牛客网"],
+    "expected_source_backed_min": 3,
+    "expected_gap_drills": ["MLflow"],
+    "expected_question_keywords": ["RAG", "FastAPI", "SQLite", "MLflow"],
+    "min_question_count": 14
+  }
 ]
