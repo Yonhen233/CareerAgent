@@ -7,7 +7,7 @@ from urllib.parse import quote_plus
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.llm import LLMClient, LLMConfigurationError
+from app.core.llm import LLMClient, LLMConfigurationError, extract_json_object, format_exception
 from app.models.entities import InterviewPrep, Job, MatchResult, Profile
 from app.services.interview_experience import InterviewExperienceService
 from app.services.matcher import MatcherService, normalize_skill
@@ -318,14 +318,64 @@ class InterviewPrepService:
             preferred=preferred,
             keywords=keywords,
         )
-        payload = await self.llm.generate_json(
+        raw_text = await self._generate_question_text_with_retry(
+            db=db,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
-            temperature=0.35,
-            db=db,
-            trace_name="interview_prep.generate_interviewer_questions",
         )
+        try:
+            payload = extract_json_object(raw_text)
+        except Exception as exc:
+            try:
+                payload = await self._repair_llm_question_json(
+                    db=db,
+                    raw_text=raw_text,
+                    parse_error=format_exception(exc),
+                )
+            except Exception:
+                payload = self._recover_partial_question_payload(raw_text)
         return self._normalize_llm_question_sets(payload, required=required, missing=missing)
+
+    async def _generate_question_text_with_retry(
+        self,
+        *,
+        db: Session,
+        system_prompt: str,
+        user_prompt: str,
+    ) -> str:
+        last_exc: Exception | None = None
+        for attempt in range(2):
+            trace_name = "interview_prep.generate_interviewer_questions"
+            if attempt:
+                trace_name = f"{trace_name}.retry_{attempt}"
+            try:
+                return await self.llm.generate_text(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    temperature=0.35,
+                    max_tokens=1200,
+                    db=db,
+                    trace_name=trace_name,
+                )
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                message = format_exception(exc)
+                if attempt >= 1 or not self._is_transient_llm_error(message):
+                    raise
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("LLM question generation did not return text.")
+
+    def _is_transient_llm_error(self, message: str) -> bool:
+        transient_terms = [
+            "ReadTimeout",
+            "ConnectTimeout",
+            "RemoteProtocolError",
+            "LLM returned empty content",
+            "temporarily unavailable",
+            "connection reset",
+        ]
+        return any(term.lower() in message.lower() for term in transient_terms)
 
     def _llm_question_prompt(
         self,
@@ -359,7 +409,7 @@ class InterviewPrepService:
                 "preferred_skills": preferred,
                 "keywords": keywords[:12],
                 "responsibilities": (job.structured_jd_json or {}).get("responsibilities", [])[:6],
-                "raw_jd_preview": self._short_text(job.raw_jd_text, 900),
+                "raw_jd_preview": self._short_text(job.raw_jd_text, 520),
             },
             "candidate": {
                 "name": profile.name,
@@ -375,21 +425,46 @@ class InterviewPrepService:
             "rag_evidence": evidence[:6],
         }
         return (
-            "请基于以下上下文生成 2 个 question_sets：\n"
-            "1. category='LLM 项目实现追问'，source_perspective='llm_project_implementation'，"
-            "围绕简历项目实现细节、架构、数据流、接口、评测、性能、失败边界和本人贡献生成 4-6 题。\n"
-            "2. category='LLM 八股与基础追问'，source_perspective='llm_foundation_drill'，"
-            "围绕 JD 必备技能常见八股、底层原理、工程取舍和缺口诚实披露生成 4-6 题。\n\n"
-            "每道题字段必须包含：question, follow_ups, intent, answer_points, skills, risk_level, source_perspective。\n"
-            "follow_ups 必须是 2-4 个连续追问；answer_points 必须是 3-5 个准备要点。"
-            "risk_level 只能是 low/medium/high。"
+            "请基于以下上下文输出紧凑 JSON，只生成问题，不写回答解析。\n"
+            "Schema: {\"project_questions\":[{\"question\":string,\"follow_ups\":[string,string],"
+            "\"skills\":[string],\"risk_level\":\"low|medium|high\"}],"
+            "\"foundation_questions\":[{\"question\":string,\"follow_ups\":[string,string],"
+            "\"skills\":[string],\"risk_level\":\"low|medium|high\"}]}\n"
+            "project_questions 只生成 2 题，围绕简历项目架构、数据流、日志指标、失败边界和本人贡献。\n"
+            "foundation_questions 只生成 2 题，围绕 JD 技能八股、底层原理、工程取舍和缺口诚实披露。\n"
+            "每个字符串少于 60 个中文字符。不要 Markdown，不要额外字段。"
             "如果某技能在 missing_skills 里，问题必须要求候选人诚实说明边界和补齐计划，不能假设已经做过。\n\n"
-            "输出 JSON schema："
-            '{"question_sets":[{"category":string,"questions":[{"question":string,'
-            '"follow_ups":[string],"intent":string,"answer_points":[string],"skills":[string],'
-            '"risk_level":"low|medium|high","source_perspective":string}]}]}\n\n'
             f"上下文：\n{json.dumps(context, ensure_ascii=False, indent=2)}"
         )
+
+    async def _repair_llm_question_json(
+        self,
+        *,
+        db: Session,
+        raw_text: str,
+        parse_error: str,
+    ) -> dict[str, Any]:
+        system_prompt = "你只负责修复 JSON。只输出一个合法 JSON object，不要 Markdown，不要解释。"
+        user_prompt = (
+            "下面是一次面试题生成的模型输出，JSON 可能被截断或有语法错误。"
+            "请修复成 schema："
+            '{"project_questions":[{"question":string,"follow_ups":[string,string],'
+            '"skills":[string],"risk_level":"low|medium|high"}],'
+            '"foundation_questions":[{"question":string,"follow_ups":[string,string],'
+            '"skills":[string],"risk_level":"low|medium|high"}]}\n'
+            "约束：每组最多 2 题；每个字符串少于 60 个中文字符。\n"
+            f"解析错误：{parse_error}\n"
+            f"原始输出：\n{raw_text[:5000]}"
+        )
+        repaired_text = await self.llm.generate_text(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=0,
+            max_tokens=900,
+            db=db,
+            trace_name="interview_prep.repair_question_json",
+        )
+        return extract_json_object(repaired_text)
 
     def _normalize_llm_question_sets(
         self,
@@ -398,6 +473,10 @@ class InterviewPrepService:
         required: list[str],
         missing: list[str],
     ) -> list[dict[str, Any]]:
+        compact_sets = self._normalize_compact_question_payload(payload, required=required, missing=missing)
+        if compact_sets:
+            return compact_sets
+
         raw_sets = payload.get("question_sets")
         if not isinstance(raw_sets, list):
             raise ValueError("LLM interview question payload must contain question_sets list.")
@@ -458,6 +537,83 @@ class InterviewPrepService:
         if not normalized_sets:
             raise ValueError("LLM interview question payload did not contain usable questions.")
         return normalized_sets
+
+    def _normalize_compact_question_payload(
+        self,
+        payload: dict[str, Any],
+        *,
+        required: list[str],
+        missing: list[str],
+    ) -> list[dict[str, Any]]:
+        groups = [
+            ("project_questions", "LLM 项目实现追问", "llm_project_implementation"),
+            ("foundation_questions", "LLM 八股与基础追问", "llm_foundation_drill"),
+        ]
+        normalized_sets: list[dict[str, Any]] = []
+        for key, category, source_perspective in groups:
+            questions = []
+            raw_questions = payload.get(key)
+            if not isinstance(raw_questions, list):
+                continue
+            for raw_question in raw_questions[:3]:
+                if not isinstance(raw_question, dict):
+                    continue
+                question_text = str(raw_question.get("question") or "").strip()
+                if not question_text:
+                    continue
+                skills = [str(item).strip() for item in raw_question.get("skills") or [] if str(item).strip()]
+                skill = skills[0] if skills else (required[0] if required else "岗位核心能力")
+                risk_level = str(raw_question.get("risk_level") or "medium").lower()
+                if risk_level not in {"low", "medium", "high"}:
+                    risk_level = "medium"
+                if any(normalize_skill(item) in {normalize_skill(miss) for miss in missing} for item in skills):
+                    risk_level = "high"
+                questions.append(
+                    {
+                        "question": question_text,
+                        "follow_ups": [
+                            str(item).strip()
+                            for item in raw_question.get("follow_ups") or []
+                            if str(item).strip()
+                        ][:3],
+                        "intent": (
+                            "模拟面试官围绕简历项目实现做连续追问。"
+                            if source_perspective == "llm_project_implementation"
+                            else "模拟面试官围绕 JD 技能八股、工程取舍和缺口边界追问。"
+                        ),
+                        "answer_points": self._technical_answer_points(skill, None),
+                        "evidence_refs": [],
+                        "risk_level": risk_level,
+                        "skills": skills[:6],
+                        "source_perspective": source_perspective,
+                    }
+                )
+            if questions:
+                normalized_sets.append({"category": category, "questions": questions})
+        return normalized_sets
+
+    def _recover_partial_question_payload(self, raw_text: str) -> dict[str, Any]:
+        decoder = json.JSONDecoder()
+        project_questions: list[dict[str, Any]] = []
+        foundation_questions: list[dict[str, Any]] = []
+        for index, char in enumerate(raw_text):
+            if char != "{":
+                continue
+            try:
+                obj, _ = decoder.raw_decode(raw_text[index:])
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(obj, dict) or not obj.get("question"):
+                continue
+            haystack = json.dumps(obj, ensure_ascii=False)
+            if "foundation" in haystack or "八股" in haystack or "基础" in haystack:
+                foundation_questions.append(obj)
+            elif "project" in haystack or "项目" in haystack or "实现" in haystack:
+                project_questions.append(obj)
+        return {
+            "project_questions": project_questions[:2],
+            "foundation_questions": foundation_questions[:2],
+        }
 
     def _heuristic_llm_question_sets(
         self,

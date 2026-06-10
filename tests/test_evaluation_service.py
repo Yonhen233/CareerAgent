@@ -258,6 +258,83 @@ def test_jd_parser_llm_merge_preserves_heuristic_skills():
     assert merged["required_skills"].count("Python") == 1
 
 
+def test_jd_parser_llm_merge_demotes_soft_requirement_skills():
+    from app.services.jd_parser import JDParserService
+
+    service = JDParserService()
+    raw_jd = (
+        "Agent 开发实习生\n"
+        "职责：实现 RAG 流程，包括 chunk、embedding 检索和 reranker 二阶段排序。\n"
+        "要求：熟悉 Python、FastAPI、SQLite、RAG、Embedding、Reranker、Prompt Engineering。\n"
+        "加分项：有 MLflow、Kubernetes 经验者优先，但不是硬性要求。"
+    )
+    heuristic = service.heuristic_parse(raw_jd, title="Agent 开发实习生")
+    noisy_llm = {
+        "title": "Agent 开发实习生",
+        "required_skills": [
+            "Python",
+            "FastAPI",
+            "SQLite",
+            "RAG",
+            "Embedding",
+            "Reranker",
+            "Prompt Engineering",
+            "MLflow",
+            "Kubernetes",
+        ],
+        "preferred_skills": ["MLflow", "Kubernetes"],
+        "responsibilities": ["实现 RAG 流程"],
+        "qualifications": ["熟悉 Python、FastAPI、SQLite、RAG、Embedding、Reranker、Prompt Engineering"],
+        "keywords": ["Agent", "RAG", "MLflow", "Kubernetes"],
+    }
+
+    merged = service._merge_llm_parse(heuristic, noisy_llm, raw_text=raw_jd)
+
+    assert {"Python", "FastAPI", "SQLite", "RAG", "Embedding", "Reranker", "Prompt Engineering"} <= set(
+        merged["required_skills"]
+    )
+    assert "MLflow" not in merged["required_skills"]
+    assert "Kubernetes" not in merged["required_skills"]
+    assert {"MLflow", "Kubernetes"} <= set(merged["preferred_skills"])
+
+
+def test_jd_parser_retries_transient_empty_llm_response():
+    from app.services.jd_parser import JDParserService
+
+    class FakeLLM:
+        available = True
+
+        def __init__(self) -> None:
+            self.trace_names: list[str] = []
+
+        async def generate_json(self, **kwargs):
+            self.trace_names.append(kwargs["trace_name"])
+            if len(self.trace_names) == 1:
+                raise RuntimeError("LLM returned empty content.")
+            return {
+                "title": "Agent 开发实习生",
+                "required_skills": ["Python", "FastAPI", "RAG"],
+                "preferred_skills": [],
+                "responsibilities": ["开发 Agent 应用"],
+                "qualifications": ["熟悉 Python、FastAPI 和 RAG"],
+                "keywords": ["Agent", "Python", "FastAPI", "RAG"],
+            }
+
+    service = JDParserService()
+    fake_llm = FakeLLM()
+    service.llm = fake_llm
+
+    parsed = asyncio.run(
+        service.parse_jd(
+            "Agent 开发实习生\n要求：熟悉 Python、FastAPI 和 RAG。",
+            title="Agent 开发实习生",
+        )
+    )
+
+    assert fake_llm.trace_names == ["jd_parser.parse_jd", "jd_parser.parse_jd.retry_1"]
+    assert {"Python", "FastAPI", "RAG"} <= set(parsed["required_skills"])
+
+
 def test_real_job_source_smoke_records_source_layer_metrics(db_session):
     class HealthySource:
         name = "healthy"

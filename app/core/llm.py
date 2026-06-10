@@ -72,11 +72,12 @@ class LLMClient:
         system_prompt: str,
         user_prompt: str,
         temperature: float = 0.2,
+        max_tokens: int | None = None,
         db: "Session | None" = None,
         trace_name: str = "llm.generate_text",
     ) -> str:
         started = time.perf_counter()
-        prompt_preview = self._prompt_preview(system_prompt, user_prompt, temperature)
+        prompt_preview = self._prompt_preview(system_prompt, user_prompt, temperature, max_tokens)
         if not self.available:
             error = "LLM_API_KEY and LLM_BASE_URL are required for online generation."
             self._record_llm_call(
@@ -102,6 +103,8 @@ class LLMClient:
             ],
             "temperature": temperature,
         }
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
         try:
             async with httpx.AsyncClient(timeout=self.settings.llm_timeout_seconds) as client:
                 response = await client.post(self._chat_url(), headers=headers, json=payload)
@@ -123,6 +126,7 @@ class LLMClient:
                 status="completed",
                 prompt_preview=prompt_preview,
                 response_preview=content[:1200],
+                response_chars=len(content),
                 error_message=None,
                 started_at=started,
             )
@@ -146,6 +150,7 @@ class LLMClient:
         system_prompt: str,
         user_prompt: str,
         temperature: float = 0.1,
+        max_tokens: int | None = None,
         db: "Session | None" = None,
         trace_name: str = "llm.generate_json",
     ) -> dict[str, Any]:
@@ -153,18 +158,26 @@ class LLMClient:
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=temperature,
+            max_tokens=max_tokens,
             db=db,
             trace_name=trace_name,
         )
         return extract_json_object(text)
 
-    def _prompt_preview(self, system_prompt: str, user_prompt: str, temperature: float) -> dict[str, Any]:
+    def _prompt_preview(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+        max_tokens: int | None,
+    ) -> dict[str, Any]:
         return {
             "system_preview": system_prompt[:1000],
             "user_preview": user_prompt[:1600],
             "system_chars": len(system_prompt),
             "user_chars": len(user_prompt),
             "temperature": temperature,
+            "max_tokens": max_tokens,
         }
 
     def _record_llm_call(
@@ -177,6 +190,7 @@ class LLMClient:
         response_preview: str | None,
         error_message: str | None,
         started_at: float,
+        response_chars: int | None = None,
     ) -> None:
         if db is None:
             return
@@ -195,7 +209,7 @@ class LLMClient:
                     latency_ms=int((time.perf_counter() - started_at) * 1000),
                     prompt_chars=int(prompt_preview.get("system_chars", 0))
                     + int(prompt_preview.get("user_chars", 0)),
-                    response_chars=len(response_preview or ""),
+                    response_chars=response_chars if response_chars is not None else len(response_preview or ""),
                 )
             )
             db.commit()

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.llm import format_exception
 from app.models.entities import Job, JobChunk
 from app.models.schemas import JobChunkResponse, JobCreateRequest, JobResponse, JobSearchRequest, JobSearchResponse
 from app.services.jd_parser import JDParserService
@@ -16,13 +17,16 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 @router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
 async def create_job(payload: JobCreateRequest, db: Session = Depends(get_db)) -> JobResponse:
-    structured = await JDParserService().parse_jd(
-        payload.jd_text,
-        title=payload.title,
-        company=payload.company,
-        location=payload.location,
-        db=db,
-    )
+    try:
+        structured = await JDParserService().parse_jd(
+            payload.jd_text,
+            title=payload.title,
+            company=payload.company,
+            location=payload.location,
+            db=db,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"JD parsing LLM generation failed: {format_exception(exc)}") from exc
     external_id = f"manual:{hashlib.sha1(payload.jd_text.encode('utf-8')).hexdigest()}"
     existing = db.query(Job).filter(Job.source == "manual", Job.external_id == external_id).first()
     if existing:

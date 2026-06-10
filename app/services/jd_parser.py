@@ -3,6 +3,7 @@ import re
 from app.core.config import get_settings
 from app.core.llm import LLMClient
 from app.core.llm import LLMConfigurationError
+from app.core.llm import format_exception
 from app.models.schemas import JDStructured
 from app.services.resume_parser import KNOWN_SKILLS
 
@@ -86,24 +87,92 @@ JD:
 {raw_text}
 """
         try:
-            parsed = await self.llm.generate_json(
+            parsed = await self._generate_jd_json_with_retry(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
+                max_tokens=1200,
                 db=db,
-                trace_name="jd_parser.parse_jd",
             )
-            return JDStructured.model_validate(self._merge_llm_parse(heuristic, parsed)).model_dump()
+            return JDStructured.model_validate(self._merge_llm_parse(heuristic, parsed, raw_text=raw_text)).model_dump()
         except Exception:
             if not self.settings.llm_fallback_enabled:
                 raise
             return heuristic
 
-    def _merge_llm_parse(self, heuristic: dict, parsed: dict) -> dict:
+    async def _generate_jd_json_with_retry(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int,
+        db=None,
+    ) -> dict:
+        last_exc: Exception | None = None
+        for attempt in range(2):
+            trace_name = "jd_parser.parse_jd" if attempt == 0 else f"jd_parser.parse_jd.retry_{attempt}"
+            try:
+                return await self.llm.generate_json(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    max_tokens=max_tokens,
+                    db=db,
+                    trace_name=trace_name,
+                )
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                message = format_exception(exc)
+                if attempt >= 1 or not self._is_transient_llm_error(message):
+                    raise
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("JD parser LLM call did not return JSON.")
+
+    def _is_transient_llm_error(self, message: str) -> bool:
+        transient_terms = [
+            "ReadTimeout",
+            "ConnectTimeout",
+            "RemoteProtocolError",
+            "LLM returned empty content",
+            "temporarily unavailable",
+            "connection reset",
+        ]
+        return any(term.lower() in message.lower() for term in transient_terms)
+
+    def _merge_llm_parse(self, heuristic: dict, parsed: dict, *, raw_text: str | None = None) -> dict:
         merged = {**heuristic, **parsed}
         for field in ["required_skills", "preferred_skills", "responsibilities", "qualifications", "keywords"]:
             merged[field] = self._merge_ordered_lists(parsed.get(field), heuristic.get(field))
         for field in ["title", "company", "location", "job_type", "seniority"]:
             merged[field] = parsed.get(field) or heuristic.get(field)
+        return self._normalize_requirement_strength(merged, heuristic=heuristic, raw_text=raw_text)
+
+    def _normalize_requirement_strength(
+        self,
+        merged: dict,
+        *,
+        heuristic: dict,
+        raw_text: str | None,
+    ) -> dict:
+        required = [str(item).strip() for item in merged.get("required_skills") or [] if str(item).strip()]
+        preferred = [str(item).strip() for item in merged.get("preferred_skills") or [] if str(item).strip()]
+        heuristic_required = {self._skill_key(item) for item in heuristic.get("required_skills") or []}
+        heuristic_preferred = {self._skill_key(item) for item in heuristic.get("preferred_skills") or []}
+        preferred_keys = {self._skill_key(item) for item in preferred}
+
+        normalized_required: list[str] = []
+        demoted: list[str] = []
+        for skill in required:
+            key = self._skill_key(skill)
+            heuristic_says_preferred_only = key in heuristic_preferred and key not in heuristic_required
+            raw_says_soft_only = self._skill_is_soft_requirement_only(skill, raw_text or "")
+            duplicated_as_preferred = key in preferred_keys
+            if heuristic_says_preferred_only or raw_says_soft_only or (duplicated_as_preferred and key not in heuristic_required):
+                demoted.append(skill)
+                continue
+            normalized_required.append(skill)
+
+        merged["required_skills"] = self._merge_ordered_lists(normalized_required, [])
+        merged["preferred_skills"] = self._merge_ordered_lists(preferred, demoted)
         return merged
 
     def _merge_ordered_lists(self, primary: object, secondary: object) -> list[str]:
@@ -118,6 +187,88 @@ JD:
                     seen.add(key)
                     merged.append(value)
         return merged
+
+    def _skill_key(self, skill: object) -> str:
+        return re.sub(r"\s+", " ", str(skill).strip().lower())
+
+    def _skill_is_soft_requirement_only(self, skill: str, raw_text: str) -> bool:
+        if not raw_text.strip():
+            return False
+        hard = False
+        soft = False
+        for sentence in self._sentences_with_skill(raw_text, skill):
+            lowered = sentence.lower()
+            has_soft = self._has_soft_requirement_cue(lowered)
+            has_hard = self._has_hard_requirement_cue(lowered)
+            if has_soft:
+                soft = True
+            if has_hard and not has_soft:
+                hard = True
+        return soft and not hard
+
+    def _sentences_with_skill(self, raw_text: str, skill: str) -> list[str]:
+        sentences = [
+            segment.strip()
+            for segment in re.split(r"[\n。；;.!?？]+", raw_text)
+            if segment.strip()
+        ]
+        return [sentence for sentence in sentences if self._skill_mentioned(sentence, skill)]
+
+    def _skill_mentioned(self, text: str, skill: str) -> bool:
+        patterns = [self._skill_pattern(skill)]
+        patterns.extend(JD_SKILL_ALIASES.get(skill, []))
+        canonical = next((name for name in JD_SKILL_ALIASES if name.lower() == skill.lower()), None)
+        if canonical and canonical != skill:
+            patterns.extend(JD_SKILL_ALIASES.get(canonical, []))
+        return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
+
+    def _has_soft_requirement_cue(self, text: str) -> bool:
+        soft_tokens = [
+            "preferred",
+            "nice to have",
+            "bonus",
+            "plus",
+            "optional",
+            "helpful",
+            "not required",
+            "not mandatory",
+            "加分",
+            "优先",
+            "非必须",
+            "非硬性",
+            "不是硬性要求",
+            "可选",
+            "了解即可",
+            "有经验者优先",
+        ]
+        return any(token in text for token in soft_tokens)
+
+    def _has_hard_requirement_cue(self, text: str) -> bool:
+        hard_tokens = [
+            "require",
+            "required",
+            "must",
+            "need",
+            "proficient",
+            "hands-on",
+            "experience with",
+            "build",
+            "develop",
+            "implement",
+            "必须",
+            "必备",
+            "需要",
+            "要求",
+            "熟悉",
+            "熟练",
+            "掌握",
+            "负责",
+            "参与",
+            "开发",
+            "实现",
+            "构建",
+        ]
+        return any(token in text for token in hard_tokens)
 
     def heuristic_parse(
         self,

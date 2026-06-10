@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     llm_api_key: str | None = None
     llm_base_url: str = "https://llmapi.paratera.com"
     llm_model: str = "DeepSeek-V4-Pro"
-    llm_timeout_seconds: float = 60.0
+    llm_timeout_seconds: float = 120.0
     llm_fallback_enabled: bool = False
     llm_context_compression_enabled: bool = True
     llm_context_max_chars: int = 9000

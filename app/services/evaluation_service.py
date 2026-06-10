@@ -1968,8 +1968,8 @@ class EvaluationService:
         ) and len((prep.summary_json or {}).get("preparation_angles") or []) >= 3
         llm_question_generation_passed = (
             str(prep.generation_mode).startswith("llm_augmented")
-            and int(source_counts.get("llm_project_implementation") or 0) >= 3
-            and int(source_counts.get("llm_foundation_drill") or 0) >= 3
+            and int(source_counts.get("llm_project_implementation") or 0) >= 2
+            and int(source_counts.get("llm_foundation_drill") or 0) >= 2
         )
         markdown = self.interview_delivery.render_markdown(prep)
         markdown_export_passed = (

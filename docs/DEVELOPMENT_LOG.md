@@ -1,5 +1,47 @@
 # 开发日志
 
+## 2026-06-10 10:24 +08:00：真实 LLM 用户流测试与 JD 强弱要求修复
+
+### 这次做了什么
+- 用真实 LLM 配置从用户视角跑完整中文链路：`/health`、`/profiles/guided`、`/jobs`、`/interview-prep`、`/interview-prep/{id}/questions`、`/interview-prep/{id}/markdown`、`/llm/debug/logs`。
+- `LLMClient.generate_text/generate_json` 支持 `max_tokens`，并在 `llm_call_logs` 记录 `max_tokens`、真实 `response_chars`、失败 trace、延迟和错误信息。
+- LLM timeout 从 60 秒提高到 120 秒，避免真实模型在长 prompt 下刚好超时。
+- `InterviewPrepService` 的 LLM 面试题生成改为紧凑 JSON schema，只生成 2 个项目实现追问和 2 个八股/基础追问；失败时记录 trace，支持 transient retry、JSON repair 和局部 JSON 恢复。
+- `/interview-prep` 对 LLM 失败返回 502，不再悄悄降级。
+- `JDParserService` 增加 transient retry：首次 `LLM returned empty content`、`ReadTimeout`、连接中断等会记录 `jd_parser.parse_jd` 失败 trace，并用 `jd_parser.parse_jd.retry_1` 重试一次。
+- `/jobs` 对 JD parser 的 LLM 失败返回 502，方便前端和用户读取 `/llm/debug/logs` 排查。
+- JD parser merge 后新增“强弱要求归一化”：LLM 把 `MLflow`、`Kubernetes` 这类“有经验者优先/加分/非硬性要求”技能误放进 `required_skills` 时，会根据启发式结果和原文语境 demote 到 `preferred_skills`。
+- 面试包评测的 LLM 问题检查调整为真实 schema：要求 `llm_project_implementation >= 2` 且 `llm_foundation_drill >= 2`。
+- 补充回归测试：软性技能 demote、JD parser transient retry、面试包 LLM 紧凑 JSON 生成、LLM debug trace。
+
+### 发现的问题
+- 真实模型调用不是稳定的“同步函数”：同一条链路里曾出现 JD parser 空返回、面试包问题生成超时、长 JSON 输出截断/格式不完整、repair 调用空返回等情况。
+- 旧逻辑只看最终接口是否成功，不够适合开发期排障；必须看 `llm_call_logs` 的阶段 trace、延迟、prompt 字符数、response 字符数和错误类型。
+- 面试包 prompt 原先输出字段过多，容易让模型生成冗长 JSON，导致截断或格式错误；面试题高价值在“问题 + 追问”，不是让模型同时写完整答案。
+- LLM 解析 JD 时容易把“优先/加分/不是硬性要求”的技能硬化成 required，进而污染匹配缺口和面试包覆盖率。
+- PowerShell 通过 stdin pipe 给 Python 传中文脚本时会把测试数据污染成问号；真实中文链路测试需要用直接参数、UTF-8 文件或其他不会转码的方式。
+
+### 怎么修复
+- 保留失败即报错的开发期策略，但把错误变成可观测：所有真实 LLM 阶段都写入 `llm_call_logs`，API 层返回 502，便于沿 trace 排查。
+- 对 JD parser 和 interview prep 分别做业务阶段 retry，而不是在底层 LLMClient 全局隐藏重试；trace 名称可以直接看出失败发生在哪个业务步骤。
+- 把面试包 LLM 输出压缩成紧凑结构，再由本地代码补齐 `intent`、`answer_points`、`source_perspective`、准备角度和题目 ID。
+- 用 JD 原文句子级语境判断 hard/soft requirement：有“加分、优先、非硬性、optional、preferred”等软性信号且没有独立硬性语境的技能，从 required 移到 preferred。
+- 真实中文用户流重跑通过：`coverage.passed=true`、`required_skill_coverage_rate=1.0`、`missing_skill_drill_rate=1.0`、`question_count=36`、`llm_project_implementation=2`、`llm_foundation_drill=2`。
+- 最终真实 LLM trace：`jd_parser.parse_jd` completed，约 17.5s，`response_chars=1254`；`interview_prep.generate_interviewer_questions` completed，约 39.2s，`response_chars=1345`。
+- 最终 JD 结构化结果中 `MLflow`、`Kubernetes` 已进入 `preferred_skills`，没有进入 `required_skills`。
+- 全量回归通过：`65 passed`；`python -m py_compile app\services\jd_parser.py app\api\jobs.py app\services\interview_prep.py app\core\llm.py` 通过；`node --check app\static\js\main.js` 通过；`git diff --check` 退出码为 0。
+
+### 未修复的问题
+- 真实 LLM 调用仍可能偶发空返回或慢返回；原因是外部模型服务不稳定。当前策略是保留 trace、重试一次、仍失败就 502 报错，不再伪造结果。
+- LLM 生成题还没有独立 judge 打分；原因是本轮先修通真实用户流、trace 和结构稳定性，下一步可以增加 judge 检查“是否贴合 JD、是否追问项目实现、是否诚实披露缺口”。
+- JD parser 目前只有 `required_skills`/`preferred_skills` 两级强度；原因是下游 matcher 和面试包暂时只消费这两类。后续如果要更细，可扩成 `must_have`、`nice_to_have`、`explicitly_not_required`。
+- 真实用户流本次仍使用 hash embedding 和关闭 reranker，是为了把变量集中在 LLM 全流程；接下来需要再跑一次真实 embedding + reranker 的端到端链路。
+
+### 下一步
+- 增加 LLM 面试题 judge 评测，量化问题贴合度、追问深度、缺口诚实边界和项目证据绑定。
+- 用真实 embedding + reranker 重跑用户流，比较 hash embedding 与真实向量检索下的匹配、证据和面试包变化。
+- 给 `/llm/debug/logs` 增加按 profile/job/prep 关联筛选，减少长流程排查时手动查表成本。
+
 ## 2026-06-10 09:40 +08:00：面试包重心转向 JD + 简历项目的 LLM 追问链
 
 ### 这次做了什么
