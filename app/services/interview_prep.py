@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import json
 from typing import Any
+from urllib.parse import quote_plus
 
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
+from app.core.llm import LLMClient, LLMConfigurationError
 from app.models.entities import InterviewPrep, Job, MatchResult, Profile
 from app.services.interview_experience import InterviewExperienceService
 from app.services.matcher import MatcherService, normalize_skill
@@ -20,6 +24,8 @@ SOURCE_PERSPECTIVE_TO_ANGLE = {
     "online_experience_research": "same_role_interview_experience",
     "resume_project_evidence": "resume_project_tech_stack",
     "resume_project_stack": "resume_project_tech_stack",
+    "llm_project_implementation": "resume_project_tech_stack",
+    "llm_foundation_drill": "other_possible_interview_questions",
     "jd_technical_depth": "other_possible_interview_questions",
     "jd_gap_drill": "other_possible_interview_questions",
     "general_interview": "other_possible_interview_questions",
@@ -33,9 +39,12 @@ class InterviewPrepService:
         self,
         matcher: MatcherService | None = None,
         experience_service: InterviewExperienceService | None = None,
+        llm: LLMClient | None = None,
     ) -> None:
+        self.settings = get_settings()
         self.matcher = matcher or MatcherService()
         self.experience_service = experience_service or InterviewExperienceService()
+        self.llm = llm or LLMClient()
 
     def create_interview_prep(
         self,
@@ -45,6 +54,8 @@ class InterviewPrepService:
         job: Job,
         match_result: MatchResult | None = None,
         experience_ids: list[int] | None = None,
+        llm_question_sets: list[dict[str, Any]] | None = None,
+        generation_mode: str = "structured_rules_v3_preparation_angles",
     ) -> InterviewPrep:
         match = match_result or self.matcher.create_match_result(db, profile, job)
         evidence = self._evidence(match)
@@ -68,6 +79,7 @@ class InterviewPrepService:
             self._online_experience_questions(job, required, missing),
             self._project_deep_dive_questions(profile, job, evidence, matched),
             self._project_stack_questions(profile, job, evidence),
+            *(llm_question_sets or []),
             self._technical_questions(job, evidence, matched, required, preferred, keywords),
             self._gap_questions(job, missing),
             self._collaboration_questions(job),
@@ -87,6 +99,11 @@ class InterviewPrepService:
             experience_evidence=experience_evidence,
         )
         source_evidence = [*experience_evidence, *evidence]
+        interview_reference_links = self._interview_reference_links(
+            job=job,
+            experience_evidence=experience_evidence,
+            research_checklist=research_checklist,
+        )
         preparation_angles = self._preparation_angles(
             profile=profile,
             job=job,
@@ -112,6 +129,12 @@ class InterviewPrepService:
             "boundary": "缺少证据的技能只能作为待补强或诚实披露，不能包装成已交付经验。",
             "source_perspectives": ["同岗位面经/面经调研", "简历项目技术栈深挖", "其他可能面试问题"],
             "preparation_angles": preparation_angles,
+            "interview_reference_links": interview_reference_links,
+            "llm_question_generation": {
+                "enabled": bool(llm_question_sets),
+                "question_set_count": len(llm_question_sets or []),
+                "mode": "llm_augmented" if llm_question_sets else "structured_rules",
+            },
         }
         prep = InterviewPrep(
             profile_id=profile.id,
@@ -124,12 +147,49 @@ class InterviewPrepService:
             research_checklist_json=research_checklist,
             source_evidence_json=source_evidence,
             coverage_json=coverage,
-            generation_mode="structured_rules_v3_preparation_angles",
+            generation_mode=generation_mode,
         )
         db.add(prep)
         db.commit()
         db.refresh(prep)
         return prep
+
+    async def create_interview_prep_with_llm(
+        self,
+        db: Session,
+        *,
+        profile: Profile,
+        job: Job,
+        match_result: MatchResult | None = None,
+        experience_ids: list[int] | None = None,
+    ) -> InterviewPrep:
+        match = match_result or self.matcher.create_match_result(db, profile, job)
+        evidence = self._evidence(match)
+        required = self._skills(job, "required_skills")
+        preferred = self._skills(job, "preferred_skills")
+        keywords = self._skills(job, "keywords")
+        matched = [str(item) for item in match.matched_skills_json or []]
+        missing = [str(item) for item in match.missing_skills_json or []]
+        llm_question_sets = await self._llm_question_sets(
+            db=db,
+            profile=profile,
+            job=job,
+            evidence=evidence,
+            matched=matched,
+            missing=missing,
+            required=required,
+            preferred=preferred,
+            keywords=keywords,
+        )
+        return self.create_interview_prep(
+            db,
+            profile=profile,
+            job=job,
+            match_result=match,
+            experience_ids=experience_ids,
+            llm_question_sets=llm_question_sets,
+            generation_mode="llm_augmented_v1_jd_project_questions",
+        )
 
     def _attach_question_metadata(self, question_sets: list[dict[str, Any]]) -> None:
         for group_index, group in enumerate(question_sets, start=1):
@@ -196,12 +256,12 @@ class InterviewPrepService:
         focus_text = "、".join(focus[:4]) if focus else "岗位核心技术"
         questions = [
             {
-                "question": f"结合牛客网、OfferShow、小红书同岗位面经，{job.title} 常见追问可能集中在哪些技术和项目细节？",
-                "intent": "把面试准备从单一 JD 扩展到同岗位真实面经，但不假装已经抓取到具体帖子。",
+                "question": f"查看面试包附带的同岗位面经参考链接和标题后，哪些内容需要回到 {job.title} 的 JD 和简历项目里重点准备？",
+                "intent": "把面经平台当作参考入口，只沉淀标题、链接和待核验主题，不把难抓取正文当作核心依赖。",
                 "answer_points": [
-                    f"先围绕 {focus_text} 归纳可能高频题。",
-                    "把每个外部面经问题映射到自己的项目证据或缺口 drill。",
-                    "记录来源链接和发布时间，避免用过期或不相关岗位面经误导准备。",
+                    f"先围绕 {focus_text} 标记和岗位重合的技术词。",
+                    "只把链接标题当作调研线索，真正回答仍回到 JD、简历项目证据和缺口 drill。",
+                    "如果平台需要登录或无法获取正文，停止抓取，把可访问链接和标题附在面试包末尾。",
                 ],
                 "evidence_refs": [],
                 "risk_level": "medium",
@@ -209,8 +269,8 @@ class InterviewPrepService:
                 "source_perspective": "online_experience_research",
             },
             {
-                "question": f"如果同岗位面经问到 {focus_text} 的底层原理，你准备用哪个项目例子回答？",
-                "intent": "把外部高频问题和简历项目绑定，避免只背题。",
+                "question": f"如果参考链接标题里反复出现 {focus_text}，你准备用哪个简历项目作为回答主线？",
+                "intent": "让面经线索服务于项目准备，而不是继续扩大外部抓取复杂度。",
                 "answer_points": [
                     "选择最接近 JD 的项目作为主线。",
                     "每个技术点准备一个原理解释、一个工程取舍和一个失败/限制。",
@@ -222,6 +282,254 @@ class InterviewPrepService:
             },
         ]
         return {"category": "同岗位面经与高频追问", "questions": questions}
+
+    async def _llm_question_sets(
+        self,
+        *,
+        db: Session,
+        profile: Profile,
+        job: Job,
+        evidence: list[dict[str, Any]],
+        matched: list[str],
+        missing: list[str],
+        required: list[str],
+        preferred: list[str],
+        keywords: list[str],
+    ) -> list[dict[str, Any]]:
+        if not self.llm.available:
+            if not self.settings.llm_fallback_enabled:
+                raise LLMConfigurationError(
+                    "LLM is required for interview question generation. "
+                    "Set LLM_FALLBACK_ENABLED=true only for deterministic tests."
+                )
+            return self._heuristic_llm_question_sets(profile, job, evidence, matched, missing, required, preferred)
+
+        system_prompt = (
+            "你是一位中文技术面试官，负责根据岗位 JD、候选人简历项目和 RAG 证据生成面试问题。"
+            "只输出 JSON，不要输出 Markdown。不要编造候选人没有的经历；缺口必须设计成诚实披露追问。"
+        )
+        user_prompt = self._llm_question_prompt(
+            profile=profile,
+            job=job,
+            evidence=evidence,
+            matched=matched,
+            missing=missing,
+            required=required,
+            preferred=preferred,
+            keywords=keywords,
+        )
+        payload = await self.llm.generate_json(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=0.35,
+            db=db,
+            trace_name="interview_prep.generate_interviewer_questions",
+        )
+        return self._normalize_llm_question_sets(payload, required=required, missing=missing)
+
+    def _llm_question_prompt(
+        self,
+        *,
+        profile: Profile,
+        job: Job,
+        evidence: list[dict[str, Any]],
+        matched: list[str],
+        missing: list[str],
+        required: list[str],
+        preferred: list[str],
+        keywords: list[str],
+    ) -> str:
+        projects = []
+        for project in (profile.structured_profile_json or {}).get("projects", []) or []:
+            if not isinstance(project, dict):
+                continue
+            projects.append(
+                {
+                    "name": project.get("name"),
+                    "description": self._short_text(project.get("description"), 220),
+                    "tech_stack": project.get("tech_stack") or [],
+                    "impact": self._short_text(project.get("impact"), 160),
+                }
+            )
+        context = {
+            "job": {
+                "title": job.title,
+                "company": job.company,
+                "required_skills": required,
+                "preferred_skills": preferred,
+                "keywords": keywords[:12],
+                "responsibilities": (job.structured_jd_json or {}).get("responsibilities", [])[:6],
+                "raw_jd_preview": self._short_text(job.raw_jd_text, 900),
+            },
+            "candidate": {
+                "name": profile.name,
+                "headline": profile.headline,
+                "target_roles": profile.target_roles_json or [],
+                "skills": (profile.structured_profile_json or {}).get("skills", [])[:20],
+                "projects": projects[:5],
+            },
+            "match": {
+                "matched_skills": matched[:12],
+                "missing_skills": missing[:10],
+            },
+            "rag_evidence": evidence[:6],
+        }
+        return (
+            "请基于以下上下文生成 2 个 question_sets：\n"
+            "1. category='LLM 项目实现追问'，source_perspective='llm_project_implementation'，"
+            "围绕简历项目实现细节、架构、数据流、接口、评测、性能、失败边界和本人贡献生成 4-6 题。\n"
+            "2. category='LLM 八股与基础追问'，source_perspective='llm_foundation_drill'，"
+            "围绕 JD 必备技能常见八股、底层原理、工程取舍和缺口诚实披露生成 4-6 题。\n\n"
+            "每道题字段必须包含：question, follow_ups, intent, answer_points, skills, risk_level, source_perspective。\n"
+            "follow_ups 必须是 2-4 个连续追问；answer_points 必须是 3-5 个准备要点。"
+            "risk_level 只能是 low/medium/high。"
+            "如果某技能在 missing_skills 里，问题必须要求候选人诚实说明边界和补齐计划，不能假设已经做过。\n\n"
+            "输出 JSON schema："
+            '{"question_sets":[{"category":string,"questions":[{"question":string,'
+            '"follow_ups":[string],"intent":string,"answer_points":[string],"skills":[string],'
+            '"risk_level":"low|medium|high","source_perspective":string}]}]}\n\n'
+            f"上下文：\n{json.dumps(context, ensure_ascii=False, indent=2)}"
+        )
+
+    def _normalize_llm_question_sets(
+        self,
+        payload: dict[str, Any],
+        *,
+        required: list[str],
+        missing: list[str],
+    ) -> list[dict[str, Any]]:
+        raw_sets = payload.get("question_sets")
+        if not isinstance(raw_sets, list):
+            raise ValueError("LLM interview question payload must contain question_sets list.")
+        normalized_sets: list[dict[str, Any]] = []
+        allowed_sources = {"llm_project_implementation", "llm_foundation_drill"}
+        for raw_group in raw_sets[:3]:
+            if not isinstance(raw_group, dict):
+                continue
+            category = str(raw_group.get("category") or "").strip()
+            questions = []
+            for raw_question in (raw_group.get("questions") or [])[:8]:
+                if not isinstance(raw_question, dict):
+                    continue
+                question_text = str(raw_question.get("question") or "").strip()
+                if not question_text:
+                    continue
+                source_perspective = str(raw_question.get("source_perspective") or "").strip()
+                if source_perspective not in allowed_sources:
+                    source_perspective = (
+                        "llm_project_implementation"
+                        if "项目" in category or "实现" in category
+                        else "llm_foundation_drill"
+                    )
+                skills = [str(item).strip() for item in raw_question.get("skills") or [] if str(item).strip()]
+                risk_level = str(raw_question.get("risk_level") or "medium").lower()
+                if risk_level not in {"low", "medium", "high"}:
+                    risk_level = "medium"
+                if any(normalize_skill(skill) in {normalize_skill(item) for item in missing} for skill in skills):
+                    risk_level = "high"
+                questions.append(
+                    {
+                        "question": question_text,
+                        "follow_ups": [
+                            str(item).strip()
+                            for item in raw_question.get("follow_ups") or []
+                            if str(item).strip()
+                        ][:4],
+                        "intent": str(raw_question.get("intent") or "模拟真实面试官围绕 JD 和简历证据追问。"),
+                        "answer_points": [
+                            str(item).strip()
+                            for item in raw_question.get("answer_points") or []
+                            if str(item).strip()
+                        ][:5]
+                        or self._technical_answer_points(skills[0] if skills else (required[0] if required else "岗位核心能力"), None),
+                        "evidence_refs": [],
+                        "risk_level": risk_level,
+                        "skills": skills[:6],
+                        "source_perspective": source_perspective,
+                    }
+                )
+            if questions:
+                normalized_sets.append(
+                    {
+                        "category": category or self._llm_category_for_source(questions[0]["source_perspective"]),
+                        "questions": questions,
+                    }
+                )
+        if not normalized_sets:
+            raise ValueError("LLM interview question payload did not contain usable questions.")
+        return normalized_sets
+
+    def _heuristic_llm_question_sets(
+        self,
+        profile: Profile,
+        job: Job,
+        evidence: list[dict[str, Any]],
+        matched: list[str],
+        missing: list[str],
+        required: list[str],
+        preferred: list[str],
+    ) -> list[dict[str, Any]]:
+        projects = [
+            item
+            for item in (profile.structured_profile_json or {}).get("projects", []) or []
+            if isinstance(item, dict)
+        ]
+        project = projects[0] if projects else {}
+        project_name = str(project.get("name") or "简历项目")
+        stack = self._unique(
+            [
+                *(str(item) for item in project.get("tech_stack", []) if str(item).strip()),
+                *matched[:4],
+                *required[:4],
+            ]
+        )
+        foundation_skills = self._unique([*required[:5], *preferred[:3], *missing[:3]])[:6]
+        project_questions = []
+        for skill in stack[:5] or ["项目架构"]:
+            evidence_item = self._find_evidence_for_skill(evidence, skill)
+            project_questions.append(
+                {
+                    "question": f"在 {project_name} 里，{skill} 具体处在架构的哪一层？请从输入、处理、输出和失败边界讲清楚。",
+                    "follow_ups": [
+                        f"如果 {skill} 这一层延迟或错误率升高，你会先看哪些日志或指标？",
+                        "这个设计有没有替代方案？当时为什么没有选替代方案？",
+                        "这部分哪些是你本人完成的，哪些依赖团队或开源组件？",
+                    ],
+                    "intent": "追问项目实现细节，验证候选人是否真的理解简历里的技术栈。",
+                    "answer_points": self._technical_answer_points(skill, evidence_item),
+                    "evidence_refs": [self._evidence_ref(evidence_item, 1)] if evidence_item else [],
+                    "risk_level": "low" if evidence_item else "medium",
+                    "skills": [skill],
+                    "source_perspective": "llm_project_implementation",
+                }
+            )
+        foundation_questions = []
+        for skill in foundation_skills[:6] or ["岗位核心能力"]:
+            is_missing = normalize_skill(skill) in {normalize_skill(item) for item in missing}
+            foundation_questions.append(
+                {
+                    "question": f"面试官如果考 {skill} 的基础原理和工程取舍，你会如何结合 {job.title} 的 JD 场景回答？",
+                    "follow_ups": [
+                        f"{skill} 的核心输入、输出和常见失败模式是什么？",
+                        "如果让你用 1 天做一个最小验证 demo，你会怎么拆？",
+                        "如果你没有真实生产经验，哪些话可以说，哪些不能说？",
+                    ],
+                    "intent": "覆盖八股、底层原理和岗位场景化追问。",
+                    "answer_points": [
+                        f"先解释 {skill} 的概念、适用边界和在 JD 中的用途。",
+                        "结合简历项目讲相邻经验；没有证据时明确说成待补齐。",
+                        "给出可验证指标、实验方法或最小 demo。",
+                    ],
+                    "evidence_refs": [],
+                    "risk_level": "high" if is_missing else "medium",
+                    "skills": [skill],
+                    "source_perspective": "llm_foundation_drill",
+                }
+            )
+        return [
+            {"category": "LLM 项目实现追问", "questions": project_questions[:5]},
+            {"category": "LLM 八股与基础追问", "questions": foundation_questions[:6]},
+        ]
 
     def _project_deep_dive_questions(
         self,
@@ -493,10 +801,13 @@ class InterviewPrepService:
         core_perspective_counts = {
             "online_experience": source_perspective_counts.get("online_experience_research", 0)
             + source_perspective_counts.get("source_backed_interview_experience", 0),
-            "resume_project_stack": source_perspective_counts.get("resume_project_stack", 0),
+            "resume_project_stack": source_perspective_counts.get("resume_project_stack", 0)
+            + source_perspective_counts.get("resume_project_evidence", 0)
+            + source_perspective_counts.get("llm_project_implementation", 0),
             "other_interview_questions": source_perspective_counts.get("general_interview", 0)
             + source_perspective_counts.get("jd_technical_depth", 0)
-            + source_perspective_counts.get("jd_gap_drill", 0),
+            + source_perspective_counts.get("jd_gap_drill", 0)
+            + source_perspective_counts.get("llm_foundation_drill", 0),
         }
         preparation_angle_counts = {key: 0 for key in INTERVIEW_PREP_ANGLE_LABELS}
         for question in questions:
@@ -532,6 +843,8 @@ class InterviewPrepService:
                 "online_experience_research",
                 "resume_project_evidence",
                 "resume_project_stack",
+                "llm_project_implementation",
+                "llm_foundation_drill",
                 "jd_technical_depth",
                 "jd_gap_drill",
                 "general_interview",
@@ -618,11 +931,55 @@ class InterviewPrepService:
             },
         ]
 
+    def _interview_reference_links(
+        self,
+        *,
+        job: Job,
+        experience_evidence: list[dict[str, Any]],
+        research_checklist: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        links: list[dict[str, Any]] = []
+        for source in experience_evidence[:8]:
+            url = str(source.get("source_url") or "").strip()
+            title = str(source.get("title") or source.get("role_keyword") or job.title or "已导入面经").strip()
+            if not title and not url:
+                continue
+            links.append(
+                {
+                    "title": title,
+                    "url": url or None,
+                    "site": source.get("source_site"),
+                    "kind": "confirmed_imported_interview_experience",
+                    "note": "用户已确认导入的面经来源，可引用正文问题；如果正文质量不足，只保留标题和链接。",
+                }
+            )
+        for item in research_checklist[:4]:
+            query = str(item.get("query") or "").strip()
+            if not query:
+                continue
+            site = str(item.get("site") or item.get("topic") or "搜索").strip()
+            links.append(
+                {
+                    "title": f"{site}：{item.get('topic') or job.title}",
+                    "url": f"https://www.baidu.com/s?wd={quote_plus(query)}",
+                    "site": site,
+                    "kind": "search_reference_link",
+                    "query": query,
+                    "note": "只作为面经参考入口；不绕过登录、不抓取正文、不把标题当作事实证据。",
+                }
+            )
+        return links
+
     def _skills(self, job: Job, key: str) -> list[str]:
         return self._unique([str(item).strip() for item in (job.structured_jd_json or {}).get(key, []) if str(item).strip()])
 
     def _angle_for_source(self, source_perspective: str) -> str:
         return SOURCE_PERSPECTIVE_TO_ANGLE.get(source_perspective, "other_possible_interview_questions")
+
+    def _llm_category_for_source(self, source_perspective: str) -> str:
+        if source_perspective == "llm_project_implementation":
+            return "LLM 项目实现追问"
+        return "LLM 八股与基础追问"
 
     def _evidence(self, match: MatchResult) -> list[dict[str, Any]]:
         return [

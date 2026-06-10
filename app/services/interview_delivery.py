@@ -15,6 +15,8 @@ SOURCE_PERSPECTIVE_LABELS = {
     "online_experience_research": "牛客/OfferShow/小红书调研",
     "resume_project_evidence": "简历项目交付证据",
     "resume_project_stack": "简历项目技术栈",
+    "llm_project_implementation": "LLM 项目实现追问",
+    "llm_foundation_drill": "LLM 八股与基础追问",
     "jd_technical_depth": "JD 技术深挖",
     "jd_gap_drill": "JD 缺口追问",
     "general_interview": "通用面试与协作",
@@ -31,6 +33,8 @@ SOURCE_PERSPECTIVE_TO_ANGLE = {
     "online_experience_research": "same_role_interview_experience",
     "resume_project_evidence": "resume_project_tech_stack",
     "resume_project_stack": "resume_project_tech_stack",
+    "llm_project_implementation": "resume_project_tech_stack",
+    "llm_foundation_drill": "other_possible_interview_questions",
     "jd_technical_depth": "other_possible_interview_questions",
     "jd_gap_drill": "other_possible_interview_questions",
     "general_interview": "other_possible_interview_questions",
@@ -53,6 +57,7 @@ class InterviewPrepDeliveryService:
                         "question_id": question_id,
                         "category": category,
                         "question": str(question.get("question") or ""),
+                        "follow_ups": [str(item) for item in question.get("follow_ups") or []],
                         "intent": str(question.get("intent") or ""),
                         "answer_points": [str(item) for item in question.get("answer_points") or []],
                         "risk_level": str(question.get("risk_level") or "low"),
@@ -88,10 +93,13 @@ class InterviewPrepDeliveryService:
             "core_perspectives": {
                 "online_experience": counts.get("online_experience_research", 0)
                 + counts.get("source_backed_interview_experience", 0),
-                "resume_project_stack": counts.get("resume_project_stack", 0),
+                "resume_project_stack": counts.get("resume_project_stack", 0)
+                + counts.get("resume_project_evidence", 0)
+                + counts.get("llm_project_implementation", 0),
                 "other_interview_questions": counts.get("general_interview", 0)
                 + counts.get("jd_technical_depth", 0)
-                + counts.get("jd_gap_drill", 0),
+                + counts.get("jd_gap_drill", 0)
+                + counts.get("llm_foundation_drill", 0),
             },
         }
 
@@ -201,6 +209,17 @@ class InterviewPrepDeliveryService:
                 lines.append(f"- {label}：{count}")
             lines.append("")
 
+        reference_links = summary.get("interview_reference_links") or []
+        if reference_links:
+            lines.extend(["## 面经参考链接", ""])
+            for item in reference_links:
+                title = item.get("title") or item.get("site") or "面经参考"
+                url = item.get("url") or item.get("query") or "-"
+                lines.append(f"- {title}: {url}")
+                if item.get("note"):
+                    lines.append(f"  - 边界：{item.get('note')}")
+            lines.append("")
+
         preparation_angles = summary.get("preparation_angles") or self._preparation_angles_from_summary(perspective_summary)
         if preparation_angles:
             lines.extend(["## 准备角度", ""])
@@ -256,6 +275,9 @@ class InterviewPrepDeliveryService:
                     lines.append("- 技能：" + "、".join(str(item) for item in question.get("skills") or []))
                 if question.get("intent"):
                     lines.append(f"- 考察意图：{question.get('intent')}")
+                if question.get("follow_ups"):
+                    lines.append("- 连续追问：")
+                    lines.extend(f"  - {item}" for item in question.get("follow_ups") or [])
                 if question.get("answer_points"):
                     lines.append("- 回答要点：")
                     lines.extend(f"  - {item}" for item in question.get("answer_points") or [])

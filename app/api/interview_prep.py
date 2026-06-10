@@ -21,7 +21,7 @@ router = APIRouter(prefix="/interview-prep", tags=["interview-prep"])
 
 
 @router.post("", response_model=InterviewPrepResponse, status_code=status.HTTP_201_CREATED)
-def create_interview_prep(
+async def create_interview_prep(
     payload: InterviewPrepRequest,
     db: Session = Depends(get_db),
 ) -> InterviewPrepResponse:
@@ -29,7 +29,7 @@ def create_interview_prep(
     job = db.query(Job).filter(Job.id == payload.job_id).first()
     if profile is None or job is None:
         raise HTTPException(status_code=404, detail="Profile or job not found.")
-    prep = InterviewPrepService().create_interview_prep(
+    prep = await InterviewPrepService().create_interview_prep_with_llm(
         db,
         profile=profile,
         job=job,

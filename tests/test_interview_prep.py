@@ -111,11 +111,114 @@ def test_interview_prep_agent_workflow_records_artifact(db_session):
     assert run.status == "completed"
     assert run.output_json["interview_prep_id"] > 0
     assert run.output_json["coverage"]["passed"] is True
+    assert run.output_json["summary"]["llm_question_generation"]["enabled"] is True
     assert run.output_json["execution_plan"]["skills"] == [
         "evidence_retrieval",
         "fit_assessment",
         "interview_preparation",
     ]
+
+
+def test_interview_prep_with_llm_generates_project_and_foundation_followups(db_session):
+    profile, job = _seed_profile_job(db_session)
+
+    class FakeInterviewLLM:
+        @property
+        def available(self):
+            return True
+
+        async def generate_json(self, *, system_prompt, user_prompt, temperature, db, trace_name):
+            assert trace_name == "interview_prep.generate_interviewer_questions"
+            assert "CareerAgent" in user_prompt
+            assert "Agent 开发实习生" in user_prompt
+            return {
+                "question_sets": [
+                    {
+                        "category": "LLM 项目实现追问",
+                        "questions": [
+                            {
+                                "question": "CareerAgent 的 RAG 检索从 query 到 evidence 的链路怎么设计？",
+                                "follow_ups": ["Top20 为什么需要 reranker？", "SQLite 和向量库如何分工？"],
+                                "intent": "验证项目实现细节。",
+                                "answer_points": ["讲 chunk", "讲检索权重", "讲 trace"],
+                                "skills": ["RAG", "SQLite"],
+                                "risk_level": "low",
+                                "source_perspective": "llm_project_implementation",
+                            },
+                            {
+                                "question": "FastAPI 接口并发请求下如何记录 LLM trace？",
+                                "follow_ups": ["失败时如何恢复？", "如何避免日志泄露 key？"],
+                                "intent": "验证工程落地。",
+                                "answer_points": ["讲请求边界", "讲日志字段", "讲脱敏"],
+                                "skills": ["FastAPI", "Agent Trace"],
+                                "risk_level": "low",
+                                "source_perspective": "llm_project_implementation",
+                            },
+                            {
+                                "question": "PDF chunk 策略为什么不只按固定长度切？",
+                                "follow_ups": ["页级信息怎么保留？", "噪声 chunk 怎么处理？"],
+                                "intent": "验证 chunk 设计。",
+                                "answer_points": ["讲结构化字段", "讲滑窗", "讲评测"],
+                                "skills": ["PDF Chunk", "RAG"],
+                                "risk_level": "low",
+                                "source_perspective": "llm_project_implementation",
+                            },
+                        ],
+                    },
+                    {
+                        "category": "LLM 八股与基础追问",
+                        "questions": [
+                            {
+                                "question": "RAG 的召回率和答案质量分别怎么评估？",
+                                "follow_ups": ["如何构造负例？", "如何判断 evidence 是否支持回答？"],
+                                "intent": "覆盖基础八股。",
+                                "answer_points": ["召回", "精排", "人工标注"],
+                                "skills": ["RAG", "Evaluation"],
+                                "risk_level": "medium",
+                                "source_perspective": "llm_foundation_drill",
+                            },
+                            {
+                                "question": "FastAPI 的异步接口适合解决什么问题？",
+                                "follow_ups": ["CPU 密集任务怎么办？", "数据库 session 如何管理？"],
+                                "intent": "覆盖后端基础。",
+                                "answer_points": ["IO 并发", "任务拆分", "连接管理"],
+                                "skills": ["FastAPI"],
+                                "risk_level": "medium",
+                                "source_perspective": "llm_foundation_drill",
+                            },
+                            {
+                                "question": "如果 MLflow 没有生产经验，面试时如何诚实说明？",
+                                "follow_ups": ["相邻经验是什么？", "三天内如何补一个 demo？"],
+                                "intent": "验证缺口披露。",
+                                "answer_points": ["承认缺口", "迁移评测经验", "给补齐计划"],
+                                "skills": ["MLflow"],
+                                "risk_level": "high",
+                                "source_perspective": "llm_foundation_drill",
+                            },
+                        ],
+                    },
+                ]
+            }
+
+    prep = asyncio.run(
+        InterviewPrepService(llm=FakeInterviewLLM()).create_interview_prep_with_llm(
+            db_session,
+            profile=profile,
+            job=job,
+        )
+    )
+    questions = [question for group in prep.question_sets_json for question in group.get("questions", [])]
+    sources = {question["source_perspective"] for question in questions}
+    markdown = InterviewPrepDeliveryService().render_markdown(prep)
+
+    assert prep.generation_mode == "llm_augmented_v1_jd_project_questions"
+    assert prep.summary_json["llm_question_generation"]["enabled"] is True
+    assert {"llm_project_implementation", "llm_foundation_drill"} <= sources
+    assert any(question.get("follow_ups") for question in questions)
+    assert prep.coverage_json["preparation_angle_counts"]["resume_project_tech_stack"] >= 3
+    assert prep.coverage_json["preparation_angle_counts"]["other_possible_interview_questions"] >= 3
+    assert "连续追问" in markdown
+    assert "面经参考链接" in markdown
 
 
 def test_interview_experience_import_extracts_questions_topics_and_credibility(db_session):
@@ -213,6 +316,7 @@ def test_interview_prep_delivery_exports_markdown_and_tracks_practice(db_session
     assert "状态：ready" in markdown
     assert "信心：4/5" in markdown
     assert "问题来源分布" in markdown
+    assert "面经参考链接" in markdown
     assert "准备角度" in markdown
     assert "网上同岗位面经" in markdown
     assert "牛客/OfferShow/小红书调研" in markdown

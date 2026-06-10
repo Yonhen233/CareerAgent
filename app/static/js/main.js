@@ -48,6 +48,8 @@ function interviewSourceLabel(source) {
     online_experience_research: "同岗面经调研",
     resume_project_evidence: "项目证据",
     resume_project_stack: "项目技术栈",
+    llm_project_implementation: "LLM 项目追问",
+    llm_foundation_drill: "LLM 八股追问",
     jd_technical_depth: "JD 技术",
     jd_gap_drill: "缺口追问",
     general_interview: "通用问题",
@@ -223,6 +225,7 @@ async function loadInterviewPreps() {
     const coverage = row.coverage_json || {};
     const coreSources = coverage.core_perspective_counts || {};
     const preparationAngles = summary.preparation_angles || preparationAnglesFromCoverage(coverage);
+    const referenceLinks = summary.interview_reference_links || [];
     const questionSets = row.question_sets_json || [];
     const drills = row.gap_drills_json || [];
     const research = row.research_checklist_json || [];
@@ -247,10 +250,18 @@ async function loadInterviewPreps() {
           </div>
         </div>
         ${renderPreparationAngles(preparationAngles)}
+        ${renderInterviewReferenceLinks(referenceLinks)}
         ${questionSets.map((group) => `
           <h3>${escapeHtml(group.category)}</h3>
           <ul class="compact-list">${(group.questions || []).slice(0, 4).map((q) => `
-            <li><span class="tag">${escapeHtml(q.question_id || "-")}</span><span class="tag">${escapeHtml(interviewAngleLabel(q.preparation_angle))}</span><span class="tag">${escapeHtml(interviewSourceLabel(q.source_perspective))}</span><span class="tag">${escapeHtml(q.risk_level || "low")}</span>${escapeHtml(q.question)}</li>
+            <li>
+              <span class="tag">${escapeHtml(q.question_id || "-")}</span>
+              <span class="tag">${escapeHtml(interviewAngleLabel(q.preparation_angle))}</span>
+              <span class="tag">${escapeHtml(interviewSourceLabel(q.source_perspective))}</span>
+              <span class="tag">${escapeHtml(q.risk_level || "low")}</span>
+              ${escapeHtml(q.question)}
+              ${(q.follow_ups || []).length ? `<div class="meta">追问：${escapeHtml((q.follow_ups || []).slice(0, 2).join(" / "))}</div>` : ""}
+            </li>
           `).join("")}</ul>
         `).join("")}
         ${drills.length ? `<h3>缺口 Drill</h3><ul class="compact-list">${drills.slice(0, 5).map((item) => `<li><span class="tag">${escapeHtml(item.skill)}</span>${escapeHtml(item.honest_strategy)}</li>`).join("")}</ul>` : ""}
@@ -275,6 +286,20 @@ function renderPreparationAngles(angles) {
         </li>
       `;
     }).join("")}</ul>
+  `;
+}
+
+function renderInterviewReferenceLinks(links) {
+  if (!links || !links.length) return "";
+  return `
+    <h3>面经参考链接</h3>
+    <ul class="compact-list">${links.slice(0, 8).map((item) => `
+      <li>
+        <span class="tag">${escapeHtml(item.site || item.kind || "参考")}</span>
+        ${item.url ? `<a href="${escapeHtml(item.url)}" target="_blank">${escapeHtml(item.title || item.url)}</a>` : escapeHtml(item.title || item.query || "")}
+        <div class="meta">${escapeHtml(item.note || item.query || "")}</div>
+      </li>
+    `).join("")}</ul>
   `;
 }
 

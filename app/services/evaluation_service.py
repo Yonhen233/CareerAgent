@@ -1930,11 +1930,13 @@ class EvaluationService:
                 raw_text=str(source_item.get("raw_text") or ""),
             )
             experience_ids.append(experience.id)
-        prep = self.interview_prep_service.create_interview_prep(
-            db,
-            profile=profile,
-            job=job,
-            experience_ids=experience_ids,
+        prep = asyncio.run(
+            self.interview_prep_service.create_interview_prep_with_llm(
+                db,
+                profile=profile,
+                job=job,
+                experience_ids=experience_ids,
+            )
         )
 
         categories = {group.get("category") for group in prep.question_sets_json or []}
@@ -1946,6 +1948,7 @@ class EvaluationService:
         source_perspective_summary = self.interview_delivery.source_perspective_summary(prep)
         core_perspective_counts = source_perspective_summary.get("core_perspectives") or {}
         preparation_angle_counts = source_perspective_summary.get("preparation_angle_counts") or {}
+        source_counts = source_perspective_summary.get("counts") or {}
         question_id_passed = (
             len(question_ids) == len(questions)
             and all(question_ids)
@@ -1963,11 +1966,18 @@ class EvaluationService:
                 "other_possible_interview_questions",
             )
         ) and len((prep.summary_json or {}).get("preparation_angles") or []) >= 3
+        llm_question_generation_passed = (
+            str(prep.generation_mode).startswith("llm_augmented")
+            and int(source_counts.get("llm_project_implementation") or 0) >= 3
+            and int(source_counts.get("llm_foundation_drill") or 0) >= 3
+        )
         markdown = self.interview_delivery.render_markdown(prep)
         markdown_export_passed = (
             prep.title in markdown
             and "## 问题来源分布" in markdown
             and "## 准备角度" in markdown
+            and "## 面经参考链接" in markdown
+            and "连续追问" in markdown
             and "## 外部调研清单" in markdown
             and "## 证据边界" in markdown
         )
@@ -2003,6 +2013,7 @@ class EvaluationService:
             and question_id_passed
             and source_perspective_passed
             and preparation_angle_passed
+            and llm_question_generation_passed
             and markdown_export_passed
             and len(questions) >= min_question_count
             and keyword_hit_rate >= float(case.get("min_keyword_hit_rate") or 0.6)
@@ -2022,6 +2033,7 @@ class EvaluationService:
             "question_id_passed": question_id_passed,
             "source_perspective_passed": source_perspective_passed,
             "preparation_angle_passed": preparation_angle_passed,
+            "llm_question_generation_passed": llm_question_generation_passed,
             "markdown_export_passed": markdown_export_passed,
             "source_perspective_summary": source_perspective_summary,
             "category_passed": category_passed,
@@ -2065,6 +2077,7 @@ class EvaluationService:
             "question_id_pass_rate": self._avg_bool(case_results, "question_id_passed"),
             "source_perspective_pass_rate": self._avg_bool(case_results, "source_perspective_passed"),
             "preparation_angle_pass_rate": self._avg_bool(case_results, "preparation_angle_passed"),
+            "llm_question_generation_pass_rate": self._avg_bool(case_results, "llm_question_generation_passed"),
             "markdown_export_pass_rate": self._avg_bool(case_results, "markdown_export_passed"),
             "avg_keyword_hit_rate": self._avg_number(case_results, "keyword_hit_rate"),
             "avg_required_skill_coverage_rate": self._avg_number(
@@ -2095,6 +2108,7 @@ class EvaluationService:
                 "source_backed_pass_rate": self._avg_bool(items, "source_backed_passed"),
                 "source_perspective_pass_rate": self._avg_bool(items, "source_perspective_passed"),
                 "preparation_angle_pass_rate": self._avg_bool(items, "preparation_angle_passed"),
+                "llm_question_generation_pass_rate": self._avg_bool(items, "llm_question_generation_passed"),
                 "markdown_export_pass_rate": self._avg_bool(items, "markdown_export_passed"),
             }
             for group, items in sorted(grouped.items())
@@ -2111,6 +2125,7 @@ class EvaluationService:
             "question_id_failed": lambda item: item.get("question_id_passed") is False,
             "source_perspective_failed": lambda item: item.get("source_perspective_passed") is False,
             "preparation_angle_failed": lambda item: item.get("preparation_angle_passed") is False,
+            "llm_question_generation_failed": lambda item: item.get("llm_question_generation_passed") is False,
             "markdown_export_failed": lambda item: item.get("markdown_export_passed") is False,
             "keyword_hit_low": lambda item: self._coerce_float(item.get("keyword_hit_rate")) < 0.6,
         }

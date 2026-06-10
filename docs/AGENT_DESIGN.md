@@ -143,20 +143,22 @@ RAG 证据不再只按向量分和关键词分排序，`MatcherService.retrieve_
 
 `prepare_interview_for_job` 补齐投递后的面试准备阶段。它读取结构化 JD、`match_result`、Top evidence 和缺口技能，生成：
 
-- 同岗位面经与高频追问：优先引用已导入的牛客网、OfferShow、小红书等同岗面经文本，生成 source-backed 追问；没有导入材料时给出可执行调研 query，并把可能高频问题映射到 JD 核心技能。
+- 同岗位面经与高频追问：优先引用已导入的牛客网、OfferShow、小红书等同岗面经文本；如果平台正文难以稳定获取，只在面试包附上参考标题、链接和搜索入口，不把抓正文作为核心依赖。
 - 简历项目技术栈追问：从 Profile skills、项目 `tech_stack` 和 RAG 证据出发，追问架构位置、技术取舍、替代方案和指标。
+- LLM 项目实现追问：真实 API 和 Agent 工作流会调用 LLM，基于 JD、项目、RAG 证据生成输入/处理/输出、日志指标、失败边界、本人贡献等连续追问。
+- LLM 八股与基础追问：基于 JD 必备技能生成常见八股、底层原理、工程取舍和最小 demo 追问；缺口技能必须变成诚实披露和补齐计划。
 - 缺口 drill：对 `missing_skills` 生成诚实披露话术和最小补齐任务。
 - 通用面试与行为问题：覆盖动机、失败复盘、模糊需求拆解和协作推进。
 
 每道题都有稳定 `question_id`、可追溯的 `source_perspective` 和用于产品验收的 `preparation_angle`。两层标签的职责不同：`source_perspective` 说明题目来自已导入面经、调研线索、项目证据、JD 深挖还是缺口 drill；`preparation_angle` 把这些来源归并成真实准备时更容易理解的三个角度：
 
 - `same_role_interview_experience`：网上同岗位面经，包括用户导入的真实面经和牛客网、OfferShow、小红书等调研线索。
-- `resume_project_tech_stack`：简历项目涉及的技术栈与交付证据。
-- `other_possible_interview_questions`：其他可能面试问题，包括通用行为题、JD 技术追问和缺口追问。
+- `resume_project_tech_stack`：简历项目涉及的技术栈与交付证据，包括 `llm_project_implementation` 生成的项目实现追问。
+- `other_possible_interview_questions`：其他可能面试问题，包括通用行为题、JD 技术追问、缺口追问和 `llm_foundation_drill` 生成的八股/基础追问。
 
-`summary_json.preparation_angles` 会记录每个角度的输入来源、题目数和准备重点；`coverage_json.preparation_angle_counts` 和 `preparation_angles_passed` 用来量化三视角覆盖。`InterviewPrepDeliveryService` 负责把准备包渲染成 Markdown，并记录 `todo`、`practicing`、`ready`、`deferred` 等按题练习状态。评测会检查题号唯一性、来源视角覆盖、准备角度覆盖和 Markdown 导出，而不只检查最终生成了一段文本。
+`summary_json.preparation_angles` 会记录每个角度的输入来源、题目数和准备重点；`summary_json.interview_reference_links` 只保存面经标题、链接、搜索入口和边界说明；`coverage_json.preparation_angle_counts` 和 `preparation_angles_passed` 用来量化三视角覆盖。`InterviewPrepDeliveryService` 负责把准备包渲染成 Markdown，并记录 `todo`、`practicing`、`ready`、`deferred` 等按题练习状态。评测会检查题号唯一性、来源视角覆盖、准备角度覆盖、LLM 追问组和 Markdown 导出，而不只检查最终生成了一段文本。
 
-当前不把牛客网、OfferShow、小红书公开搜索结果直接写入面试包，原因是这些平台公开可达性、登录态、反爬、客户端渲染和内容真实性都不稳定。系统支持用户导入真实面经文本/链接，`InterviewExperienceService` 只从原文抽取问题、轮次、技术主题和可信度信号，不会在文本缺失时编造具体帖子。`interview-source-smoke` 已作为独立 source 层能力接入，用来记录三类平台的可达性、空结果、面经信号、query relevance 和内容可抽取性；`/ui/evaluations` 只会把候选标题、URL 和摘要预填到人工确认表单，用户补全正文并确认后才写入 `InterviewExperience`。核心面试包生成链路仍保持可重复、可评测。否定证据优先级高于正向动作词，例如“没有 Kubernetes 集群维护经验”不能因为包含“维护”就被当成 Kubernetes 支持证据。
+当前不把牛客网、OfferShow、小红书公开搜索结果直接写入面试包，原因是这些平台公开可达性、登录态、反爬、客户端渲染和内容真实性都不稳定。系统支持用户导入真实面经文本/链接，`InterviewExperienceService` 只从原文抽取问题、轮次、技术主题和可信度信号，不会在文本缺失时编造具体帖子；如果无法拿到正文，就只把标题和链接作为参考入口附在面试包里。`interview-source-smoke` 只保留 source 层健康探针职责，不再承担核心面试内容生成。核心面试包生成链路转向 JD + 简历项目 + RAG 证据 + LLM 追问链。否定证据优先级高于正向动作词，例如“没有 Kubernetes 集群维护经验”不能因为包含“维护”就被当成 Kubernetes 支持证据。
 
 ## 当前 Tool
 

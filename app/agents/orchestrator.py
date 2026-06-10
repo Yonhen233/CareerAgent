@@ -250,8 +250,8 @@ class AgentOrchestrator:
             step_name="generate_interview_prep",
             tool_name="InterviewPrepService",
             input_json={"profile_id": profile.id, "job_id": job.id, "match_result_id": match.id},
-            handler=lambda: self._async_value(
-                self.interview_prep.create_interview_prep(db, profile=profile, job=job, match_result=match)
+            handler=lambda: self.interview_prep.create_interview_prep_with_llm(
+                db, profile=profile, job=job, match_result=match
             ),
         )
         payload = self._interview_prep_payload(prep)

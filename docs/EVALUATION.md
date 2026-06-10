@@ -465,13 +465,14 @@ POST /evaluations/interview-prep
 
 - 使用 `evals/interview_prep_cases.json`，覆盖 9 个中文为主 case，少量英文岗位作为辅助；其中 1 个 case 带已导入牛客网面经文本。
 - 覆盖 Agent 开发、前端、数据开发、推荐算法、AI 产品、ML 平台、弱匹配 Agent 候选人和英文 LLM Application 岗位。
-- 检查题组是否包含同岗位面经与高频追问、简历项目技术栈追问、通用面试与行为问题。
+- 检查题组是否包含同岗位面经与高频追问、简历项目技术栈追问、LLM 项目实现追问、LLM 八股与基础追问、通用面试与行为问题。
 - 检查 `research_checklist_json` 是否生成牛客网、OfferShow、小红书等同岗位面经调研 query。
 - 检查已导入面经是否进入 `source_evidence_json`，并生成 `source_backed_interview_experience` 问题。
 - 检查缺口技能是否进入 `gap_drills_json`，避免把 `没有 MLflow`、`没有 Kubernetes 集群维护经验` 这类缺口披露误写成已掌握。
 - 检查每道题是否有唯一 `question_id`，并且 `source_perspective` 覆盖同岗位面经/面经调研、简历项目技术栈和其他可能面试问题。
 - 检查每道题是否带有 `preparation_angle`，且 `summary_json.preparation_angles` 和 `coverage_json.preparation_angle_counts` 显式覆盖网上同岗位面经、简历项目技术栈、其他可能面试问题三类准备角度。
-- 检查 Markdown 交付包是否可渲染，且包含问题来源分布、准备角度、外部调研清单和证据边界。
+- 检查 `summary_json.interview_reference_links` 和 Markdown 是否包含面经参考标题/链接或搜索入口；外部平台正文难以获取时，不把抓正文作为核心通过条件。
+- 检查 Markdown 交付包是否可渲染，且包含问题来源分布、准备角度、面经参考链接、连续追问、外部调研清单和证据边界。
 
 核心指标：
 
@@ -484,7 +485,8 @@ POST /evaluations/interview-prep
 | `question_id_pass_rate` | 每道题是否有稳定且唯一的题目 ID。 |
 | `source_perspective_pass_rate` | 是否同时覆盖同岗位面经、简历项目技术栈和其他可能面试问题。 |
 | `preparation_angle_pass_rate` | 是否显式覆盖网上同岗位面经、简历项目技术栈、其他可能面试问题三类准备角度。 |
-| `markdown_export_pass_rate` | Markdown 交付包是否包含来源分布、准备角度、调研清单和证据边界。 |
+| `llm_question_generation_pass_rate` | 是否生成 LLM 项目实现追问和 LLM 八股/基础追问，并且每类至少有可用问题。 |
+| `markdown_export_pass_rate` | Markdown 交付包是否包含来源分布、准备角度、面经参考链接、连续追问、调研清单和证据边界。 |
 | `avg_source_backed_question_count` | 每个面试包平均来源支撑问题数。 |
 | `avg_question_count` | 每个面试包平均题目数。 |
 | `avg_required_skill_coverage_rate` | JD 必备技能是否被题目或缺口 drill 覆盖。 |
@@ -503,8 +505,9 @@ POST /evaluations/interview-prep
 | question_id_pass_rate | 1.0000 |
 | source_perspective_pass_rate | 1.0000 |
 | preparation_angle_pass_rate | 1.0000 |
+| llm_question_generation_pass_rate | 1.0000 |
 | markdown_export_pass_rate | 1.0000 |
-| avg_question_count | 25.4444 |
+| avg_question_count | 35.7778 |
 | avg_research_item_count | 4.0000 |
 | avg_source_backed_experience_count | 0.1111 |
 | avg_source_backed_question_count | 0.3333 |

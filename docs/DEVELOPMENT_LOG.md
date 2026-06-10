@@ -1,5 +1,39 @@
 # 开发日志
 
+## 2026-06-10 09:40 +08:00：面试包重心转向 JD + 简历项目的 LLM 追问链
+
+### 这次做了什么
+- `/interview-prep` API 和 Agent 工作流 `prepare_interview_for_job` 改为调用 `create_interview_prep_with_llm`，真实入口会基于 JD、简历项目、RAG 证据和缺口技能生成 LLM 面试问题。
+- `InterviewPrepService` 新增 LLM 问题生成：`LLM 项目实现追问` 覆盖架构、输入输出、日志指标、失败边界、本人贡献；`LLM 八股与基础追问` 覆盖 JD 必备技能的基础原理、工程取舍和缺口诚实披露。
+- 每道 LLM 生成题新增 `follow_ups` 连续追问，Markdown 和 `/ui/interview-prep` 页面都会展示追问链。
+- 面经 source 收敛为参考入口：`summary_json.interview_reference_links` 只保存已导入面经或搜索入口的标题、链接、query 和边界说明；面试包不再把抓取平台正文作为核心依赖。
+- `interview_prep` 评测切到 LLM 增强路径，并新增 `llm_question_generation_pass_rate`，要求项目实现追问和八股/基础追问都至少生成可用问题。
+- README、Agent 设计文档和评测文档已更新中文说明。
+
+### 发现的问题
+- 继续围绕牛客网、OfferShow、小红书抓正文会让系统复杂度跑偏：登录态、反爬、客户端渲染、正文授权和内容真实性都不是求职 Agent 的核心价值。
+- 旧版面试包的“同岗位面经”容易被理解成要自动抓取具体帖子正文；当抓取失败时，用户真正需要的是可参考链接和标题，而不是在 source 层继续投入复杂对抗。
+- 面试准备的高价值部分应当是：结合 JD 和简历项目，生成面试官可能追问的项目实现细节、八股基础、工程取舍和缺口披露。
+- 当前环境没有 `.env`，也没有 `LLM_API_KEY`/`OPENAI_API_KEY` 环境变量；为了不把密钥写进命令文本或日志，本轮没有执行在线 LLM smoke。
+
+### 怎么修复
+- 把面经平台能力降级为 source smoke + 参考链接，不再让核心面试包依赖外部正文抓取。
+- LLM prompt 只接收结构化 JD、简历项目、RAG evidence、matched/missing skills，并要求输出严格 JSON；缺口技能必须生成诚实披露问题，不能假设候选人已掌握。
+- 测试环境继续使用 deterministic fallback 生成同结构的 LLM 追问，保证离线评测稳定；真实环境没有 LLM 配置时会直接报错并记录配置问题。
+- 全量回归通过：`63 passed`；`node --check app/static/js/main.js` 通过；`git diff --check` 无空白错误。
+- 面试包评测刷新：`case_count=9`、`pass_rate=1.0000`、`llm_question_generation_pass_rate=1.0000`、`markdown_export_pass_rate=1.0000`、`avg_question_count=35.7778`。
+- 页面 smoke 通过：`GET /ui/interview-prep` 返回 `200`，静态 JS 包含 `renderInterviewReferenceLinks` 和 `LLM 八股追问`；应用内浏览器加载页面后主 JS 存在，控制台无 error。
+
+### 未修复的问题
+- 未跑在线 LLM smoke；原因是当前环境没有安全注入的 LLM key，不能把用户密钥直接写入命令文本或日志。填好 `.env` 后可直接用 `/interview-prep` 或 Agent 工作流触发真实调用，并在 `llm_call_logs` 查看 trace。
+- 还没有对 LLM 生成题做二次质量 judge；原因是本轮先把问题生成重心迁移到 JD + 项目，并用结构化评测保证追问组存在。
+- 还没有按准备角度统计练习进度；原因是本轮优先处理生成逻辑和产品边界，练习闭环可以在现有 `practice_items` 上继续扩展。
+
+### 下一步
+- 增加 LLM 面试题质量 judge，检查问题是否贴合 JD、是否引用简历项目、是否包含有效追问、是否对缺口保持诚实边界。
+- 给 `/ui/interview-prep` 增加按准备角度聚合的练习进度和薄弱题复习队列。
+- 在 `.env` 安全配置 LLM key 后，跑真实中文 Agent 实习岗位 case，检查 `llm_call_logs`、Agent step trace 和最终 Markdown 质量。
+
 ## 2026-06-09 23:04 +08:00：面试包三类准备角度结构化
 
 ### 这次做了什么

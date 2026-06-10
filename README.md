@@ -1,6 +1,6 @@
 # CareerAgent
 
-CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Agent。它不是单次 Prompt 演示，而是一个工程化工作流：从 PDF 简历或问答式信息采集开始，解析候选人画像，搜索真实招聘站岗位，存储并检索职位 JD，做岗位匹配评分，基于 RAG 证据定制简历，记录 LLM 调用与 Agent Trace，生成可人工确认的投递包，并根据已导入同岗面经证据、面经调研线索、简历项目技术栈和 JD 缺口整理面试准备包。
+CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Agent。它不是单次 Prompt 演示，而是一个工程化工作流：从 PDF 简历或问答式信息采集开始，解析候选人画像，搜索真实招聘站岗位，存储并检索职位 JD，做岗位匹配评分，基于 RAG 证据定制简历，记录 LLM 调用与 Agent Trace，生成可人工确认的投递包，并根据 JD、简历项目、RAG 证据、缺口技能和面经参考链接整理面试准备包。
 
 默认演示场景是中文求职场景下的“Agent 开发实习生”，英文岗位只作为少量辅助测试；数据模型和服务层可以扩展到其他技术岗位。
 
@@ -32,11 +32,12 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
 - 面经来源：
   - 用户可以导入牛客网、OfferShow、小红书等同岗面经正文，系统只从原文抽取问题、轮次、主题和可信度。
   - `interview-source-smoke` 独立探测牛客网、OfferShow、小红书公开搜索页的可达性、空结果、面经信号、query relevance 和内容可抽取性，不绕过登录或反爬，也不影响核心面试包回归。
+  - 面经正文难以稳定获取时，面试包只附上参考链接、标题和搜索入口；核心问题生成转向 JD、简历项目和 RAG 证据。
 - Agent 工作流：
   - `find_jobs_for_profile`：搜索岗位、解析 JD、入库、匹配、排序。
   - `tailor_resume_for_job`：匹配岗位、检索简历证据、定制简历、校验幻觉风险。
   - `quick_apply`：生成投递包、求职信、外联文案、投递清单和状态记录，并校验投递包是否编造事实或越过人工确认边界。
-  - `prepare_interview_for_job`：基于 JD、匹配结果、RAG 证据和已导入同岗面经生成面试准备包，显式按“网上同岗位面经、简历项目技术栈、其他可能面试问题”三类准备角度组织问题，并覆盖 source-backed 面经追问、面经调研线索、技术栈追问、缺口 drill 和通用行为问题。
+  - `prepare_interview_for_job`：基于 JD、匹配结果、RAG 证据和已导入同岗面经生成面试准备包，显式按“网上同岗位面经、简历项目技术栈、其他可能面试问题”三类准备角度组织问题。真实入口会调用 LLM 生成项目实现追问和八股/基础追问链，面经只作为参考链接和标题，不再把抓正文作为核心依赖。
   - `quick_apply` 前置 `fit_gate`：低匹配岗位直接阻断，并把缺口写入 Agent step trace。
   - 每次 run 先生成 Plan-Execute 执行计划，并写入 Trace artifact。
   - 显式注册 Tool、Skill 和 SubAgent，计划产物会展示当前任务使用的能力边界。
@@ -55,7 +56,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - JD parser 评测用 30 个中英混合、带 preferred/negative/synonym 噪声的 JD case 衡量结构化质量。
   - Job relevance 评测用 13 个中文为主 query、130 个带 0-4 级人工相关性标注的候选岗位衡量 source 排序质量。
   - Application packet 评测用 20 个中文投递包 case 衡量求职信/外联文案的事实校验、人工确认边界和误拦截率。
-  - Interview prep 评测用 9 个中文为主 case 衡量面经源调研线索、已导入面经证据、项目技术栈追问、缺口 drill、通用问题、题目 ID、来源分布、三类准备角度和 Markdown 交付质量。
+  - Interview prep 评测用 9 个中文为主 case 衡量面经源调研线索、已导入面经证据、项目技术栈追问、LLM 项目实现追问、LLM 八股/基础追问、缺口 drill、通用问题、题目 ID、来源分布、三类准备角度和 Markdown 交付质量。
   - Interview source smoke 单独衡量牛客网、OfferShow、小红书等外部面经来源健康度，核心面试包仍使用可控样例和用户导入文本保证可重复。
   - 真实岗位源 smoke 独立评估 source 层健康度，核心 full-flow 仍使用可控岗位源保证可重复。
   - 真实 JD ingest smoke 独立评估 parser/RAG 入库链路，并检查 query/title/JD 中的核心技能是否进入 structured JD，避免和 source 可达性混淆。
@@ -121,7 +122,7 @@ LLM_MODEL=DeepSeek-V4-Pro
 - `/ui/agent-runs`：运行 Agent 并查看步骤。
 - `/ui/resumes`：查看和下载定制简历版本。
 - `/ui/applications`：查看投递包、投递状态、Guardrail issues/warnings 和人工确认边界。
-- `/ui/interview-prep`：导入同岗面经材料，生成和查看面试准备包，展示网上同岗面经、简历项目技术栈和其他可能面试问题三类准备角度，导出 Markdown，并记录按题练习状态。
+- `/ui/interview-prep`：导入同岗面经材料，生成和查看面试准备包，展示网上同岗面经、简历项目技术栈和其他可能面试问题三类准备角度，展示 LLM 连续追问和面经参考链接，导出 Markdown，并记录按题练习状态。
 - `/ui/evaluations`：运行面经来源 smoke，查看最近评测结果和 source 层健康度，并把候选面经人工确认后导入；导入成功后可带着 `experience_ids` 快速生成面试包。
 
 ## 常用 API
