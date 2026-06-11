@@ -226,6 +226,7 @@ async function loadInterviewPreps() {
     const coreSources = coverage.core_perspective_counts || {};
     const preparationAngles = summary.preparation_angles || preparationAnglesFromCoverage(coverage);
     const referenceLinks = summary.interview_reference_links || [];
+    const questionQuality = summary.question_quality || questionQualityFromCoverage(coverage);
     const questionSets = row.question_sets_json || [];
     const drills = row.gap_drills_json || [];
     const research = row.research_checklist_json || [];
@@ -247,8 +248,10 @@ async function loadInterviewPreps() {
             <div><strong>项目技术栈</strong><div class="meta">${coreSources.resume_project_stack || 0}</div></div>
             <div><strong>其他问题</strong><div class="meta">${coreSources.other_interview_questions || 0}</div></div>
             <div><strong>三视角覆盖</strong><div class="meta">${coverage.preparation_angles_passed ? "通过" : "待补"}</div></div>
+            <div><strong>题目质量</strong><div class="meta">${formatPercent(questionQuality.score)}</div></div>
           </div>
         </div>
+        ${renderQuestionQuality(questionQuality)}
         ${renderPreparationAngles(preparationAngles)}
         ${renderInterviewReferenceLinks(referenceLinks)}
         ${questionSets.map((group) => `
@@ -289,6 +292,36 @@ function renderPreparationAngles(angles) {
   `;
 }
 
+function renderQuestionQuality(quality) {
+  if (!quality || Object.keys(quality).length === 0) return "";
+  const rates = quality.rates || {};
+  const issueCounts = quality.issue_counts || {};
+  const issues = quality.sample_issues || [];
+  const metricRows = [
+    ["JD 贴合", rates.jd_alignment],
+    ["连续追问", rates.follow_up_depth],
+    ["缺口边界", rates.gap_boundary],
+    ["项目绑定", rates.project_binding],
+    ["证据追溯", rates.evidence_traceability],
+    ["行动性", rates.actionability],
+    ["重复率", rates.duplicate_rate],
+  ];
+  return `
+    <h3>题目质量</h3>
+    <div class="validation-panel ${quality.passed ? "validation-ok" : "validation-risk"}">
+      <div class="validation-head">
+        <span class="status-pill ${quality.passed ? "ok" : ""}">${quality.passed ? "通过" : "待检查"}</span>
+        <span class="meta">质量分 ${formatPercent(quality.score)}</span>
+      </div>
+      <div class="validation-grid">
+        ${metricRows.map(([label, value]) => `<div><strong>${escapeHtml(label)}</strong><div class="meta">${formatPercent(value)}</div></div>`).join("")}
+      </div>
+      ${Object.keys(issueCounts).length ? `<div class="meta">失败项：${escapeHtml(Object.entries(issueCounts).map(([key, value]) => `${key}=${value}`).join("，"))}</div>` : ""}
+      ${issues.length ? `<ul class="compact-list">${issues.slice(0, 6).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
+    </div>
+  `;
+}
+
 function renderInterviewReferenceLinks(links) {
   if (!links || !links.length) return "";
   return `
@@ -311,6 +344,22 @@ function preparationAnglesFromCoverage(coverage) {
     label: labels[angle] || interviewAngleLabel(angle),
     question_count: counts[angle] || 0,
   }));
+}
+
+function questionQualityFromCoverage(coverage) {
+  if (!coverage || coverage.question_quality_score === undefined) return {};
+  return {
+    passed: coverage.question_quality_passed,
+    score: coverage.question_quality_score,
+    rates: coverage.question_quality_rates || {},
+    mode: "coverage",
+  };
+}
+
+function formatPercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "-";
+  return `${Math.round(number * 100)}%`;
 }
 
 async function loadInterviewExperiences() {

@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from app.main import app
@@ -29,3 +31,12 @@ def test_evaluations_page_exposes_interview_source_smoke_controls():
     assert "interview-source-import-form" in response.text
     assert "interview-source-import-result" in response.text
     assert "evaluation-runs-list" in response.text
+
+
+def test_interview_prep_frontend_exposes_question_quality_panel():
+    main_js = Path("app/static/js/main.js").read_text(encoding="utf-8")
+
+    assert "renderQuestionQuality" in main_js
+    assert "题目质量" in main_js
+    assert "缺口边界" in main_js
+    assert "失败项" in main_js

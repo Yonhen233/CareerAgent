@@ -1,5 +1,34 @@
 # 开发日志
 
+## 2026-06-11 12:43 +08:00：面试准备页展示题目质量门禁
+
+### 这次做了什么
+- `/ui/interview-prep` 面试包卡片新增“题目质量”指标，直接显示 `summary_json.question_quality.score`。
+- 新增 `renderQuestionQuality` 前端渲染：展示质量门禁通过/待检查、JD 贴合、连续追问、缺口边界、项目绑定、证据追溯、行动性、重复率、失败项和样例问题。
+- 支持从 `summary_json.question_quality` 读取完整质量信息；老数据只有 `coverage_json.question_quality_score/rates` 时，会降级显示 coverage 中的质量摘要。
+- README 已更新 `/ui/interview-prep` 能展示题目质量分、失败项和面经参考链接。
+- 新增前端测试，固定 `renderQuestionQuality`、`题目质量`、`缺口边界`、`失败项` 这些关键 UI 能力入口。
+
+### 发现的问题
+- 上一轮质量 judge 已经落库并进入评测，但用户在面试准备页看不到质量分和失败项，只能去评测结果或数据库里查，不符合真实产品使用路径。
+- PowerShell 直接 `Get-Content` 会把 UTF-8 中文显示成 mojibake；本轮确认文件本身仍是 UTF-8，读取和修改时继续按 UTF-8 处理，避免把控制台显示问题误当作源码损坏。
+- 应用内浏览器插件目录缺少 `scripts/browser-client.mjs`，无法完成 Browser 自动化 smoke；这属于本地插件安装边界，不是页面运行错误。
+
+### 怎么修复
+- 在面试包列表卡片的顶部指标区加入题目质量分，并在准备角度和题组前展示完整质量面板。
+- 质量面板复用现有 `validation-panel`、`validation-grid`、`status-pill` 样式，不新增前端框架或图表库；原因是这只是已有质量指标的产品可见性，不值得引入新的技术栈。
+- 增加 `questionQualityFromCoverage` 和 `formatPercent`，保证新旧数据都能稳定显示。
+- 使用本地 HTTP smoke 验证 `/ui/interview-prep` 返回 `200`，页面包含 `interview-prep-form`、`面试准备包` 和 `main.js`；同时用 `node --check app/static/js/main.js` 验证前端语法。
+
+### 未修复的问题
+- 本轮还没有把质量失败项做成可点击过滤题目；原因是当前目标先让质量门禁可见，后续再做“点击失败项定位问题题目”的交互增强。
+- 还没有在 Markdown 导出里加入质量分；原因是 Markdown 现在面向面试练习交付，质量分更适合在生成/调试页面上展示。
+- 未完成应用内浏览器自动化 smoke；原因是本地 Browser 插件缺少 `browser-client.mjs`，已用 HTTP smoke、JS 语法检查和前端测试替代验证。
+
+### 下一步
+- 给质量失败项增加题目定位和筛选，让用户能快速找到需要修改或补证据的问题。
+- 在真实 embedding + reranker 用户流中观察质量面板是否能帮助定位 RAG 证据不足。
+
 ## 2026-06-11 12:33 +08:00：面试题质量 Judge 与连续追问质量门禁
 
 ### 这次做了什么
