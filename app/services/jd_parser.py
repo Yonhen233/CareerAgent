@@ -3,6 +3,7 @@ import re
 from app.core.config import get_settings
 from app.core.llm import LLMClient
 from app.core.llm import LLMConfigurationError
+from app.core.llm import extract_json_object
 from app.core.llm import format_exception
 from app.models.schemas import JDStructured
 from app.services.resume_parser import KNOWN_SKILLS
@@ -108,12 +109,14 @@ JD:
         db=None,
     ) -> dict:
         last_exc: Exception | None = None
-        for attempt in range(2):
+        max_attempts = 3
+        for attempt in range(max_attempts):
             trace_name = "jd_parser.parse_jd" if attempt == 0 else f"jd_parser.parse_jd.retry_{attempt}"
             try:
-                return await self.llm.generate_json(
+                text = await self.llm.generate_text(
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
+                    temperature=0.1,
                     max_tokens=max_tokens,
                     db=db,
                     trace_name=trace_name,
@@ -121,11 +124,70 @@ JD:
             except Exception as exc:  # noqa: BLE001
                 last_exc = exc
                 message = format_exception(exc)
-                if attempt >= 1 or not self._is_transient_llm_error(message):
+                if attempt >= max_attempts - 1 or not self._is_transient_llm_error(message):
                     raise
+                continue
+
+            try:
+                return extract_json_object(text)
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                message = format_exception(exc)
+                if not self._is_repairable_json_error(message, text):
+                    raise
+                return await self._repair_jd_json(
+                    user_prompt=user_prompt,
+                    raw_text=text,
+                    parse_error=message,
+                    max_tokens=max_tokens,
+                    db=db,
+                )
         if last_exc is not None:
             raise last_exc
         raise RuntimeError("JD parser LLM call did not return JSON.")
+
+    async def _repair_jd_json(
+        self,
+        *,
+        user_prompt: str,
+        raw_text: str,
+        parse_error: str,
+        max_tokens: int,
+        db=None,
+    ) -> dict:
+        repair_system = (
+            "You repair a JD parsing response. Return one complete strict JSON object only. "
+            "No Markdown, no explanation, no trailing text."
+        )
+        repair_prompt = (
+            "The previous JD parsing response was invalid or truncated. Re-parse the original JD "
+            "using the requested schema and return a complete JSON object with all required keys.\n\n"
+            f"Parse error:\n{parse_error}\n\n"
+            f"Invalid response preview:\n{raw_text[:2000]}\n\n"
+            f"Original parsing request:\n{user_prompt}"
+        )
+        repaired_text = await self.llm.generate_text(
+            system_prompt=repair_system,
+            user_prompt=repair_prompt,
+            temperature=0,
+            max_tokens=max(max_tokens, 1600),
+            db=db,
+            trace_name="jd_parser.parse_jd.repair_json",
+        )
+        return extract_json_object(repaired_text)
+
+    def _is_repairable_json_error(self, message: str, text: str) -> bool:
+        if not text.strip():
+            return False
+        repairable_terms = [
+            "json",
+            "did not contain a json object",
+            "unterminated string",
+            "expecting",
+            "extra data",
+        ]
+        lowered = message.lower()
+        return any(term in lowered for term in repairable_terms)
 
     def _is_transient_llm_error(self, message: str) -> bool:
         transient_terms = [

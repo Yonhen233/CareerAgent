@@ -35,8 +35,13 @@ def test_evaluations_page_exposes_interview_source_smoke_controls():
 
 def test_interview_prep_frontend_exposes_question_quality_panel():
     main_js = Path("app/static/js/main.js").read_text(encoding="utf-8")
+    style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")
 
     assert "renderQuestionQuality" in main_js
     assert "题目质量" in main_js
     assert "缺口边界" in main_js
     assert "失败项" in main_js
+    assert "data-quality-jump" in main_js
+    assert "focusInterviewQuestion" in main_js
+    assert "data-question-id" in main_js
+    assert "question-highlight" in style_css

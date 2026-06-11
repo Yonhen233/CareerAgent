@@ -709,6 +709,7 @@ POST /evaluations/llm-workflow
 - 对标记为 `run_tailor=true` 的案例真实调用简历定制流程。
 - 使用 Guardrail 验证是否引入未支持数字、过多新 claim、禁止 claim。
 - 不做静默 fallback；失败 case 记录 `failed_stage` 和异常类型，LLM 调用日志记录 prompt/response/error trace。
+- JD parser 在真实 LLM 评测中会把空返回/超时记录为 `jd_parser.parse_jd.retry_1`、`jd_parser.parse_jd.retry_2`；截断或非法 JSON 会记录 `jd_parser.parse_jd.repair_json`，便于区分模型波动、输出格式损坏和业务解析失败。
 - `EvaluationRun` 会在评测开始时创建，之后每完成一个 case 就更新 `summary_json` 和 `case_results_json`。
 - 每个 case 带 `stage_trace`，记录 resume parse、JD parse、match/RAG、fit judge、tailor 的中间摘要。
 - 开发脚本可传 `trace_path` 写 JSONL，即使长跑被中断，也能看到已经完成 case 的中间结果。

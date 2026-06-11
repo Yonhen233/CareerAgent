@@ -257,7 +257,7 @@ async function loadInterviewPreps() {
         ${questionSets.map((group) => `
           <h3>${escapeHtml(group.category)}</h3>
           <ul class="compact-list">${(group.questions || []).slice(0, 4).map((q) => `
-            <li>
+            <li data-question-id="${escapeHtml(q.question_id || "")}">
               <span class="tag">${escapeHtml(q.question_id || "-")}</span>
               <span class="tag">${escapeHtml(interviewAngleLabel(q.preparation_angle))}</span>
               <span class="tag">${escapeHtml(interviewSourceLabel(q.source_perspective))}</span>
@@ -317,8 +317,20 @@ function renderQuestionQuality(quality) {
         ${metricRows.map(([label, value]) => `<div><strong>${escapeHtml(label)}</strong><div class="meta">${formatPercent(value)}</div></div>`).join("")}
       </div>
       ${Object.keys(issueCounts).length ? `<div class="meta">失败项：${escapeHtml(Object.entries(issueCounts).map(([key, value]) => `${key}=${value}`).join("，"))}</div>` : ""}
-      ${issues.length ? `<ul class="compact-list">${issues.slice(0, 6).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}
+      ${issues.length ? `<ul class="compact-list">${issues.slice(0, 6).map(renderQualityIssue).join("")}</ul>` : ""}
     </div>
+  `;
+}
+
+function renderQualityIssue(issue) {
+  const text = String(issue || "");
+  const match = text.match(/^(q\d{2}_\d{2}|[A-Za-z0-9_-]+):\s*(.*)$/);
+  if (!match) return `<li>${escapeHtml(text)}</li>`;
+  return `
+    <li>
+      <button type="button" class="inline-action" data-quality-jump="${escapeHtml(match[1])}">${escapeHtml(match[1])}</button>
+      ${escapeHtml(match[2] || "")}
+    </li>
   `;
 }
 
@@ -360,6 +372,21 @@ function formatPercent(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "-";
   return `${Math.round(number * 100)}%`;
+}
+
+function focusInterviewQuestion(button) {
+  const questionId = button.dataset.qualityJump;
+  if (!questionId) return;
+  const container = button.closest(".item");
+  const target = Array.from(container?.querySelectorAll("[data-question-id]") || [])
+    .find((node) => node.dataset.questionId === questionId);
+  if (!target) {
+    toast(`当前预览未显示 ${questionId}，请打开 Markdown 查看完整题目`);
+    return;
+  }
+  container.querySelectorAll(".question-highlight").forEach((node) => node.classList.remove("question-highlight"));
+  target.classList.add("question-highlight");
+  target.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 async function loadInterviewExperiences() {
@@ -783,8 +810,10 @@ function bindForms() {
 
   document.addEventListener("click", (event) => {
     if (!(event.target instanceof Element)) return;
-    const button = event.target.closest("[data-import-interview-candidate]");
-    if (button) prefillInterviewSourceImport(button);
+    const importButton = event.target.closest("[data-import-interview-candidate]");
+    if (importButton) prefillInterviewSourceImport(importButton);
+    const qualityButton = event.target.closest("[data-quality-jump]");
+    if (qualityButton) focusInterviewQuestion(qualityButton);
   });
 }
 

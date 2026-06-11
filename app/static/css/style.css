@@ -293,6 +293,33 @@ button svg,
   font-size: 12px;
 }
 
+.inline-action {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  margin-right: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--blue);
+  background: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 720;
+  cursor: pointer;
+}
+
+.inline-action:hover {
+  border-color: #9bb9e8;
+  background: #f5f8ff;
+}
+
+.question-highlight {
+  outline: 2px solid #4f7dcf;
+  outline-offset: 3px;
+  background: #f5f8ff;
+}
+
 .validation-panel {
   display: grid;
   gap: 10px;

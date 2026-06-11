@@ -348,6 +348,8 @@ GET /llm/debug/logs?limit=50
 - 延迟。
 - 错误信息。
 
+JD parser 的真实 LLM 链路会显式记录 `jd_parser.parse_jd`、`jd_parser.parse_jd.retry_1`、`jd_parser.parse_jd.retry_2` 和 `jd_parser.parse_jd.repair_json` 等 trace 名称。空返回/超时只做有限业务层重试；截断或非法 JSON 会触发一次 repair/reparse，仍失败时直接向上报错，不静默兜底。
+
 接口不会返回 API key。
 
 ## 量化评测

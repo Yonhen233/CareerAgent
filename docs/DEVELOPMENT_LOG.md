@@ -1,5 +1,66 @@
 # 开发日志
 
+## 2026-06-11 13:22 +08:00：真实 LLM 用户流复测与 JD parser repair
+
+### 这次做了什么
+- 从用户视角用 FastAPI API 入口 `POST /evaluations/llm-workflow?case_limit=3` 跑真实 LLM 链路，覆盖 strong、partial、weak 三类岗位适配 case。
+- 为 `JDParserService` 改造真实 LLM 调用：先保留原始文本再解析 JSON，方便在截断/非法 JSON 时触发 repair，而不是丢失坏输出。
+- JD parser 对空返回、超时、连接中断等瞬态错误增加到最多 3 次业务层调用，trace 名称为 `jd_parser.parse_jd`、`jd_parser.parse_jd.retry_1`、`jd_parser.parse_jd.retry_2`。
+- JD parser 新增 `jd_parser.parse_jd.repair_json`：当模型返回截断或非法 JSON 时，带着原始 JD、坏输出预览和解析错误要求模型重新生成完整 strict JSON。
+- 增加回归测试：空返回后 retry、截断 JSON repair、连续两次空返回后第三次成功。
+- README、API 文档和评测文档补充 JD parser retry/repair trace 说明。
+
+### 发现的问题
+- 第一次临时数据库 API 测试没有进入 FastAPI lifespan，导致 `evaluation_runs` 表不存在；原因是测试脚本没有用 `TestClient` 上下文管理器。
+- 初始真实测试误把 `RERANKER_PROVIDER=keyword` 作为配置传入，但当前项目只支持 `heuristic/lexical` 和 `cross_encoder`，导致 `match_and_retrieve` 阶段失败；这是测试配置问题，不是 matcher 本身问题。
+- 真实 LLM 在 JD parser 上出现过两类波动：空返回，以及只返回几十到两百多字符的截断 JSON。只看最终结果会误判为“JD 解析能力差”，但 trace 显示根因是模型输出稳定性。
+- Windows 默认 GBK stdout 不能打印模型返回中的部分 Unicode 字符，导致评测已完成但命令退出码为 1；后续输出评测摘要时需要使用 ASCII JSON 或 UTF-8 stdout。
+
+### 怎么修复
+- API 测试改用 `TestClient(app)` 上下文，确保 lifespan 初始化 SQLite schema。
+- 真实 LLM 流程测试使用项目实际支持的 `RERANKER_PROVIDER=heuristic`，避免用不存在的 provider 污染能力判断。
+- JD parser 不再直接调用 `generate_json` 丢掉原始坏文本，而是调用 `generate_text` 后本地 `extract_json_object`；如果发现可修复 JSON 错误，调用 `repair_json` 重新解析原始 JD。
+- 将 transient retry 的退出条件改成 `max_attempts - 1`，并用测试固定 `retry_2` 真的会被调用。
+- 最终真实 LLM 3-case 复测通过：`completed_rate=1.0000`、`end_to_end_pass_rate=1.0000`、`resume_parse_success_rate=1.0000`、`jd_parse_success_rate=1.0000`、`fit_label_accuracy=1.0000`、`fit_score_in_range_rate=1.0000`、`tailor_pass_rate=1.0000`、`guardrail_pass_rate=1.0000`。三个 case 的 stage trace 都完整走到 `case.completed`，weak frontend case 正确判为 `weak_fit` 且跳过简历定制。
+
+### 未修复的问题
+- 真实 LLM 仍可能在 3 次 retry 和 1 次 repair 后失败；原因是外部模型服务的空返回/截断不是本地代码能完全消除的，当前策略是 trace 清楚、有限恢复、失败直报。
+- 本轮真实 LLM 复测只跑 3-case smoke，没有跑完整 18-case 长跑；原因是单轮真实调用耗时约 5 分钟，长跑更适合作为单独评测任务执行并观察中断恢复。
+- `/evaluations/llm-workflow` API 还不能由用户指定 `trace_path`，只能通过 service 层传入；原因是当前 API 只暴露 `case_limit` 和 `resume_from_last_completed`，后续需要把 trace 文件路径或 run checkpoint 设计成安全的产品化参数。
+
+### 下一步
+- 跑 18-case 真实 LLM workflow 长评测，统计 retry/repair 触发率、各阶段耗时和不同难度桶稳定性。
+- 在评测工作台展示每个 case 的 stage trace、LLM 调用日志摘要和 retry/repair 次数，让用户不用查 SQLite 也能定位中间失败。
+- 用真实 embedding + cross-encoder reranker 再跑一次同样链路，区分 LLM 稳定性问题和检索/重排质量问题。
+
+## 2026-06-11 12:52 +08:00：质量失败项定位到具体面试题
+
+### 这次做了什么
+- 先重试上一轮遗留推送，`1283e5e 展示面试题质量门禁` 已成功推送到 `origin/main`。
+- `/ui/interview-prep` 的 `summary_json.question_quality.sample_issues` 现在会把 `q01_02` 这类题号渲染成可点击按钮。
+- 每道面试题预览增加 `data-question-id`，点击质量失败项时会在当前面试包卡片内定位对应题目、滚动到视窗中部并高亮。
+- 如果失败题目不在当前预览中，页面会提示“当前预览未显示该题，请打开 Markdown 查看完整题目”，避免用户误以为质量项无效。
+- 新增 `.inline-action` 和 `.question-highlight` 样式，复用现有列表布局，不引入新的前端框架或调试组件。
+- 前端测试新增对 `data-quality-jump`、`focusInterviewQuestion`、`data-question-id` 和 `question-highlight` 的断言。
+
+### 发现的问题
+- 上一轮推送失败是暂时性 DNS 问题；本轮重新执行 `git push origin main` 已恢复，说明不是仓库配置或凭据问题。
+- 质量面板只展示失败项还不够，用户需要知道失败项对应哪道题；否则“quality judge”容易变成只给分、不指导修复。
+- 面试包列表当前只展示每个题组前 4 道题，质量失败样例可能指向未渲染的完整题目；这是一种产品预览边界。
+
+### 怎么修复
+- 在失败项里解析题号并渲染轻量按钮，点击后只在当前面试包卡片范围内查找，避免多个面试包存在同名题号时跳错。
+- 命中题目后添加 `question-highlight`，不改变题目尺寸和布局，只用 outline/background 做短路径定位。
+- 没命中可见题目时给出 toast，而不是静默失败。
+
+### 未修复的问题
+- 还没有做真正的“按失败类型过滤所有题目”；原因是当前页面只展示题组预览，完整筛选需要先增加完整题目列表/展开机制，不能把一个小交互做成复杂调试台。
+- 高亮不会自动消失；原因是它用于用户继续查看该题上下文，暂时保留更符合定位用途。
+
+### 下一步
+- 给面试包题组增加“展开全部/收起”或独立问题列表视图，再把质量失败项升级为完整筛选。
+- 在真实 embedding + reranker 用户流中观察质量失败项是否能定位到 RAG 证据不足或缺口边界不足的问题。
+
 ## 2026-06-11 12:43 +08:00：面试准备页展示题目质量门禁
 
 ### 这次做了什么

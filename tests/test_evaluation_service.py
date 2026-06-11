@@ -309,18 +309,21 @@ def test_jd_parser_retries_transient_empty_llm_response():
         def __init__(self) -> None:
             self.trace_names: list[str] = []
 
-        async def generate_json(self, **kwargs):
+        async def generate_text(self, **kwargs):
             self.trace_names.append(kwargs["trace_name"])
             if len(self.trace_names) == 1:
                 raise RuntimeError("LLM returned empty content.")
-            return {
-                "title": "Agent 开发实习生",
-                "required_skills": ["Python", "FastAPI", "RAG"],
-                "preferred_skills": [],
-                "responsibilities": ["开发 Agent 应用"],
-                "qualifications": ["熟悉 Python、FastAPI 和 RAG"],
-                "keywords": ["Agent", "Python", "FastAPI", "RAG"],
-            }
+            return json.dumps(
+                {
+                    "title": "Agent 开发实习生",
+                    "required_skills": ["Python", "FastAPI", "RAG"],
+                    "preferred_skills": [],
+                    "responsibilities": ["开发 Agent 应用"],
+                    "qualifications": ["熟悉 Python、FastAPI 和 RAG"],
+                    "keywords": ["Agent", "Python", "FastAPI", "RAG"],
+                },
+                ensure_ascii=False,
+            )
 
     service = JDParserService()
     fake_llm = FakeLLM()
@@ -335,6 +338,95 @@ def test_jd_parser_retries_transient_empty_llm_response():
 
     assert fake_llm.trace_names == ["jd_parser.parse_jd", "jd_parser.parse_jd.retry_1"]
     assert {"Python", "FastAPI", "RAG"} <= set(parsed["required_skills"])
+
+
+def test_jd_parser_repairs_truncated_json_response():
+    from app.services.jd_parser import JDParserService
+
+    class FakeLLM:
+        available = True
+
+        def __init__(self) -> None:
+            self.trace_names: list[str] = []
+
+        async def generate_text(self, **kwargs):
+            self.trace_names.append(kwargs["trace_name"])
+            if kwargs["trace_name"] == "jd_parser.parse_jd":
+                return '{"title":"Frontend Design System Intern","company":"Demo UI","location":null'
+            return json.dumps(
+                {
+                    "title": "Frontend Design System Intern",
+                    "company": "Demo UI",
+                    "location": None,
+                    "job_type": "internship",
+                    "required_skills": ["React", "TypeScript", "CSS"],
+                    "preferred_skills": [],
+                    "responsibilities": ["Build React components and CSS token systems."],
+                    "qualifications": ["React, TypeScript and CSS."],
+                    "keywords": ["React", "TypeScript", "CSS"],
+                    "seniority": "intern",
+                },
+                ensure_ascii=False,
+            )
+
+    service = JDParserService()
+    fake_llm = FakeLLM()
+    service.llm = fake_llm
+
+    parsed = asyncio.run(
+        service.parse_jd(
+            "Frontend Design System Intern. Requirements: React, TypeScript, CSS.",
+            title="Frontend Design System Intern",
+            company="Demo UI",
+        )
+    )
+
+    assert fake_llm.trace_names == ["jd_parser.parse_jd", "jd_parser.parse_jd.repair_json"]
+    assert {"React", "TypeScript", "CSS"} <= set(parsed["required_skills"])
+
+
+def test_jd_parser_allows_two_transient_retries():
+    from app.services.jd_parser import JDParserService
+
+    class FakeLLM:
+        available = True
+
+        def __init__(self) -> None:
+            self.trace_names: list[str] = []
+
+        async def generate_text(self, **kwargs):
+            self.trace_names.append(kwargs["trace_name"])
+            if len(self.trace_names) < 3:
+                raise RuntimeError("LLM returned empty content.")
+            return json.dumps(
+                {
+                    "title": "LLM Evaluation Intern",
+                    "company": "Demo AI",
+                    "location": None,
+                    "job_type": "internship",
+                    "required_skills": ["Python", "SQL", "Evaluation"],
+                    "preferred_skills": [],
+                    "responsibilities": ["Build model quality evaluation workflows."],
+                    "qualifications": ["Python, SQL and evaluation."],
+                    "keywords": ["Python", "SQL", "Evaluation"],
+                    "seniority": "intern",
+                },
+                ensure_ascii=False,
+            )
+
+    service = JDParserService()
+    fake_llm = FakeLLM()
+    service.llm = fake_llm
+
+    parsed = asyncio.run(
+        service.parse_jd(
+            "LLM Evaluation Intern. Requirements: Python, SQL, evaluation.",
+            title="LLM Evaluation Intern",
+        )
+    )
+
+    assert fake_llm.trace_names == ["jd_parser.parse_jd", "jd_parser.parse_jd.retry_1", "jd_parser.parse_jd.retry_2"]
+    assert {"Python", "SQL", "Evaluation"} <= set(parsed["required_skills"])
 
 
 def test_real_job_source_smoke_records_source_layer_metrics(db_session):
