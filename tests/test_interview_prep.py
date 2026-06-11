@@ -92,11 +92,52 @@ def test_interview_prep_covers_online_project_and_general_perspectives(db_sessio
     assert {question["preparation_angle"] for question in questions} >= set(preparation_angles)
     assert prep.coverage_json["passed"] is True
     assert prep.coverage_json["preparation_angles_passed"] is True
+    assert prep.coverage_json["question_quality_passed"] is True
+    assert prep.summary_json["question_quality"]["passed"] is True
+    assert prep.summary_json["question_quality"]["score"] >= 0.82
     assert prep.coverage_json["required_skill_coverage_rate"] == 1.0
     assert prep.coverage_json["missing_skill_drill_rate"] == 1.0
     assert {item["site"] for item in prep.research_checklist_json} >= {"牛客网", "OfferShow", "小红书"}
     assert any(item["skill"] == "MLflow" for item in prep.gap_drills_json)
     assert "不能包装成已交付经验" in prep.summary_json["boundary"]
+    assert all(len(question.get("follow_ups") or []) >= 2 for question in questions)
+
+
+def test_interview_prep_quality_judge_flags_weak_questions(db_session):
+    profile, job = _seed_profile_job(db_session)
+    service = InterviewPrepService()
+    weak_question_sets = [
+        {
+            "category": "弱题样例",
+            "questions": [
+                {
+                    "question_id": "weak_1",
+                    "question": "介绍一下你自己。",
+                    "source_perspective": "general_interview",
+                    "risk_level": "low",
+                    "skills": [],
+                    "answer_points": [],
+                    "follow_ups": [],
+                }
+            ],
+        }
+    ]
+
+    quality = service._question_quality_judge(
+        profile=profile,
+        job=job,
+        question_sets=weak_question_sets,
+        required=["Python", "FastAPI", "RAG", "SQLite"],
+        preferred=["Agent Trace"],
+        keywords=["Agent", "Guardrail"],
+        missing=["MLflow"],
+        evidence=[],
+    )
+
+    assert quality["passed"] is False
+    assert quality["score"] < quality["thresholds"]["score"]
+    assert quality["issue_counts"]["jd_alignment"] >= 1
+    assert quality["issue_counts"]["follow_up_depth"] >= 1
 
 
 def test_interview_prep_agent_workflow_records_artifact(db_session):

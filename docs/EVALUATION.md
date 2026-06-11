@@ -471,6 +471,7 @@ POST /evaluations/interview-prep
 - 检查缺口技能是否进入 `gap_drills_json`，避免把 `没有 MLflow`、`没有 Kubernetes 集群维护经验` 这类缺口披露误写成已掌握。
 - 检查每道题是否有唯一 `question_id`，并且 `source_perspective` 覆盖同岗位面经/面经调研、简历项目技术栈和其他可能面试问题。
 - 检查每道题是否带有 `preparation_angle`，且 `summary_json.preparation_angles` 和 `coverage_json.preparation_angle_counts` 显式覆盖网上同岗位面经、简历项目技术栈、其他可能面试问题三类准备角度。
+- 检查 `summary_json.question_quality`：本地可解释 judge 会衡量 JD 贴合、连续追问深度、缺口诚实边界、项目绑定、证据可追溯、行动性和重复率。
 - 检查 `summary_json.interview_reference_links` 和 Markdown 是否包含面经参考标题/链接或搜索入口；外部平台正文难以获取时，不把抓正文作为核心通过条件。
 - 检查 Markdown 交付包是否可渲染，且包含问题来源分布、准备角度、面经参考链接、连续追问、外部调研清单和证据边界。
 
@@ -486,6 +487,8 @@ POST /evaluations/interview-prep
 | `source_perspective_pass_rate` | 是否同时覆盖同岗位面经、简历项目技术栈和其他可能面试问题。 |
 | `preparation_angle_pass_rate` | 是否显式覆盖网上同岗位面经、简历项目技术栈、其他可能面试问题三类准备角度。 |
 | `llm_question_generation_pass_rate` | 是否生成 LLM 项目实现追问和 LLM 八股/基础追问，并且每类至少有可用问题。 |
+| `question_quality_pass_rate` | 面试题质量 judge 是否通过，要求题目贴合 JD、带连续追问、缺口技能有诚实边界、项目题绑定简历证据。 |
+| `avg_question_quality_score` | 面试题质量 judge 平均分，范围 0-1。 |
 | `markdown_export_pass_rate` | Markdown 交付包是否包含来源分布、准备角度、面经参考链接、连续追问、调研清单和证据边界。 |
 | `avg_source_backed_question_count` | 每个面试包平均来源支撑问题数。 |
 | `avg_question_count` | 每个面试包平均题目数。 |
@@ -506,6 +509,8 @@ POST /evaluations/interview-prep
 | source_perspective_pass_rate | 1.0000 |
 | preparation_angle_pass_rate | 1.0000 |
 | llm_question_generation_pass_rate | 1.0000 |
+| question_quality_pass_rate | 1.0000 |
+| avg_question_quality_score | 0.9990 |
 | markdown_export_pass_rate | 1.0000 |
 | avg_question_count | 35.7778 |
 | avg_research_item_count | 4.0000 |
@@ -513,7 +518,9 @@ POST /evaluations/interview-prep
 | avg_source_backed_question_count | 0.3333 |
 | avg_required_skill_coverage_rate | 1.0000 |
 
-本轮暴露并修复的问题：中文句号没有参与句子切分时，`没有 MLflow 生产经验` 会和前一句“构建 CareerAgent”粘在一起；同时“没有 Kubernetes 集群维护经验”会同时命中否定词“没有”和正向词“维护”。修复后 matcher 使用中文/英文标点切分句子，并让否定证据优先级高于正向动作词。
+本轮质量 judge 使用本地可解释规则，而不是每次都调用 LLM-as-judge。选型理由：面试包生成已经调用 LLM，质量门禁需要稳定、低成本、可离线回归；LLM-as-judge 更适合作为后续抽检层。首次实现时暴露了两个生产边界：第一，非适用项不能计入通过数，否则质量分会超过 1；第二，调研线索或技术深挖题如果命中缺口技能，也必须带“诚实说明边界/最小补齐任务”的追问。修复后 `question_quality_pass_rate=1.0000`，`avg_question_quality_score=0.9990`。
+
+历史暴露并修复的问题：中文句号没有参与句子切分时，`没有 MLflow 生产经验` 会和前一句“构建 CareerAgent”粘在一起；同时“没有 Kubernetes 集群维护经验”会同时命中否定词“没有”和正向词“维护”。修复后 matcher 使用中文/英文标点切分句子，并让否定证据优先级高于正向动作词。
 
 新增 source-backed 面经 case 后又暴露两个边界：第一，真实粘贴的面经常是一整段短文本，多个问题之间不一定换行，抽取器必须先按中文/英文问号、句号、分号切句，再判断是否为问题；第二，评测运行在持久 SQLite 时，历史导入的面经可能被后续 case 自动检索到，造成评测污染。修复后 `experience_ids=None` 表示产品自动检索相关面经，`experience_ids=[]` 表示评测隔离空集合。
 

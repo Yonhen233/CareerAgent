@@ -156,7 +156,9 @@ RAG 证据不再只按向量分和关键词分排序，`MatcherService.retrieve_
 - `resume_project_tech_stack`：简历项目涉及的技术栈与交付证据，包括 `llm_project_implementation` 生成的项目实现追问。
 - `other_possible_interview_questions`：其他可能面试问题，包括通用行为题、JD 技术追问、缺口追问和 `llm_foundation_drill` 生成的八股/基础追问。
 
-`summary_json.preparation_angles` 会记录每个角度的输入来源、题目数和准备重点；`summary_json.interview_reference_links` 只保存面经标题、链接、搜索入口和边界说明；`coverage_json.preparation_angle_counts` 和 `preparation_angles_passed` 用来量化三视角覆盖。`InterviewPrepDeliveryService` 负责把准备包渲染成 Markdown，并记录 `todo`、`practicing`、`ready`、`deferred` 等按题练习状态。评测会检查题号唯一性、来源视角覆盖、准备角度覆盖、LLM 追问组和 Markdown 导出，而不只检查最终生成了一段文本。
+`summary_json.preparation_angles` 会记录每个角度的输入来源、题目数和准备重点；`summary_json.interview_reference_links` 只保存面经标题、链接、搜索入口和边界说明；`summary_json.question_quality` 保存本地可解释 judge 的质量分、阈值、失败项和样例问题；`coverage_json.preparation_angle_counts`、`preparation_angles_passed`、`question_quality_score` 和 `question_quality_passed` 用来量化三视角覆盖与问题质量。`InterviewPrepDeliveryService` 负责把准备包渲染成 Markdown，并记录 `todo`、`practicing`、`ready`、`deferred` 等按题练习状态。评测会检查题号唯一性、来源视角覆盖、准备角度覆盖、LLM 追问组、质量 judge 和 Markdown 导出，而不只检查最终生成了一段文本。
+
+面试题质量 judge 暂时不引入新的 LLM-as-judge 技术栈，而是使用本地可解释规则检查 JD 贴合、连续追问深度、缺口诚实边界、项目绑定、证据可追溯、行动性和重复率。理由是面试包生成本身已经调用 LLM，质量门禁需要低成本、可离线回归、失败原因可解释；后续如果要做人工抽检或发布前评审，可以在这个本地 judge 之后叠加 LLM-as-judge。
 
 当前不把牛客网、OfferShow、小红书公开搜索结果直接写入面试包，原因是这些平台公开可达性、登录态、反爬、客户端渲染和内容真实性都不稳定。系统支持用户导入真实面经文本/链接，`InterviewExperienceService` 只从原文抽取问题、轮次、技术主题和可信度信号，不会在文本缺失时编造具体帖子；如果无法拿到正文，就只把标题和链接作为参考入口附在面试包里。`interview-source-smoke` 只保留 source 层健康探针职责，不再承担核心面试内容生成。核心面试包生成链路转向 JD + 简历项目 + RAG 证据 + LLM 追问链。否定证据优先级高于正向动作词，例如“没有 Kubernetes 集群维护经验”不能因为包含“维护”就被当成 Kubernetes 支持证据。
 

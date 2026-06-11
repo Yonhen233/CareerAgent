@@ -408,7 +408,7 @@ POST /evaluations/application-packet
 POST /evaluations/interview-prep
 ```
 
-该评测使用 `evals/interview_prep_cases.json`，不访问牛客网、OfferShow、小红书等外部平台，只验证面试包是否覆盖同岗位面经调研线索、已导入面经证据、简历项目技术栈追问、JD 缺口 drill 和通用面试问题。返回的 `summary_json` 包含 `pass_rate`、`category_pass_rate`、`research_source_pass_rate`、`source_backed_pass_rate`、`experience_site_pass_rate`、`gap_drill_pass_rate`、`question_id_pass_rate`、`source_perspective_pass_rate`、`markdown_export_pass_rate`、`avg_question_count`、`avg_source_backed_question_count`、`avg_required_skill_coverage_rate`、`difficulty_breakdown` 和 `role_type_breakdown`。
+该评测使用 `evals/interview_prep_cases.json`，不访问牛客网、OfferShow、小红书等外部平台，只验证面试包是否覆盖同岗位面经调研线索、已导入面经证据、简历项目技术栈追问、JD 缺口 drill 和通用面试问题。返回的 `summary_json` 包含 `pass_rate`、`category_pass_rate`、`research_source_pass_rate`、`source_backed_pass_rate`、`experience_site_pass_rate`、`gap_drill_pass_rate`、`question_id_pass_rate`、`source_perspective_pass_rate`、`preparation_angle_pass_rate`、`llm_question_generation_pass_rate`、`question_quality_pass_rate`、`avg_question_quality_score`、`markdown_export_pass_rate`、`avg_question_count`、`avg_source_backed_question_count`、`avg_required_skill_coverage_rate`、`difficulty_breakdown` 和 `role_type_breakdown`。
 
 运行面经来源 smoke：
 

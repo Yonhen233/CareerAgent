@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 from urllib.parse import quote_plus
 
@@ -86,9 +87,19 @@ class InterviewPrepService:
             self._general_interview_questions(profile, job),
         ]
         question_sets = [item for item in question_sets if item["questions"]]
-        self._attach_question_metadata(question_sets)
+        self._attach_question_metadata(question_sets, missing=missing)
         gap_drills = self._gap_drills(job, missing)
         research_checklist = self._research_checklist(job, required, missing)
+        question_quality = self._question_quality_judge(
+            profile=profile,
+            job=job,
+            question_sets=question_sets,
+            required=required,
+            preferred=preferred,
+            keywords=keywords,
+            missing=missing,
+            evidence=evidence,
+        )
         coverage = self._coverage(
             required=required,
             matched=matched,
@@ -97,6 +108,7 @@ class InterviewPrepService:
             gap_drills=gap_drills,
             evidence=evidence,
             experience_evidence=experience_evidence,
+            question_quality=question_quality,
         )
         source_evidence = [*experience_evidence, *evidence]
         interview_reference_links = self._interview_reference_links(
@@ -130,6 +142,7 @@ class InterviewPrepService:
             "source_perspectives": ["同岗位面经/面经调研", "简历项目技术栈深挖", "其他可能面试问题"],
             "preparation_angles": preparation_angles,
             "interview_reference_links": interview_reference_links,
+            "question_quality": question_quality,
             "llm_question_generation": {
                 "enabled": bool(llm_question_sets),
                 "question_set_count": len(llm_question_sets or []),
@@ -191,13 +204,42 @@ class InterviewPrepService:
             generation_mode="llm_augmented_v1_jd_project_questions",
         )
 
-    def _attach_question_metadata(self, question_sets: list[dict[str, Any]]) -> None:
+    def _attach_question_metadata(self, question_sets: list[dict[str, Any]], *, missing: list[str] | None = None) -> None:
+        missing_norm = {normalize_skill(item) for item in missing or [] if normalize_skill(item)}
         for group_index, group in enumerate(question_sets, start=1):
             for question_index, question in enumerate(group.get("questions") or [], start=1):
                 question.setdefault("question_id", f"q{group_index:02d}_{question_index:02d}")
                 angle = self._angle_for_source(str(question.get("source_perspective") or ""))
                 question.setdefault("preparation_angle", angle)
                 question.setdefault("preparation_angle_label", INTERVIEW_PREP_ANGLE_LABELS[angle])
+                follow_ups = [str(item).strip() for item in question.get("follow_ups") or [] if str(item).strip()]
+                question["follow_ups"] = follow_ups[:3] or self._default_follow_ups(question, missing_norm=missing_norm)
+
+    def _default_follow_ups(self, question: dict[str, Any], *, missing_norm: set[str] | None = None) -> list[str]:
+        source = str(question.get("source_perspective") or "")
+        skills = [str(item).strip() for item in question.get("skills") or [] if str(item).strip()]
+        skill_text = "、".join(skills[:2]) if skills else "这个能力点"
+        question_missing_norm = {normalize_skill(item) for item in skills if normalize_skill(item)}
+        touches_missing_skill = bool((missing_norm or set()) & question_missing_norm)
+        if touches_missing_skill or source in {"jd_gap_drill", "llm_foundation_drill"} or question.get("risk_level") == "high":
+            return [
+                f"如果没有真实交付过 {skill_text}，你会如何诚实说明边界？",
+                "你准备用什么最小验证任务补齐这个短板？",
+            ]
+        if source in {"resume_project_evidence", "resume_project_stack", "llm_project_implementation"}:
+            return [
+                "这个项目里你的个人贡献边界是什么？",
+                "如果该设计失败，你会看哪些日志、指标或样例来定位？",
+            ]
+        if source in {"online_experience_research", "source_backed_interview_experience"}:
+            return [
+                "这个面经线索和当前 JD 的哪些要求最相关？",
+                "你会用简历里的哪个项目或经历作为回答主线？",
+            ]
+        return [
+            "这个回答如何回到当前 JD 的具体职责？",
+            "你会用哪个项目、指标或失败案例支撑这个回答？",
+        ]
 
     def _source_backed_experience_questions(
         self,
@@ -889,6 +931,154 @@ class InterviewPrepService:
             for skill in missing[:8]
         ]
 
+    def _question_quality_judge(
+        self,
+        *,
+        profile: Profile,
+        job: Job,
+        question_sets: list[dict[str, Any]],
+        required: list[str],
+        preferred: list[str],
+        keywords: list[str],
+        missing: list[str],
+        evidence: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        questions = [question for group in question_sets for question in group.get("questions", [])]
+        if not questions:
+            return {
+                "mode": "heuristic_v1",
+                "passed": False,
+                "score": 0.0,
+                "rates": {},
+                "issue_counts": {"empty_packet": 1},
+                "sample_issues": ["面试包没有可评测题目。"],
+            }
+
+        jd_terms = self._unique([job.title, "JD", "岗位", "职责", "当前 JD", *(required or []), *(preferred or []), *(keywords or [])])
+        jd_terms.extend(str(item) for item in (job.structured_jd_json or {}).get("responsibilities", [])[:4])
+        profile_terms = self._unique([*self._profile_tech_stack(profile), *self._profile_project_names(profile)])
+        missing_norm = {normalize_skill(item) for item in missing if normalize_skill(item)}
+
+        project_sources = {"resume_project_evidence", "resume_project_stack", "llm_project_implementation"}
+        evidence_required_sources = {"source_backed_interview_experience", "resume_project_evidence"}
+        risk_sources = {"jd_gap_drill", "llm_foundation_drill"}
+        boundary_terms = ["诚实", "边界", "补齐", "没有", "缺口", "未", "计划", "相邻", "不编造", "不能包装"]
+
+        checks = {
+            "jd_alignment": 0,
+            "follow_up_depth": 0,
+            "gap_boundary": 0,
+            "project_binding": 0,
+            "evidence_traceability": 0,
+            "actionability": 0,
+        }
+        denominators = {
+            "jd_alignment": len(questions),
+            "follow_up_depth": len(questions),
+            "gap_boundary": 0,
+            "project_binding": 0,
+            "evidence_traceability": 0,
+            "actionability": len(questions),
+        }
+        issue_counts: dict[str, int] = {}
+        sample_issues: list[str] = []
+        normalized_questions: list[str] = []
+
+        for question in questions:
+            question_id = str(question.get("question_id") or "-")
+            source = str(question.get("source_perspective") or "")
+            skills = [str(item).strip() for item in question.get("skills") or [] if str(item).strip()]
+            skill_norm = {normalize_skill(item) for item in skills if normalize_skill(item)}
+            blob = self._quality_blob(question)
+            normalized_questions.append(self._normalize_question_text(str(question.get("question") or "")))
+
+            jd_aligned = bool(skill_norm & {normalize_skill(item) for item in jd_terms if normalize_skill(item)}) or self._text_matches_terms(blob, jd_terms)
+            follow_up_depth = len(question.get("follow_ups") or []) >= 2
+            risk_question = source in risk_sources or question.get("risk_level") == "high" or bool(skill_norm & missing_norm)
+            if risk_question:
+                denominators["gap_boundary"] += 1
+            gap_boundary = (not risk_question) or self._text_matches_terms(blob, boundary_terms)
+            project_question = source in project_sources
+            if project_question:
+                denominators["project_binding"] += 1
+            project_binding = (not project_question) or bool(question.get("evidence_refs")) or self._text_matches_terms(blob, profile_terms) or bool(
+                skill_norm & {normalize_skill(item) for item in profile_terms if normalize_skill(item)}
+            )
+            evidence_required = source in evidence_required_sources
+            if evidence_required:
+                denominators["evidence_traceability"] += 1
+            evidence_traceability = (not evidence_required) or bool(question.get("evidence_refs"))
+            actionability = len(question.get("answer_points") or []) >= 2 and len(str(question.get("question") or "")) >= 10
+
+            results = {
+                "jd_alignment": (jd_aligned, True),
+                "follow_up_depth": (follow_up_depth, True),
+                "gap_boundary": (gap_boundary, risk_question),
+                "project_binding": (project_binding, project_question),
+                "evidence_traceability": (evidence_traceability, evidence_required),
+                "actionability": (actionability, True),
+            }
+            for name, (passed, applicable) in results.items():
+                if not applicable:
+                    continue
+                if passed:
+                    checks[name] += 1
+                elif len(sample_issues) < 8:
+                    issue_counts[name] = issue_counts.get(name, 0) + 1
+                    sample_issues.append(f"{question_id}: {name} 未通过")
+                else:
+                    issue_counts[name] = issue_counts.get(name, 0) + 1
+
+        duplicate_count = len(normalized_questions) - len({item for item in normalized_questions if item})
+        duplicate_rate = round(duplicate_count / max(len(questions), 1), 4)
+        if duplicate_count:
+            issue_counts["duplicate_question"] = duplicate_count
+
+        rates = {
+            name: round(checks[name] / denominators[name], 4) if denominators[name] else 1.0
+            for name in checks
+        }
+        rates["duplicate_rate"] = duplicate_rate
+        rates["evidence_signal_rate"] = round(len(evidence) / max(len(questions), 1), 4)
+        score = round(
+            0.25 * rates["jd_alignment"]
+            + 0.2 * rates["follow_up_depth"]
+            + 0.2 * rates["gap_boundary"]
+            + 0.15 * rates["project_binding"]
+            + 0.1 * rates["evidence_traceability"]
+            + 0.1 * rates["actionability"]
+            - min(duplicate_rate * 0.15, 0.15),
+            4,
+        )
+        thresholds = {
+            "score": 0.82,
+            "jd_alignment": 0.75,
+            "follow_up_depth": 0.9,
+            "gap_boundary": 0.9,
+            "project_binding": 0.8,
+            "evidence_traceability": 1.0,
+            "duplicate_rate_max": 0.08,
+        }
+        passed = (
+            score >= thresholds["score"]
+            and rates["jd_alignment"] >= thresholds["jd_alignment"]
+            and rates["follow_up_depth"] >= thresholds["follow_up_depth"]
+            and rates["gap_boundary"] >= thresholds["gap_boundary"]
+            and rates["project_binding"] >= thresholds["project_binding"]
+            and rates["evidence_traceability"] >= thresholds["evidence_traceability"]
+            and duplicate_rate <= thresholds["duplicate_rate_max"]
+        )
+        return {
+            "mode": "heuristic_v1",
+            "passed": passed,
+            "score": score,
+            "thresholds": thresholds,
+            "rates": rates,
+            "issue_counts": issue_counts,
+            "sample_issues": sample_issues,
+            "design_reason": "使用可解释本地 judge 作为生成质量门禁，避免为每个面试包额外调用 LLM 带来成本、延迟和不稳定性；后续可叠加 LLM-as-judge 做抽检。",
+        }
+
     def _research_checklist(self, job: Job, required: list[str], missing: list[str]) -> list[dict[str, Any]]:
         company = job.company or "目标公司"
         focus_skills = self._unique([*required[:4], *missing[:4]])
@@ -930,6 +1120,7 @@ class InterviewPrepService:
         gap_drills: list[dict[str, Any]],
         evidence: list[dict[str, Any]],
         experience_evidence: list[dict[str, Any]] | None = None,
+        question_quality: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         questions = [question for group in question_sets for question in group.get("questions", [])]
         covered_skills = {
@@ -972,11 +1163,13 @@ class InterviewPrepService:
         source_evidence = experience_evidence or []
         core_perspectives_passed = all(count > 0 for count in core_perspective_counts.values())
         preparation_angles_passed = all(preparation_angle_counts.get(key, 0) > 0 for key in INTERVIEW_PREP_ANGLE_LABELS)
+        quality_passed = (question_quality or {}).get("passed") is True
         passed = (
             required_covered
             and missing_covered
             and core_perspectives_passed
             and preparation_angles_passed
+            and quality_passed
             and len(questions) >= 6
         )
         return {
@@ -993,6 +1186,9 @@ class InterviewPrepService:
             "preparation_angle_counts": preparation_angle_counts,
             "preparation_angle_labels": INTERVIEW_PREP_ANGLE_LABELS,
             "preparation_angles_passed": preparation_angles_passed,
+            "question_quality_passed": quality_passed,
+            "question_quality_score": (question_quality or {}).get("score", 0.0),
+            "question_quality_rates": (question_quality or {}).get("rates", {}),
             "research_mode": "source_backed_and_checklist" if source_evidence else "checklist_only",
             "source_perspectives": [
                 "source_backed_interview_experience",
@@ -1220,6 +1416,39 @@ class InterviewPrepService:
                 continue
             values.extend(str(item) for item in exp.get("tech_stack", []) or [] if str(item).strip())
         return self._unique(values)
+
+    def _profile_project_names(self, profile: Profile) -> list[str]:
+        names: list[str] = []
+        for project in (profile.structured_profile_json or {}).get("projects", []) or []:
+            if isinstance(project, dict) and str(project.get("name") or "").strip():
+                names.append(str(project.get("name")).strip())
+        return self._unique(names)
+
+    def _quality_blob(self, question: dict[str, Any]) -> str:
+        values: list[str] = [
+            str(question.get("question") or ""),
+            str(question.get("intent") or ""),
+        ]
+        values.extend(str(item) for item in question.get("follow_ups") or [])
+        values.extend(str(item) for item in question.get("answer_points") or [])
+        values.extend(str(item) for item in question.get("skills") or [])
+        return "\n".join(values).lower()
+
+    def _text_matches_terms(self, text: str, terms: list[str]) -> bool:
+        normalized_text = normalize_skill(text)
+        for term in terms:
+            value = str(term).strip()
+            if len(value) < 2:
+                continue
+            normalized = normalize_skill(value)
+            if normalized and normalized in normalized_text:
+                return True
+            if value.lower() in text:
+                return True
+        return False
+
+    def _normalize_question_text(self, text: str) -> str:
+        return re.sub(r"\s+", "", re.sub(r"[^\w\u4e00-\u9fff]+", "", text.lower()))
 
     def _unique(self, values: list[str]) -> list[str]:
         seen: set[str] = set()

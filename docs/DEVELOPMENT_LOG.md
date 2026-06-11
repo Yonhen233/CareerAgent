@@ -1,5 +1,37 @@
 # 开发日志
 
+## 2026-06-11 12:33 +08:00：面试题质量 Judge 与连续追问质量门禁
+
+### 这次做了什么
+- `InterviewPrepService` 为所有面试题补齐默认 `follow_ups`，避免只有 LLM 题有连续追问、规则题缺少追问链。
+- 新增 `summary_json.question_quality`：使用本地可解释 judge 计算 JD 贴合率、连续追问深度、缺口诚实边界率、项目绑定率、证据可追溯率、行动性和重复率。
+- `coverage_json` 新增 `question_quality_passed`、`question_quality_score` 和 `question_quality_rates`；质量门禁不通过时，面试包整体 `coverage.passed=false`。
+- `EvaluationService.run_interview_prep_evaluation` 新增 `question_quality_pass_rate`、`avg_question_quality_score` 和 `question_quality_failed` failure breakdown。
+- 测试新增弱题样例：只有“介绍一下你自己”、无追问、无 JD 贴合、无 answer points 的题目必须被 judge 判失败。
+- API、评测文档和 Agent 设计文档已更新中文说明，并明确本轮没有新增 LLM-as-judge 技术栈。
+
+### 发现的问题
+- 第一版质量分出现 `avg_question_quality_score > 1`，原因是“非适用项”没有进入分母，却被计入通过数。这会让指标看起来很高，但实际上数学含义不成立。
+- `ml_platform_k8s_gap` 和英文辅助 case 暴露出一个真实准备边界：同岗位面经调研题或 JD 技术深挖题如果带到 `Kubernetes` 这类 missing skill，也必须追问“如何诚实说明边界/如何最小补齐”，不能只问“怎么设计实现方案”。
+- 通用行为题本来可以服务 JD，但如果没有显式追问“如何回到当前 JD/岗位职责”，judge 很难判断它是否贴合岗位。
+
+### 怎么修复
+- 质量 judge 改为“只对适用题计分；没有适用题时该指标记为 1.0”，保证所有 rate 与 score 都落在 0-1 区间。
+- 默认追问生成时优先检查题目技能是否命中 `missing_skills`；只要命中，就生成“没有真实交付时如何诚实说明边界”和“最小验证任务”两个追问。
+- JD 贴合判断加入 `JD`、`岗位`、`职责` 等通用锚点，让通用行为题在追问回到岗位场景时可以被正确识别。
+- 重新运行 interview prep 评测：`pass_rate=1.0000`、`question_quality_pass_rate=1.0000`、`avg_question_quality_score=0.9990`、`question_quality_failed=0`。
+- 目标回归通过：`tests/test_interview_prep.py` 与 `test_interview_prep_evaluation_covers_sources_stack_and_gap_drills` 共 9 个测试通过；`py_compile` 通过。
+
+### 未修复的问题
+- 质量 judge 目前是可解释本地规则，不是 LLM-as-judge；原因是面试包生成已经调用 LLM，质量门禁优先需要稳定、低成本和可离线回归。LLM-as-judge 更适合后续抽检或发布前评审。
+- `pytest` 在当前沙箱下无法写入 `.pytest_cache`，会出现 cache warning；测试本身通过，原因是工作区权限对缓存目录写入受限。
+- 还没有把质量分展示到 `/ui/interview-prep` 卡片上；本轮先把生成、落库和评测链路打通。
+
+### 下一步
+- 在面试准备页展示 `question_quality_score`、失败项和样例问题，帮助用户理解为什么某个面试包需要重生成或补充简历证据。
+- 增加 LLM-as-judge 抽检评测，但只作为离线/发布前质量校准，不替代本地可解释门禁。
+- 用真实 embedding + reranker 重跑端到端用户流，比较质量 judge 在真实检索证据下的表现。
+
 ## 2026-06-10 10:24 +08:00：真实 LLM 用户流测试与 JD 强弱要求修复
 
 ### 这次做了什么
