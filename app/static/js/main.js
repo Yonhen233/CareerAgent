@@ -437,6 +437,16 @@ function evaluationSummaryGrid(summary) {
       ${metricCell("可抽取", percent(summary.content_extractable_rate))}
     `;
   }
+  if (type === "llm_workflow") {
+    return `
+      ${metricCell("完成率", percent(summary.completed_rate))}
+      ${metricCell("端到端通过", percent(summary.end_to_end_pass_rate))}
+      ${metricCell("JD 解析", percent(summary.jd_parse_success_rate))}
+      ${metricCell("Fit 标签", percent(summary.fit_label_accuracy))}
+      ${metricCell("简历定制", percent(summary.tailor_pass_rate))}
+      ${metricCell("Guardrail", percent(summary.guardrail_pass_rate))}
+    `;
+  }
   return `
     ${metricCell("状态", summary.status || "-")}
     ${metricCell("样例数", summary.case_count ?? summary.total_result_count ?? "-")}
@@ -486,12 +496,117 @@ function renderInterviewSourceSmoke(run) {
   `;
 }
 
+function llmLogStats(logs) {
+  const stats = {
+    retry1: 0,
+    retry2: 0,
+    repair: 0,
+    failed: 0,
+  };
+  (logs || []).forEach((row) => {
+    if (row.trace_name === "jd_parser.parse_jd.retry_1") stats.retry1 += 1;
+    if (row.trace_name === "jd_parser.parse_jd.retry_2") stats.retry2 += 1;
+    if (row.trace_name === "jd_parser.parse_jd.repair_json") stats.repair += 1;
+    if (row.status === "failed") stats.failed += 1;
+  });
+  return stats;
+}
+
+function renderStageDetails(stage) {
+  const details = stage.details || {};
+  if (details.error) return `<div class="meta">错误：${escapeHtml(details.error)}</div>`;
+  const fields = [
+    ["profile_skill_recall", "Profile skill recall"],
+    ["jd_skill_recall", "JD skill recall"],
+    ["evidence_hit_rate", "证据命中"],
+    ["predicted_fit_label", "预测标签"],
+    ["predicted_fit_score", "Fit 分"],
+    ["risk_level", "风险"],
+    ["hallucination_count", "幻觉数"],
+    ["case_passed", "Case 通过"],
+  ];
+  const parts = fields
+    .filter(([key]) => details[key] !== undefined && details[key] !== null)
+    .map(([key, label]) => `${label}=${details[key]}`);
+  const evidence = (details.top_evidence || []).slice(0, 2).map((item) => item.text_preview).filter(Boolean);
+  return `
+    ${parts.length ? `<div class="meta">${escapeHtml(parts.join(" / "))}</div>` : ""}
+    ${evidence.length ? `<ul class="compact-list">${evidence.map((text) => `<li>${escapeHtml(text)}</li>`).join("")}</ul>` : ""}
+  `;
+}
+
+function renderStageTrace(trace) {
+  if (!trace || !trace.length) return `<div class="meta">暂无 stage trace</div>`;
+  return `
+    <ol class="trace-list">
+      ${trace.map((stage) => `
+        <li class="trace-step ${stage.status === "completed" || stage.status === "skipped" ? "trace-ok" : stage.status === "failed" ? "trace-failed" : ""}">
+          <div>
+            <strong>${escapeHtml(stage.stage)}</strong>
+            <span class="tag">${escapeHtml(stage.status)}</span>
+          </div>
+          ${renderStageDetails(stage)}
+        </li>
+      `).join("")}
+    </ol>
+  `;
+}
+
+function renderLLMWorkflow(run, logs = []) {
+  const summary = run?.summary_json || {};
+  const cases = run?.case_results_json || [];
+  if (!run || summary.evaluation_type !== "llm_workflow") {
+    return `<div class="item meta">暂无真实 LLM workflow 结果</div>`;
+  }
+  const stats = llmLogStats(logs);
+  return `
+    <article class="item">
+      <div class="item-title">
+        <span>#${run.id} LLM workflow</span>
+        <span class="status-pill ${summary.status === "completed" ? "ok" : ""}">${escapeHtml(summary.status || "recorded")}</span>
+      </div>
+      <div class="meta">case=${escapeHtml(summary.completed_cases ?? cases.length)} / remaining=${escapeHtml(summary.remaining_cases ?? "-")} / resume=${escapeHtml(summary.resume_from_last_completed || false)}</div>
+      <div class="validation-panel ${summary.status === "completed" ? "validation-ok" : "validation-risk"}">
+        <div class="validation-grid">${evaluationSummaryGrid(summary)}</div>
+      </div>
+      <div class="meta">最近 LLM 日志：retry_1=${stats.retry1} / retry_2=${stats.retry2} / repair=${stats.repair} / failed=${stats.failed}</div>
+      ${cases.map((item) => `
+        <section class="trace-card">
+          <div class="item-title">
+            <span>${escapeHtml(item.name)}</span>
+            <span class="status-pill ${item.case_passed ? "ok" : ""}">${item.case_passed ? "passed" : escapeHtml(item.status || "failed")}</span>
+          </div>
+          <div class="meta">
+            expected=${escapeHtml(item.expected_fit_label || "-")} / predicted=${escapeHtml(item.predicted_fit_label || "-")} / score=${escapeHtml(item.predicted_fit_score ?? "-")}
+            ${item.failed_stage ? ` / failed_stage=${escapeHtml(item.failed_stage)}` : ""}
+          </div>
+          ${item.error ? `<div class="message-preview">${escapeHtml(item.error)}</div>` : ""}
+          ${renderStageTrace(item.stage_trace || [])}
+        </section>
+      `).join("")}
+    </article>
+  `;
+}
+
 async function loadEvaluationRuns() {
   const rows = await api("/evaluations/results");
+  let llmLogs = [];
+  if ($("#llm-workflow-result")) {
+    try {
+      llmLogs = await api("/llm/debug/logs?limit=80");
+    } catch (error) {
+      llmLogs = [];
+    }
+  }
   const latestInterviewSource = rows.find((row) => row.summary_json?.evaluation_type === "interview_source_smoke");
+  const latestLLMWorkflow = rows.find((row) => row.summary_json?.evaluation_type === "llm_workflow");
   const sourceTarget = $("#interview-source-smoke-result");
   if (sourceTarget) {
     sourceTarget.innerHTML = renderInterviewSourceSmoke(latestInterviewSource);
+  }
+  const llmTarget = $("#llm-workflow-result");
+  if (llmTarget) {
+    llmTarget.innerHTML = renderLLMWorkflow(latestLLMWorkflow, llmLogs);
   }
   renderItems("#evaluation-runs-list", rows, (row) => {
     const summary = row.summary_json || {};
@@ -764,6 +879,21 @@ function bindForms() {
       .forEach((source) => params.append("sources", source));
     await api(`/evaluations/interview-source-smoke?${params.toString()}`, { method: "POST" });
     toast("面经源探测完成");
+    await loadEvaluationRuns();
+  });
+
+  $("#llm-workflow-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const raw = formJson(event.currentTarget);
+    const params = new URLSearchParams();
+    if (raw.case_limit) params.set("case_limit", String(Number(raw.case_limit)));
+    if (event.currentTarget.resume_from_last_completed.checked) {
+      params.set("resume_from_last_completed", "true");
+    }
+    const result = $("#llm-workflow-result");
+    if (result) result.innerHTML = `<div class="item meta">真实 LLM workflow 运行中，完成后会展示逐 case trace...</div>`;
+    await api(`/evaluations/llm-workflow?${params.toString()}`, { method: "POST" });
+    toast("LLM workflow 评测完成");
     await loadEvaluationRuns();
   });
 

@@ -1,5 +1,35 @@
 # 开发日志
 
+## 2026-06-13 22:37 +08:00：评测工作台展示 LLM workflow trace
+
+### 这次做了什么
+- `/ui/evaluations` 新增“真实 LLM 流程评测”表单，支持输入 `case_limit` 和勾选 `resume_from_last_completed`，直接调用 `POST /evaluations/llm-workflow`。
+- 评测工作台新增“最新 LLM 流程 Trace”面板，展示最近一次 LLM workflow 的完成率、端到端通过率、JD 解析、fit 标签、简历定制和 Guardrail 指标。
+- 每个 case 展示 expected/predicted fit label、fit score、失败阶段、错误信息和完整 `stage_trace`，并把 top evidence 预览放在 `match_and_retrieve` 阶段下。
+- 页面会读取最近 `/llm/debug/logs?limit=80`，统计 `jd_parser.parse_jd.retry_1`、`retry_2`、`repair_json` 和 failed 调用数量，帮助区分模型波动、格式损坏和业务阶段失败。
+- 新增前端测试固定 `llm-workflow-form`、`llm-workflow-result`、`renderLLMWorkflow`、`renderStageTrace` 和 trace 样式入口。
+- README、API 文档和评测文档补充评测工作台的 LLM workflow trace 说明。
+
+### 发现的问题
+- 之前 API 和数据库里已经有 `stage_trace`，但用户要排查真实 LLM 长跑失败仍然需要手动查 SQLite 或 JSONL；这会让“有 trace”停留在工程内部，而不是产品可观察性。
+- `GET /llm/debug/logs` 目前没有 run/case 维度关联，页面只能展示最近日志里的 retry/repair 总数，不能严格证明这些日志都属于当前最新 evaluation run。
+- LLM workflow 运行可能耗时数分钟，当前页面是同步等待请求完成；对于 smoke case 可接受，但不适合 18-case 长跑。
+
+### 怎么修复
+- 不新增任务队列或前端框架，只把已有评测 API 挂到评测工作台，原因是当前目标是开发期观察中间结果，而不是设计完整异步调度系统。
+- trace 展示采用紧凑列表，不做嵌套卡片；每个 stage 只展示最关键的指标和错误，避免把页面变成难读的 JSON dump。
+- 表单提交后先显示“运行中”提示，再刷新最近评测结果；失败时沿用全局 API 错误 toast，保持开发期失败直报。
+
+### 未修复的问题
+- LLM 调用日志还没有 `evaluation_run_id`、`case_name` 或 `stage` 外键；原因是 `LLMClient` 当前只接收通用 `trace_name`，要做精确关联需要扩展调用上下文并迁移日志 schema。
+- 页面没有流式进度；原因是现有评测接口是同步返回，下一步如果要支撑 18-case 长跑，应先把 evaluation run 改成后台任务或轮询式 checkpoint。
+- retry/repair 计数是“最近日志窗口”的辅助信号，不是当前 run 的严格指标；已在产品定位上把它作为开发调试摘要，而不是评测门禁。
+
+### 下一步
+- 给 `llm_call_logs` 增加 `run_id/case_name/stage` 关联，让页面能精确展示当前 evaluation run 的 LLM 调用树。
+- 将 LLM workflow 长跑改成后台任务或可轮询 checkpoint，页面展示每个 case 的实时状态。
+- 在评测工作台继续补齐 RAG strategy 和 real-job-ingest smoke 的运行入口与中间 trace，形成完整开发期质量面板。
+
 ## 2026-06-11 13:22 +08:00：真实 LLM 用户流复测与 JD parser repair
 
 ### 这次做了什么

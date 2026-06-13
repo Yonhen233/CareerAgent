@@ -124,7 +124,7 @@ LLM_MODEL=DeepSeek-V4-Pro
 - `/ui/resumes`：查看和下载定制简历版本。
 - `/ui/applications`：查看投递包、投递状态、Guardrail issues/warnings 和人工确认边界。
 - `/ui/interview-prep`：导入同岗面经材料，生成和查看面试准备包，展示网上同岗面经、简历项目技术栈和其他可能面试问题三类准备角度，展示 LLM 连续追问、题目质量分、可点击定位的失败项、面经参考链接，导出 Markdown，并记录按题练习状态。
-- `/ui/evaluations`：运行面经来源 smoke，查看最近评测结果和 source 层健康度，并把候选面经人工确认后导入；导入成功后可带着 `experience_ids` 快速生成面试包。
+- `/ui/evaluations`：运行面经来源 smoke 和真实 LLM workflow smoke，查看最近评测结果、逐 case stage trace、LLM retry/repair 摘要和 source 层健康度，并把候选面经人工确认后导入；导入成功后可带着 `experience_ids` 快速生成面试包。
 
 ## 常用 API
 

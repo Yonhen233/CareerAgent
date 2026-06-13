@@ -28,6 +28,32 @@
   </div>
 </section>
 
+<section class="workspace-grid">
+  <div class="panel span-5">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">LLM workflow</p>
+        <h2>真实 LLM 流程评测</h2>
+      </div>
+    </div>
+    <form id="llm-workflow-form" class="form-grid">
+      <label>Case 数<input name="case_limit" type="number" min="1" max="18" value="3"></label>
+      <label class="checkbox-row"><input name="resume_from_last_completed" type="checkbox"> 从上次完成处继续</label>
+      <button class="primary" type="submit"><i data-lucide="activity"></i> 运行 LLM 流程</button>
+    </form>
+  </div>
+
+  <div class="panel span-7">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">Trace</p>
+        <h2>最新 LLM 流程 Trace</h2>
+      </div>
+    </div>
+    <div id="llm-workflow-result" class="result-list"></div>
+  </div>
+</section>
+
 <section class="panel">
   <div class="panel-heading compact">
     <div>

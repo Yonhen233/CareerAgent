@@ -449,6 +449,8 @@ POST /evaluations/llm-workflow?case_limit=3&resume_from_last_completed=true
 
 `case_limit` 用于真实 LLM smoke 评测。`resume_from_last_completed=true` 时，服务默认读取 `data/runtime/llm_workflow_trace_latest.jsonl`，跳过 trace 中连续完成的 case，从第一个缺失 case 继续运行。返回的 `case_results_json` 中，每个 case 都包含 `stage_trace`，用于检查简历解析、JD 解析、RAG 证据、fit judge、tailor 和 Guardrail 的中间结果。新 trace 事件会写入完整 `case_result`，便于长跑中断后继续。
 
+`/ui/evaluations` 提供该接口的轻量运行入口，会展示最新 LLM workflow 的 summary、逐 case stage trace、失败阶段、fit label/score 和最近 LLM 调用日志中的 JD retry/repair 计数。它用于开发期观察真实链路，不替代长跑任务调度器。
+
 查询历史评测：
 
 ```http

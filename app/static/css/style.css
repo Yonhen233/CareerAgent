@@ -368,6 +368,35 @@ button svg,
   overflow-wrap: anywhere;
 }
 
+.trace-card {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.trace-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trace-step {
+  padding-left: 10px;
+  border-left: 3px solid #d7dee9;
+}
+
+.trace-step.trace-ok {
+  border-left-color: var(--green);
+}
+
+.trace-step.trace-failed {
+  border-left-color: var(--red);
+}
+
 .message-preview {
   padding: 10px 12px;
   border-left: 3px solid var(--blue);
