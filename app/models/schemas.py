@@ -288,6 +288,7 @@ class LLMCallLogResponse(BaseModel):
     latency_ms: int
     prompt_chars: int
     response_chars: int
+    context_json: dict[str, Any]
     created_at: datetime
 
 

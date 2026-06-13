@@ -41,6 +41,9 @@ def test_evaluations_frontend_exposes_llm_workflow_trace_panel():
 
     assert "renderLLMWorkflow" in main_js
     assert "renderStageTrace" in main_js
+    assert "renderCaseLLMLogs" in main_js
+    assert "context_json?.case_name" in main_js
+    assert "evaluation_run_id" in main_js
     assert "jd_parser.parse_jd.repair_json" in main_js
     assert "/evaluations/llm-workflow" in main_js
     assert "trace-list" in style_css

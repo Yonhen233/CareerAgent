@@ -336,6 +336,8 @@ Content-Type: application/json
 
 ```http
 GET /llm/debug/logs?limit=50
+GET /llm/debug/logs?limit=200&evaluation_run_id=12
+GET /llm/debug/logs?evaluation_run_id=12&case_name=agent_candidate_strong_agent_role&stage=jd_parse
 ```
 
 用于查看：
@@ -347,10 +349,11 @@ GET /llm/debug/logs?limit=50
 - 调用状态。
 - 延迟。
 - 错误信息。
+- `context_json`：可包含 `evaluation_run_id`、`case_name` 和 `stage` 等调用上下文。
+
+支持按 `evaluation_run_id`、`case_name` 和 `stage` 过滤。过滤是在最近日志窗口内完成，适合开发期从评测 run 快速定位对应 LLM 调用；接口仍不会返回 API key。
 
 JD parser 的真实 LLM 链路会显式记录 `jd_parser.parse_jd`、`jd_parser.parse_jd.retry_1`、`jd_parser.parse_jd.retry_2` 和 `jd_parser.parse_jd.repair_json` 等 trace 名称。空返回/超时只做有限业务层重试；截断或非法 JSON 会触发一次 repair/reparse，仍失败时直接向上报错，不静默兜底。
-
-接口不会返回 API key。
 
 ## 量化评测
 
@@ -449,7 +452,7 @@ POST /evaluations/llm-workflow?case_limit=3&resume_from_last_completed=true
 
 `case_limit` 用于真实 LLM smoke 评测。`resume_from_last_completed=true` 时，服务默认读取 `data/runtime/llm_workflow_trace_latest.jsonl`，跳过 trace 中连续完成的 case，从第一个缺失 case 继续运行。返回的 `case_results_json` 中，每个 case 都包含 `stage_trace`，用于检查简历解析、JD 解析、RAG 证据、fit judge、tailor 和 Guardrail 的中间结果。新 trace 事件会写入完整 `case_result`，便于长跑中断后继续。
 
-`/ui/evaluations` 提供该接口的轻量运行入口，会展示最新 LLM workflow 的 summary、逐 case stage trace、失败阶段、fit label/score 和最近 LLM 调用日志中的 JD retry/repair 计数。它用于开发期观察真实链路，不替代长跑任务调度器。
+`/ui/evaluations` 提供该接口的轻量运行入口，会展示最新 LLM workflow 的 summary、逐 case stage trace、失败阶段、fit label/score 和当前 `evaluation_run_id` 关联的 LLM 调用日志、JD retry/repair 计数。它用于开发期观察真实链路，不替代长跑任务调度器。
 
 查询历史评测：
 

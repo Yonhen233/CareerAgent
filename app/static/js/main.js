@@ -552,6 +552,22 @@ function renderStageTrace(trace) {
   `;
 }
 
+function renderCaseLLMLogs(logs) {
+  if (!logs.length) return `<div class="meta">该 case 暂无关联 LLM 调用日志</div>`;
+  return `
+    <ul class="compact-list">
+      ${logs.slice(0, 8).map((row) => `
+        <li>
+          <span class="tag">${escapeHtml(row.status)}</span>
+          <span class="tag">${escapeHtml(row.context_json?.stage || "-")}</span>
+          ${escapeHtml(row.trace_name)}
+          <div class="meta">${escapeHtml(row.latency_ms)}ms / prompt=${escapeHtml(row.prompt_chars)} / response=${escapeHtml(row.response_chars)}${row.error_message ? ` / ${escapeHtml(row.error_message)}` : ""}</div>
+        </li>
+      `).join("")}
+    </ul>
+  `;
+}
+
 function renderLLMWorkflow(run, logs = []) {
   const summary = run?.summary_json || {};
   const cases = run?.case_results_json || [];
@@ -569,8 +585,10 @@ function renderLLMWorkflow(run, logs = []) {
       <div class="validation-panel ${summary.status === "completed" ? "validation-ok" : "validation-risk"}">
         <div class="validation-grid">${evaluationSummaryGrid(summary)}</div>
       </div>
-      <div class="meta">最近 LLM 日志：retry_1=${stats.retry1} / retry_2=${stats.retry2} / repair=${stats.repair} / failed=${stats.failed}</div>
-      ${cases.map((item) => `
+      <div class="meta">当前 run LLM 日志：calls=${logs.length} / retry_1=${stats.retry1} / retry_2=${stats.retry2} / repair=${stats.repair} / failed=${stats.failed}</div>
+      ${cases.map((item) => {
+        const caseLogs = logs.filter((row) => row.context_json?.case_name === item.name);
+        return `
         <section class="trace-card">
           <div class="item-title">
             <span>${escapeHtml(item.name)}</span>
@@ -581,25 +599,29 @@ function renderLLMWorkflow(run, logs = []) {
             ${item.failed_stage ? ` / failed_stage=${escapeHtml(item.failed_stage)}` : ""}
           </div>
           ${item.error ? `<div class="message-preview">${escapeHtml(item.error)}</div>` : ""}
+          <h3>LLM 调用</h3>
+          ${renderCaseLLMLogs(caseLogs)}
+          <h3>Stage Trace</h3>
           ${renderStageTrace(item.stage_trace || [])}
         </section>
-      `).join("")}
+      `;
+      }).join("")}
     </article>
   `;
 }
 
 async function loadEvaluationRuns() {
   const rows = await api("/evaluations/results");
+  const latestInterviewSource = rows.find((row) => row.summary_json?.evaluation_type === "interview_source_smoke");
+  const latestLLMWorkflow = rows.find((row) => row.summary_json?.evaluation_type === "llm_workflow");
   let llmLogs = [];
-  if ($("#llm-workflow-result")) {
+  if ($("#llm-workflow-result") && latestLLMWorkflow) {
     try {
-      llmLogs = await api("/llm/debug/logs?limit=80");
+      llmLogs = await api(`/llm/debug/logs?limit=500&evaluation_run_id=${Number(latestLLMWorkflow.id)}`);
     } catch (error) {
       llmLogs = [];
     }
   }
-  const latestInterviewSource = rows.find((row) => row.summary_json?.evaluation_type === "interview_source_smoke");
-  const latestLLMWorkflow = rows.find((row) => row.summary_json?.evaluation_type === "llm_workflow");
   const sourceTarget = $("#interview-source-smoke-result");
   if (sourceTarget) {
     sourceTarget.innerHTML = renderInterviewSourceSmoke(latestInterviewSource);

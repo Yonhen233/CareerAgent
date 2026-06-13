@@ -1,5 +1,35 @@
 # 开发日志
 
+## 2026-06-13 22:44 +08:00：LLM 调用日志关联到评测 run/case/stage
+
+### 这次做了什么
+- `llm_call_logs` 新增 `context_json`，用于记录 `evaluation_run_id`、`case_name`、`stage` 等运行上下文。
+- `LLMClient` 增加基于 `contextvars` 的 `llm_trace_context`，业务层只需要在 stage 外围设置上下文，底层 `generate_text/generate_json` 和 retry/repair 日志都会自动继承。
+- LLM workflow 在 `resume_parse`、`jd_parse`、`fit_judge` 和 `tailor_resume` 阶段写入 `evaluation_run_id/case_name/stage`，把真实 LLM 调用和 `stage_trace` 对齐。
+- `/llm/debug/logs` 支持 `evaluation_run_id`、`case_name` 和 `stage` 查询参数；返回结果包含 `context_json`。
+- `/ui/evaluations` 改为按最新 LLM workflow 的 `evaluation_run_id` 拉取日志，并在每个 case 下展示该 case 的 LLM 调用列表，不再只展示最近日志窗口的近似统计。
+- 增加 LLM 日志 context 写入、context 过滤和前端调用树入口测试。
+
+### 发现的问题
+- 上一轮页面虽然显示了 `stage_trace`，但 retry/repair 统计来自最近 80 条日志，无法严格说明这些日志属于当前 evaluation run；长跑或多人使用时容易误判。
+- 如果把 `run_id/case/stage` 做成多列，后续其他 workflow 又要不断加列；而当前需要的是可扩展的调试上下文，不是强关系型业务外键。
+- FastAPI 的 `Query` 默认值在直接调用 endpoint 函数时不是普通 `None`，测试里需要显式传入可选参数；生产 HTTP 调用不受影响。
+
+### 怎么修复
+- 使用单个 `context_json` 承载调试上下文，避免为了观测性过度扩展表结构；SQLite 兼容迁移会给旧 `llm_call_logs` 添加默认 `{}`。
+- 在 workflow stage 外层使用 `with llm_trace_context(...)`，不修改简历解析、JD 解析、简历定制等服务的公开接口，降低侵入性。
+- 页面按 `evaluation_run_id` 拉取日志，再按 `case_name` 分组展示，retry/repair 计数变成当前 run 的精确信号。
+
+### 未修复的问题
+- `context_json` 仍是 JSON 字段，不是数据库外键；原因是当前目标是开发期可观测性和排障，严格外键会把所有 LLM 调用场景都绑到 evaluation run。
+- `/llm/debug/logs` 的过滤仍在最近日志窗口内做 Python 过滤；原因是 SQLite/不同数据库的 JSON 查询语法不统一，当前规模下先保证可用和可移植。
+- 页面仍不是流式进度；原因是同步评测 API 未改造为后台任务，下一步应基于 checkpoint/轮询解决。
+
+### 下一步
+- 为 LLM workflow 长跑增加后台任务或轮询 checkpoint，让页面在 case 完成时增量刷新调用树。
+- 将同样的 `context_json` 机制接入普通 Agent run，让 `/ui/agent-runs` 也能看到该 run 触发的 LLM 调用。
+- 评估在 SQLite 上为常用 `context_json.evaluation_run_id` 查询增加轻量索引或派生列，避免日志规模增大后过滤变慢。
+
 ## 2026-06-13 22:37 +08:00：评测工作台展示 LLM workflow trace
 
 ### 这次做了什么

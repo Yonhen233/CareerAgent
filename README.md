@@ -49,6 +49,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
 - LLM 调试：
   - 记录调用名、模型、base_url、prompt 预览、response 预览、耗时、错误信息。
   - JD parser 对空返回/超时做带 trace 的业务层 retry，最多记录到 `jd_parser.parse_jd.retry_2`；截断或非法 JSON 会触发 `jd_parser.parse_jd.repair_json` 重新生成完整 strict JSON。
+  - LLM workflow 会把 `evaluation_run_id`、`case_name` 和 `stage` 写入 `context_json`，评测页可以精确展示当前 run 的调用树。
   - 不记录 API key。
 - 量化评测：
   - 内置样例集 `evals/sample_cases.json`。
@@ -124,7 +125,7 @@ LLM_MODEL=DeepSeek-V4-Pro
 - `/ui/resumes`：查看和下载定制简历版本。
 - `/ui/applications`：查看投递包、投递状态、Guardrail issues/warnings 和人工确认边界。
 - `/ui/interview-prep`：导入同岗面经材料，生成和查看面试准备包，展示网上同岗面经、简历项目技术栈和其他可能面试问题三类准备角度，展示 LLM 连续追问、题目质量分、可点击定位的失败项、面经参考链接，导出 Markdown，并记录按题练习状态。
-- `/ui/evaluations`：运行面经来源 smoke 和真实 LLM workflow smoke，查看最近评测结果、逐 case stage trace、LLM retry/repair 摘要和 source 层健康度，并把候选面经人工确认后导入；导入成功后可带着 `experience_ids` 快速生成面试包。
+- `/ui/evaluations`：运行面经来源 smoke 和真实 LLM workflow smoke，查看最近评测结果、逐 case stage trace、当前 run 的 LLM retry/repair 调用树和 source 层健康度，并把候选面经人工确认后导入；导入成功后可带着 `experience_ids` 快速生成面试包。
 
 ## 常用 API
 

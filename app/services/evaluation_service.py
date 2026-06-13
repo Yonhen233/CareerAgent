@@ -31,7 +31,7 @@ from app.services.job_relevance import (
 from app.services.job_search import JobSearchService
 from app.services.job_sources import JobPosting, JobSourceRegistry
 from app.services.resume_tailor import ResumeTailorService
-from app.core.llm import LLMClient, LLMConfigurationError, format_exception
+from app.core.llm import LLMClient, LLMConfigurationError, format_exception, llm_trace_context
 from app.services.embedding_service import EmbeddingService
 from app.services.matcher import MatcherService
 from app.services.reranker import RerankerService
@@ -777,7 +777,7 @@ class EvaluationService:
             db.refresh(run)
             return run
         for index, case in enumerate(remaining_cases, start=len(existing_results) + 1):
-            case_result = await self._run_llm_workflow_case(db, case)
+            case_result = await self._run_llm_workflow_case(db, case, evaluation_run_id=run.id)
             case_results.append(case_result)
             summary = self._summarize_llm_workflow(case_results, path)
             summary.update(
@@ -1061,7 +1061,13 @@ class EvaluationService:
             ],
         }
 
-    async def _run_llm_workflow_case(self, db: Session, case: dict[str, Any]) -> dict[str, Any]:
+    async def _run_llm_workflow_case(
+        self,
+        db: Session,
+        case: dict[str, Any],
+        *,
+        evaluation_run_id: int | None = None,
+    ) -> dict[str, Any]:
         stage = "start"
         case_started = time.perf_counter()
         stage_trace: list[dict[str, Any]] = []
@@ -1078,7 +1084,8 @@ class EvaluationService:
             stage = "resume_parse"
             self._record_stage(stage_trace, stage, "started")
             parser = ResumeParserService()
-            profile_json = await parser.parse_structured_resume(case["resume_raw_text"], db=db)
+            with llm_trace_context(evaluation_run_id=evaluation_run_id, case_name=case["name"], stage=stage):
+                profile_json = await parser.parse_structured_resume(case["resume_raw_text"], db=db)
             profile_text = json.dumps(profile_json, ensure_ascii=False)
             profile_skill_recall = self._keyword_hit_rate(profile_text, case.get("expected_profile_skills", []))
             profile_keyword_hit_rate = self._keyword_hit_rate(profile_text, case.get("expected_profile_keywords", []))
@@ -1124,12 +1131,13 @@ class EvaluationService:
             stage = "jd_parse"
             self._record_stage(stage_trace, stage, "started")
             job_payload = case["job"]
-            jd = await JDParserService().parse_jd(
-                job_payload["jd_text"],
-                title=job_payload.get("title"),
-                company=job_payload.get("company"),
-                db=db,
-            )
+            with llm_trace_context(evaluation_run_id=evaluation_run_id, case_name=case["name"], stage=stage):
+                jd = await JDParserService().parse_jd(
+                    job_payload["jd_text"],
+                    title=job_payload.get("title"),
+                    company=job_payload.get("company"),
+                    db=db,
+                )
             jd_text = json.dumps(jd, ensure_ascii=False)
             jd_skill_recall = self._keyword_hit_rate(jd_text, case.get("expected_jd_skills", []))
             job = Job(
@@ -1211,7 +1219,8 @@ class EvaluationService:
 
             stage = "fit_judge"
             self._record_stage(stage_trace, stage, "started")
-            suitability = await self._llm_judge_suitability(db, profile.structured_profile_json, job)
+            with llm_trace_context(evaluation_run_id=evaluation_run_id, case_name=case["name"], stage=stage):
+                suitability = await self._llm_judge_suitability(db, profile.structured_profile_json, job)
             fit_context_compression = suitability.pop("_context_compression", None)
             predicted_label = str(suitability.get("fit_label") or "").strip()
             fit_score = self._coerce_float(suitability.get("fit_score"))
@@ -1246,7 +1255,8 @@ class EvaluationService:
             if case.get("run_tailor"):
                 stage = "tailor_resume"
                 self._record_stage(stage_trace, stage, "started")
-                version = await ResumeTailorService().tailor_resume(db, profile, job)
+                with llm_trace_context(evaluation_run_id=evaluation_run_id, case_name=case["name"], stage=stage):
+                    version = await ResumeTailorService().tailor_resume(db, profile, job)
                 resume_text = version.tailored_resume_markdown
                 tailored_keyword_hit_rate = self._keyword_hit_rate(
                     resume_text,

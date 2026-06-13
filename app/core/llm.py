@@ -1,6 +1,8 @@
 import json
 import re
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import TYPE_CHECKING
 from typing import Any
 
@@ -18,6 +20,20 @@ class LLMConfigurationError(RuntimeError):
 
 class LLMResponseError(RuntimeError):
     """Raised when the LLM endpoint returns an unusable response."""
+
+
+_LLM_TRACE_CONTEXT: ContextVar[dict[str, Any]] = ContextVar("llm_trace_context", default={})
+
+
+@contextmanager
+def llm_trace_context(**metadata: Any):
+    parent = dict(_LLM_TRACE_CONTEXT.get() or {})
+    clean = {key: value for key, value in metadata.items() if value is not None}
+    token = _LLM_TRACE_CONTEXT.set({**parent, **clean})
+    try:
+        yield
+    finally:
+        _LLM_TRACE_CONTEXT.reset(token)
 
 
 def format_exception(exc: Exception) -> str:
@@ -210,6 +226,7 @@ class LLMClient:
                     prompt_chars=int(prompt_preview.get("system_chars", 0))
                     + int(prompt_preview.get("user_chars", 0)),
                     response_chars=response_chars if response_chars is not None else len(response_preview or ""),
+                    context_json=dict(_LLM_TRACE_CONTEXT.get() or {}),
                 )
             )
             db.commit()

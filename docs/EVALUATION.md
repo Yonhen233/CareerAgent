@@ -712,7 +712,7 @@ POST /evaluations/llm-workflow
 - JD parser 在真实 LLM 评测中会把空返回/超时记录为 `jd_parser.parse_jd.retry_1`、`jd_parser.parse_jd.retry_2`；截断或非法 JSON 会记录 `jd_parser.parse_jd.repair_json`，便于区分模型波动、输出格式损坏和业务解析失败。
 - `EvaluationRun` 会在评测开始时创建，之后每完成一个 case 就更新 `summary_json` 和 `case_results_json`。
 - 每个 case 带 `stage_trace`，记录 resume parse、JD parse、match/RAG、fit judge、tailor 的中间摘要。
-- `/ui/evaluations` 可以直接运行 smoke 级 LLM workflow，并展示最新评测的 summary、逐 case stage trace、失败阶段和最近 JD parser retry/repair 日志计数；这样真实失败可以先在页面定位，再进入 SQLite 或 JSONL 深挖。
+- `/ui/evaluations` 可以直接运行 smoke 级 LLM workflow，并展示最新评测的 summary、逐 case stage trace、失败阶段和当前 `evaluation_run_id` 关联的 JD parser retry/repair 日志计数；这样真实失败可以先在页面定位，再进入 SQLite 或 JSONL 深挖。
 - 开发脚本可传 `trace_path` 写 JSONL，即使长跑被中断，也能看到已经完成 case 的中间结果。
 - `resume_from_last_completed=true` 时，评测会从 JSONL trace 中读取连续完成的 case 前缀，并从第一个缺失 case 继续跑；新 trace 事件会写入完整 `case_result`，因此恢复后仍能保留每个阶段的中间结果。
 - `tailor_resume` stage 会记录 `react_repair` 元数据；如果触发修复，可以看到触发风险、问题类型、使用工具、修复后风险和二次 Guardrail 是否通过。

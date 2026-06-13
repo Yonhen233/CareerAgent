@@ -38,13 +38,15 @@ def _ensure_sqlite_columns() -> None:
 
     inspector = inspect(engine)
     tables = set(inspector.get_table_names())
-    if "resume_chunks" not in tables:
-        return
-
-    resume_chunk_columns = {column["name"] for column in inspector.get_columns("resume_chunks")}
     statements: list[str] = []
-    if "metadata_json" not in resume_chunk_columns:
-        statements.append("ALTER TABLE resume_chunks ADD COLUMN metadata_json JSON NOT NULL DEFAULT '{}'")
+    if "resume_chunks" in tables:
+        resume_chunk_columns = {column["name"] for column in inspector.get_columns("resume_chunks")}
+        if "metadata_json" not in resume_chunk_columns:
+            statements.append("ALTER TABLE resume_chunks ADD COLUMN metadata_json JSON NOT NULL DEFAULT '{}'")
+    if "llm_call_logs" in tables:
+        llm_log_columns = {column["name"] for column in inspector.get_columns("llm_call_logs")}
+        if "context_json" not in llm_log_columns:
+            statements.append("ALTER TABLE llm_call_logs ADD COLUMN context_json JSON NOT NULL DEFAULT '{}'")
 
     with engine.begin() as conn:
         for statement in statements:
