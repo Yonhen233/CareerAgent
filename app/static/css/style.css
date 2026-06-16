@@ -252,6 +252,11 @@ button svg,
   color: var(--green);
 }
 
+.status-pill.risk {
+  background: #fff1f1;
+  color: var(--red);
+}
+
 .progress-bar {
   position: relative;
   width: 100%;
@@ -419,6 +424,26 @@ button svg,
   border-left: 3px solid var(--blue);
   background: var(--surface-2);
   color: var(--text);
+}
+
+.details-block {
+  margin-top: 12px;
+}
+
+.details-block summary {
+  cursor: pointer;
+  color: var(--blue);
+  font-weight: 720;
+}
+
+.details-block pre {
+  max-height: 340px;
+  overflow: auto;
+  padding: 12px;
+  background: #101828;
+  color: #f7f8fb;
+  border-radius: 8px;
+  white-space: pre-wrap;
 }
 
 .quick-actions {

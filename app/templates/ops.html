@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="workspace-grid">
+  <div class="panel span-7">
+    <div class="panel-heading">
+      <div>
+        <p class="eyebrow">Production readiness</p>
+        <h1>上线状态</h1>
+      </div>
+      <button class="ghost" data-refresh="ops"><i data-lucide="refresh-cw"></i> 刷新</button>
+    </div>
+    <div id="ops-readiness" class="result-list"></div>
+  </div>
+
+  <aside class="panel span-5">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">Access</p>
+        <h2>管理令牌</h2>
+      </div>
+    </div>
+    <form id="admin-token-form" class="form-grid">
+      <label class="wide">X-Admin-Token<input name="admin_token" type="password" autocomplete="off" placeholder="仅保存在本机浏览器"></label>
+      <button class="primary" type="submit"><i data-lucide="key-round"></i> 保存</button>
+      <button class="ghost" type="button" id="clear-admin-token"><i data-lucide="eraser"></i> 清除</button>
+    </form>
+    <p id="admin-token-state" class="notice"></p>
+  </aside>
+</section>
+
+<section class="workspace-grid">
+  <div class="panel span-6">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">Runtime metrics</p>
+        <h2>运行指标</h2>
+      </div>
+    </div>
+    <div id="ops-metrics" class="result-list"></div>
+  </div>
+
+  <div class="panel span-6">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">Configuration</p>
+        <h2>脱敏配置</h2>
+      </div>
+    </div>
+    <div id="ops-config" class="result-list"></div>
+  </div>
+</section>
+
+<section class="workspace-grid">
+  <div class="panel span-6">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">Background tasks</p>
+        <h2>后台任务</h2>
+      </div>
+    </div>
+    <div id="ops-tasks" class="result-list"></div>
+  </div>
+
+  <div class="panel span-6">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">LLM trace</p>
+        <h2>最近 LLM 调用</h2>
+      </div>
+    </div>
+    <div id="ops-llm-logs" class="result-list"></div>
+  </div>
+</section>
+{% endblock %}

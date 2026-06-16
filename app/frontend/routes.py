@@ -44,6 +44,21 @@ def interview_prep(request: Request):
     return templates.TemplateResponse(request, "interview_prep.html", {"page": "interview_prep"})
 
 
+@router.get("/ui/prep", response_class=HTMLResponse)
+def interview_prep_alias(request: Request):
+    return templates.TemplateResponse(request, "interview_prep.html", {"page": "interview_prep"})
+
+
 @router.get("/ui/evaluations", response_class=HTMLResponse)
 def evaluations(request: Request):
     return templates.TemplateResponse(request, "evaluations.html", {"page": "evaluations"})
+
+
+@router.get("/ui/quality", response_class=HTMLResponse)
+def evaluations_alias(request: Request):
+    return templates.TemplateResponse(request, "evaluations.html", {"page": "evaluations"})
+
+
+@router.get("/ui/ops", response_class=HTMLResponse)
+def ops(request: Request):
+    return templates.TemplateResponse(request, "ops.html", {"page": "ops"})

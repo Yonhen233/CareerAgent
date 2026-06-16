@@ -15,7 +15,10 @@ def test_frontend_pages_render():
         "/ui/resumes",
         "/ui/applications",
         "/ui/interview-prep",
+        "/ui/prep",
         "/ui/evaluations",
+        "/ui/quality",
+        "/ui/ops",
     ]:
         response = client.get(path)
         assert response.status_code == 200
@@ -53,6 +56,24 @@ def test_evaluations_frontend_exposes_llm_workflow_trace_panel():
     assert "trace-list" in style_css
     assert "trace-step" in style_css
     assert "progress-bar" in style_css
+
+
+def test_ops_frontend_exposes_production_controls():
+    client = TestClient(app)
+    response = client.get("/ui/ops")
+    main_js = Path("app/static/js/main.js").read_text(encoding="utf-8")
+    style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")
+
+    assert response.status_code == 200
+    assert "ops-readiness" in response.text
+    assert "admin-token-form" in response.text
+    assert "ops-metrics" in response.text
+    assert "ops-llm-logs" in response.text
+    assert "loadOpsPage" in main_js
+    assert "careeragent.admin_token" in main_js
+    assert "X-Admin-Token" in main_js
+    assert "loadDashboardOpsSummary" in main_js
+    assert "details-block" in style_css
 
 
 def test_interview_prep_frontend_exposes_question_quality_panel():

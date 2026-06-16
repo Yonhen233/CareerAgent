@@ -1,5 +1,39 @@
 # 开发日志
 
+## 2026-06-16 20:51 +08:00：前端上线体验、运维面板与内置浏览器验证
+### 这次做了什么
+- 新增 `/ui/ops` 运维页，聚合 `/ops/readiness`、`/ops/metrics`、`/ops/config`、`/tasks` 和 `/llm/debug/logs`，展示上线状态、脱敏配置、运行指标、后台任务和最近 LLM 调用。
+- 前端新增 Admin Token 管理表单，令牌只保存到本机浏览器 localStorage；`api()` helper 和 PDF 上传请求会自动携带 `X-Admin-Token`，开启 `REQUIRE_ADMIN_FOR_MUTATIONS=true` 后前端写操作仍可用。
+- 首页新增“系统状态”和“后台任务”面板，直接展示 readiness、最近评测、LLM 调用量和任务摘要，不需要先进入开发调试页。
+- 为面试准备和评测页新增推荐别名 `/ui/prep`、`/ui/quality`，旧路径 `/ui/interview-prep`、`/ui/evaluations` 保持兼容；导航和首页快捷入口改为新路径。
+- 后台任务卡新增“任务详情”展开区，可查看 input、progress、output、错误和时间戳，减少查 SQLite 的成本。
+- 更新 README、API 文档和开发文档，说明 `/ui/ops`、`/ui/prep`、`/ui/quality` 和前端 Admin Token 行为。
+### 发现的问题
+- 内置浏览器能打开首页、简历、岗位、Agent Runs，但在旧服务或部分路径上会出现 `net::ERR_BLOCKED_BY_CLIENT`；原因不是 FastAPI 路由错误，而是浏览器客户端侧拦截或旧端口服务未热更新。
+- 端口 `8000` 上已有旧服务没有加载新路由，`/ui/ops` 返回 404；新启动 `8010` 服务后，新页面路由和动态数据都正常。
+- 首页原快捷入口仍指向旧的 `/ui/interview-prep`、`/ui/evaluations`，在内置浏览器误拦路径时体验不好。
+- 前端之前虽然能看评测和任务进度，但缺少统一的上线状态入口；用户无法一眼判断数据库、LLM、embedding/reranker、后台任务和 LLM 调用是否健康。
+### 怎么修复
+- 新增 `/ui/ops`，并在导航里加入“运维”；首页添加系统状态面板，运维信息从真实接口加载。
+- 增加 `/ui/prep`、`/ui/quality` 别名，并将导航和首页快捷入口切到新路径，减少内置浏览器路径误拦概率。
+- `api()` 统一注入 `X-Admin-Token`，上传 PDF 的原生 `fetch` 也复用同一套 header。
+- 用 `details` 展开任务和日志详情，默认保持页面扫描密度，排障时可以展开看 JSON。
+### 验证结果
+- 内置浏览器验证 `http://127.0.0.1:8010/`、`/ui/ops`、`/ui/quality`、`/ui/prep` 均可打开，中文显示正常，页面自身控制台无错误。
+- `/ui/ops` 能展示 readiness、metrics、config、LLM logs；首页能展示系统状态和后台任务摘要。
+- 目标测试：`tests/test_frontend_pages.py tests/test_health.py` 共 10 个测试通过；`node --check app\static\js\main.js` 通过；`python -m py_compile app\frontend\routes.py` 通过。
+- 全量回归：`82 passed in 36.13s`；真实 DeepSeek 1-case smoke run 35 完成，`end_to_end_pass_rate=1.0`、`fit_label_accuracy=1.0`、`tailor_pass_rate=1.0`、`guardrail_pass_rate=1.0`。
+### 未修复的问题
+- `/ui/ops` 仍是单机运维面板，不是完整 SRE 平台；原因是当前产品还没有 Prometheus/OpenTelemetry、集中日志、告警和多实例部署。
+- Admin Token 只是管理令牌，不是多用户登录/RBAC；原因是账号体系、组织空间和数据权限模型还没有引入。
+- 内置浏览器的客户端拦截无法由项目代码完全控制；本轮通过新路径和新版端口验证规避，生产环境以实际部署域名为准。
+- 前端还没有任务取消、任务重跑和失败 case 一键跳转到 LLM 日志；原因是后端还没有 cancellation/retry endpoint。
+### 下一步
+- 增加任务取消/重跑接口，并在 `/ui/ops` 和 `/ui/quality` 提供操作按钮。
+- 将 LLM 调用日志按 `evaluation_run_id`、`case_name`、`stage` 做更强筛选和跳转。
+- 做一次 18-case 后台长跑，用 `/ui/ops` 观察任务进度、失败记录和日志展示是否足够支撑上线排障。
+- 继续补生产部署：Docker、环境变量模板、结构化日志、限流、审计日志和监控导出。
+
 ## 2026-06-16 18:33 +08:00：后台任务、权限监控与 DeepSeek JSON 链路稳定性
 ### 这次做了什么
 - 新增 `task_runs` 表、`TaskQueueService` 和 `/tasks/llm-workflow`，把真实 LLM workflow 长跑放到 FastAPI `BackgroundTasks` 中执行，并通过 `/tasks` / `/tasks/{task_id}` 轮询 queued/running/completed/failed、进度、错误和最终 `evaluation_run_id`。

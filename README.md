@@ -138,8 +138,9 @@ LLM_THINKING_MODE=auto
 - `/ui/agent-runs`：运行 Agent 并查看步骤。
 - `/ui/resumes`：查看和下载定制简历版本。
 - `/ui/applications`：查看投递包、投递状态、Guardrail issues/warnings 和人工确认边界。
-- `/ui/interview-prep`：导入同岗面经材料，生成和查看面试准备包，展示网上同岗面经、简历项目技术栈和其他可能面试问题三类准备角度，展示 LLM 连续追问、题目质量分、可点击定位的失败项、面经参考链接，导出 Markdown，并记录按题练习状态。
-- `/ui/evaluations`：运行面经来源 smoke 和真实 LLM workflow smoke，查看最近评测结果、逐 case stage trace、当前 run 的 LLM retry/repair 调用树和 source 层健康度，并把候选面经人工确认后导入；导入成功后可带着 `experience_ids` 快速生成面试包。
+- `/ui/prep`：导入同岗面经材料，生成和查看面试准备包，展示网上同岗面经、简历项目技术栈和其他可能面试问题三类准备角度，展示 LLM 连续追问、题目质量分、可点击定位的失败项、面经参考链接，导出 Markdown，并记录按题练习状态。兼容旧路径 `/ui/interview-prep`。
+- `/ui/quality`：运行面经来源 smoke 和真实 LLM workflow smoke，查看最近评测结果、逐 case stage trace、当前 run 的 LLM retry/repair 调用树和 source 层健康度，并把候选面经人工确认后导入；导入成功后可带着 `experience_ids` 快速生成面试包。兼容旧路径 `/ui/evaluations`。
+- `/ui/ops`：上线状态、脱敏配置、运行指标、后台任务和最近 LLM 调用日志；可在本机浏览器保存 `X-Admin-Token`，后续写操作自动带上管理令牌。
 
 ## 常用 API
 
@@ -208,6 +209,7 @@ pytest -q
 - `/ops/readiness`：检查数据库、LLM 配置、embedding/reranker provider。
 - `/ops/metrics`：查看请求数、平均延迟、状态码分布、Agent run/task/LLM call 状态分布和最近评测摘要。
 - `/tasks/llm-workflow`：把真实 LLM workflow 放到后台执行，前端轮询 `/tasks` 展示进度，适合 18-case 长跑。
+- `/ui/ops`：提供这些运维接口的前端面板，并支持保存本机 Admin Token。
 
 ## 文档
 

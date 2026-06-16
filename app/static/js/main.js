@@ -1,4 +1,5 @@
 const $ = (selector) => document.querySelector(selector);
+const ADMIN_TOKEN_KEY = "careeragent.admin_token";
 
 function toast(message) {
   const el = $("#toast");
@@ -10,9 +11,21 @@ function toast(message) {
   }, 3600);
 }
 
+function getAdminToken() {
+  return window.localStorage?.getItem(ADMIN_TOKEN_KEY) || "";
+}
+
+function authHeaders(headers = {}) {
+  const token = getAdminToken();
+  return {
+    ...headers,
+    ...(token ? { "X-Admin-Token": token } : {}),
+  };
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
-    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    headers: authHeaders({ "Content-Type": "application/json", ...(options.headers || {}) }),
     ...options,
   });
   if (!response.ok) {
@@ -374,6 +387,177 @@ function formatPercent(value) {
   return `${Math.round(number * 100)}%`;
 }
 
+function safeJson(value, limit = 1800) {
+  const text = JSON.stringify(value || {}, null, 2);
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit)}\n... truncated`;
+}
+
+function statusClass(value) {
+  const normalized = String(value || "").toLowerCase();
+  if (["ok", "ready", "completed", "true"].includes(normalized)) return "ok";
+  if (normalized.includes("fail") || normalized.includes("missing") || normalized.includes("degraded")) return "risk";
+  return "";
+}
+
+function renderCheckGrid(checks) {
+  return `<div class="validation-grid">${Object.entries(checks || {}).map(([key, value]) => `
+    <div>
+      <strong>${escapeHtml(key)}</strong>
+      <div class="meta"><span class="status-pill ${statusClass(value)}">${escapeHtml(value)}</span></div>
+    </div>
+  `).join("")}</div>`;
+}
+
+function renderOpsReadiness(readiness) {
+  return `
+    <article class="item">
+      <div class="item-title">
+        <span>服务状态</span>
+        <span class="status-pill ${statusClass(readiness.status)}">${escapeHtml(readiness.status || "unknown")}</span>
+      </div>
+      <div class="validation-panel ${readiness.status === "ready" ? "validation-ok" : "validation-risk"}">
+        ${renderCheckGrid(readiness.checks || {})}
+      </div>
+    </article>
+  `;
+}
+
+function renderOpsMetrics(metrics) {
+  const app = metrics.app || {};
+  const database = metrics.database || {};
+  const latest = metrics.latest_evaluation || {};
+  const summary = latest.summary || {};
+  return `
+    <article class="item">
+      <div class="validation-grid">
+        ${metricCell("请求数", app.request_count ?? 0)}
+        ${metricCell("平均延迟", `${app.avg_latency_ms ?? 0}ms`)}
+        ${metricCell("Agent Runs", Object.values(database.agent_runs_by_status || {}).reduce((a, b) => a + b, 0))}
+        ${metricCell("后台任务", Object.values(database.tasks_by_status || {}).reduce((a, b) => a + b, 0))}
+        ${metricCell("LLM 调用", Object.values(database.llm_calls_by_status || {}).reduce((a, b) => a + b, 0))}
+        ${metricCell("评测次数", database.evaluation_run_count ?? 0)}
+      </div>
+      ${latest.id ? `<p class="meta">最近评测 #${escapeHtml(latest.id)} / ${escapeHtml(summary.evaluation_type || latest.name)} / ${escapeHtml(summary.status || "-")}</p>` : ""}
+      <details class="details-block">
+        <summary>状态分布</summary>
+        <pre>${escapeHtml(safeJson({
+          status_counts: app.status_counts,
+          top_routes: app.top_routes,
+          agent_runs_by_status: database.agent_runs_by_status,
+          tasks_by_status: database.tasks_by_status,
+          llm_calls_by_status: database.llm_calls_by_status,
+        }))}</pre>
+      </details>
+    </article>
+  `;
+}
+
+function renderOpsConfig(config) {
+  const llm = config.llm || {};
+  const retrieval = config.retrieval || {};
+  const security = config.security || {};
+  return `
+    <article class="item">
+      <div class="validation-grid">
+        ${metricCell("环境", config.app_env || "-")}
+        ${metricCell("数据库", config.database_backend || "-")}
+        ${metricCell("LLM", llm.configured ? "已配置" : "未配置")}
+        ${metricCell("模型", llm.model || "-")}
+        ${metricCell("Thinking", llm.thinking_mode || "-")}
+        ${metricCell("Embedding", retrieval.embedding_provider || "-")}
+        ${metricCell("Reranker", retrieval.reranker_enabled ? retrieval.reranker_provider : "disabled")}
+        ${metricCell("写权限保护", security.require_admin_for_mutations ? "已开启" : "未开启")}
+      </div>
+      <details class="details-block">
+        <summary>完整脱敏配置</summary>
+        <pre>${escapeHtml(safeJson(config))}</pre>
+      </details>
+    </article>
+  `;
+}
+
+function renderOpsLogs(logs) {
+  if (!logs || !logs.length) return `<div class="item meta">暂无 LLM 调用日志</div>`;
+  return logs.slice(0, 12).map((row) => `
+    <article class="item">
+      <div class="item-title">
+        <span>${escapeHtml(row.trace_name)}</span>
+        <span class="status-pill ${statusClass(row.status)}">${escapeHtml(row.status)}</span>
+      </div>
+      <div class="meta">${escapeHtml(row.model)} / ${escapeHtml(row.latency_ms)}ms / stage=${escapeHtml(row.context_json?.stage || "-")}</div>
+      ${row.error_message ? `<div class="message-preview">${escapeHtml(row.error_message)}</div>` : ""}
+      ${row.response_preview ? `<details class="details-block"><summary>响应预览</summary><pre>${escapeHtml(row.response_preview)}</pre></details>` : ""}
+    </article>
+  `).join("");
+}
+
+async function loadDashboardOpsSummary() {
+  const target = $("#dashboard-ops-summary");
+  const taskTarget = $("#dashboard-task-summary");
+  if (!target && !taskTarget) return;
+  const [readiness, metrics, tasks] = await Promise.all([
+    api("/ops/readiness"),
+    api("/ops/metrics"),
+    api("/tasks?limit=3"),
+  ]);
+  if (target) {
+    const latest = metrics.latest_evaluation?.summary || {};
+    target.innerHTML = `
+      ${renderOpsReadiness(readiness)}
+      <article class="item">
+        <div class="validation-grid">
+          ${metricCell("请求数", metrics.app?.request_count ?? 0)}
+          ${metricCell("平均延迟", `${metrics.app?.avg_latency_ms ?? 0}ms`)}
+          ${metricCell("最近评测", latest.status || "-")}
+          ${metricCell("LLM 调用", Object.values(metrics.database?.llm_calls_by_status || {}).reduce((a, b) => a + b, 0))}
+        </div>
+      </article>
+    `;
+  }
+  if (taskTarget) {
+    taskTarget.innerHTML = tasks.length ? tasks.map(renderTaskRun).join("") : `<div class="item meta">暂无后台任务</div>`;
+  }
+  if (window.lucide) window.lucide.createIcons();
+}
+
+async function loadOpsPage() {
+  if (!$("#ops-readiness")) return;
+  updateAdminTokenState();
+  const results = await Promise.allSettled([
+    api("/ops/readiness"),
+    api("/ops/metrics"),
+    api("/ops/config"),
+    api("/tasks?limit=12"),
+    api("/llm/debug/logs?limit=20"),
+  ]);
+  const [readiness, metrics, config, tasks, logs] = results;
+  $("#ops-readiness").innerHTML = readiness.status === "fulfilled"
+    ? renderOpsReadiness(readiness.value)
+    : `<div class="item validation-risk">${escapeHtml(readiness.reason.message)}</div>`;
+  $("#ops-metrics").innerHTML = metrics.status === "fulfilled"
+    ? renderOpsMetrics(metrics.value)
+    : `<div class="item validation-risk">${escapeHtml(metrics.reason.message)}</div>`;
+  $("#ops-config").innerHTML = config.status === "fulfilled"
+    ? renderOpsConfig(config.value)
+    : `<div class="item validation-risk">${escapeHtml(config.reason.message)}</div>`;
+  $("#ops-tasks").innerHTML = tasks.status === "fulfilled" && tasks.value.length
+    ? tasks.value.map(renderTaskRun).join("")
+    : `<div class="item meta">${tasks.status === "fulfilled" ? "暂无后台任务" : escapeHtml(tasks.reason.message)}</div>`;
+  $("#ops-llm-logs").innerHTML = logs.status === "fulfilled"
+    ? renderOpsLogs(logs.value)
+    : `<div class="item validation-risk">${escapeHtml(logs.reason.message)}</div>`;
+  if (window.lucide) window.lucide.createIcons();
+}
+
+function updateAdminTokenState() {
+  const state = $("#admin-token-state");
+  const form = $("#admin-token-form");
+  const token = getAdminToken();
+  if (form?.admin_token) form.admin_token.value = token;
+  if (state) state.textContent = token ? "已保存到本机浏览器，后续请求会自动带上 X-Admin-Token。" : "未保存管理令牌；如果服务端开启写权限保护，写操作会返回 401。";
+}
+
 function focusInterviewQuestion(button) {
   const questionId = button.dataset.qualityJump;
   if (!questionId) return;
@@ -673,6 +857,18 @@ function renderTaskRun(row) {
           <div><strong>Tailor</strong><div class="meta">${formatPercent(progress.tailor_pass_rate)}</div></div>
         </div>
       </div>
+      <details class="details-block">
+        <summary>任务详情</summary>
+        <pre>${escapeHtml(safeJson({
+          input: row.input_json,
+          progress: row.progress_json,
+          output: row.output_json,
+          error: row.error_message,
+          created_at: row.created_at,
+          started_at: row.started_at,
+          completed_at: row.completed_at,
+        }))}</pre>
+      </details>
     </article>
   `;
 }
@@ -746,11 +942,33 @@ function prefillInterviewPrepFromQuery() {
 }
 
 function bindForms() {
+  $("#admin-token-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const raw = formJson(event.currentTarget);
+    const token = String(raw.admin_token || "").trim();
+    if (token) {
+      window.localStorage?.setItem(ADMIN_TOKEN_KEY, token);
+      toast("管理令牌已保存");
+    } else {
+      window.localStorage?.removeItem(ADMIN_TOKEN_KEY);
+      toast("管理令牌已清除");
+    }
+    updateAdminTokenState();
+    await loadOpsPage();
+  });
+
+  $("#clear-admin-token")?.addEventListener("click", async () => {
+    window.localStorage?.removeItem(ADMIN_TOKEN_KEY);
+    updateAdminTokenState();
+    toast("管理令牌已清除");
+    await loadOpsPage();
+  });
+
   $("#upload-profile-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
-    const response = await fetch("/profiles/upload", { method: "POST", body: data });
+    const response = await fetch("/profiles/upload", { method: "POST", body: data, headers: authHeaders() });
     if (!response.ok) throw new Error(await response.text());
     toast("Profile created");
     form.reset();
@@ -1007,8 +1225,9 @@ function bindForms() {
       if (key === "applications") loadApplications();
       if (key === "interview-prep") loadInterviewPreps();
       if (key === "interview-experience") loadInterviewExperiences();
-    if (key === "evaluations") loadEvaluationRuns();
-    if (key === "tasks") loadTasks();
+      if (key === "evaluations") loadEvaluationRuns();
+      if (key === "tasks") loadTasks();
+      if (key === "ops") loadOpsPage();
   });
   });
 
@@ -1027,6 +1246,7 @@ async function bootstrap() {
   try {
     if (page === "dashboard") {
       await loadHealth();
+      await loadDashboardOpsSummary();
       await loadRecentRuns();
     }
     if (page === "profiles") await loadProfiles();
@@ -1041,6 +1261,7 @@ async function bootstrap() {
     }
     if (page === "evaluations") await loadEvaluationRuns();
     if (page === "evaluations") await loadTasks();
+    if (page === "ops") await loadOpsPage();
   } catch (error) {
     toast(error.message);
   }

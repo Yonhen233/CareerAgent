@@ -268,7 +268,7 @@ GET /tasks
 GET /tasks/{task_id}
 ```
 
-后台任务使用进程内 FastAPI BackgroundTasks 和 SQLite `task_runs` 表，适合开发期演示并发、轮询进度和失败追踪；生产多实例部署时应替换为 Redis/Celery/Arq 等外部队列。
+后台任务使用进程内 FastAPI BackgroundTasks 和 SQLite `task_runs` 表，适合开发期演示并发、轮询进度和失败追踪；生产多实例部署时应替换为 Redis/Celery/Arq 等外部队列。前端推荐使用 `/ui/quality` 的后台任务面板，或在 `/ui/ops` 查看最近任务和输出摘要。
 
 ## 权限与监控
 
@@ -284,6 +284,8 @@ REQUIRE_ADMIN_FOR_MUTATIONS=true
 - `GET /ops/readiness`：数据库、LLM、embedding、reranker readiness。
 - `GET /ops/metrics`：请求数、平均延迟、状态码分布、Agent run/task/LLM call 状态分布。
 - `GET /ops/config`：脱敏配置摘要。
+
+前端入口 `/ui/ops` 会聚合 readiness、metrics、脱敏配置、后台任务和最近 LLM 调用日志。页面上的 Admin Token 只保存到本机浏览器 localStorage；保存后所有前端 API 请求会自动携带 `X-Admin-Token`。面试准备和评测页面推荐使用 `/ui/prep`、`/ui/quality`，旧路径 `/ui/interview-prep`、`/ui/evaluations` 保持兼容。
 
 API 也支持 smoke mode：
 
