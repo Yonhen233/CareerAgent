@@ -709,10 +709,10 @@ POST /evaluations/llm-workflow
 - 对标记为 `run_tailor=true` 的案例真实调用简历定制流程。
 - 使用 Guardrail 验证是否引入未支持数字、过多新 claim、禁止 claim。
 - 不做静默 fallback；失败 case 记录 `failed_stage` 和异常类型，LLM 调用日志记录 prompt/response/error trace。
-- JD parser 在真实 LLM 评测中会把空返回/超时记录为 `jd_parser.parse_jd.retry_1`、`jd_parser.parse_jd.retry_2`；截断或非法 JSON 会记录 `jd_parser.parse_jd.repair_json`，便于区分模型波动、输出格式损坏和业务解析失败。
+- Resume parser 和 JD parser 在真实 LLM 评测中会把空返回/超时/服务端断连记录为 `.retry_1`、`.retry_2`；JD 截断或非法 JSON 会记录 `jd_parser.parse_jd.repair_json`，便于区分模型波动、输出格式损坏和业务解析失败。
 - `EvaluationRun` 会在评测开始时创建，之后每完成一个 case 就更新 `summary_json` 和 `case_results_json`。
 - 每个 case 带 `stage_trace`，记录 resume parse、JD parse、match/RAG、fit judge、tailor 的中间摘要。
-- `/ui/evaluations` 可以直接运行 smoke 级 LLM workflow，并展示最新评测的 summary、逐 case stage trace、失败阶段和当前 `evaluation_run_id` 关联的 JD parser retry/repair 日志计数；这样真实失败可以先在页面定位，再进入 SQLite 或 JSONL 深挖。
+- `/ui/evaluations` 可以直接运行 smoke 级 LLM workflow，并展示最新评测的 summary、逐 case stage trace、失败阶段和当前 `evaluation_run_id` 关联的 LLM 调用日志、retry/repair 计数；这样真实失败可以先在页面定位，再进入 SQLite 或 JSONL 深挖。
 - 开发脚本可传 `trace_path` 写 JSONL，即使长跑被中断，也能看到已经完成 case 的中间结果。
 - `resume_from_last_completed=true` 时，评测会从 JSONL trace 中读取连续完成的 case 前缀，并从第一个缺失 case 继续跑；新 trace 事件会写入完整 `case_result`，因此恢复后仍能保留每个阶段的中间结果。
 - `tailor_resume` stage 会记录 `react_repair` 元数据；如果触发修复，可以看到触发风险、问题类型、使用工具、修复后风险和二次 Guardrail 是否通过。
@@ -738,37 +738,41 @@ POST /evaluations/llm-workflow
 | `context_compression` | fit judge 与 tailor 阶段的压缩上下文数量、平均压缩率和保留证据数。 |
 | `difficulty_breakdown` | 按 easy/medium/hard/adversarial 分桶的指标。 |
 
-历史 18-case 全量基线结果：
+最新 DeepSeek V4 18-case 全量真实长跑结果：
 
 | 指标 | 结果 |
 | --- | ---: |
 | case_count | 18 |
-| completed_rate | 0.9444 |
-| end_to_end_pass_rate | 0.8889 |
+| completed_rate | 1.0000 |
+| end_to_end_pass_rate | 1.0000 |
 | resume_parse_success_rate | 1.0000 |
 | jd_parse_success_rate | 1.0000 |
 | fit_judge_success_rate | 1.0000 |
-| fit_label_accuracy | 0.9444 |
-| fit_score_in_range_rate | 0.9444 |
-| avg_fit_score_range_error | 0.8333 |
+| fit_label_accuracy | 1.0000 |
+| fit_score_in_range_rate | 1.0000 |
+| avg_fit_score_range_error | 0.0000 |
 | avg_matcher_evidence_hit_rate | 1.0000 |
-| tailor_case_count | 14 |
-| tailor_success_rate | 0.9286 |
-| tailor_pass_rate | 0.9286 |
-| guardrail_pass_rate | 0.9286 |
-| forbidden_claim_free_rate | 0.9286 |
+| tailor_case_count | 13 |
+| tailor_success_rate | 1.0000 |
+| tailor_pass_rate | 1.0000 |
+| guardrail_pass_rate | 1.0000 |
+| forbidden_claim_free_rate | 1.0000 |
 | avg_hallucination_count | 0.0000 |
+| avg_tailor_reduction_ratio | 0.6011 |
+| avg_tailor_retained_evidence_count | 6.0769 |
 
-这组结果来自引入分级上下文压缩前的全量真实评测，用于保留长期对照。
+运行配置：`LLM_BASE_URL=https://api.deepseek.com`、`LLM_MODEL=deepseek-v4-pro`、`LLM_THINKING_MODE=auto`、`LLM_FALLBACK_ENABLED=false`。本次 run 关联 LLM 调用 68 次，68 次完成，0 次失败，1 次 repair；trace 文件为 `data/runtime/llm_workflow_trace_deepseek_v4_full_rerun.jsonl`。
 
-历史全量分桶结果：
+最新全量分桶结果：
 
 | 难度 | Case 数 | 完成率 | 端到端通过率 | Fit 标签准确率 | Fit 分数区间命中 | Tailor 通过率 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| easy | 9 | 0.8889 | 0.8889 | 1.0000 | 1.0000 | 0.8750 |
+| easy | 9 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 |
 | medium | 6 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 |
-| hard | 2 | 1.0000 | 0.5000 | 0.5000 | 0.5000 | 1.0000 |
-| adversarial | 1 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 0.0000 |
+| hard | 2 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 1.0000 |
+| adversarial | 1 | 1.0000 | 1.0000 | 1.0000 | 1.0000 | 不适用 |
+
+旧全量基线保留为长期对照：引入分级上下文压缩前曾出现 `completed_rate=0.9444`、`end_to_end_pass_rate=0.8889`、`tailor_pass_rate=0.9286`。这组历史结果证明后续压缩、标注校准和 retry 修复确实改善了真实链路。
 
 上一轮较重压缩后的真实 smoke 结果：
 
@@ -785,7 +789,7 @@ POST /evaluations/llm-workflow
 | --- | --- | --- | --- | ---: | ---: | ---: |
 | `agent_candidate_strong_agent_role` | easy | `strong_fit` | `strong_fit` | 95 | 是 | 是 |
 | `ml_candidate_weak_agent_role` | hard | `weak_fit` | `weak_fit` | 30 | 是 | 未运行 |
-| `analytics_candidate_partial_recommendation_role` | hard | `partial_fit` | `partial_fit` | 60 | 是 | 是 |
+| `analytics_candidate_weak_recommendation_role` | hard | `weak_fit` | `weak_fit` | 40 | 是 | 是 |
 | `beginner_candidate_weak_agent_role` | adversarial | `weak_fit` | `weak_fit` | 15 | 是 | 未运行 |
 | `cv_candidate_partial_ml_platform_role` | medium | `partial_fit` | `partial_fit` | 60 | 是 | 是 |
 
@@ -802,7 +806,7 @@ POST /evaluations/llm-workflow
 - `avg_tailor_retained_evidence_count=6.3333`
 - trace 文件：`data/runtime/llm_workflow_trace_latest.jsonl`
 
-这次 trace 直接显示每个 case 的中间返回：简历解析出的技能、JD 解析出的 required skills、RAG Top evidence、fit judge 标签和分数、tailor guardrail 结果。`ml_candidate_weak_agent_role` 的 RAG Top evidence 明确包含 “did not build an agent system”，模型判 `weak_fit` 是符合新标注标准的结果。
+这次 trace 直接显示每个 case 的中间返回：简历解析出的技能、JD 解析出的 required skills、RAG Top evidence、fit judge 标签和分数、tailor guardrail 结果。`ml_candidate_weak_agent_role` 的 RAG Top evidence 明确包含 “did not build an agent system”，`analytics_candidate_weak_recommendation_role` 的 Top evidence 明确包含 “did not implement ranking models or CTR features”，模型判 `weak_fit` 是符合新标注标准的结果。
 
 本轮 ReAct repair 和断点续跑新增验证：
 
@@ -810,6 +814,7 @@ POST /evaluations/llm-workflow
 - 3-case resume smoke 结果：`completed_rate=1.0000`、`end_to_end_pass_rate=1.0000`、`fit_label_accuracy=1.0000`、`fit_score_in_range_rate=1.0000`、`tailor_pass_rate=1.0000`、`guardrail_pass_rate=1.0000`。
 - trace 中 `match_and_retrieve.details.top_evidence` 已能看到 `metric_evidence`、`missing_skill_disclosure`、`shipped_project`、`generic_skill` 等证据类型和 `positive/negative/neutral` polarity。
 - 专门构造的真实 repair smoke 中，初稿包含 `Eager to learn MLflow` 并被 Guardrail 判为 high risk；`resume_tailor.repair_resume` 调用后删除正文缺口披露，二次 Guardrail 变为 `risk_level=low` 且 `passed=true`。
+- 真实 18-case 长跑中曾暴露一次 `RemoteProtocolError: Server disconnected without sending a response.`；已给 resume parser 增加有限 retry，复测第 12 个 case 和全量 18-case 均通过。
 
 调试发现：
 

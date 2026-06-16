@@ -1,5 +1,50 @@
 # 开发日志
 
+## 2026-06-16 16:51 +08:00：DeepSeek V4 真实全流程长跑与上线前稳定性修复
+
+### 这次做了什么
+- 为 `LLMClient` 增加 DeepSeek V4 provider options：`LLM_THINKING_MODE=auto` 时，官方 `api.deepseek.com` + `deepseek-v4-*` 会自动发送 `thinking: disabled`，避免结构化任务只消耗 reasoning token 而最终 `content` 为空。
+- `LLMClient` 的空内容错误现在会记录 `finish_reason`、`reasoning_chars` 和 `thinking_mode`，方便判断是思考模式、输出预算还是服务端异常。
+- 新增 `scripts/run_llm_workflow_eval.py`，支持 `--case-limit`、`--case-indexes`、`--trace-path`、`--resume` 和质量失败非 0 退出码；stdout/stderr 固定 UTF-8，适合开发期长跑和复现。
+- 将 `analytics_candidate_partial_recommendation_role` 重标为 `analytics_candidate_weak_recommendation_role`：候选人只有 A/B、指标和看板，且明确写了未实现 ranking/CTR，不应算推荐算法岗 partial fit。
+- 为 `ResumeParserService` 增加 transient retry，服务端断连、超时、空返回会记录 `resume_parser.parse_structured_resume.retry_1/2` 后重试。
+- LLM workflow 分桶 summary 中，没有 tailor 样本的难度桶会把 `tailor_pass_rate` 和 `guardrail_pass_rate` 记为 `null`，不再把“不适用”误显示为 `0.0`。
+- 更新 `.env.example`、README、API、开发文档和评测文档，说明 DeepSeek 官方接口、thinking 配置、CLI 长跑和最新真实评测结果。
+
+### 发现的问题
+- 新 API key 可以访问 `deepseek-v4-pro`，但默认 thinking 模式下短结构化调用会出现 `content=""` 且只有 `reasoning_content` 的情况；对 JD/简历 JSON 链路来说，这会被正确判为失败。
+- 18-case 真实长跑暴露出一个标注偏宽问题：推荐算法岗的核心是 ranking/CTR/feature engineering，不能因为候选人有 A/B 和 metrics 就标为 partial。
+- 单 case 复测时出现 `RemoteProtocolError: Server disconnected without sending a response.`，说明真实 LLM 服务会有网络级瞬态失败，resume parser 也需要和 JD parser 一样的有限 retry。
+- Windows 下 runner stdout 重定向默认编码不是 UTF-8，导致 JSON summary 文件用 UTF-8 读取失败。
+- 分桶指标里空分母显示为 `0.0` 会让用户误解为质量失败。
+
+### 怎么修复
+- 按 DeepSeek 官方文档将 thinking 开关参数纳入请求 payload；默认只在官方 DeepSeek V4 接口自动关闭 thinking，其它 provider 不发送额外参数。
+- 根据 trace 中的 Top evidence 和 suitability message 重新定义该 hard case 标注：核心否定证据优先级高于关键词重合，改为 weak fit，分数区间调整为 25-45。
+- Resume parser 改为 `generate_text + extract_json_object`，在 transient 异常上最多重试 3 次，并保留每次 trace 名称。
+- CLI runner 启动时 `sys.stdout/stderr.reconfigure(encoding="utf-8")`，保证重定向文件可被 UTF-8 工具链读取。
+- LLM workflow 分桶 summary 使用 `null` 表示不适用的 tailor/guardrail rate。
+
+### 验证结果
+- DeepSeek 官方接口 smoke：`LLMClient` 返回 `XYZ123`，确认 provider options 生效。
+- 真实 LLM workflow 1-case smoke：`completed_rate=1.0000`、`end_to_end_pass_rate=1.0000`。
+- 真实 LLM workflow 3-case smoke：覆盖 strong/partial/weak，`end_to_end_pass_rate=1.0000`、`fit_label_accuracy=1.0000`、`tailor_pass_rate=1.0000`。
+- 真实 Agent full-flow 6-case：`pass_rate=1.0000`、`top_job_accuracy=1.0000`、`quick_apply_pass_rate=1.0000`、`application_packet_pass_rate=1.0000`。
+- 第一次 18-case 长跑暴露 1 个标注边界失败；重标和 retry 修复后重新长跑，最终 `case_count=18`、`completed_rate=1.0000`、`end_to_end_pass_rate=1.0000`、`fit_label_accuracy=1.0000`、`fit_score_in_range_rate=1.0000`、`tailor_pass_rate=1.0000`、`guardrail_pass_rate=1.0000`、`avg_hallucination_count=0.0000`。
+- 本次 18-case run 关联 LLM 调用 68 次：68 completed、0 failed、0 configuration_error、1 repair。
+
+### 未修复的问题
+- `/ui/evaluations` 仍是同步 smoke 入口，不是后台任务队列；原因是本轮先补 CLI 长跑和 checkpoint，完整任务调度需要单独设计。
+- 真实岗位源抓取仍与核心 LLM workflow 分离；原因是外部 source 波动不应影响核心链路门禁，后续应做独立上线前 source 健康度面板。
+- DeepSeek V4 thinking 模式没有用于复杂规划链路；原因是当前结构化 JSON 任务更需要稳定最终 `content`，后续可为长推理场景单独开启并维护 reasoning trace。
+- 18-case 虽已覆盖多岗位和 strong/partial/weak/adversarial，但还不是生产级人工标注集；原因是真实简历和真实 JD 的隐私、授权和人工复核还没建立。
+
+### 下一步
+- 把真实 LLM workflow 长跑接入后台任务或轮询式 UI，让用户不用 CLI 也能看到 18-case 增量进度。
+- 增加真实中文 PDF 简历和真实中文 JD 的人工标注集，作为上线前验收集。
+- 给真实岗位源 smoke 增加最近趋势和错误分布面板，和核心 Agent workflow 质量门禁分开展示。
+- 为 `llm_call_logs.context_json.evaluation_run_id` 增加索引或派生列，避免日志量变大后过滤变慢。
+
 ## 2026-06-13 22:44 +08:00：LLM 调用日志关联到评测 run/case/stage
 
 ### 这次做了什么

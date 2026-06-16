@@ -764,6 +764,8 @@ def test_llm_workflow_summary_has_quantitative_metrics():
     assert summary["context_compression"]["fit_context_count"] == 1
     assert summary["context_compression"]["avg_tailor_reduction_ratio"] == 0.5
     assert "difficulty_breakdown" in summary
+    assert summary["difficulty_breakdown"]["adversarial"]["tailor_pass_rate"] is None
+    assert summary["difficulty_breakdown"]["adversarial"]["guardrail_pass_rate"] is None
 
 
 def test_forbidden_claim_hits_ignore_negated_disclosures():

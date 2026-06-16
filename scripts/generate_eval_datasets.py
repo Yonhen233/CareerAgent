@@ -745,7 +745,7 @@ def make_llm_workflow_cases() -> list[dict]:
             "forbidden_tailored_claims": ["FastAPI backend", "Airflow"],
         },
         {
-            "name": "analytics_candidate_partial_recommendation_role",
+            "name": "analytics_candidate_weak_recommendation_role",
             "difficulty": "hard",
             "resume_raw_text": (
                 "Tang Wei\ntangwei@example.com\nProduct Analytics Intern Candidate\n\n"
@@ -765,8 +765,8 @@ def make_llm_workflow_cases() -> list[dict]:
                 ),
             },
             "expected_jd_skills": ["Python", "Ranking", "CTR", "Feature Engineering", "A/B Testing", "Metrics"],
-            "expected_fit_label": "partial_fit",
-            "expected_fit_score_range": [45, 75],
+            "expected_fit_label": "weak_fit",
+            "expected_fit_score_range": [25, 45],
             "run_tailor": True,
             "expected_tailored_keywords": ["Python", "A/B", "metrics", "experiment"],
             "forbidden_tailored_claims": ["ranking model", "CTR feature engineering"],

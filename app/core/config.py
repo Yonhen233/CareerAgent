@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     llm_model: str = "DeepSeek-V4-Pro"
     llm_timeout_seconds: float = 120.0
     llm_fallback_enabled: bool = False
+    llm_thinking_mode: str = "auto"
+    llm_reasoning_effort: str = "high"
     llm_context_compression_enabled: bool = True
     llm_context_max_chars: int = 9000
     llm_evidence_max_chars: int = 3600
@@ -97,7 +99,10 @@ class Settings(BaseSettings):
 
     @property
     def effective_llm_base_url(self) -> str:
-        return self.llm_base_url or self.openai_base_url or self.base_url or self.api_url or ""
+        explicit_compatible_url = self.openai_base_url or self.base_url or self.api_url
+        if explicit_compatible_url and self.llm_base_url == Settings.model_fields["llm_base_url"].default:
+            return explicit_compatible_url
+        return self.llm_base_url or explicit_compatible_url or ""
 
     @property
     def lever_slugs(self) -> list[str]:

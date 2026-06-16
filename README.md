@@ -113,9 +113,20 @@ uvicorn app.main:app --reload
 LLM_API_KEY=your_key_here
 LLM_BASE_URL=https://llmapi.paratera.com
 LLM_MODEL=DeepSeek-V4-Pro
+LLM_THINKING_MODE=auto
 ```
 
 不要提交 `.env` 和真实 API key。
+
+如果使用 DeepSeek 官方 OpenAI 兼容接口，可设置：
+
+```env
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=deepseek-v4-pro
+LLM_THINKING_MODE=auto
+```
+
+`auto` 会在官方 DeepSeek V4 接口上发送 `thinking: disabled`，避免结构化 JSON 链路只返回 `reasoning_content` 而最终 `content` 为空。
 
 ## 主要页面
 

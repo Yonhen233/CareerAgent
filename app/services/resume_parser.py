@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.llm import LLMClient
 from app.core.llm import LLMConfigurationError
+from app.core.llm import extract_json_object
+from app.core.llm import format_exception
 from app.models.entities import Profile
 from app.models.schemas import GuidedProfileRequest, ProfileStructured
 from app.services.text_splitter import PDFPageText, ResumeTextSplitter
@@ -144,11 +146,11 @@ Resume:
 {raw_text}
 """
         try:
-            parsed = await self.llm.generate_json(
+            parsed = await self._generate_resume_json_with_retry(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
+                max_tokens=1400,
                 db=db,
-                trace_name="resume_parser.parse_structured_resume",
             )
             parsed["raw_text"] = raw_text
             return ProfileStructured.model_validate({**heuristic, **parsed}).model_dump()
@@ -156,6 +158,53 @@ Resume:
             if not self.settings.llm_fallback_enabled:
                 raise
             return heuristic
+
+    async def _generate_resume_json_with_retry(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int,
+        db=None,
+    ) -> dict:
+        last_exc: Exception | None = None
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            trace_name = (
+                "resume_parser.parse_structured_resume"
+                if attempt == 0
+                else f"resume_parser.parse_structured_resume.retry_{attempt}"
+            )
+            try:
+                text = await self.llm.generate_text(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    temperature=0.1,
+                    max_tokens=max_tokens,
+                    db=db,
+                    trace_name=trace_name,
+                )
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                if attempt >= max_attempts - 1 or not self._is_transient_llm_error(format_exception(exc)):
+                    raise
+                continue
+            return extract_json_object(text)
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("Resume parser LLM call did not return JSON.")
+
+    def _is_transient_llm_error(self, message: str) -> bool:
+        transient_terms = [
+            "ReadTimeout",
+            "ConnectTimeout",
+            "RemoteProtocolError",
+            "LLM returned empty content",
+            "temporarily unavailable",
+            "connection reset",
+            "server disconnected",
+        ]
+        return any(term.lower() in message.lower() for term in transient_terms)
 
     def _create_profile(
         self,

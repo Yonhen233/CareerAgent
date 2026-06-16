@@ -90,3 +90,41 @@ def test_llm_debug_logs_filter_by_context(db_session):
 
     assert [row.trace_name for row in payload] == ["run_1_case_a"]
     assert payload[0].context_json["stage"] == "jd_parse"
+
+
+def test_deepseek_v4_official_api_disables_thinking_by_default(monkeypatch):
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.deepseek.com")
+    monkeypatch.setenv("LLM_MODEL", "deepseek-v4-pro")
+    monkeypatch.setenv("LLM_THINKING_MODE", "auto")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    client = LLMClient()
+
+    assert client._provider_options() == {"thinking": {"type": "disabled"}}
+    get_settings.cache_clear()
+
+
+def test_non_deepseek_provider_omits_thinking_options(monkeypatch):
+    monkeypatch.setenv("LLM_BASE_URL", "https://llmapi.paratera.com")
+    monkeypatch.setenv("LLM_MODEL", "DeepSeek-V4-Pro")
+    monkeypatch.setenv("LLM_THINKING_MODE", "auto")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    client = LLMClient()
+
+    assert client._provider_options() == {}
+    get_settings.cache_clear()
+
+
+def test_openai_compatible_base_url_overrides_default_llm_base(monkeypatch):
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
+    monkeypatch.setenv("BASE_URL", "https://api.deepseek.com")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    client = LLMClient()
+
+    assert client.settings.effective_llm_base_url == "https://api.deepseek.com"
+    get_settings.cache_clear()

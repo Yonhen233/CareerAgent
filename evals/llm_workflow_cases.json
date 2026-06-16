@@ -519,7 +519,7 @@
     ]
   },
   {
-    "name": "analytics_candidate_partial_recommendation_role",
+    "name": "analytics_candidate_weak_recommendation_role",
     "difficulty": "hard",
     "resume_raw_text": "Tang Wei\ntangwei@example.com\nProduct Analytics Intern Candidate\n\nSkills: SQL, Python, Experiment Analysis, Metrics, Funnels, Dashboards.\n\nProjects\nMetricStudio: Built funnel dashboards, experiment analysis notebooks and metric definitions. Analyzed A/B tests but did not implement ranking models or CTR features.",
     "expected_profile_skills": [
@@ -546,10 +546,10 @@
       "A/B Testing",
       "Metrics"
     ],
-    "expected_fit_label": "partial_fit",
+    "expected_fit_label": "weak_fit",
     "expected_fit_score_range": [
-      45,
-      75
+      25,
+      45
     ],
     "run_tailor": true,
     "expected_tailored_keywords": [

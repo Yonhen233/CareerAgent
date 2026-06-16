@@ -121,6 +121,7 @@ class LLMClient:
         }
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
+        payload.update(self._provider_options())
         try:
             async with httpx.AsyncClient(timeout=self.settings.llm_timeout_seconds) as client:
                 response = await client.post(self._chat_url(), headers=headers, json=payload)
@@ -129,12 +130,21 @@ class LLMClient:
 
             body = response.json()
             try:
-                content = body["choices"][0]["message"]["content"]
+                choice = body["choices"][0]
+                message = choice["message"]
+                content = message["content"]
             except (KeyError, IndexError, TypeError) as exc:
                 raise LLMResponseError("LLM response is missing choices[0].message.content.") from exc
 
             if not isinstance(content, str) or not content.strip():
-                raise LLMResponseError("LLM returned empty content.")
+                reasoning_content = message.get("reasoning_content") if isinstance(message, dict) else None
+                finish_reason = choice.get("finish_reason") if isinstance(choice, dict) else None
+                reasoning_chars = len(reasoning_content) if isinstance(reasoning_content, str) else 0
+                raise LLMResponseError(
+                    "LLM returned empty content "
+                    f"(finish_reason={finish_reason}, reasoning_chars={reasoning_chars}, "
+                    f"thinking_mode={self.settings.llm_thinking_mode})."
+                )
             content = content.strip()
             self._record_llm_call(
                 db,
@@ -195,6 +205,27 @@ class LLMClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+
+    def _provider_options(self) -> dict[str, Any]:
+        mode = (self.settings.llm_thinking_mode or "auto").strip().lower()
+        if mode in {"omit", "none", "off"}:
+            return {}
+
+        base_url = self.settings.effective_llm_base_url.lower()
+        model = self.settings.llm_model.lower()
+        is_deepseek_v4 = "api.deepseek.com" in base_url and model.startswith("deepseek-v4")
+        if mode == "auto" and not is_deepseek_v4:
+            return {}
+
+        if mode == "enabled":
+            return {
+                "thinking": {"type": "enabled"},
+                "reasoning_effort": self.settings.llm_reasoning_effort,
+            }
+        if mode in {"disabled", "auto"}:
+            return {"thinking": {"type": "disabled"}}
+
+        return {}
 
     def _record_llm_call(
         self,

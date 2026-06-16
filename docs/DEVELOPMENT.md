@@ -20,6 +20,8 @@ LLM_API_KEY=
 LLM_BASE_URL=https://llmapi.paratera.com
 LLM_MODEL=DeepSeek-V4-Pro
 LLM_FALLBACK_ENABLED=false
+LLM_THINKING_MODE=auto
+LLM_REASONING_EFFORT=high
 LLM_CONTEXT_COMPRESSION_ENABLED=true
 LLM_CONTEXT_MAX_CHARS=9000
 LLM_EVIDENCE_MAX_CHARS=3600
@@ -42,6 +44,7 @@ JOB_INGEST_CONCURRENCY=6
 - `VECTOR_BACKEND=sqlite`：只使用 SQLite。
 - `VECTOR_BACKEND=hybrid`：SQLite + 可选 Chroma 镜像。
 - `LLM_FALLBACK_ENABLED=false`：开发默认严格失败；设置为 `true` 才使用规则解析/生成路径。
+- `LLM_THINKING_MODE=auto`：官方 DeepSeek V4 接口会自动发送 `thinking: disabled`，让 JD 解析、简历定制、面试包生成优先获得稳定最终 `content`；如果要调试思考模式，可显式设置为 `enabled`。
 - `LLM_CONTEXT_COMPRESSION_ENABLED=true`：真实 LLM 调用默认使用渐进式披露和分级上下文压缩。
 - `LLM_CONTEXT_MAX_CHARS`：最终 prompt packet 的字符预算。
 - `LLM_EVIDENCE_MAX_CHARS`：Top evidence 在压缩上下文中的字符预算。
@@ -203,6 +206,7 @@ GET /llm/debug/logs?limit=50
 $env:LLM_API_KEY='your_key_here'
 $env:LLM_BASE_URL='https://llmapi.paratera.com'
 $env:LLM_MODEL='DeepSeek-V4-Pro'
+$env:LLM_THINKING_MODE='auto'
 $env:LLM_FALLBACK_ENABLED='false'
 $env:EMBEDDING_PROVIDER='sentence_transformers'
 $env:EMBEDDING_PROVIDER_FALLBACK='error'
@@ -238,6 +242,19 @@ finally:
 ```
 
 评测数据在 `evals/llm_workflow_cases.json`，结果指标说明见 `docs/EVALUATION.md`。真实调用失败不会自动兜底，失败阶段会写入 `failed_stage`。每个 case 的 `stage_trace` 会记录简历解析、JD 解析、RAG、fit judge、tailor 和 Guardrail 的中间摘要；如果命令超时，已经完成的 case 会写入数据库和 `trace_path`。
+
+也可以使用开发期 CLI runner 执行长跑：
+
+```powershell
+$env:LLM_API_KEY='your_key_here'
+$env:LLM_BASE_URL='https://api.deepseek.com'
+$env:LLM_MODEL='deepseek-v4-pro'
+$env:LLM_THINKING_MODE='auto'
+$env:LLM_FALLBACK_ENABLED='false'
+python scripts\run_llm_workflow_eval.py --trace-path data\runtime\llm_workflow_trace_latest.jsonl
+```
+
+Runner 会输出 UTF-8 JSON summary；默认质量门禁失败时返回非 0 退出码。若长跑中断，可加 `--resume` 从 trace 中第一个缺失 case 继续。
 
 API 也支持 smoke mode：
 

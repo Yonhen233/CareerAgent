@@ -2997,17 +2997,22 @@ class EvaluationService:
                 ),
                 "avg_profile_skill_recall": self._avg_number(items, "profile_skill_recall"),
                 "avg_jd_skill_recall": self._avg_number(items, "jd_skill_recall"),
-                "tailor_pass_rate": self._avg_bool(
+                "tailor_pass_rate": self._avg_bool_or_none(
                     [item for item in items if item.get("run_tailor")],
                     "tailor_passed",
                 ),
-                "guardrail_pass_rate": self._avg_bool(
+                "guardrail_pass_rate": self._avg_bool_or_none(
                     [item for item in items if item.get("run_tailor")],
                     "guardrail_passed",
                 ),
             }
             for group, items in sorted(grouped.items())
         }
+
+    def _avg_bool_or_none(self, rows: list[dict[str, Any]], key: str) -> float | None:
+        if not rows:
+            return None
+        return self._avg_bool(rows, key)
 
     async def _run_case(self, db: Session, case: dict[str, Any]) -> dict[str, Any]:
         profile_payload = GuidedProfileRequest.model_validate(case["profile"])
