@@ -573,6 +573,268 @@ function focusInterviewQuestion(button) {
   target.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
+const CAREER_FLOW_STAGES = ["profile", "search", "match", "tailor", "apply", "interview"];
+
+function setCareerStage(stage, status, detail = "") {
+  const item = document.querySelector(`#career-flow-steps [data-stage="${stage}"]`);
+  if (!item) return;
+  item.classList.remove("running", "done", "failed");
+  if (status) item.classList.add(status);
+  const small = item.querySelector("small");
+  if (small) small.textContent = detail || (status === "done" ? "已完成" : status === "running" ? "运行中" : "等待开始");
+}
+
+function resetCareerFlow() {
+  CAREER_FLOW_STAGES.forEach((stage) => setCareerStage(stage, "", "等待开始"));
+  const result = $("#career-flow-result");
+  if (result) result.innerHTML = "";
+}
+
+function renderCareerFlowMessage(kind, message) {
+  const result = $("#career-flow-result");
+  if (!result) return;
+  result.innerHTML = `<article class="item ${kind === "error" ? "validation-risk" : ""}">${escapeHtml(message)}</article>`;
+}
+
+function careerFlowRunLink(run, label) {
+  if (!run?.id) return "";
+  return `<a class="button ghost" href="/ui/agent-runs"><i data-lucide="route"></i> ${escapeHtml(label)} #${run.id}</a>`;
+}
+
+function renderCareerFlowResult(state) {
+  const result = $("#career-flow-result");
+  if (!result) return;
+  const selected = state.selectedJob || {};
+  const tailor = state.tailorRun?.output_json || {};
+  const apply = state.applyRun?.output_json || {};
+  const interview = state.interviewRun?.output_json || {};
+  result.innerHTML = `
+    <article class="item flow-result-card">
+      <div class="item-title">
+        <span>${escapeHtml(selected.title || "已完成")}</span>
+        <span class="status-pill ok">${escapeHtml(selected.overall_score ?? "ready")}</span>
+      </div>
+      <div class="meta">${escapeHtml(selected.company || "")} / Profile ${escapeHtml(state.profile?.id || "-")} / Job ${escapeHtml(selected.job_id || "-")}</div>
+      ${tags(selected.matched_skills || [])}
+      <div class="flow-result-actions">
+        ${tailor.resume_version_id ? `<a class="button ghost" href="/ui/resumes"><i data-lucide="file-check-2"></i> 简历版本 #${tailor.resume_version_id}</a>` : ""}
+        ${apply.application_id ? `<a class="button ghost" href="/ui/applications"><i data-lucide="send"></i> 投递包 #${apply.application_id}</a>` : ""}
+        ${interview.interview_prep_id ? `<a class="button ghost" href="/ui/prep?job_id=${escapeHtml(selected.job_id || "")}"><i data-lucide="messages-square"></i> 面试包 #${interview.interview_prep_id}</a>` : ""}
+        ${careerFlowRunLink(state.searchRun, "找岗")}
+        ${careerFlowRunLink(state.tailorRun, "定制")}
+        ${careerFlowRunLink(state.applyRun, "投递")}
+        ${careerFlowRunLink(state.interviewRun, "面试")}
+      </div>
+      <details class="details-block">
+        <summary>结果 JSON</summary>
+        <pre>${escapeHtml(safeJson({
+          selected_job: selected,
+          tailor: tailor,
+          application: apply,
+          interview: interview,
+        }, 3200))}</pre>
+      </details>
+    </article>
+  `;
+  if (window.lucide) window.lucide.createIcons();
+}
+
+function guidedProfilePayload(raw) {
+  const projectLines = (raw.project || "").split("\n").filter(Boolean);
+  return {
+    name: raw.name,
+    email: raw.email,
+    phone: raw.phone,
+    target_roles: (raw.target_roles || "").split(",").map((x) => x.trim()).filter(Boolean),
+    skills: (raw.skills || "").split(",").map((x) => x.trim()).filter(Boolean),
+    projects: raw.project ? [{
+      name: projectLines[0]?.split("：")[0] || projectLines[0] || "CareerAgent",
+      description: raw.project,
+      tech_stack: (raw.skills || "").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 8),
+      impact: projectLines.at(-1) || "",
+    }] : [],
+  };
+}
+
+async function createProfileForCareerFlow(form, raw) {
+  const existingId = Number(raw.profile_id || 0);
+  if (existingId > 0) {
+    return await api(`/profiles/${existingId}`);
+  }
+  const file = form.elements.resume_file?.files?.[0];
+  if (file) {
+    const data = new FormData();
+    data.append("file", file);
+    const response = await fetch("/profiles/upload", { method: "POST", body: data, headers: authHeaders() });
+    if (!response.ok) throw new Error(await response.text());
+    return response.json();
+  }
+  if (!raw.name) {
+    throw new Error("请上传 PDF、填写核心简历信息或输入已有 Profile ID。");
+  }
+  return await api("/profiles/guided", { method: "POST", body: JSON.stringify(guidedProfilePayload(raw)) });
+}
+
+function topMatchedJob(run) {
+  const matches = run.output_json?.matches || [];
+  if (!matches.length) {
+    const sourceErrors = run.output_json?.source_errors || {};
+    throw new Error(`没有找到可匹配岗位。source_errors=${JSON.stringify(sourceErrors)}`);
+  }
+  return matches[0];
+}
+
+async function createAgentRun(payload, label) {
+  const run = await api("/agent/runs", { method: "POST", body: JSON.stringify(payload) });
+  if (run.status !== "completed") {
+    const message = run.error_message || run.output_json?.error || JSON.stringify(run.output_json || {});
+    throw new Error(`${label}失败：${message}`);
+  }
+  return run;
+}
+
+function selectedJobFromMatch(job, match) {
+  return {
+    job_id: job.id,
+    title: job.title,
+    company: job.company,
+    overall_score: match.overall_score,
+    matched_skills: match.matched_skills_json || [],
+    missing_skills: match.missing_skills_json || [],
+    apply_url: job.apply_url,
+  };
+}
+
+async function resolveDirectJobForCareerFlow(raw, profileId) {
+  const existingJobId = Number(raw.job_id || 0);
+  let job = null;
+  if (existingJobId > 0) {
+    job = await api(`/jobs/${existingJobId}`);
+  } else if ((raw.jd_text || "").trim().length >= 20) {
+    job = await api("/jobs", {
+      method: "POST",
+      body: JSON.stringify({
+        title: raw.query || "目标岗位",
+        company: raw.company || null,
+        location: raw.location || null,
+        jd_text: raw.jd_text,
+      }),
+    });
+  }
+  if (!job) return null;
+  const match = await api("/matches", {
+    method: "POST",
+    body: JSON.stringify({ profile_id: Number(profileId), job_id: Number(job.id) }),
+  });
+  return selectedJobFromMatch(job, match);
+}
+
+async function runCareerStartFlow(form) {
+  resetCareerFlow();
+  const submitButton = form.querySelector("button[type='submit']");
+  if (submitButton) submitButton.disabled = true;
+  const state = {};
+  try {
+    const raw = formJson(form);
+    setCareerStage("profile", "running", "建档中");
+    state.profile = await createProfileForCareerFlow(form, raw);
+    setCareerStage("profile", "done", `Profile #${state.profile.id}`);
+
+    setCareerStage("search", "running", raw.job_id || raw.jd_text ? "读取目标岗位" : "搜索真实岗位");
+    const directJob = await resolveDirectJobForCareerFlow(raw, state.profile.id);
+    if (directJob) {
+      state.selectedJob = directJob;
+      setCareerStage("search", "done", `Job #${directJob.job_id}`);
+    } else {
+      state.searchRun = await createAgentRun(
+        {
+          task_type: "find_jobs_for_profile",
+          profile_id: Number(state.profile.id),
+          query: raw.query || "Agent 开发实习生",
+          location: raw.location || null,
+          limit: Number(raw.limit || 8),
+        },
+        "岗位搜索"
+      );
+      setCareerStage("search", "done", `Run #${state.searchRun.id}`);
+      state.selectedJob = topMatchedJob(state.searchRun);
+    }
+    setCareerStage("match", "running", "选择最高匹配岗位");
+    setCareerStage("match", "done", `${state.selectedJob.company || ""} ${state.selectedJob.overall_score}`);
+
+    setCareerStage("tailor", "running", "生成定制简历");
+    state.tailorRun = await createAgentRun(
+      {
+        task_type: "tailor_resume_for_job",
+        profile_id: Number(state.profile.id),
+        job_id: Number(state.selectedJob.job_id),
+      },
+      "定制简历"
+    );
+    setCareerStage("tailor", "done", `版本 #${state.tailorRun.output_json?.resume_version_id || "-"}`);
+
+    setCareerStage("apply", "running", "生成投递包");
+    state.applyRun = await createAgentRun(
+      {
+        task_type: "quick_apply",
+        profile_id: Number(state.profile.id),
+        job_id: Number(state.selectedJob.job_id),
+        resume_version_id: Number(state.tailorRun.output_json?.resume_version_id || 0) || null,
+      },
+      "投递包"
+    );
+    setCareerStage("apply", "done", `投递包 #${state.applyRun.output_json?.application_id || "-"}`);
+
+    setCareerStage("interview", "running", "生成面试包");
+    state.interviewRun = await createAgentRun(
+      {
+        task_type: "prepare_interview_for_job",
+        profile_id: Number(state.profile.id),
+        job_id: Number(state.selectedJob.job_id),
+      },
+      "面试包"
+    );
+    setCareerStage("interview", "done", `面试包 #${state.interviewRun.output_json?.interview_prep_id || "-"}`);
+    renderCareerFlowResult(state);
+    toast("完整求职流程已完成");
+  } catch (error) {
+    const current = CAREER_FLOW_STAGES.find((stage) => document.querySelector(`#career-flow-steps [data-stage="${stage}"]`)?.classList.contains("running"));
+    if (current) setCareerStage(current, "failed", "失败");
+    renderCareerFlowMessage("error", error.message);
+    toast(error.message);
+  } finally {
+    if (submitButton) submitButton.disabled = false;
+  }
+}
+
+function fillCareerDemo(form) {
+  if (!form) return;
+  form.profile_id.value = "";
+  form.name.value = "李明";
+  form.email.value = "liming@example.com";
+  form.target_roles.value = "Agent 开发实习生, AI 应用开发实习生";
+  form.skills.value = "Python, FastAPI, SQLite, RAG, LLM API, Agent workflow, Evaluation, Guardrails, Trace, Playwright";
+  form.project.value = [
+    "CareerAgent：面向中文求职场景的 Agent 求职助手。",
+    "实现 PDF Chunk、SQLite RAG、岗位匹配、定制简历、投递包、面试准备和全链路 trace。",
+    "使用 Python、FastAPI、SQLite、LLM API、Plan-Execute、ReAct repair、Guardrails、Playwright 和 pytest 支撑真实流程测试。"
+  ].join("\n");
+  form.query.value = "Agent 开发实习生";
+  form.location.value = "深圳";
+  form.limit.value = "8";
+  if (form.company) form.company.value = "DemoAI";
+  if (form.job_id) form.job_id.value = "";
+  if (form.jd_text) {
+    form.jd_text.value = [
+      "岗位：Agent 开发实习生",
+      "职责：参与 Agent workflow、RAG 检索、工具调用、LLM trace、简历定制、投递包和面试准备链路开发。",
+      "要求：熟悉 Python、FastAPI、SQLite、RAG、LLM API、Evaluation、Guardrails、Plan-Execute 和 ReAct repair。",
+      "加分：有可上线的 Agent 项目、前端交互优化和真实 LLM 调试经验。"
+    ].join("\n");
+  }
+  toast("已填入演示信息");
+}
+
 async function loadInterviewExperiences() {
   const rows = await api("/interview-prep/experiences");
   renderItems("#interview-experience-list", rows, (row) => {
@@ -964,6 +1226,15 @@ function bindForms() {
     await loadOpsPage();
   });
 
+  $("#career-start-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await runCareerStartFlow(event.currentTarget);
+  });
+
+  $("#career-demo-fill")?.addEventListener("click", () => {
+    fillCareerDemo($("#career-start-form"));
+  });
+
   $("#upload-profile-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -1246,8 +1517,6 @@ async function bootstrap() {
   try {
     if (page === "dashboard") {
       await loadHealth();
-      await loadDashboardOpsSummary();
-      await loadRecentRuns();
     }
     if (page === "profiles") await loadProfiles();
     if (page === "jobs") await loadJobs();

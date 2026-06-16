@@ -107,5 +107,14 @@ def active_skill_names_for_task(task_type: str) -> list[str]:
         ],
         "quick_apply": ["resume_tailoring", "application_packet"],
         "prepare_interview_for_job": ["evidence_retrieval", "fit_assessment", "interview_preparation"],
+        "full_career_flow": [
+            "resume_intake_and_structuring",
+            "jd_structuring",
+            "evidence_retrieval",
+            "fit_assessment",
+            "resume_tailoring",
+            "application_packet",
+            "interview_preparation",
+        ],
     }
     return mapping.get(task_type, [])

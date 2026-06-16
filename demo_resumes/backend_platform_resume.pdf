@@ -1,0 +1,49 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 1197 >>
+stream
+BT
+/F1 10 Tf
+1 0 0 1 50 780 Tm (Chen Hao - Backend Platform Intern Candidate) Tj
+1 0 0 1 50 766 Tm (Email: chenhao@example.com | Location: Beijing) Tj
+1 0 0 1 50 752 Tm (Target Roles: Backend Intern, AI Platform Intern) Tj
+1 0 0 1 50 738 Tm (Skills: Python, Java, FastAPI, MySQL, SQLite, Redis, Docker, pytest, REST API, basic LLM API) Tj
+1 0 0 1 50 724 Tm (integration) Tj
+1 0 0 1 50 710 Tm (Project: Operations Dashboard) Tj
+1 0 0 1 50 696 Tm (Built FastAPI services for task queue status, request metrics, configuration masking and) Tj
+1 0 0 1 50 682 Tm (admin token checks.) Tj
+1 0 0 1 50 668 Tm (Designed database models, pagination APIs, validation logic and deployment health endpoints.) Tj
+1 0 0 1 50 654 Tm (Project: Document Processing Service) Tj
+1 0 0 1 50 640 Tm (Implemented PDF text extraction, section tagging, chunk storage and asynchronous batch) Tj
+1 0 0 1 50 626 Tm (processing for internal documents.) Tj
+1 0 0 1 50 612 Tm (Related AI Work: integrated an LLM JSON extraction endpoint and added retry logs for invalid) Tj
+1 0 0 1 50 598 Tm (JSON responses.) Tj
+1 0 0 1 50 584 Tm (Gap Notes: limited hands-on reranker tuning and no large scale vector database deployment.) Tj
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000311 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1560
+%%EOF

@@ -86,6 +86,15 @@ TASK_SUBAGENTS = {
     ],
     "quick_apply": ["profile_analyst", "job_analyst", "resume_writer", "application_operator"],
     "prepare_interview_for_job": ["profile_analyst", "job_analyst", "evidence_curator", "fit_judge", "interview_coach"],
+    "full_career_flow": [
+        "profile_analyst",
+        "job_analyst",
+        "evidence_curator",
+        "fit_judge",
+        "resume_writer",
+        "application_operator",
+        "interview_coach",
+    ],
 }
 
 

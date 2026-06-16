@@ -1,0 +1,50 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 1224 >>
+stream
+BT
+/F1 10 Tf
+1 0 0 1 50 780 Tm (Wang Yu - AI Product Engineering Intern Candidate) Tj
+1 0 0 1 50 766 Tm (Email: wangyu@example.com | Location: Shanghai) Tj
+1 0 0 1 50 752 Tm (Target: Agent Intern, LLM Application Intern) Tj
+1 0 0 1 50 738 Tm (Core Skills: Python, FastAPI, SQL, LangChain reading notes, RAG coursework, UI prototyping,) Tj
+1 0 0 1 50 724 Tm (data analysis) Tj
+1 0 0 1 50 710 Tm (Project: Campus Offer Helper) Tj
+1 0 0 1 50 696 Tm (Created a prototype for collecting job posts and comparing resumes. The first version used) Tj
+1 0 0 1 50 682 Tm (keyword rules and simple SQLite tables.) Tj
+1 0 0 1 50 668 Tm (Coursework: read papers about ReAct, Plan-Execute, vector search and reranking. Planned to) Tj
+1 0 0 1 50 654 Tm (add Chroma but did not ship the vector module.) Tj
+1 0 0 1 50 640 Tm (Project: Resume QA Demo) Tj
+1 0 0 1 50 626 Tm (Implemented a small PDF text extraction demo and Streamlit page. It could answer basic) Tj
+1 0 0 1 50 612 Tm (resume questions but had no production tracing.) Tj
+1 0 0 1 50 598 Tm (Notes: no deployed browser automation, no MCP integration, no real online application) Tj
+1 0 0 1 50 584 Tm (submission.) Tj
+1 0 0 1 50 570 Tm (Education: Software Engineering, 2026) Tj
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000311 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1587
+%%EOF

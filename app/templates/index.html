@@ -1,86 +1,110 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="workspace-grid">
-  <div class="panel span-7">
+  <div class="panel span-7 start-panel">
     <div class="panel-heading">
       <div>
-        <p class="eyebrow">Agent workflow</p>
-        <h1>从简历到岗位、投递和面试准备</h1>
+        <p class="eyebrow">Start</p>
+        <h1>开始一次完整求职流程</h1>
       </div>
       <span id="health-pill" class="status-pill">Checking</span>
     </div>
-    <form id="dashboard-run-form" class="form-grid">
-      <label>
-        Profile ID
-        <input name="profile_id" type="number" min="1" placeholder="1" required>
-      </label>
-      <label>
-        Query
-        <input name="query" value="Agent 开发实习生" required>
-      </label>
-      <label>
-        Location
-        <input name="location" placeholder="Shanghai / Remote">
-      </label>
-      <label>
-        Limit
-        <input name="limit" type="number" min="1" max="80" value="12">
-      </label>
-      <button class="primary" type="submit"><i data-lucide="radar"></i> 搜索并排序岗位</button>
+
+    <form id="career-start-form" class="stack">
+      <div class="form-grid">
+        <label>
+          已有 Profile ID
+          <input name="profile_id" type="number" min="1" placeholder="可选">
+        </label>
+        <label>
+          PDF 简历
+          <input name="resume_file" type="file" accept="application/pdf">
+        </label>
+        <label>
+          姓名
+          <input name="name" placeholder="李明">
+        </label>
+        <label>
+          邮箱
+          <input name="email" type="email" placeholder="liming@example.com">
+        </label>
+        <label class="wide">
+          目标岗位
+          <input name="target_roles" value="Agent 开发实习生, AI 应用开发实习生">
+        </label>
+        <label class="wide">
+          技能关键词
+          <input name="skills" value="Python, FastAPI, RAG, SQLite, Agent, LLM, Evaluation">
+        </label>
+        <label class="wide">
+          项目经历
+          <textarea name="project" rows="5" placeholder="CareerAgent：实现 PDF Chunk、RAG 检索、岗位匹配、定制简历、投递包和面试准备，并记录全链路 trace。"></textarea>
+        </label>
+        <label>
+          岗位搜索词
+          <input name="query" value="Agent 开发实习生" required>
+        </label>
+        <label>
+          城市
+          <input name="location" placeholder="深圳 / 上海 / 北京 / 远程">
+        </label>
+        <label>
+          岗位数量
+          <input name="limit" type="number" min="1" max="30" value="8">
+        </label>
+        <label>
+          已有 Job ID
+          <input name="job_id" type="number" min="1" placeholder="可选">
+        </label>
+        <label>
+          岗位公司
+          <input name="company" placeholder="可选">
+        </label>
+        <label class="wide">
+          目标 JD
+          <textarea name="jd_text" rows="5" placeholder="可选：粘贴 JD 后会先创建目标岗位，并跳过外部岗位搜索。"></textarea>
+        </label>
+      </div>
+      <div class="button-row">
+        <button class="primary" type="submit"><i data-lucide="play"></i> 一键运行</button>
+        <button class="ghost" type="button" id="career-demo-fill"><i data-lucide="sparkles"></i> 填入演示信息</button>
+      </div>
     </form>
-    <div id="dashboard-results" class="result-list"></div>
   </div>
 
-  <aside class="panel span-5">
+  <aside class="panel span-5 flow-panel">
     <div class="panel-heading compact">
       <div>
-        <p class="eyebrow">Next actions</p>
-        <h2>高频操作</h2>
+        <p class="eyebrow">Progress</p>
+        <h2>运行进度</h2>
       </div>
     </div>
-    <div class="quick-actions">
-      <a class="action-row" href="/ui/profiles"><i data-lucide="file-up"></i><span>上传 PDF 或问答生成简历</span></a>
-      <a class="action-row" href="/ui/jobs"><i data-lucide="search"></i><span>搜索腾讯中文真实岗位</span></a>
-      <a class="action-row" href="/ui/agent-runs"><i data-lucide="route"></i><span>执行可追踪 Agent 工作流</span></a>
-      <a class="action-row" href="/ui/applications"><i data-lucide="send"></i><span>查看投递包与状态</span></a>
-      <a class="action-row" href="/ui/prep"><i data-lucide="messages-square"></i><span>生成面试准备包</span></a>
-      <a class="action-row" href="/ui/quality"><i data-lucide="activity"></i><span>查看评测与面经源探测</span></a>
-    </div>
+    <ol id="career-flow-steps" class="flow-stepper">
+      <li class="flow-step" data-stage="profile"><span>1</span><strong>简历建档</strong><small>等待开始</small></li>
+      <li class="flow-step" data-stage="search"><span>2</span><strong>岗位搜索</strong><small>等待开始</small></li>
+      <li class="flow-step" data-stage="match"><span>3</span><strong>匹配排序</strong><small>等待开始</small></li>
+      <li class="flow-step" data-stage="tailor"><span>4</span><strong>定制简历</strong><small>等待开始</small></li>
+      <li class="flow-step" data-stage="apply"><span>5</span><strong>投递包</strong><small>等待开始</small></li>
+      <li class="flow-step" data-stage="interview"><span>6</span><strong>面试包</strong><small>等待开始</small></li>
+    </ol>
+    <div id="career-flow-result" class="result-list"></div>
   </aside>
-</section>
-
-<section class="workspace-grid">
-  <div class="panel span-6">
-    <div class="panel-heading compact">
-      <div>
-        <p class="eyebrow">Live status</p>
-        <h2>系统状态</h2>
-      </div>
-      <a class="button ghost" href="/ui/ops"><i data-lucide="activity"></i> 运维</a>
-    </div>
-    <div id="dashboard-ops-summary" class="result-list"></div>
-  </div>
-
-  <div class="panel span-6">
-    <div class="panel-heading compact">
-      <div>
-        <p class="eyebrow">Background</p>
-        <h2>后台任务</h2>
-      </div>
-      <a class="button ghost" href="/ui/quality"><i data-lucide="list-checks"></i> 评测</a>
-    </div>
-    <div id="dashboard-task-summary" class="result-list"></div>
-  </div>
 </section>
 
 <section class="panel">
   <div class="panel-heading compact">
     <div>
-      <p class="eyebrow">Recent runs</p>
-      <h2>执行记录</h2>
+      <p class="eyebrow">Process</p>
+      <h2>过程页面</h2>
     </div>
-    <button class="ghost" data-refresh="runs"><i data-lucide="refresh-cw"></i> 刷新</button>
   </div>
-  <div id="recent-runs" class="table-wrap"></div>
+  <div class="quick-actions process-grid">
+    <a class="action-row" href="/ui/profiles"><i data-lucide="file-up"></i><span>简历建档</span></a>
+    <a class="action-row" href="/ui/jobs"><i data-lucide="search"></i><span>岗位池</span></a>
+    <a class="action-row" href="/ui/agent-runs"><i data-lucide="route"></i><span>流程 Trace</span></a>
+    <a class="action-row" href="/ui/resumes"><i data-lucide="file-check-2"></i><span>定制简历</span></a>
+    <a class="action-row" href="/ui/applications"><i data-lucide="send"></i><span>投递包</span></a>
+    <a class="action-row" href="/ui/prep"><i data-lucide="messages-square"></i><span>面试包</span></a>
+  </div>
 </section>
 {% endblock %}

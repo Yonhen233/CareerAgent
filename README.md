@@ -34,6 +34,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - `interview-source-smoke` 独立探测牛客网、OfferShow、小红书公开搜索页的可达性、空结果、面经信号、query relevance 和内容可抽取性，不绕过登录或反爬，也不影响核心面试包回归。
   - 面经正文难以稳定获取时，面试包只附上参考链接、标题和搜索入口；核心问题生成转向 JD、简历项目和 RAG 证据。
 - Agent 工作流：
+  - `full_career_flow`：搜索/选择岗位、匹配、定制简历、投递包、面试包的一体化流程；适合 API 层验证完整链路。
   - `find_jobs_for_profile`：搜索岗位、解析 JD、入库、匹配、排序。
   - `tailor_resume_for_job`：匹配岗位、检索简历证据、定制简历、校验幻觉风险。
   - `quick_apply`：生成投递包、求职信、外联文案、投递清单和状态记录，并校验投递包是否编造事实或越过人工确认边界。
@@ -72,7 +73,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
 
 ```mermaid
 flowchart LR
-    UI["Jinja 工作台"] --> API["FastAPI API"]
+    UI["Jinja 用户开始页 + 控制台"] --> API["FastAPI API"]
     API --> Agent["Agent Orchestrator"]
     Agent --> Search["并发岗位搜索"]
     Agent --> Match["岗位匹配"]
@@ -101,7 +102,8 @@ uvicorn app.main:app --reload
 
 打开：
 
-- 工作台：http://localhost:8000
+- 开始页：http://localhost:8000
+- 控制台：http://localhost:8000/ui/ops
 - API 文档：http://localhost:8000/docs
 - 健康检查：http://localhost:8000/health
 
@@ -133,14 +135,43 @@ LLM_THINKING_MODE=auto
 
 ## 主要页面
 
+- `/`：面向用户的一键开始页。支持已有 Profile ID、上传 PDF、填写简历核心信息；岗位侧可搜索真实岗位，也可输入已有 Job ID 或粘贴目标 JD 来稳定跑通完整流程。页面会展示简历建档、岗位搜索/读取、匹配排序、定制简历、投递包、面试包 6 个阶段。
 - `/ui/profiles`：上传 PDF 或问答式生成简历档案。
 - `/ui/jobs`：搜索真实岗位或手动粘贴 JD。
 - `/ui/agent-runs`：运行 Agent 并查看步骤。
 - `/ui/resumes`：查看和下载定制简历版本。
 - `/ui/applications`：查看投递包、投递状态、Guardrail issues/warnings 和人工确认边界。
 - `/ui/prep`：导入同岗面经材料，生成和查看面试准备包，展示网上同岗面经、简历项目技术栈和其他可能面试问题三类准备角度，展示 LLM 连续追问、题目质量分、可点击定位的失败项、面经参考链接，导出 Markdown，并记录按题练习状态。兼容旧路径 `/ui/interview-prep`。
-- `/ui/quality`：运行面经来源 smoke 和真实 LLM workflow smoke，查看最近评测结果、逐 case stage trace、当前 run 的 LLM retry/repair 调用树和 source 层健康度，并把候选面经人工确认后导入；导入成功后可带着 `experience_ids` 快速生成面试包。兼容旧路径 `/ui/evaluations`。
-- `/ui/ops`：上线状态、脱敏配置、运行指标、后台任务和最近 LLM 调用日志；可在本机浏览器保存 `X-Admin-Token`，后续写操作自动带上管理令牌。
+- `/ui/quality`：运行面经来源 smoke 和真实 LLM workflow smoke，查看最近评测结果、逐 case stage trace、当前 run 的 LLM retry/repair 调用树和 source 层健康度，并把候选面经人工确认后导入；导入成功后可带着 `experience_ids` 快速生成面试包。该页面从右上角“控制台”进入，兼容旧路径 `/ui/evaluations`。
+- `/ui/ops`：右上角“控制台”入口。展示上线状态、脱敏配置、运行指标、后台任务和最近 LLM 调用日志；可在本机浏览器保存 `X-Admin-Token`，后续写操作自动带上管理令牌。
+
+## 演示数据与真实 smoke
+
+生成可上传测试的 PDF 简历：
+
+```bash
+python scripts/generate_demo_resumes.py
+```
+
+生成文件位于 `demo_resumes/`：
+
+- `agent_intern_strong_resume.pdf`
+- `agent_intern_noisy_resume.pdf`
+- `backend_platform_resume.pdf`
+- `ml_rag_partial_resume.pdf`
+
+使用真实 LLM 配置跑用户链路 smoke：
+
+```powershell
+$env:LLM_API_KEY='your_key_here'
+$env:LLM_BASE_URL='https://api.deepseek.com'
+$env:LLM_MODEL='deepseek-v4-pro'
+$env:LLM_THINKING_MODE='auto'
+$env:LLM_FALLBACK_ENABLED='false'
+python scripts/run_user_flow_smoke.py --pdf demo_resumes/agent_intern_strong_resume.pdf
+```
+
+该脚本会真实覆盖 PDF 简历解析、JD 解析、简历定制、投递包和面试包，失败时直接报错并留下 LLM 调用日志。
 
 ## 常用 API
 

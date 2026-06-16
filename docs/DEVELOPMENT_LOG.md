@@ -1,5 +1,43 @@
 # 开发日志
 
+## 2026-06-16 22:30:39 +08:00：用户启动台、控制台拆分与真实 LLM 前端全流程验证
+### 这次做了什么
+- 将首页重构为面向用户的“开始”页：支持已有 Profile ID、上传 PDF、填写简历核心信息，并提供一键运行完整流程的阶段进度。
+- 将普通用户页面和运维页面拆开：主导航只保留开始、简历、岗位、流程、定制简历、投递、面试；右上角新增“控制台”入口，`/ui/ops` 聚合 readiness、metrics、config、后台任务、LLM trace，并提供评测和 API 文档入口。
+- 首页一键流程新增两种稳定路径：可以搜索真实岗位，也可以输入已有 Job ID 或粘贴目标 JD；粘贴 JD 时会先创建岗位、生成匹配分，再继续定制简历、投递包和面试包。
+- 后端新增 `full_career_flow` Agent task type，并补齐 AgentPlanner、Skill、SubAgent 映射，让 API 层也能表达完整求职流程。
+- 新增 `scripts/generate_demo_resumes.py`，生成 4 份可直接上传测试的 PDF 简历：强匹配 Agent、带噪声 Agent、后端平台、ML/RAG 部分匹配。
+- 新增 `scripts/run_user_flow_smoke.py`，用于从环境变量读取真实 LLM 配置，跑 PDF 上传解析、JD 解析、定制简历、投递包、面试包的用户链路 smoke。
+- 为前端静态资源增加版本参数，避免本地服务热更新后浏览器继续使用旧 JS/CSS。
+### 发现的问题
+- `8011` 端口已被旧服务占用，新进程绑定失败；旧进程会读取新模板但没有新 Python 路由，导致首页看起来更新了而 `/ui/ops` 仍返回 404。
+- 浏览器真实一键流程第一次暴露一个重要 bug：`/agent/runs` 在业务失败时仍返回 HTTP 201，前端只检查 HTTP 状态，导致 `quick_apply` 因匹配分低于 55 失败时，页面仍把“投递包”标成完成。
+- 演示 JD 初版抽取出的 required skills 偏多，导致强演示候选人的匹配分只有 54.95，触发投递阈值；这不是后端崩溃，而是样例材料和 JD 标注不够一致。
+- 内置浏览器的 Playwright locator click 在本地页面上偶发 3 秒 CDP 超时；改用 Browser DOM CUA 节点点击后可以稳定操作。
+- 浏览器隔离环境无法可靠读取页面脚本全局函数，不能用 `typeof createAgentRun` 判断新 JS 是否已加载；静态资源版本号更可靠。
+### 怎么修复
+- 改用干净端口 `8022` 验证新版 UI，再用带真实 LLM 环境变量的 `8024` 跑前端一键流程。
+- 新增 `createAgentRun()` 前端 helper，所有首页 AgentRun 调用都会检查 `run.status === "completed"`；如果业务失败，直接把当前阶段标成 failed 并显示 `error_message`。
+- 调整首页演示资料和 JD，使候选人证据与岗位要求更一致，真实 UI 一键流程最终匹配分提升到 72.44，顺利生成投递包。
+- 首页新增已有 Job ID / 目标 JD 输入，避免演示或真实使用完全依赖外部招聘源；外部岗位源失败时仍能用用户粘贴 JD 完整跑通核心链路。
+- 为 `/static/css/style.css` 和 `/static/js/main.js` 增加 `?v=20260616-flow`，规避浏览器缓存旧资源。
+### 验证结果
+- 单元与集成回归：`pytest -q` 全量 `85 passed in 33.79s`。
+- 浏览器验证：`http://127.0.0.1:8022/` 首页导航只保留用户流程，右上角控制台入口存在；`/ui/ops` 展示 readiness、metrics、config、tasks、LLM logs，页面自身 console error 为空。
+- 真实 LLM 脚本 smoke：使用 DeepSeek 官方兼容接口、`deepseek-v4-pro`、`LLM_THINKING_MODE=auto`，PDF 上传解析、JD 解析、定制简历、投递包、面试包全部完成；Profile #142，Job #188，ResumeVersion #74，Application #16，InterviewPrep #28，定制风险 `low`，面试包 10 组题、5 个 gap drill。
+- 真实 LLM 前端 smoke：`http://127.0.0.1:8024/` 点击“填入演示信息”与“一键运行”，Profile #144、Job #190、匹配分 72.44、ResumeVersion #76、Application #17、InterviewPrep #30 均生成，6 个阶段全部 done，页面自身 console error 为空。
+- 演示 PDF 已生成并用 `pypdf` 验证可抽取文本：`demo_resumes/agent_intern_strong_resume.pdf`、`agent_intern_noisy_resume.pdf`、`backend_platform_resume.pdf`、`ml_rag_partial_resume.pdf`。
+### 未修复的问题
+- 首页一键流程仍是前端串行调用多个接口，不是后台任务式长流程；原因是当前优先保证用户可见阶段和真实可用，长耗时流程后续应接入任务队列、可取消和可恢复。
+- `full_career_flow` 后端任务已实现，但首页为了显示每个阶段的即时进度仍使用逐步调用；如果要统一成后端长任务，需要增加阶段进度事件或轮询端点。
+- 外部岗位源仍只作为可选搜索路径，不作为本轮真实 UI smoke 的质量门禁；原因是招聘源网络波动和岗位结果会影响稳定复现，核心 LLM 链路已通过粘贴 JD 验证。
+- 演示 PDF 当前是标准 Helvetica 文本 PDF，内容以英文技术简历为主；原因是纯标准库生成中文可抽取 PDF 需要嵌入字体和 ToUnicode 映射，后续可引入 reportlab 或预置中文字体改善展示。
+### 下一步
+- 将首页一键流程接入后台任务/进度轮询，支持取消、重跑、resume-from-last-completed 和失败阶段跳转 trace。
+- 在控制台中增加“最近用户流程”视图，把 Profile、Job、ResumeVersion、Application、InterviewPrep 串成一条可点击链路。
+- 给粘贴 JD 路径增加更清晰的 JD 预览、匹配解释和低分投递阻断提示。
+- 继续补上线能力：账号/RBAC、文件权限隔离、结构化日志、Prometheus/OpenTelemetry、Docker 部署和生产环境变量模板。
+
 ## 2026-06-16 20:51 +08:00：前端上线体验、运维面板与内置浏览器验证
 ### 这次做了什么
 - 新增 `/ui/ops` 运维页，聚合 `/ops/readiness`、`/ops/metrics`、`/ops/config`、`/tasks` 和 `/llm/debug/logs`，展示上线状态、脱敏配置、运行指标、后台任务和最近 LLM 调用。

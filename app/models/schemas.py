@@ -235,7 +235,13 @@ class ResumeVersionResponse(BaseModel):
 
 
 class AgentRunRequest(BaseModel):
-    task_type: Literal["find_jobs_for_profile", "tailor_resume_for_job", "quick_apply", "prepare_interview_for_job"]
+    task_type: Literal[
+        "find_jobs_for_profile",
+        "tailor_resume_for_job",
+        "quick_apply",
+        "prepare_interview_for_job",
+        "full_career_flow",
+    ]
     profile_id: int | None = None
     job_id: int | None = None
     resume_version_id: int | None = None

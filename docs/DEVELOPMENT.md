@@ -10,6 +10,12 @@ copy .env.example .env
 uvicorn app.main:app --reload
 ```
 
+启动后常用入口：
+
+- `/`：用户开始页，支持上传/输入简历后一键运行完整求职流程。
+- `/ui/ops`：右上角“控制台”，集中查看 readiness、metrics、脱敏配置、后台任务和 LLM trace。
+- `/ui/quality`：评测和长跑任务入口，从控制台进入。
+
 ## 配置
 
 核心环境变量：
@@ -119,6 +125,29 @@ evals/sample_cases.json
 ```bash
 pytest -q
 ```
+
+## 演示 PDF 与真实用户链路 smoke
+
+生成演示 PDF：
+
+```bash
+python scripts/generate_demo_resumes.py
+```
+
+默认输出到 `demo_resumes/`，用于首页上传或 `/profiles/upload` 测试。
+
+使用真实 DeepSeek/OpenAI-compatible LLM 跑用户链路 smoke：
+
+```powershell
+$env:LLM_API_KEY='your_key_here'
+$env:LLM_BASE_URL='https://api.deepseek.com'
+$env:LLM_MODEL='deepseek-v4-pro'
+$env:LLM_THINKING_MODE='auto'
+$env:LLM_FALLBACK_ENABLED='false'
+python scripts\run_user_flow_smoke.py --pdf demo_resumes\agent_intern_strong_resume.pdf
+```
+
+该 smoke 会真实调用 PDF 简历解析、JD 解析、简历定制、投递包和面试包。它不会写入或打印 API key；失败会直接抛错，详细 prompt/response 预览在 `llm_call_logs` 和 `/ui/ops` 可查。
 
 或通过 API：
 

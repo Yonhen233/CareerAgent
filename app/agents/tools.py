@@ -123,6 +123,29 @@ class AgentPlanner:
                 self._step("match_job", "matcher.match_job", "逐个岗位匹配并按 overall_score 排序。"),
             ]
             react_loops: list[dict[str, Any]] = []
+        elif task_type == "full_career_flow":
+            steps = [
+                self._step("load_profile", "profile_repository.load_profile", "读取候选人 Profile。"),
+                self._step("search_jobs", "job_search.search_jobs", "搜索并入库中文真实岗位。"),
+                self._step("match_and_select_job", "matcher.match_job", "按匹配分数选择最高价值岗位。"),
+                self._step("retrieve_resume_evidence", "vector_index.retrieve_resume_evidence", "检索 Top evidence 支撑定制。"),
+                self._step("tailor_resume", "resume_tailor.tailor_resume", "生成面向目标 JD 的定制简历。"),
+                self._step("verify_resume", "guardrail.verify_resume", "验证事实边界和关键词覆盖。"),
+                self._step("fit_gate", "matcher.match_job", "投递前检查适配度是否达到阈值。"),
+                self._step("create_application_packet", "application.create_quick_apply_packet", "生成投递包与人工确认清单。"),
+                self._step("generate_interview_prep", "interview_prep.generate_packet", "生成 JD+项目绑定的面试准备包。"),
+            ]
+            react_loops = [
+                {
+                    "name": "tailor_verify_repair",
+                    "max_iterations": 2,
+                    "pattern": [
+                        "Observe: 读取岗位缺口、证据类型和 Guardrail 问题",
+                        "Act: 收缩上下文并重写定制简历",
+                        "Observe: 再次验证风险等级",
+                    ],
+                }
+            ]
         elif task_type == "tailor_resume_for_job":
             steps = [
                 self._step("load_profile", "profile_repository.load_profile", "读取候选人原始事实。"),
@@ -193,7 +216,12 @@ class AgentPlanner:
         return {"step": name, "tool": tool, "purpose": purpose}
 
     def _context_policy(self, task_type: str) -> dict[str, Any]:
-        needs_llm_context = task_type in {"tailor_resume_for_job", "quick_apply", "prepare_interview_for_job"}
+        needs_llm_context = task_type in {
+            "tailor_resume_for_job",
+            "quick_apply",
+            "prepare_interview_for_job",
+            "full_career_flow",
+        }
         return {
             "progressive_disclosure": needs_llm_context,
             "compression_strategy": "progressive_disclosure_budgeted_packet" if needs_llm_context else "not_required",

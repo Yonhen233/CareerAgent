@@ -175,6 +175,31 @@ GET /resumes/{resume_version_id}/markdown
 
 ## Agent Runs
 
+### 一体化求职流程
+
+```http
+POST /agent/runs
+Content-Type: application/json
+```
+
+```json
+{
+  "task_type": "full_career_flow",
+  "profile_id": 1,
+  "query": "Agent 开发实习生",
+  "location": "深圳",
+  "limit": 8
+}
+```
+
+效果：
+
+- 搜索真实岗位并按匹配分选择最高岗位。
+- 生成定制简历。
+- 通过 `fit_gate` 后生成投递包。
+- 生成面试准备包。
+- 在同一个 `agent_run` 下写入 execution plan、selected job、tailored resume、fit gate、application 和 interview prep artifacts。
+
 ### 搜索并排序岗位
 
 ```http

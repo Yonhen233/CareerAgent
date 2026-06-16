@@ -1,0 +1,54 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 1679 >>
+stream
+BT
+/F1 10 Tf
+1 0 0 1 50 780 Tm (Li Ming - Agent Development Intern Candidate) Tj
+1 0 0 1 50 766 Tm (Email: liming@example.com | Phone: 13800000000 | Location: Shenzhen) Tj
+1 0 0 1 50 752 Tm (Target Roles: Agent Development Intern, AI Application Development Intern) Tj
+1 0 0 1 50 738 Tm (Skills: Python, FastAPI, SQLite, RAG, Chroma, LLM, prompt engineering, evaluation,) Tj
+1 0 0 1 50 724 Tm (guardrails, Playwright, pytest) Tj
+1 0 0 1 50 710 Tm (Project: CareerAgent) Tj
+1 0 0 1 50 696 Tm (Built a career assistant agent for Chinese internship scenarios.) Tj
+1 0 0 1 50 682 Tm (Implemented PDF resume chunking, SQLite metadata storage, vector retrieval, Top20 reranker,) Tj
+1 0 0 1 50 668 Tm (JD parsing, job matching, resume tailoring, application packet generation and interview) Tj
+1 0 0 1 50 654 Tm (preparation.) Tj
+1 0 0 1 50 640 Tm (Designed Plan-Execute workflow with traceable steps, artifacts, LLM call logs and guardrail) Tj
+1 0 0 1 50 626 Tm (repair loop for high risk resume drafts.) Tj
+1 0 0 1 50 612 Tm (Used FastAPI async endpoints, SQLite persistence, background task progress, RAG evaluation) Tj
+1 0 0 1 50 598 Tm (datasets and full-flow LLM workflow tests.) Tj
+1 0 0 1 50 584 Tm (Measured PDF chunk and RAG strategies with synthetic noisy samples, selected section-aware) Tj
+1 0 0 1 50 570 Tm (chunking plus overlap and reranked retrieval.) Tj
+1 0 0 1 50 556 Tm (Experience: AI Application Lab Intern) Tj
+1 0 0 1 50 542 Tm (Developed internal tools with Python APIs and dashboards. Wrote pytest cases and monitored) Tj
+1 0 0 1 50 528 Tm (latency, error traces and structured JSON failures.) Tj
+1 0 0 1 50 514 Tm (Education: B.S. Computer Science, 2027) Tj
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000311 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+2042
+%%EOF

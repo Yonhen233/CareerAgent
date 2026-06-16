@@ -40,6 +40,33 @@ def test_evaluations_page_exposes_interview_source_smoke_controls():
     assert "evaluation-runs-list" in response.text
 
 
+def test_dashboard_exposes_user_start_flow_and_console_entry():
+    client = TestClient(app)
+    response = client.get("/")
+    main_js = Path("app/static/js/main.js").read_text(encoding="utf-8")
+    style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")
+
+    assert response.status_code == 200
+    assert "career-start-form" in response.text
+    assert "career-flow-steps" in response.text
+    assert "career-flow-result" in response.text
+    assert "name=\"job_id\"" in response.text
+    assert "name=\"jd_text\"" in response.text
+    assert "一键运行" in response.text
+    assert "控制台" in response.text
+    assert ">运维<" not in response.text
+    assert "dashboard-ops-summary" not in response.text
+    assert "runCareerStartFlow" in main_js
+    assert "createProfileForCareerFlow" in main_js
+    assert "createAgentRun" in main_js
+    assert "run.status !== \"completed\"" in main_js
+    assert "resolveDirectJobForCareerFlow" in main_js
+    assert "/matches" in main_js
+    assert "task_type: \"find_jobs_for_profile\"" in main_js
+    assert "flow-stepper" in style_css
+    assert "console-entry" in style_css
+
+
 def test_evaluations_frontend_exposes_llm_workflow_trace_panel():
     main_js = Path("app/static/js/main.js").read_text(encoding="utf-8")
     style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")
@@ -69,6 +96,8 @@ def test_ops_frontend_exposes_production_controls():
     assert "admin-token-form" in response.text
     assert "ops-metrics" in response.text
     assert "ops-llm-logs" in response.text
+    assert "/ui/quality" in response.text
+    assert "/docs" in response.text
     assert "loadOpsPage" in main_js
     assert "careeragent.admin_token" in main_js
     assert "X-Admin-Token" in main_js

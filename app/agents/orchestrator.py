@@ -61,6 +61,8 @@ class AgentOrchestrator:
                 output = await self._quick_apply(db, run.id, request)
             elif request.task_type == "prepare_interview_for_job":
                 output = await self._prepare_interview_for_job(db, run.id, request)
+            elif request.task_type == "full_career_flow":
+                output = await self._full_career_flow(db, run.id, request)
             else:
                 raise ValueError(f"Unsupported task_type: {request.task_type}")
             output["execution_plan"] = plan
@@ -256,6 +258,65 @@ class AgentOrchestrator:
         )
         payload = self._interview_prep_payload(prep)
         self.trace.add_artifact(db, run_id=run_id, artifact_type="interview_prep", payload=payload)
+        return payload
+
+    async def _full_career_flow(self, db: Session, run_id: int, request: AgentRunRequest) -> dict[str, Any]:
+        find_payload = await self._find_jobs_for_profile(db, run_id, request)
+        matches = find_payload.get("matches") or []
+        if not matches:
+            raise ValueError(
+                "Full career flow stopped: no matched jobs found. "
+                f"source_errors={find_payload.get('source_errors') or {}}"
+            )
+        selected_job = matches[0]
+        selected_job_id = int(selected_job["job_id"])
+        self.trace.add_artifact(
+            db,
+            run_id=run_id,
+            artifact_type="selected_job",
+            payload={"selection_policy": "highest_overall_score", "selected_job": selected_job},
+        )
+
+        base = request.model_copy(update={"job_id": selected_job_id})
+        tailor_payload = await self._tailor_resume_for_job(
+            db,
+            run_id,
+            base.model_copy(update={"task_type": "tailor_resume_for_job"}),
+        )
+        apply_payload = await self._quick_apply(
+            db,
+            run_id,
+            base.model_copy(
+                update={
+                    "task_type": "quick_apply",
+                    "resume_version_id": tailor_payload.get("resume_version_id"),
+                }
+            ),
+        )
+        interview_payload = await self._prepare_interview_for_job(
+            db,
+            run_id,
+            base.model_copy(update={"task_type": "prepare_interview_for_job"}),
+        )
+        payload = {
+            "profile_id": request.profile_id,
+            "query": find_payload.get("query"),
+            "selected_job": selected_job,
+            "matches": matches,
+            "source_errors": find_payload.get("source_errors") or {},
+            "tailor": tailor_payload,
+            "application": apply_payload,
+            "interview_prep": interview_payload,
+            "links": {
+                "profile": f"/ui/profiles?profile_id={request.profile_id}",
+                "job": f"/ui/jobs?job_id={selected_job_id}",
+                "resume_versions": "/ui/resumes",
+                "applications": "/ui/applications",
+                "interview_prep": f"/ui/prep?job_id={selected_job_id}",
+                "trace": "/ui/agent-runs",
+            },
+        }
+        self.trace.add_artifact(db, run_id=run_id, artifact_type="full_career_flow", payload=payload)
         return payload
 
     async def _load_profile(self, db: Session, profile_id: int | None) -> Profile:
