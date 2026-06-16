@@ -14,6 +14,42 @@ GET /health
 
 返回应用状态、版本和 LLM 是否已配置。
 
+## 自然语言助手
+
+```http
+POST /assistant/natural-language
+Content-Type: application/json
+```
+
+用于用户直接描述需求，例如生成简历档案、按 JD 定制简历、搜索岗位、生成投递包和面试包。接口会先调用 LLM 解析意图和计划，再调用现有 Agent 工具链执行。
+
+```json
+{
+  "instruction": "我想找 Agent 开发实习岗位，请根据下面 JD 帮我生成简历档案，并改简历、生成投递包和面试准备问题。",
+  "profile_id": 1,
+  "job_id": null,
+  "jd_text": "岗位：Agent 开发实习生\n职责：参与 RAG、工具调用、LLM 调试和 FastAPI 后端开发...",
+  "query": "Agent 开发实习生",
+  "location": "深圳",
+  "limit": 8
+}
+```
+
+返回：
+
+- `run_id`：自然语言需求本身的 Agent Run ID，可继续查询步骤。
+- `status`：`completed` 或 `failed`。
+- `user_message`：给用户展示的中文结果或失败原因。
+- `plan_json`：LLM 解析后的意图、动作和原因。
+- `result_json`：生成的 Profile、Job、ResumeVersion、Application、InterviewPrep 或推荐岗位。
+- `repair_attempts`：首次执行失败后的自动修复记录。
+
+失败语义：
+
+- 首次执行失败会触发 1 轮 plan repair。
+- repair 后仍失败时返回 HTTP 500，但 body 仍保留 `run_id/status/user_message/plan_json/result_json`，方便前端显示失败卡片并跳转流程记录。
+- 岗位搜索返回 0 个 matches 会被视为失败，不会伪装成“推荐成功”。
+
 ## 简历档案
 
 ### 上传 PDF

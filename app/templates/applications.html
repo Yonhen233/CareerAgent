@@ -2,24 +2,24 @@
 {% block content %}
 <section class="panel">
   <div class="panel-heading compact">
-    <div>
-      <p class="eyebrow">Application packet</p>
-      <h1>投递包</h1>
-    </div>
+      <div>
+      <p class="eyebrow">投递材料</p>
+      <h1>生成投递材料</h1>
+      </div>
   </div>
   <form id="quick-apply-form" class="form-grid">
-    <label>Profile ID<input name="profile_id" type="number" min="1" required></label>
-    <label>Job ID<input name="job_id" type="number" min="1" required></label>
-    <label>Resume Version ID<input name="resume_version_id" type="number" min="1"></label>
-    <label class="checkline"><input name="browser_assist" type="checkbox"> 浏览器辅助</label>
+    <label>简历档案 ID<input name="profile_id" type="number" min="1" required></label>
+    <label>岗位 ID<input name="job_id" type="number" min="1" required></label>
+    <label>定制简历 ID<input name="resume_version_id" type="number" min="1"></label>
+    <label class="checkline"><input name="browser_assist" type="checkbox"> 打开投递链接时提醒我逐项确认</label>
     <button class="primary" type="submit"><i data-lucide="send"></i> 生成投递包</button>
   </form>
 </section>
 <section class="panel">
   <div class="panel-heading compact">
     <div>
-      <p class="eyebrow">Tracker</p>
-      <h2>投递记录</h2>
+      <p class="eyebrow">已保存</p>
+      <h2>我的投递材料</h2>
     </div>
     <button class="ghost" data-refresh="applications"><i data-lucide="refresh-cw"></i> 刷新</button>
   </div>

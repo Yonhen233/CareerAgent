@@ -280,6 +280,26 @@ class AgentStepResponse(BaseModel):
     created_at: datetime
 
 
+class NaturalLanguageAgentRequest(BaseModel):
+    instruction: str = Field(min_length=4)
+    profile_id: int | None = None
+    job_id: int | None = None
+    resume_version_id: int | None = None
+    jd_text: str | None = None
+    query: str | None = "Agent 开发实习生"
+    location: str | None = None
+    limit: int = Field(default=8, ge=1, le=30)
+
+
+class NaturalLanguageAgentResponse(BaseModel):
+    run_id: int
+    status: str
+    user_message: str
+    plan_json: dict[str, Any]
+    result_json: dict[str, Any]
+    repair_attempts: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class LLMCallLogResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

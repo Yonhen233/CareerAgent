@@ -30,11 +30,18 @@ async function api(path, options = {}) {
   });
   if (!response.ok) {
     let detail = await response.text();
+    let parsed = null;
     try {
-      detail = JSON.parse(detail).detail || detail;
+      parsed = JSON.parse(detail);
     } catch (_) {
       // keep text
     }
+    if (parsed?.user_message) {
+      const error = new Error(parsed.user_message);
+      error.body = parsed;
+      throw error;
+    }
+    detail = parsed?.detail || parsed?.error || detail;
     throw new Error(detail);
   }
   return response.json();
@@ -53,6 +60,37 @@ function renderItems(target, items, renderer) {
 
 function tags(values) {
   return `<div class="tags">${(values || []).slice(0, 8).map((x) => `<span class="tag">${escapeHtml(x)}</span>`).join("")}</div>`;
+}
+
+function taskLabel(taskType) {
+  const labels = {
+    full_career_flow: "完整求职流程",
+    find_jobs_for_profile: "岗位推荐",
+    tailor_resume_for_job: "定制简历",
+    quick_apply: "投递材料",
+    prepare_interview_for_job: "面试准备",
+    natural_language_request: "智能需求处理",
+  };
+  return labels[taskType] || taskType || "求职流程";
+}
+
+function stepLabel(stepName) {
+  const labels = {
+    plan_task: "理解任务",
+    load_profile: "读取简历",
+    search_jobs: "搜索岗位",
+    match_job: "匹配岗位",
+    tailor_resume_with_rag: "生成定制简历",
+    create_missing_tailored_resume: "生成定制简历",
+    fit_gate: "投递前适配检查",
+    create_application_packet: "生成投递材料",
+    generate_interview_prep: "生成面试准备包",
+    load_job: "读取岗位",
+    parse_user_request: "理解自然语言需求",
+    execute_user_plan: "执行需求",
+    repair_user_plan: "自动修复计划",
+  };
+  return labels[stepName] || stepName || "处理阶段";
 }
 
 function interviewSourceLabel(source) {
@@ -82,7 +120,7 @@ function interviewAngleLabel(angle) {
 function validationList(items, emptyText) {
   if (!items || !items.length) return `<div class="meta">${escapeHtml(emptyText)}</div>`;
   return `<ul class="compact-list">${items.map((item) => `
-    <li><span class="tag">${escapeHtml(item.code || "note")}</span>${escapeHtml(item.message || "")}${item.terms?.length ? `：${escapeHtml(item.terms.join("、"))}` : ""}</li>
+    <li>${escapeHtml(item.message || item.code || "")}${item.terms?.length ? `：${escapeHtml(item.terms.join("、"))}` : ""}</li>
   `).join("")}</ul>`;
 }
 
@@ -94,16 +132,16 @@ function applicationValidation(row) {
   return `
     <div class="validation-panel ${passed ? "validation-ok" : "validation-risk"}">
       <div class="validation-head">
-        <span class="status-pill ${passed ? "ok" : ""}">${escapeHtml(risk)}</span>
-        <span class="meta">${escapeHtml(automation.mode || "manual_confirm_required")} · ${escapeHtml(automation.final_submission || "user_confirmed_only")}</span>
+        <span class="status-pill ${passed ? "ok" : ""}">${passed ? "可投递" : "需检查"}</span>
+        <span class="meta">最终提交前仍需要你人工确认</span>
       </div>
       <div class="validation-grid">
         <div>
-          <strong>Issues</strong>
+          <strong>阻断问题</strong>
           ${validationList(validation.issues || [], "未发现阻断问题")}
         </div>
         <div>
-          <strong>Warnings</strong>
+          <strong>提醒</strong>
           ${validationList(validation.warnings || [], "无警告")}
         </div>
       </div>
@@ -141,7 +179,7 @@ async function loadProfiles() {
   const rows = await api("/profiles");
   renderItems("#profiles-list", rows, (row) => `
     <article class="item">
-      <div class="item-title"><span>#${row.id} ${escapeHtml(row.name || "Unnamed")}</span><span class="meta">${escapeHtml(row.source_type)}</span></div>
+      <div class="item-title"><span>#${row.id} ${escapeHtml(row.name || "未命名简历")}</span><span class="meta">${row.source_type === "pdf" ? "PDF 上传" : "手动填写"}</span></div>
       <div class="meta">${escapeHtml(row.headline || "")}</div>
       ${tags(row.structured_profile_json.skills || [])}
     </article>
@@ -152,7 +190,7 @@ async function loadJobs() {
   const rows = await api("/jobs");
   renderItems("#jobs-list", rows, (row) => `
     <article class="item">
-      <div class="item-title"><span>#${row.id} ${escapeHtml(row.title)}</span><span class="meta">${escapeHtml(row.source)}</span></div>
+      <div class="item-title"><span>#${row.id} ${escapeHtml(row.title)}</span><span class="meta">${escapeHtml(row.company || "未知公司")}</span></div>
       <div class="meta">${escapeHtml(row.company || "")} ${escapeHtml(row.location || "")}</div>
       ${tags(row.structured_jd_json.required_skills || row.structured_jd_json.keywords || [])}
       ${row.apply_url ? `<p><a class="button ghost" href="${escapeHtml(row.apply_url)}" target="_blank"><i data-lucide="external-link"></i> 打开投递页</a></p>` : ""}
@@ -164,8 +202,12 @@ async function loadRuns(target = "#runs-list") {
   const rows = await api("/agent/runs");
   renderItems(target, rows, (row) => `
     <article class="item">
-      <div class="item-title"><button class="ghost" data-run-id="${row.id}">#${row.id} ${escapeHtml(row.task_type)}</button><span class="status-pill">${escapeHtml(row.status)}</span></div>
-      <div class="meta">profile=${row.profile_id || "-"} job=${row.job_id || "-"} latency=${row.latency_ms}ms</div>
+      <div class="item-title">
+        <button class="ghost" data-run-id="${row.id}">#${row.id} ${escapeHtml(taskLabel(row.task_type))}</button>
+        <span class="status-pill ${row.status === "completed" ? "ok" : row.status === "failed" ? "risk" : ""}">${row.status === "completed" ? "已完成" : row.status === "failed" ? "失败" : escapeHtml(row.status)}</span>
+      </div>
+      <div class="meta">简历 ${row.profile_id || "-"} · 岗位 ${row.job_id || "-"} · ${row.latency_ms}ms</div>
+      ${renderRunOutcomeLinks(row)}
     </article>
   `);
   document.querySelectorAll("[data-run-id]").forEach((button) => {
@@ -173,13 +215,25 @@ async function loadRuns(target = "#runs-list") {
   });
 }
 
+function renderRunOutcomeLinks(row) {
+  const output = row.output_json || {};
+  const links = [];
+  const resumeId = output.resume_version_id || output.tailor?.resume_version_id;
+  const applicationId = output.application_id || output.application?.application_id;
+  const prepId = output.interview_prep_id || output.interview_prep?.interview_prep_id;
+  if (resumeId) links.push(`<a class="button ghost" href="/ui/resumes"><i data-lucide="file-check-2"></i> 简历 #${resumeId}</a>`);
+  if (applicationId) links.push(`<a class="button ghost" href="/ui/applications"><i data-lucide="send"></i> 投递包 #${applicationId}</a>`);
+  if (prepId) links.push(`<a class="button ghost" href="/ui/prep"><i data-lucide="messages-square"></i> 面试包 #${prepId}</a>`);
+  if (output.matches?.length) links.push(`<a class="button ghost" href="/ui/jobs"><i data-lucide="briefcase-business"></i> 推荐岗位 ${output.matches.length} 个</a>`);
+  return links.length ? `<div class="flow-result-actions">${links.join("")}</div>` : "";
+}
+
 async function loadRunSteps(runId) {
   const rows = await api(`/agent/runs/${runId}/steps`);
   renderItems("#run-steps", rows, (row) => `
     <article class="item">
-      <div class="item-title"><span>${escapeHtml(row.step_name)}</span><span class="status-pill">${escapeHtml(row.status)}</span></div>
-      <div class="meta">${escapeHtml(row.tool_name || "")} ${row.latency_ms}ms</div>
-      <pre>${escapeHtml(JSON.stringify(row.output_json || row.error_message || {}, null, 2))}</pre>
+      <div class="item-title"><span>${escapeHtml(stepLabel(row.step_name))}</span><span class="status-pill ${row.status === "completed" ? "ok" : row.status === "failed" ? "risk" : ""}">${row.status === "completed" ? "完成" : row.status === "failed" ? "失败" : escapeHtml(row.status)}</span></div>
+      <div class="meta">${row.latency_ms}ms${row.error_message ? ` · ${escapeHtml(row.error_message)}` : ""}</div>
     </article>
   `);
 }
@@ -208,8 +262,8 @@ async function loadResumes() {
   }
   el.innerHTML = rows.map((row) => `
     <article class="resume-card">
-      <div class="item-title"><span>#${row.id} ${escapeHtml(row.title)}</span><span class="status-pill">${escapeHtml(row.verification_json.risk_level || "unknown")}</span></div>
-      <p class="meta">Profile ${row.profile_id} · Job ${row.job_id}</p>
+      <div class="item-title"><span>#${row.id} ${escapeHtml(row.title)}</span><span class="status-pill ${row.verification_json.passed ? "ok" : "risk"}">${row.verification_json.passed ? "事实检查通过" : "需检查"}</span></div>
+      <p class="meta">简历 ${row.profile_id} · 岗位 ${row.job_id}</p>
       <pre>${escapeHtml(row.tailored_resume_markdown)}</pre>
       <a class="button ghost" href="/resumes/${row.id}/markdown"><i data-lucide="download"></i> Markdown</a>
     </article>
@@ -221,8 +275,8 @@ async function loadApplications() {
   const rows = await api("/applications");
   renderItems("#applications-list", rows, (row) => `
     <article class="item">
-      <div class="item-title"><span>#${row.id} Job ${row.job_id}</span><span class="status-pill">${escapeHtml(row.status)}</span></div>
-      <div class="meta">Resume Version ${row.resume_version_id || "-"}</div>
+      <div class="item-title"><span>#${row.id} 岗位 ${row.job_id}</span><span class="status-pill ${row.status === "ready" ? "ok" : ""}">${row.status === "ready" ? "准备好了" : escapeHtml(row.status)}</span></div>
+      <div class="meta">定制简历 ${row.resume_version_id || "-"}</div>
       ${row.apply_url ? `<p><a class="button ghost" href="${escapeHtml(row.apply_url)}" target="_blank"><i data-lucide="external-link"></i> 打开投递页</a></p>` : ""}
       ${applicationValidation(row)}
       ${row.outreach_message ? `<p class="message-preview">${escapeHtml(row.outreach_message)}</p>` : ""}
@@ -236,10 +290,8 @@ async function loadInterviewPreps() {
   renderItems("#interview-prep-list", rows, (row) => {
     const summary = row.summary_json || {};
     const coverage = row.coverage_json || {};
-    const coreSources = coverage.core_perspective_counts || {};
     const preparationAngles = summary.preparation_angles || preparationAnglesFromCoverage(coverage);
     const referenceLinks = summary.interview_reference_links || [];
-    const questionQuality = summary.question_quality || questionQualityFromCoverage(coverage);
     const questionSets = row.question_sets_json || [];
     const drills = row.gap_drills_json || [];
     const research = row.research_checklist_json || [];
@@ -247,24 +299,15 @@ async function loadInterviewPreps() {
       <article class="item">
         <div class="item-title">
           <span>#${row.id} ${escapeHtml(row.title)}</span>
-          <span class="status-pill ${coverage.passed ? "ok" : ""}">${coverage.passed ? "ready" : "review"}</span>
+          <span class="status-pill ${coverage.passed ? "ok" : ""}">${coverage.passed ? "可开始练习" : "需补充"}</span>
         </div>
-        <div class="meta">Profile ${row.profile_id} / Job ${row.job_id} / ${escapeHtml(summary.fit_level || "unknown")} / score ${escapeHtml(summary.overall_score ?? "-")}</div>
+        <div class="meta">简历 ${row.profile_id} · 岗位 ${row.job_id} · ${escapeHtml(summary.fit_level || "匹配度未知")} · ${escapeHtml(summary.overall_score ?? "-")} 分</div>
         <p><a class="button ghost" href="/interview-prep/${row.id}/markdown"><i data-lucide="download"></i> Markdown</a></p>
-        <div class="validation-panel ${coverage.passed ? "validation-ok" : "validation-risk"}">
-          <div class="validation-grid">
-            <div><strong>题目数</strong><div class="meta">${coverage.question_count || 0}</div></div>
-            <div><strong>必备技能覆盖</strong><div class="meta">${Math.round((coverage.required_skill_coverage_rate || 0) * 100)}%</div></div>
-            <div><strong>缺口 Drill</strong><div class="meta">${coverage.gap_drill_count || 0}</div></div>
-            <div><strong>证据题占比</strong><div class="meta">${Math.round((coverage.evidence_backed_question_rate || 0) * 100)}%</div></div>
-            <div><strong>面经角度</strong><div class="meta">${coreSources.online_experience || 0}</div></div>
-            <div><strong>项目技术栈</strong><div class="meta">${coreSources.resume_project_stack || 0}</div></div>
-            <div><strong>其他问题</strong><div class="meta">${coreSources.other_interview_questions || 0}</div></div>
-            <div><strong>三视角覆盖</strong><div class="meta">${coverage.preparation_angles_passed ? "通过" : "待补"}</div></div>
-            <div><strong>题目质量</strong><div class="meta">${formatPercent(questionQuality.score)}</div></div>
-          </div>
+        <div class="summary-strip">
+          <span><strong>${coverage.question_count || countInterviewQuestions(questionSets)}</strong> 道题</span>
+          <span><strong>${drills.length}</strong> 个缺口练习</span>
+          <span><strong>${referenceLinks.length}</strong> 条参考链接</span>
         </div>
-        ${renderQuestionQuality(questionQuality)}
         ${renderPreparationAngles(preparationAngles)}
         ${renderInterviewReferenceLinks(referenceLinks)}
         ${questionSets.map((group) => `
@@ -285,6 +328,10 @@ async function loadInterviewPreps() {
       </article>
     `;
   });
+}
+
+function countInterviewQuestions(questionSets) {
+  return (questionSets || []).reduce((total, group) => total + ((group.questions || []).length), 0);
 }
 
 function renderPreparationAngles(angles) {
@@ -625,15 +672,6 @@ function renderCareerFlowResult(state) {
         ${careerFlowRunLink(state.applyRun, "投递")}
         ${careerFlowRunLink(state.interviewRun, "面试")}
       </div>
-      <details class="details-block">
-        <summary>结果 JSON</summary>
-        <pre>${escapeHtml(safeJson({
-          selected_job: selected,
-          tailor: tailor,
-          application: apply,
-          interview: interview,
-        }, 3200))}</pre>
-      </details>
     </article>
   `;
   if (window.lucide) window.lucide.createIcons();
@@ -663,11 +701,7 @@ async function createProfileForCareerFlow(form, raw) {
   }
   const file = form.elements.resume_file?.files?.[0];
   if (file) {
-    const data = new FormData();
-    data.append("file", file);
-    const response = await fetch("/profiles/upload", { method: "POST", body: data, headers: authHeaders() });
-    if (!response.ok) throw new Error(await response.text());
-    return response.json();
+    return await uploadProfileFile(file);
   }
   if (!raw.name) {
     throw new Error("请上传 PDF、填写核心简历信息或输入已有 Profile ID。");
@@ -675,11 +709,21 @@ async function createProfileForCareerFlow(form, raw) {
   return await api("/profiles/guided", { method: "POST", body: JSON.stringify(guidedProfilePayload(raw)) });
 }
 
+async function uploadProfileFile(file) {
+  const data = new FormData();
+  data.append("file", file);
+  const response = await fetch("/profiles/upload", { method: "POST", body: data, headers: authHeaders() });
+  if (!response.ok) throw new Error(await response.text());
+  return response.json();
+}
+
 function topMatchedJob(run) {
   const matches = run.output_json?.matches || [];
   if (!matches.length) {
     const sourceErrors = run.output_json?.source_errors || {};
-    throw new Error(`没有找到可匹配岗位。source_errors=${JSON.stringify(sourceErrors)}`);
+    const sourceNames = Object.keys(sourceErrors);
+    const suffix = sourceNames.length ? `岗位源暂时不可用：${sourceNames.join("、")}。可在控制台查看详细错误。` : "可以换一个关键词或粘贴目标 JD 后重试。";
+    throw new Error(`没有找到可匹配岗位。${suffix}`);
   }
   return matches[0];
 }
@@ -813,10 +857,10 @@ function fillCareerDemo(form) {
   form.name.value = "李明";
   form.email.value = "liming@example.com";
   form.target_roles.value = "Agent 开发实习生, AI 应用开发实习生";
-  form.skills.value = "Python, FastAPI, SQLite, RAG, LLM API, Agent workflow, Evaluation, Guardrails, Trace, Playwright";
+  form.skills.value = "Python, FastAPI, SQLite, RAG, LLM API, Agent workflow, Evaluation, Guardrails, 流程追踪, Playwright";
   form.project.value = [
     "CareerAgent：面向中文求职场景的 Agent 求职助手。",
-    "实现 PDF Chunk、SQLite RAG、岗位匹配、定制简历、投递包、面试准备和全链路 trace。",
+    "实现 PDF Chunk、SQLite RAG、岗位匹配、定制简历、投递包、面试准备和全链路过程记录。",
     "使用 Python、FastAPI、SQLite、LLM API、Plan-Execute、ReAct repair、Guardrails、Playwright 和 pytest 支撑真实流程测试。"
   ].join("\n");
   form.query.value = "Agent 开发实习生";
@@ -827,12 +871,93 @@ function fillCareerDemo(form) {
   if (form.jd_text) {
     form.jd_text.value = [
       "岗位：Agent 开发实习生",
-      "职责：参与 Agent workflow、RAG 检索、工具调用、LLM trace、简历定制、投递包和面试准备链路开发。",
+      "职责：参与 Agent workflow、RAG 检索、工具调用、LLM 调用记录、简历定制、投递包和面试准备链路开发。",
       "要求：熟悉 Python、FastAPI、SQLite、RAG、LLM API、Evaluation、Guardrails、Plan-Execute 和 ReAct repair。",
       "加分：有可上线的 Agent 项目、前端交互优化和真实 LLM 调试经验。"
     ].join("\n");
   }
   toast("已填入演示信息");
+}
+
+function renderNaturalLanguageResult(body) {
+  const result = $("#natural-language-result");
+  if (!result) return;
+  const data = body.result_json || {};
+  const runs = data.agent_runs || [];
+  const failed = body.status === "failed";
+  const links = [];
+  if (body.run_id) links.push(`<a class="button ghost" href="/ui/agent-runs"><i data-lucide="route"></i> 查看流程 #${body.run_id}</a>`);
+  if (data.profile?.id) links.push(`<a class="button ghost" href="/ui/profiles"><i data-lucide="file-user"></i> 简历 #${data.profile.id}</a>`);
+  if (data.job?.id) links.push(`<a class="button ghost" href="/ui/jobs"><i data-lucide="briefcase-business"></i> 岗位 #${data.job.id}</a>`);
+  if (data.tailor?.resume_version_id) links.push(`<a class="button ghost" href="/ui/resumes"><i data-lucide="file-check-2"></i> 定制简历 #${data.tailor.resume_version_id}</a>`);
+  if (data.application?.application_id) links.push(`<a class="button ghost" href="/ui/applications"><i data-lucide="send"></i> 投递包 #${data.application.application_id}</a>`);
+  if (data.interview_prep?.interview_prep_id) links.push(`<a class="button ghost" href="/ui/prep"><i data-lucide="messages-square"></i> 面试包 #${data.interview_prep.interview_prep_id}</a>`);
+  if (data.matches?.length) links.push(`<a class="button ghost" href="/ui/jobs"><i data-lucide="search"></i> 推荐岗位 ${data.matches.length} 个</a>`);
+  runs.forEach((run) => links.push(`<a class="button ghost" href="/ui/agent-runs"><i data-lucide="route"></i> ${escapeHtml(taskLabel(run.task_type))} #${run.id}</a>`));
+  result.innerHTML = `
+    <article class="item flow-result-card">
+      <div class="item-title">
+        <span>${escapeHtml(body.user_message || (failed ? "处理失败" : "处理完成"))}</span>
+        <span class="status-pill ${failed ? "risk" : "ok"}">${failed ? "需处理" : "已完成"}</span>
+      </div>
+      <div class="meta">需求 Run #${escapeHtml(body.run_id)}${body.repair_attempts?.length ? ` · 自动修复 ${body.repair_attempts.length} 次` : ""}</div>
+      <div class="flow-result-actions">${links.join("")}</div>
+    </article>
+  `;
+  if (window.lucide) window.lucide.createIcons();
+}
+
+async function runNaturalLanguageRequest(form) {
+  const result = $("#natural-language-result");
+  const submitButton = form.querySelector("button[type='submit']");
+  if (submitButton) submitButton.disabled = true;
+  if (result) result.innerHTML = `<article class="item meta">Agent 正在理解需求并执行，复杂任务可能需要几十秒...</article>`;
+  try {
+    const raw = formJson(form);
+    const file = form.elements.resume_file?.files?.[0];
+    let profileId = raw.profile_id ? Number(raw.profile_id) : null;
+    if (file) {
+      const profile = await uploadProfileFile(file);
+      profileId = profile.id;
+    }
+    const body = await api("/assistant/natural-language", {
+      method: "POST",
+      body: JSON.stringify({
+        instruction: raw.instruction,
+        profile_id: profileId,
+        job_id: raw.job_id ? Number(raw.job_id) : null,
+        jd_text: raw.jd_text || null,
+        location: raw.location || null,
+        query: raw.query || "Agent 开发实习生",
+        limit: 8,
+      }),
+    });
+    renderNaturalLanguageResult(body);
+    toast("自然语言需求已处理完成");
+  } catch (error) {
+    if (error.body?.run_id) {
+      renderNaturalLanguageResult(error.body);
+    } else if (result) {
+      result.innerHTML = `<article class="item validation-risk">${escapeHtml(error.message)}</article>`;
+    }
+    toast(error.message);
+  } finally {
+    if (submitButton) submitButton.disabled = false;
+  }
+}
+
+function fillNaturalDemo(form) {
+  if (!form) return;
+  form.instruction.value = "我想找 Agent 开发实习岗位。请根据下面 JD 帮我生成一份简历档案，并针对这个岗位改简历、生成投递包和面试准备问题。我的项目是 CareerAgent：用 Python、FastAPI、SQLite、RAG、LLM API、Plan-Execute、ReAct repair、Guardrails 和前端页面做了一个真实可用的求职助手。";
+  form.profile_id.value = "";
+  form.job_id.value = "";
+  form.location.value = "深圳";
+  form.jd_text.value = [
+    "岗位：Agent 开发实习生",
+    "职责：参与 Agent workflow、RAG 检索、工具调用、LLM 调用记录、简历定制、投递包和面试准备链路开发。",
+    "要求：熟悉 Python、FastAPI、SQLite、RAG、LLM API、Evaluation、Guardrails、Plan-Execute 和 ReAct repair。"
+  ].join("\n");
+  toast("已填入自然语言示例");
 }
 
 async function loadInterviewExperiences() {
@@ -844,9 +969,9 @@ async function loadInterviewExperiences() {
       <article class="item">
         <div class="item-title">
           <span>#${row.id} ${escapeHtml(row.title || row.role_keyword || "同岗面经")}</span>
-          <span class="status-pill ${questions.length ? "ok" : ""}">${questions.length} questions</span>
+          <span class="status-pill ${questions.length ? "ok" : ""}">${questions.length} 道题</span>
         </div>
-        <div class="meta">${escapeHtml(row.source_site)} / Job ${row.job_id || "-"} / credibility ${escapeHtml(credibility.score ?? "-")}</div>
+        <div class="meta">${escapeHtml(row.source_site)} · 岗位 ${row.job_id || "未绑定"} · 可信度 ${escapeHtml(credibility.score ?? "-")}</div>
         ${tags(row.topics_json || [])}
         <ul class="compact-list">${questions.slice(0, 4).map((item) => `<li>${escapeHtml(item.question)}</li>`).join("")}</ul>
       </article>
@@ -1224,6 +1349,15 @@ function bindForms() {
     updateAdminTokenState();
     toast("管理令牌已清除");
     await loadOpsPage();
+  });
+
+  $("#natural-language-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    await runNaturalLanguageRequest(event.currentTarget);
+  });
+
+  $("#natural-demo-fill")?.addEventListener("click", () => {
+    fillNaturalDemo($("#natural-language-form"));
   });
 
   $("#career-start-form")?.addEventListener("submit", async (event) => {

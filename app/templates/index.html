@@ -1,10 +1,37 @@
 {% extends "base.html" %}
 {% block content %}
+<section class="panel command-panel">
+  <div class="panel-heading">
+    <div>
+      <p class="eyebrow">需求入口</p>
+      <h1>直接告诉 CareerAgent 你想做什么</h1>
+    </div>
+  </div>
+  <form id="natural-language-form" class="stack">
+    <label class="wide">
+      需求描述
+      <textarea name="instruction" rows="4" required placeholder="例如：我想找 Agent 开发实习，把我的简历改得更贴合 JD，并顺便生成投递包和面试准备问题。"></textarea>
+    </label>
+    <div class="form-grid">
+      <label>已有 Profile ID<input name="profile_id" type="number" min="1" placeholder="可选"></label>
+      <label>PDF 简历<input name="resume_file" type="file" accept="application/pdf"></label>
+      <label>已有 Job ID<input name="job_id" type="number" min="1" placeholder="可选"></label>
+      <label>城市<input name="location" placeholder="深圳 / 上海 / 北京 / 远程"></label>
+      <label class="wide">目标 JD<textarea name="jd_text" rows="4" placeholder="可选：如果希望按某个 JD 改简历或生成投递包，可以粘贴在这里。"></textarea></label>
+    </div>
+    <div class="button-row">
+      <button class="primary" type="submit"><i data-lucide="sparkles"></i> 让 Agent 自动处理</button>
+      <button class="ghost" type="button" id="natural-demo-fill"><i data-lucide="wand-sparkles"></i> 填入自然语言示例</button>
+    </div>
+  </form>
+  <div id="natural-language-result" class="result-list"></div>
+</section>
+
 <section class="workspace-grid">
   <div class="panel span-7 start-panel">
     <div class="panel-heading">
       <div>
-        <p class="eyebrow">Start</p>
+        <p class="eyebrow">一键开始</p>
         <h1>开始一次完整求职流程</h1>
       </div>
       <span id="health-pill" class="status-pill">Checking</span>
@@ -38,7 +65,7 @@
         </label>
         <label class="wide">
           项目经历
-          <textarea name="project" rows="5" placeholder="CareerAgent：实现 PDF Chunk、RAG 检索、岗位匹配、定制简历、投递包和面试准备，并记录全链路 trace。"></textarea>
+          <textarea name="project" rows="5" placeholder="CareerAgent：实现 PDF Chunk、RAG 检索、岗位匹配、定制简历、投递包和面试准备，并记录全链路过程。"></textarea>
         </label>
         <label>
           岗位搜索词
@@ -75,7 +102,7 @@
   <aside class="panel span-5 flow-panel">
     <div class="panel-heading compact">
       <div>
-        <p class="eyebrow">Progress</p>
+        <p class="eyebrow">进度</p>
         <h2>运行进度</h2>
       </div>
     </div>
@@ -94,14 +121,14 @@
 <section class="panel">
   <div class="panel-heading compact">
     <div>
-      <p class="eyebrow">Process</p>
+      <p class="eyebrow">分步处理</p>
       <h2>过程页面</h2>
     </div>
   </div>
   <div class="quick-actions process-grid">
     <a class="action-row" href="/ui/profiles"><i data-lucide="file-up"></i><span>简历建档</span></a>
     <a class="action-row" href="/ui/jobs"><i data-lucide="search"></i><span>岗位池</span></a>
-    <a class="action-row" href="/ui/agent-runs"><i data-lucide="route"></i><span>流程 Trace</span></a>
+    <a class="action-row" href="/ui/agent-runs"><i data-lucide="route"></i><span>流程记录</span></a>
     <a class="action-row" href="/ui/resumes"><i data-lucide="file-check-2"></i><span>定制简历</span></a>
     <a class="action-row" href="/ui/applications"><i data-lucide="send"></i><span>投递包</span></a>
     <a class="action-row" href="/ui/prep"><i data-lucide="messages-square"></i><span>面试包</span></a>

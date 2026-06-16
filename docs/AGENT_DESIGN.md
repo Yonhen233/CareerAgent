@@ -6,6 +6,7 @@
 
 - `ResumeParserService.parse_structured_resume`：从 PDF 原文抽取结构化 Profile。
 - `JDParserService.parse_jd`：从真实 JD 抽取 required skills、responsibilities、qualifications。
+- `NaturalLanguageAgentService._build_plan`：把用户自然语言需求解析为受控 intent 和 action plan，只允许落到已注册的求职工具链。
 - `MatcherService`：主匹配逻辑仍是可解释规则 + RAG evidence，不把最终匹配分数完全交给 LLM。
 - `ResumeTailorService._llm_tailor`：根据 JD 和检索证据生成定制简历。
 - `ApplicationService`：生成求职信和外联文案。
@@ -76,6 +77,8 @@ LLM 不再直接读取全量 Profile、全量 JD 和全部证据，而是由 `Co
 - 计划本身是可展示产物，适合作为简历项目亮点。
 
 当前计划是确定性 planner。后续可以升级为 LLM planner，但执行仍应限制在注册工具内，避免模型自由调用不可控能力。
+
+自然语言入口使用 LLM planner，但只负责意图解析和计划修复，不直接执行浏览器、文件或数据库写入。执行阶段仍由 `AgentOrchestrator`、`ResumeParserService`、`JDParserService` 等受控服务完成。首次执行失败会触发 1 轮 plan repair；repair 后仍失败则返回 `status=failed` 和 Run ID，不把失败包装成成功结果。
 
 执行计划现在会包含：
 

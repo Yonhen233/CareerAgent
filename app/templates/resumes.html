@@ -2,16 +2,16 @@
 {% block content %}
 <section class="panel">
   <div class="panel-heading compact">
-    <div>
-      <p class="eyebrow">Tailored resumes</p>
-      <h1>定制简历版本</h1>
-    </div>
+      <div>
+      <p class="eyebrow">简历定制</p>
+      <h1>为目标岗位改简历</h1>
+      </div>
     <button class="ghost" data-refresh="resumes"><i data-lucide="refresh-cw"></i> 刷新</button>
   </div>
   <form id="tailor-form" class="form-grid">
-    <label>Profile ID<input name="profile_id" type="number" min="1" required></label>
-    <label>Job ID<input name="job_id" type="number" min="1" required></label>
-    <button class="primary" type="submit"><i data-lucide="file-pen-line"></i> RAG 改写简历</button>
+    <label>简历档案 ID<input name="profile_id" type="number" min="1" required></label>
+    <label>岗位 ID<input name="job_id" type="number" min="1" required></label>
+    <button class="primary" type="submit"><i data-lucide="file-pen-line"></i> 生成定制简历</button>
   </form>
 </section>
 <section id="resumes-list" class="resume-grid"></section>

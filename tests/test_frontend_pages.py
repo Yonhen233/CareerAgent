@@ -47,6 +47,9 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")
 
     assert response.status_code == 200
+    assert "natural-language-form" in response.text
+    assert "natural-language-result" in response.text
+    assert "让 Agent 自动处理" in response.text
     assert "career-start-form" in response.text
     assert "career-flow-steps" in response.text
     assert "career-flow-result" in response.text
@@ -57,6 +60,9 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert ">运维<" not in response.text
     assert "dashboard-ops-summary" not in response.text
     assert "runCareerStartFlow" in main_js
+    assert "runNaturalLanguageRequest" in main_js
+    assert "/assistant/natural-language" in main_js
+    assert "renderNaturalLanguageResult" in main_js
     assert "createProfileForCareerFlow" in main_js
     assert "createAgentRun" in main_js
     assert "run.status !== \"completed\"" in main_js

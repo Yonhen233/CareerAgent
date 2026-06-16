@@ -1,11 +1,15 @@
 # CareerAgent
 
-CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Agent。它不是单次 Prompt 演示，而是一个工程化工作流：从 PDF 简历或问答式信息采集开始，解析候选人画像，搜索真实招聘站岗位，存储并检索职位 JD，做岗位匹配评分，基于 RAG 证据定制简历，记录 LLM 调用与 Agent Trace，生成可人工确认的投递包，并根据 JD、简历项目、RAG 证据、缺口技能和面经参考链接整理面试准备包。
+CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Agent。它不是单次 Prompt 演示，而是一个工程化工作流：从自然语言需求、PDF 简历或问答式信息采集开始，解析候选人画像，搜索真实招聘站岗位，存储并检索职位 JD，做岗位匹配评分，基于 RAG 证据定制简历，记录 LLM 调用与 Agent Trace，生成可人工确认的投递包，并根据 JD、简历项目、RAG 证据、缺口技能和面经参考链接整理面试准备包。
 
 默认演示场景是中文求职场景下的“Agent 开发实习生”，英文岗位只作为少量辅助测试；数据模型和服务层可以扩展到其他技术岗位。
 
 ## 核心能力
 
+- 自然语言求职入口：
+  - 用户可以直接描述“生成简历、修改上传简历、搜索岗位、按 JD 改简历、生成投递包、生成面试包”等需求。
+  - `POST /assistant/natural-language` 会用 LLM 解析意图和执行计划，再调用现有 Agent 工具链执行。
+  - 失败不静默兜底：计划执行失败会触发 1 轮 repair，仍失败时返回 `status=failed`、Run ID、错误原因和可追踪步骤。
 - 简历来源：
   - 上传 PDF，使用 `pypdf` 提取页级文本。
   - 通过引导式问答生成结构化 Profile。
@@ -135,7 +139,7 @@ LLM_THINKING_MODE=auto
 
 ## 主要页面
 
-- `/`：面向用户的一键开始页。支持已有 Profile ID、上传 PDF、填写简历核心信息；岗位侧可搜索真实岗位，也可输入已有 Job ID 或粘贴目标 JD 来稳定跑通完整流程。页面会展示简历建档、岗位搜索/读取、匹配排序、定制简历、投递包、面试包 6 个阶段。
+- `/`：面向用户的一键开始页。顶部支持自然语言需求入口；下方支持已有 Profile ID、上传 PDF、填写简历核心信息；岗位侧可搜索真实岗位，也可输入已有 Job ID 或粘贴目标 JD 来稳定跑通完整流程。页面会展示简历建档、岗位搜索/读取、匹配排序、定制简历、投递包、面试包 6 个阶段。
 - `/ui/profiles`：上传 PDF 或问答式生成简历档案。
 - `/ui/jobs`：搜索真实岗位或手动粘贴 JD。
 - `/ui/agent-runs`：运行 Agent 并查看步骤。
@@ -177,6 +181,7 @@ python scripts/run_user_flow_smoke.py --pdf demo_resumes/agent_intern_strong_res
 
 - `POST /profiles/upload`
 - `POST /profiles/guided`
+- `POST /assistant/natural-language`
 - `POST /jobs/search`
 - `GET /jobs/{job_id}/chunks`
 - `POST /agent/runs`

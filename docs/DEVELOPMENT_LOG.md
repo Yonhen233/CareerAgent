@@ -1,5 +1,41 @@
 # 开发日志
 
+## 2026-06-16 23:48:27 +08:00：用户页二次产品化与自然语言 Agent 入口
+### 这次做了什么
+- 继续把普通用户页面从“后台数据展示”改成“求职操作页面”：过程页、简历页、岗位页、投递页、面试页的字段名、辅助标签、空状态和错误提示都改为中文用户语言；运维、Trace、LLM logs、配置和评测入口继续集中在右上角控制台。
+- 首页新增自然语言入口：用户可以直接描述“生成简历、修改上传简历、按 JD 改简历、搜索岗位、生成投递包、生成面试包”等需求；前端支持可选 PDF 上传、已有 Profile ID、已有 Job ID、城市和目标 JD。
+- 后端新增 `POST /assistant/natural-language`：先由 LLM 解析用户意图和计划，再调用现有 Agent Orchestrator、ResumeParser、JDParser、RAG 匹配、简历定制、投递包和面试包工具执行。
+- 自然语言 Agent 增加 1 轮 repair loop：首次执行失败时把错误、原计划和用户需求交给 LLM 修复计划，再执行一次；修复失败不会兜底成成功，而是把 run 标记为 `failed`。
+- 搜索岗位结果为空时不再算成功：`search_jobs` 返回 0 个 matches 会触发失败或 repair，避免用户看到“已完成岗位推荐”但实际没有岗位。
+- 前端失败卡片支持展示失败状态、Run ID、自动修复次数和“查看流程”入口，不再把失败响应渲染成裸 JSON。
+- 投递包用户页去掉 `missing_apply_url` 这类后台告警码，只展示“岗位缺少投递链接，需要用户手动补充”等用户可理解的信息。
+### 发现的问题
+- 真实 LLM 复合 case 首次调试时命令行中文输入被 PowerShell 管道转码污染，导致看起来像岗位标题和城市清洗失败；用 Unicode 安全输入复测后确认源码和 API 链路正常。
+- 自然语言“只搜索岗位”真实 case 暴露产品问题：外部岗位源返回 0 条时，旧逻辑仍返回 completed，这会误导用户。
+- repair 后再次失败时，旧代码会重新抛异常，API 只剩一段 500 字符串，前端拿不到 run_id，不利于按 trace 排查。
+- 浏览器 Playwright role click 在本地页面偶发 CDP 超时，改用 Browser DOM CUA 节点点击后可以稳定验证。
+### 怎么修复
+- 在 `NaturalLanguageAgentService` 中增加 `_assert_search_has_matches()`，把空岗位推荐升级为明确失败，并在 `result_json.error` 和 run error_message 中保留原因。
+- `NaturalLanguageAgentService.run()` 失败时返回 failed run；`/assistant/natural-language` 根据 run 状态返回结构化 body，失败时 HTTP 状态设为 500。
+- 前端 `api()` 支持读取失败响应中的 `user_message/run_id/repair_attempts`，自然语言入口失败时也渲染结果卡片和流程入口。
+- 增加空搜索失败回归测试，固定“repair 后仍为空必须 failed”的行为。
+- 用内置浏览器验证首页、过程页、投递页和自然语言失败卡片；确认用户页没有裸 JSON，投递告警码不再出现。
+### 验证结果
+- 目标测试：`pytest tests\test_natural_language_agent.py tests\test_frontend_pages.py -q`，9 个测试通过；全量回归 `pytest -q`，88 个测试通过。
+- 语法检查：`node --check app\static\js\main.js` 通过；`python -m py_compile app\agents\natural_language.py app\api\assistant.py app\main.py` 通过。
+- 真实 LLM 复合 case：使用 DeepSeek 官方 OpenAI-compatible 接口和 `deepseek-v4-pro`，自然语言请求成功完成，生成 Profile #148、Job #192、ResumeVersion #80、Application #21、InterviewPrep #34；岗位标题为“Agent 开发实习生”，城市为“深圳”，简历定制事实检查通过，匹配分 76.13。
+- 最新轻量真实 LLM 成功 case：Run #153 返回 HTTP 201、`status=completed`、`intent=create_profile`，生成 Profile #149。
+- 真实 LLM 搜索 case：自然语言“搜索深圳 Agent 开发实习岗位”在外部源 0 结果时返回 HTTP 500、`status=failed`、Run #149，并记录 1 次 repair attempt；这符合开发期“失败可追踪、不伪装成功”的要求。
+- 浏览器验证：`http://127.0.0.1:8030/` 首页显示自然语言需求入口、一键完整流程、阶段进度和过程页面；示例填充能正确写入中文需求、深圳和 Agent JD；无 LLM key 的失败卡片显示 Run #152 和流程入口，无 JSON 噪声。
+### 未修复的问题
+- 当前自然语言入口的长任务仍是同步 HTTP 执行，复杂 full-flow 可能需要几十秒；原因是本轮优先保证真实可用和 trace 完整，下一步应接入已有后台任务队列和进度轮询。
+- 外部岗位源 0 结果时不会自动编造岗位，也不会静默 fallback 到假数据；原因是开发期要暴露真实 source 问题。用户可以粘贴目标 JD 跑完整核心链路。
+- 自然语言入口暂未把“修改上传简历”做成原 Profile 原地覆盖，而是生成或复用简历档案版本；后续可以引入 profile versioning，让用户选择覆盖、复制或合并。
+### 下一步
+- 把 `/assistant/natural-language` 接入后台任务队列，提供 queued/running/failed/completed 轮询、取消、resume-from-last-completed 和阶段进度。
+- 给自然语言计划增加更细的 tool availability 说明，让 LLM 在“只搜索岗位”“按 JD 完整处理”“只改简历”等场景里更稳定选择动作。
+- 增加自然语言端到端评测集，覆盖建档、按 JD 改简历、搜索岗位、投递包、面试包、空岗位源失败、低匹配 fit gate 失败和 repair 成功/失败。
+
 ## 2026-06-16 22:30:39 +08:00：用户启动台、控制台拆分与真实 LLM 前端全流程验证
 ### 这次做了什么
 - 将首页重构为面向用户的“开始”页：支持已有 Profile ID、上传 PDF、填写简历核心信息，并提供一键运行完整流程的阶段进度。

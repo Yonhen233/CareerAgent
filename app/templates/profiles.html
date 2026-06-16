@@ -4,20 +4,20 @@
   <div class="panel span-6">
     <div class="panel-heading compact">
       <div>
-        <p class="eyebrow">PDF ingest</p>
-        <h1>上传简历</h1>
+        <p class="eyebrow">简历上传</p>
+        <h1>上传 PDF 简历</h1>
       </div>
     </div>
     <form id="upload-profile-form" class="stack">
       <input type="file" name="file" accept="application/pdf" required>
-      <button class="primary" type="submit"><i data-lucide="file-up"></i> 解析并建立 RAG Chunk</button>
+      <button class="primary" type="submit"><i data-lucide="file-up"></i> 解析简历</button>
     </form>
   </div>
   <div class="panel span-6">
     <div class="panel-heading compact">
       <div>
-        <p class="eyebrow">Guided profile</p>
-        <h1>问答式生成</h1>
+        <p class="eyebrow">手动建档</p>
+        <h1>手动填写简历信息</h1>
       </div>
     </div>
     <form id="guided-profile-form" class="form-grid">
@@ -27,7 +27,7 @@
       <label>目标岗位<input name="target_roles" value="Agent 开发实习生"></label>
       <label class="wide">技能<input name="skills" value="Python, FastAPI, RAG, SQLite, Agent"></label>
       <label class="wide">项目经历<textarea name="project" rows="5" placeholder="项目名：CareerAgent&#10;描述：...&#10;影响：..."></textarea></label>
-      <button class="primary" type="submit"><i data-lucide="wand-sparkles"></i> 创建 Profile</button>
+      <button class="primary" type="submit"><i data-lucide="wand-sparkles"></i> 保存简历档案</button>
     </form>
   </div>
 </section>
@@ -35,8 +35,8 @@
 <section class="panel">
   <div class="panel-heading compact">
     <div>
-      <p class="eyebrow">Profiles</p>
-      <h2>简历档案</h2>
+      <p class="eyebrow">已保存</p>
+      <h2>我的简历档案</h2>
     </div>
     <button class="ghost" data-refresh="profiles"><i data-lucide="refresh-cw"></i> 刷新</button>
   </div>

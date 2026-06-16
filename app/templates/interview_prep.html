@@ -2,15 +2,15 @@
 {% block content %}
 <section class="panel">
   <div class="panel-heading compact">
-    <div>
-      <p class="eyebrow">Interview prep</p>
-      <h1>面试准备包</h1>
+      <div>
+      <p class="eyebrow">面试准备</p>
+      <h1>生成面试准备包</h1>
     </div>
   </div>
   <form id="interview-prep-form" class="form-grid">
-    <label>Profile ID<input name="profile_id" type="number" min="1" required></label>
-    <label>Job ID<input name="job_id" type="number" min="1" required></label>
-    <label>Experience IDs<input name="experience_ids" placeholder="可选，如 1,2,3"></label>
+    <label>简历档案 ID<input name="profile_id" type="number" min="1" required></label>
+    <label>岗位 ID<input name="job_id" type="number" min="1" required></label>
+    <label>面经材料 ID<input name="experience_ids" placeholder="可选，如 1,2,3"></label>
     <button class="primary" type="submit"><i data-lucide="messages-square"></i> 生成面试准备包</button>
   </form>
 </section>
@@ -18,12 +18,12 @@
 <section class="panel">
   <div class="panel-heading compact">
     <div>
-      <p class="eyebrow">Interview sources</p>
+      <p class="eyebrow">面经导入</p>
       <h2>导入同岗面经材料</h2>
     </div>
   </div>
   <form id="interview-experience-form" class="form-grid">
-    <label>Job ID<input name="job_id" type="number" min="1" placeholder="可选"></label>
+    <label>岗位 ID<input name="job_id" type="number" min="1" placeholder="可选"></label>
     <label>来源平台<input name="source_site" placeholder="牛客网 / OfferShow / 小红书" required></label>
     <label>来源链接<input name="source_url" placeholder="可选"></label>
     <label>标题<input name="title" placeholder="如 腾讯 Agent 实习一面"></label>
@@ -37,7 +37,7 @@
 <section class="panel">
   <div class="panel-heading compact">
     <div>
-      <p class="eyebrow">Sources</p>
+      <p class="eyebrow">已保存</p>
       <h2>已导入面经</h2>
     </div>
     <button class="ghost" data-refresh="interview-experience"><i data-lucide="refresh-cw"></i> 刷新</button>
@@ -48,13 +48,13 @@
 <section class="panel">
   <div class="panel-heading compact">
     <div>
-      <p class="eyebrow">Practice</p>
+      <p class="eyebrow">练习记录</p>
       <h2>记录题目练习状态</h2>
     </div>
   </div>
   <form id="interview-practice-form" class="form-grid">
-    <label>Prep ID<input name="prep_id" type="number" min="1" required></label>
-    <label>Question ID<input name="question_id" placeholder="如 q01_01" required></label>
+    <label>面试包 ID<input name="prep_id" type="number" min="1" required></label>
+    <label>题目 ID<input name="question_id" placeholder="如 q01_01" required></label>
     <label>状态<select name="status">
       <option value="todo">todo</option>
       <option value="practicing">practicing</option>
@@ -70,8 +70,8 @@
 <section class="panel">
   <div class="panel-heading compact">
     <div>
-      <p class="eyebrow">Packets</p>
-      <h2>准备记录</h2>
+      <p class="eyebrow">已保存</p>
+      <h2>我的面试准备包</h2>
     </div>
     <button class="ghost" data-refresh="interview-prep"><i data-lucide="refresh-cw"></i> 刷新</button>
   </div>

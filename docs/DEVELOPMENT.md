@@ -12,7 +12,7 @@ uvicorn app.main:app --reload
 
 启动后常用入口：
 
-- `/`：用户开始页，支持上传/输入简历后一键运行完整求职流程。
+- `/`：用户开始页，支持自然语言描述需求，也支持上传/输入简历后一键运行完整求职流程。
 - `/ui/ops`：右上角“控制台”，集中查看 readiness、metrics、脱敏配置、后台任务和 LLM trace。
 - `/ui/quality`：评测和长跑任务入口，从控制台进入。
 
@@ -148,6 +148,14 @@ python scripts\run_user_flow_smoke.py --pdf demo_resumes\agent_intern_strong_res
 ```
 
 该 smoke 会真实调用 PDF 简历解析、JD 解析、简历定制、投递包和面试包。它不会写入或打印 API key；失败会直接抛错，详细 prompt/response 预览在 `llm_call_logs` 和 `/ui/ops` 可查。
+
+自然语言入口可用同一套 LLM 配置验证：
+
+```http
+POST /assistant/natural-language
+```
+
+推荐先用包含 `jd_text` 的中文请求验证完整链路，因为外部岗位源会受实时岗位数量和网络波动影响。接口失败时仍会返回结构化 body，包含 `run_id`、`plan_json`、`repair_attempts` 和用户可读错误；前端会显示失败卡片并提供流程记录入口。
 
 或通过 API：
 

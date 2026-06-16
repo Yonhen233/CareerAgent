@@ -420,6 +420,30 @@ button svg,
   margin-top: 12px;
 }
 
+.summary-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.summary-strip span {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.summary-strip strong {
+  color: var(--text);
+}
+
 .process-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }

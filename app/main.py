@@ -9,6 +9,7 @@ from app.api.agent_runs import router as agent_runs_router
 from app.api.agent_skills import router as agent_skills_router
 from app.api.agent_tools import router as agent_tools_router
 from app.api.applications import router as applications_router
+from app.api.assistant import router as assistant_router
 from app.api.evaluations import router as evaluations_router
 from app.api.health import router as health_router
 from app.api.interview_prep import router as interview_prep_router
@@ -86,6 +87,7 @@ app.include_router(llm_debug_router)
 app.include_router(matches_router)
 app.include_router(resumes_router)
 app.include_router(applications_router)
+app.include_router(assistant_router)
 app.include_router(interview_prep_router)
 app.include_router(evaluations_router)
 app.include_router(agent_tools_router)
