@@ -181,6 +181,7 @@ Resume:
                     user_prompt=user_prompt,
                     temperature=0.1,
                     max_tokens=max_tokens,
+                    response_format={"type": "json_object"},
                     db=db,
                     trace_name=trace_name,
                 )

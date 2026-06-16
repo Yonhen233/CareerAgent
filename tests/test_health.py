@@ -34,3 +34,25 @@ def test_agent_skills_and_subagents_endpoints_list_context_capabilities():
     subagent_names = {item["name"] for item in subagents_response.json()}
     assert "resume_writer" in subagent_names
     assert "context_manager" not in subagent_names
+
+
+def test_ops_readiness_and_metrics_endpoints():
+    with TestClient(app) as client:
+        readiness = client.get("/ops/readiness")
+        assert readiness.status_code == 200
+        assert readiness.json()["checks"]["database"] == "ok"
+
+        metrics = client.get("/ops/metrics")
+        assert metrics.status_code == 200
+        assert "request_count" in metrics.json()["app"]
+
+        config = client.get("/ops/config")
+        assert config.status_code == 200
+        assert "api_key" not in str(config.json()).lower()
+
+
+def test_tasks_endpoint_lists_task_runs():
+    with TestClient(app) as client:
+        response = client.get("/tasks")
+        assert response.status_code == 200
+        assert isinstance(response.json(), list)

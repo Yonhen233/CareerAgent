@@ -396,6 +396,7 @@ class InterviewPrepService:
                     user_prompt=user_prompt,
                     temperature=0.35,
                     max_tokens=1200,
+                    response_format={"type": "json_object"},
                     db=db,
                     trace_name=trace_name,
                 )
@@ -503,6 +504,7 @@ class InterviewPrepService:
             user_prompt=user_prompt,
             temperature=0,
             max_tokens=900,
+            response_format={"type": "json_object"},
             db=db,
             trace_name="interview_prep.repair_question_json",
         )

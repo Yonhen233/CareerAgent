@@ -30,6 +30,8 @@ def test_evaluations_page_exposes_interview_source_smoke_controls():
     assert "interview-source-smoke-form" in response.text
     assert "llm-workflow-form" in response.text
     assert "llm-workflow-result" in response.text
+    assert "llm-workflow-task-form" in response.text
+    assert "task-runs-list" in response.text
     assert "interview-source-import-form" in response.text
     assert "interview-source-import-result" in response.text
     assert "evaluation-runs-list" in response.text
@@ -46,8 +48,11 @@ def test_evaluations_frontend_exposes_llm_workflow_trace_panel():
     assert "evaluation_run_id" in main_js
     assert "jd_parser.parse_jd.repair_json" in main_js
     assert "/evaluations/llm-workflow" in main_js
+    assert "/tasks/llm-workflow" in main_js
+    assert "renderTaskRun" in main_js
     assert "trace-list" in style_css
     assert "trace-step" in style_css
+    assert "progress-bar" in style_css
 
 
 def test_interview_prep_frontend_exposes_question_quality_panel():

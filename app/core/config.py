@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://llmapi.paratera.com"
     llm_model: str = "DeepSeek-V4-Pro"
     llm_timeout_seconds: float = 120.0
+    llm_retry_attempts: int = 1
+    llm_retry_backoff_seconds: float = 0.75
     llm_fallback_enabled: bool = False
     llm_thinking_mode: str = "auto"
     llm_reasoning_effort: str = "high"
@@ -27,6 +29,8 @@ class Settings(BaseSettings):
     openai_base_url: str | None = None
     api_url: str | None = None
     base_url: str | None = None
+    admin_api_key: str | None = None
+    require_admin_for_mutations: bool = False
 
     upload_dir: str = "data/uploads"
     export_dir: str = "data/exports"

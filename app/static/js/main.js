@@ -648,6 +648,45 @@ async function loadEvaluationRuns() {
   if (window.lucide) window.lucide.createIcons();
 }
 
+function renderTaskRun(row) {
+  const progress = row.progress_json || {};
+  const pct = Math.round(Number(progress.percent || 0) * 100);
+  const isOk = row.status === "completed";
+  const isRisk = row.status === "failed" || String(row.status || "").includes("fail");
+  return `
+    <article class="item">
+      <div class="item-title">
+        <span>#${row.id} ${escapeHtml(row.task_type)}</span>
+        <span class="status-pill ${isOk ? "ok" : ""}">${escapeHtml(row.status)}</span>
+      </div>
+      <div class="progress-bar" aria-label="task progress"><span style="width:${Math.min(Math.max(pct, 0), 100)}%"></span></div>
+      <div class="meta">
+        ${pct}% / completed=${escapeHtml(progress.completed_cases ?? 0)} / remaining=${escapeHtml(progress.remaining_cases ?? "-")}
+        ${progress.evaluation_run_id ? ` / evaluation_run_id=${escapeHtml(progress.evaluation_run_id)}` : ""}
+      </div>
+      ${progress.current_case ? `<div class="meta">current=${escapeHtml(progress.current_case)}</div>` : ""}
+      ${row.error_message ? `<div class="message-preview">${escapeHtml(row.error_message)}</div>` : ""}
+      <div class="validation-panel ${isRisk ? "validation-risk" : isOk ? "validation-ok" : ""}">
+        <div class="validation-grid">
+          <div><strong>E2E</strong><div class="meta">${formatPercent(progress.end_to_end_pass_rate)}</div></div>
+          <div><strong>Fit</strong><div class="meta">${formatPercent(progress.fit_label_accuracy)}</div></div>
+          <div><strong>Tailor</strong><div class="meta">${formatPercent(progress.tailor_pass_rate)}</div></div>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+async function loadTasks() {
+  const el = $("#task-runs-list");
+  if (!el) return;
+  const rows = await api("/tasks?limit=20");
+  renderItems("#task-runs-list", rows, renderTaskRun);
+  if (rows.some((row) => row.status === "queued" || row.status === "running")) {
+    setTimeout(loadTasks, 5000);
+  }
+}
+
 function prefillInterviewSourceImport(button) {
   const form = $("#interview-source-import-form");
   if (!form) return;
@@ -919,6 +958,18 @@ function bindForms() {
     await loadEvaluationRuns();
   });
 
+  $("#llm-workflow-task-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const raw = formJson(event.currentTarget);
+    const params = new URLSearchParams();
+    if (raw.case_limit) params.set("case_limit", raw.case_limit);
+    if (raw.trace_path) params.set("trace_path", raw.trace_path);
+    params.set("resume_from_last_completed", event.currentTarget.resume_from_last_completed.checked ? "true" : "false");
+    const task = await api(`/tasks/llm-workflow?${params.toString()}`, { method: "POST" });
+    toast(`后台任务已入队 #${task.id}`);
+    await loadTasks();
+  });
+
   $("#interview-source-import-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const raw = formJson(event.currentTarget);
@@ -956,8 +1007,9 @@ function bindForms() {
       if (key === "applications") loadApplications();
       if (key === "interview-prep") loadInterviewPreps();
       if (key === "interview-experience") loadInterviewExperiences();
-      if (key === "evaluations") loadEvaluationRuns();
-    });
+    if (key === "evaluations") loadEvaluationRuns();
+    if (key === "tasks") loadTasks();
+  });
   });
 
   document.addEventListener("click", (event) => {
@@ -988,6 +1040,7 @@ async function bootstrap() {
       await loadInterviewPreps();
     }
     if (page === "evaluations") await loadEvaluationRuns();
+    if (page === "evaluations") await loadTasks();
   } catch (error) {
     toast(error.message);
   }

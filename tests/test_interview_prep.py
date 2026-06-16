@@ -169,9 +169,20 @@ def test_interview_prep_with_llm_generates_project_and_foundation_followups(db_s
         def available(self):
             return True
 
-        async def generate_text(self, *, system_prompt, user_prompt, temperature, max_tokens, db, trace_name):
+        async def generate_text(
+            self,
+            *,
+            system_prompt,
+            user_prompt,
+            temperature,
+            max_tokens,
+            response_format=None,
+            db,
+            trace_name,
+        ):
             assert trace_name == "interview_prep.generate_interviewer_questions"
             assert max_tokens == 1200
+            assert response_format == {"type": "json_object"}
             assert "CareerAgent" in user_prompt
             assert "Agent 开发实习生" in user_prompt
             return json.dumps({

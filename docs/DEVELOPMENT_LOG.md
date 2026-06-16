@@ -1,5 +1,44 @@
 # 开发日志
 
+## 2026-06-16 18:33 +08:00：后台任务、权限监控与 DeepSeek JSON 链路稳定性
+### 这次做了什么
+- 新增 `task_runs` 表、`TaskQueueService` 和 `/tasks/llm-workflow`，把真实 LLM workflow 长跑放到 FastAPI `BackgroundTasks` 中执行，并通过 `/tasks` / `/tasks/{task_id}` 轮询 queued/running/completed/failed、进度、错误和最终 `evaluation_run_id`。
+- `/ui/evaluations` 新增“后台 LLM 长跑”和“任务进度”面板，支持设置 `case_limit`、`trace_path`、checkpoint resume，并展示进度条、已完成 case、失败错误和任务输出指标。
+- 新增 `/ops/readiness`、`/ops/metrics`、`/ops/config`：分别暴露数据库/LLM/embedding/reranker readiness、请求延迟与状态码、Agent run/task/LLM call 状态分布、最近评测摘要和脱敏配置。
+- 新增可选权限隔离：`ADMIN_API_KEY` 配置后管理接口需要 `X-Admin-Token`；`REQUIRE_ADMIN_FOR_MUTATIONS=true` 时所有写操作都需要 admin token。
+- `LLMClient.generate_json` 和结构化链路统一使用 `response_format={"type":"json_object"}`；官方 DeepSeek V4 + `LLM_THINKING_MODE=auto` 仍发送 `thinking: disabled`，保证最终 `content` 稳定返回。
+- `LLMClient` 新增网络层短重试：仅对网络断连、429、5xx 等瞬时错误重试；每次失败写入 `llm_call_logs.status=retryable_failed`，最终失败仍直接报错，不静默兜底。
+- 更新 README、API 文档、开发文档和 `.env.example`，补充后台任务、权限/运维、LLM retry、DeepSeek JSON mode 的中文说明。
+### 发现的问题
+- 真实 DeepSeek 1-case smoke 第一次暴露 `resume_tailor.tailor_resume` 阶段 `ConnectError`；前置的简历解析、JD 解析、RAG、fit judge 都成功，说明问题是外部 LLM HTTP 层瞬时失败，不是 prompt 或匹配逻辑错误。
+- 抽查 LLM 日志发现 `fit_judge`、`resume_tailor` 已走 JSON mode，但 `resume_parser`、`jd_parser` 和面试问题生成仍是文本模式后解析 JSON，不利于官方接口上的结构化稳定性。
+- 后台任务 API 的测试第一次没有进入 FastAPI lifespan，导致 `task_runs` 表不存在；原因是测试里直接创建 `TestClient` 后没有使用上下文管理器。
+- `/ops/config` 的脱敏字段最初命名为 `admin_api_key_configured`，虽然不泄露值，但响应文本仍包含 `api_key`，容易造成敏感扫描误报。
+- 内置浏览器插件访问本地 `127.0.0.1:8000` 被客户端拦截为 `net::ERR_BLOCKED_BY_CLIENT`，本轮改用 TestClient 路由 smoke、HTML/JS 检查和前端单元测试验证页面。
+### 怎么修复
+- 后台任务在每个 case 完成后由 `EvaluationService` 调用 `progress_callback`，写回 `task_runs.progress_json`；前端按 5 秒轮询 running/queued 任务。
+- 结构化 LLM 调用全部带 `response_format={"type":"json_object"}`，并在 `prompt_preview_json` 记录 `response_format`、`attempt`、`max_attempts`，方便从日志追溯请求形态。
+- 网络层 retry 只覆盖 `httpx.TransportError`、HTTP 408/409/429/5xx；JSON 空内容、400 参数错误、业务 guardrail 失败仍直接失败。
+- 测试改用 `with TestClient(app)` 触发生命周期建表；`/ops/config` 改为 `admin_token_configured`，避免敏感字段命名误报。
+- 面试包、JD parser、resume parser 的测试桩补充 `response_format` 参数，确保真实签名变化被测试覆盖。
+### 验证结果
+- 全量回归：`81 passed in 36.82s`。
+- 语法检查：`python -m py_compile` 覆盖修改后的 LLM、parser、interview prep、任务和运维模块；`node --check app\static\js\main.js` 通过。
+- 接口 smoke：`/health`、`/ops/readiness`、`/ops/metrics`、`/ops/config`、`/tasks`、`/ui/evaluations` 均返回 200。
+- 真实 DeepSeek smoke：第一次 run 32 在 `tailor_resume` 因 `ConnectError` 失败；加入 retry 和 JSON mode 统一后，run 34 `case_count=1`、`status=completed`、`end_to_end_pass_rate=1.0`、`fit_label_accuracy=1.0`、`tailor_pass_rate=1.0`、`guardrail_pass_rate=1.0`。
+- run 34 的 LLM 日志显示 `resume_parser.parse_structured_resume`、`jd_parser.parse_jd`、`evaluation.llm_judge_suitability`、`resume_tailor.tailor_resume` 全部记录 `response_format={"type":"json_object"}`、`attempt=1`、`max_attempts=2` 和对应 stage。
+### 未修复的问题
+- 当前后台任务是进程内 `BackgroundTasks` + SQLite，不是分布式队列；单机开发期和简历项目展示足够，生产多实例需要 Redis/Celery/Arq 或云任务队列。
+- 权限隔离还是 admin token 级别，不是完整多用户 RBAC；原因是当前产品尚未引入账号体系、组织空间和数据归属模型。
+- `/ops/metrics` 是内存计数 + SQLite 聚合，不是 Prometheus/OpenTelemetry；适合开发期观测，上线后应接入标准 metrics/log/trace 管道。
+- 前端评测页功能可用，但仍偏开发者控制台，不是最终用户级体验；需要后续补充任务详情抽屉、失败定位、trace 折叠、移动端布局和 admin token 输入。
+- 本轮只跑 1-case 真实 LLM smoke，没有重新跑 18-case 长跑；原因是改动集中在任务调度、结构化调用和运维能力，18-case 可通过新后台任务入口继续跑。
+### 下一步
+- 用 `/tasks/llm-workflow` 跑一次 18-case 后台长跑，观察任务进度、LLM retry 分布和失败恢复。
+- 把任务详情页做成可展开 trace 树，支持按 case/stage 查看 LLM 调用、RAG 证据和失败原因。
+- 将真实岗位源 smoke 独立接入 `/ops/metrics` 或评测页 source 面板，和核心 Agent workflow 质量门禁分开展示。
+- 如果要接近上线，补账号/会话、文件权限、限流、审计日志、部署 health check、结构化日志和容器化启动文档。
+
 ## 2026-06-16 16:51 +08:00：DeepSeek V4 真实全流程长跑与上线前稳定性修复
 
 ### 这次做了什么

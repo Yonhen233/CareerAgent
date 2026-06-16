@@ -302,6 +302,22 @@ class EvaluationRunResponse(BaseModel):
     created_at: datetime
 
 
+class TaskRunResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    task_type: str
+    status: str
+    input_json: dict[str, Any]
+    progress_json: dict[str, Any]
+    output_json: dict[str, Any] | None
+    error_message: str | None
+    created_at: datetime
+    started_at: datetime | None
+    completed_at: datetime | None
+    updated_at: datetime
+
+
 class QuickApplyRequest(BaseModel):
     profile_id: int
     job_id: int

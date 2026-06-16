@@ -54,6 +54,34 @@
   </div>
 </section>
 
+<section class="workspace-grid">
+  <div class="panel span-5">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">Background tasks</p>
+        <h2>后台 LLM 长跑</h2>
+      </div>
+    </div>
+    <form id="llm-workflow-task-form" class="form-grid">
+      <label>Case 数<input name="case_limit" type="number" min="1" max="18" value="18"></label>
+      <label>Trace 路径<input name="trace_path" value="data/runtime/llm_workflow_trace_latest.jsonl"></label>
+      <label class="checkbox-row"><input name="resume_from_last_completed" type="checkbox"> 从 checkpoint 继续</label>
+      <button class="primary" type="submit"><i data-lucide="play"></i> 入队运行</button>
+    </form>
+  </div>
+
+  <div class="panel span-7">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">Progress</p>
+        <h2>任务进度</h2>
+      </div>
+      <button class="ghost" data-refresh="tasks"><i data-lucide="refresh-cw"></i> 刷新</button>
+    </div>
+    <div id="task-runs-list" class="result-list"></div>
+  </div>
+</section>
+
 <section class="panel">
   <div class="panel-heading compact">
     <div>

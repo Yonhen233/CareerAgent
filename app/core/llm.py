@@ -1,3 +1,4 @@
+import asyncio
 import json
 import re
 import time
@@ -20,6 +21,10 @@ class LLMConfigurationError(RuntimeError):
 
 class LLMResponseError(RuntimeError):
     """Raised when the LLM endpoint returns an unusable response."""
+
+
+class _RetryableLLMResponseError(LLMResponseError):
+    """Raised for transient LLM HTTP responses that are worth retrying."""
 
 
 _LLM_TRACE_CONTEXT: ContextVar[dict[str, Any]] = ContextVar("llm_trace_context", default={})
@@ -89,11 +94,12 @@ class LLMClient:
         user_prompt: str,
         temperature: float = 0.2,
         max_tokens: int | None = None,
+        response_format: dict[str, Any] | None = None,
         db: "Session | None" = None,
         trace_name: str = "llm.generate_text",
     ) -> str:
         started = time.perf_counter()
-        prompt_preview = self._prompt_preview(system_prompt, user_prompt, temperature, max_tokens)
+        prompt_preview = self._prompt_preview(system_prompt, user_prompt, temperature, max_tokens, response_format)
         if not self.available:
             error = "LLM_API_KEY and LLM_BASE_URL are required for online generation."
             self._record_llm_call(
@@ -121,54 +127,70 @@ class LLMClient:
         }
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
+        if response_format is not None:
+            payload["response_format"] = response_format
         payload.update(self._provider_options())
-        try:
-            async with httpx.AsyncClient(timeout=self.settings.llm_timeout_seconds) as client:
-                response = await client.post(self._chat_url(), headers=headers, json=payload)
-            if response.status_code >= 400:
-                raise LLMResponseError(f"LLM request failed with HTTP {response.status_code}: {response.text[:500]}")
 
-            body = response.json()
+        max_attempts = max(1, int(self.settings.llm_retry_attempts or 0) + 1)
+        for attempt in range(1, max_attempts + 1):
+            attempt_preview = {**prompt_preview, "attempt": attempt, "max_attempts": max_attempts}
             try:
-                choice = body["choices"][0]
-                message = choice["message"]
-                content = message["content"]
-            except (KeyError, IndexError, TypeError) as exc:
-                raise LLMResponseError("LLM response is missing choices[0].message.content.") from exc
+                async with httpx.AsyncClient(timeout=self.settings.llm_timeout_seconds) as client:
+                    response = await client.post(self._chat_url(), headers=headers, json=payload)
+                if response.status_code >= 400:
+                    error = f"LLM request failed with HTTP {response.status_code}: {response.text[:500]}"
+                    if response.status_code in {408, 409, 429} or response.status_code >= 500:
+                        raise _RetryableLLMResponseError(error)
+                    raise LLMResponseError(error)
 
-            if not isinstance(content, str) or not content.strip():
-                reasoning_content = message.get("reasoning_content") if isinstance(message, dict) else None
-                finish_reason = choice.get("finish_reason") if isinstance(choice, dict) else None
-                reasoning_chars = len(reasoning_content) if isinstance(reasoning_content, str) else 0
-                raise LLMResponseError(
-                    "LLM returned empty content "
-                    f"(finish_reason={finish_reason}, reasoning_chars={reasoning_chars}, "
-                    f"thinking_mode={self.settings.llm_thinking_mode})."
+                body = response.json()
+                try:
+                    choice = body["choices"][0]
+                    message = choice["message"]
+                    content = message["content"]
+                except (KeyError, IndexError, TypeError) as exc:
+                    raise LLMResponseError("LLM response is missing choices[0].message.content.") from exc
+
+                if not isinstance(content, str) or not content.strip():
+                    reasoning_content = message.get("reasoning_content") if isinstance(message, dict) else None
+                    finish_reason = choice.get("finish_reason") if isinstance(choice, dict) else None
+                    reasoning_chars = len(reasoning_content) if isinstance(reasoning_content, str) else 0
+                    raise LLMResponseError(
+                        "LLM returned empty content "
+                        f"(finish_reason={finish_reason}, reasoning_chars={reasoning_chars}, "
+                        f"thinking_mode={self.settings.llm_thinking_mode})."
+                    )
+                content = content.strip()
+                self._record_llm_call(
+                    db,
+                    trace_name=trace_name,
+                    status="completed",
+                    prompt_preview=attempt_preview,
+                    response_preview=content[:1200],
+                    response_chars=len(content),
+                    error_message=None,
+                    started_at=started,
                 )
-            content = content.strip()
-            self._record_llm_call(
-                db,
-                trace_name=trace_name,
-                status="completed",
-                prompt_preview=prompt_preview,
-                response_preview=content[:1200],
-                response_chars=len(content),
-                error_message=None,
-                started_at=started,
-            )
-            return content
-        except Exception as exc:
-            error_message = format_exception(exc)
-            self._record_llm_call(
-                db,
-                trace_name=trace_name,
-                status="failed",
-                prompt_preview=prompt_preview,
-                response_preview=None,
-                error_message=error_message,
-                started_at=started,
-            )
-            raise
+                return content
+            except Exception as exc:
+                retryable = isinstance(exc, (httpx.TransportError, _RetryableLLMResponseError))
+                will_retry = retryable and attempt < max_attempts
+                error_message = format_exception(exc)
+                self._record_llm_call(
+                    db,
+                    trace_name=trace_name,
+                    status="retryable_failed" if will_retry else "failed",
+                    prompt_preview=attempt_preview,
+                    response_preview=None,
+                    error_message=error_message,
+                    started_at=started,
+                )
+                if will_retry:
+                    await asyncio.sleep(max(self.settings.llm_retry_backoff_seconds, 0) * attempt)
+                    continue
+                raise
+
+        raise LLMResponseError("LLM request exhausted without producing a response.")
 
     async def generate_json(
         self,
@@ -185,6 +207,7 @@ class LLMClient:
             user_prompt=user_prompt,
             temperature=temperature,
             max_tokens=max_tokens,
+            response_format={"type": "json_object"},
             db=db,
             trace_name=trace_name,
         )
@@ -196,6 +219,7 @@ class LLMClient:
         user_prompt: str,
         temperature: float,
         max_tokens: int | None,
+        response_format: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return {
             "system_preview": system_prompt[:1000],
@@ -204,6 +228,7 @@ class LLMClient:
             "user_chars": len(user_prompt),
             "temperature": temperature,
             "max_tokens": max_tokens,
+            "response_format": response_format,
         }
 
     def _provider_options(self) -> dict[str, Any]:

@@ -1,6 +1,8 @@
 from contextlib import asynccontextmanager
+import time
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.agent_runs import router as agent_runs_router
@@ -13,10 +15,13 @@ from app.api.interview_prep import router as interview_prep_router
 from app.api.jobs import router as jobs_router
 from app.api.llm_debug import router as llm_debug_router
 from app.api.matches import router as matches_router
+from app.api.ops import router as ops_router
 from app.api.profiles import router as profiles_router
 from app.api.resumes import router as resumes_router
+from app.api.tasks import router as tasks_router
 from app.core.config import get_settings
 from app.core.database import init_db
+from app.core.telemetry import telemetry
 from app.frontend.routes import router as frontend_router
 
 settings = get_settings()
@@ -44,8 +49,37 @@ app = FastAPI(
 
 app.mount("/static", StaticFiles(directory=str(settings.base_path / "app" / "static")), name="static")
 
+
+@app.middleware("http")
+async def record_request_metrics(request, call_next):
+    started = time.perf_counter()
+    if (
+        settings.require_admin_for_mutations
+        and settings.admin_api_key
+        and request.method in {"POST", "PUT", "PATCH", "DELETE"}
+        and request.headers.get("x-admin-token") != settings.admin_api_key
+    ):
+        response = JSONResponse(
+            status_code=401,
+            content={"detail": "Admin token is required for write operations."},
+        )
+        telemetry.record(
+            path=request.url.path,
+            status_code=response.status_code,
+            latency_ms=(time.perf_counter() - started) * 1000,
+        )
+        return response
+    response = await call_next(request)
+    telemetry.record(
+        path=request.url.path,
+        status_code=response.status_code,
+        latency_ms=(time.perf_counter() - started) * 1000,
+    )
+    return response
+
 app.include_router(frontend_router)
 app.include_router(health_router)
+app.include_router(ops_router)
 app.include_router(profiles_router)
 app.include_router(jobs_router)
 app.include_router(llm_debug_router)
@@ -57,3 +91,4 @@ app.include_router(evaluations_router)
 app.include_router(agent_tools_router)
 app.include_router(agent_skills_router)
 app.include_router(agent_runs_router)
+app.include_router(tasks_router)

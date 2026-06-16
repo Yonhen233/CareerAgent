@@ -114,6 +114,8 @@ LLM_API_KEY=your_key_here
 LLM_BASE_URL=https://llmapi.paratera.com
 LLM_MODEL=DeepSeek-V4-Pro
 LLM_THINKING_MODE=auto
+LLM_RETRY_ATTEMPTS=1
+LLM_RETRY_BACKOFF_SECONDS=0.75
 ```
 
 不要提交 `.env` 和真实 API key。
@@ -127,6 +129,7 @@ LLM_THINKING_MODE=auto
 ```
 
 `auto` 会在官方 DeepSeek V4 接口上发送 `thinking: disabled`，避免结构化 JSON 链路只返回 `reasoning_content` 而最终 `content` 为空。
+`LLM_RETRY_ATTEMPTS` 只处理网络断连、429 和 5xx 等瞬时错误；每次失败都会写入 LLM 调用日志，业务解析错误仍直接报错。
 
 ## 主要页面
 
@@ -170,6 +173,11 @@ LLM_THINKING_MODE=auto
 - `POST /evaluations/real-job-source-smoke`
 - `POST /evaluations/real-job-ingest-smoke`
 - `POST /evaluations/llm-workflow`
+- `POST /tasks/llm-workflow`
+- `GET /tasks`
+- `GET /ops/readiness`
+- `GET /ops/metrics`
+- `GET /ops/config`
 - `GET /evaluations/results`
 
 更完整的接口说明见 [docs/API.md](docs/API.md)。
@@ -192,6 +200,14 @@ pytest -q
 - Agent 简历定制工作流。
 - LLM 调用日志。
 - 样例集、PDF Chunk、RAG、Agent full-flow、JD parser、Job relevance、Application packet、Interview prep、真实岗位源 smoke、真实 JD ingest smoke、LLM workflow 量化评测。
+
+## 权限与运维
+
+- `ADMIN_API_KEY`：配置后，`/ops/config` 和后台任务入队等管理操作需要 `X-Admin-Token`。
+- `REQUIRE_ADMIN_FOR_MUTATIONS=true`：开启后，所有 `POST/PUT/PATCH/DELETE` 写操作都需要 `X-Admin-Token`，适合演示“读写权限隔离”。
+- `/ops/readiness`：检查数据库、LLM 配置、embedding/reranker provider。
+- `/ops/metrics`：查看请求数、平均延迟、状态码分布、Agent run/task/LLM call 状态分布和最近评测摘要。
+- `/tasks/llm-workflow`：把真实 LLM workflow 放到后台执行，前端轮询 `/tasks` 展示进度，适合 18-case 长跑。
 
 ## 文档
 

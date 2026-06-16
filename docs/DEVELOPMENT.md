@@ -22,6 +22,8 @@ LLM_MODEL=DeepSeek-V4-Pro
 LLM_FALLBACK_ENABLED=false
 LLM_THINKING_MODE=auto
 LLM_REASONING_EFFORT=high
+LLM_RETRY_ATTEMPTS=1
+LLM_RETRY_BACKOFF_SECONDS=0.75
 LLM_CONTEXT_COMPRESSION_ENABLED=true
 LLM_CONTEXT_MAX_CHARS=9000
 LLM_EVIDENCE_MAX_CHARS=3600
@@ -45,6 +47,7 @@ JOB_INGEST_CONCURRENCY=6
 - `VECTOR_BACKEND=hybrid`：SQLite + 可选 Chroma 镜像。
 - `LLM_FALLBACK_ENABLED=false`：开发默认严格失败；设置为 `true` 才使用规则解析/生成路径。
 - `LLM_THINKING_MODE=auto`：官方 DeepSeek V4 接口会自动发送 `thinking: disabled`，让 JD 解析、简历定制、面试包生成优先获得稳定最终 `content`；如果要调试思考模式，可显式设置为 `enabled`。
+- `LLM_RETRY_ATTEMPTS=1`：只对网络断连、429 和 5xx 等瞬时错误做同请求短重试；每次失败都会进入 `llm_call_logs`，不是静默兜底。
 - `LLM_CONTEXT_COMPRESSION_ENABLED=true`：真实 LLM 调用默认使用渐进式披露和分级上下文压缩。
 - `LLM_CONTEXT_MAX_CHARS`：最终 prompt packet 的字符预算。
 - `LLM_EVIDENCE_MAX_CHARS`：Top evidence 在压缩上下文中的字符预算。
@@ -242,6 +245,7 @@ finally:
 ```
 
 评测数据在 `evals/llm_workflow_cases.json`，结果指标说明见 `docs/EVALUATION.md`。真实调用失败不会自动兜底，失败阶段会写入 `failed_stage`。每个 case 的 `stage_trace` 会记录简历解析、JD 解析、RAG、fit judge、tailor 和 Guardrail 的中间摘要；如果命令超时，已经完成的 case 会写入数据库和 `trace_path`。
+LLM 网络层短重试会以 `retryable_failed` 写入调用日志；如果重试后仍失败，case 仍按失败处理。
 
 也可以使用开发期 CLI runner 执行长跑：
 
@@ -255,6 +259,31 @@ python scripts\run_llm_workflow_eval.py --trace-path data\runtime\llm_workflow_t
 ```
 
 Runner 会输出 UTF-8 JSON summary；默认质量门禁失败时返回非 0 退出码。若长跑中断，可加 `--resume` 从 trace 中第一个缺失 case 继续。
+
+也可以通过后台任务 API 运行：
+
+```http
+POST /tasks/llm-workflow?case_limit=18
+GET /tasks
+GET /tasks/{task_id}
+```
+
+后台任务使用进程内 FastAPI BackgroundTasks 和 SQLite `task_runs` 表，适合开发期演示并发、轮询进度和失败追踪；生产多实例部署时应替换为 Redis/Celery/Arq 等外部队列。
+
+## 权限与监控
+
+开发默认不要求登录，便于本地调试。需要演示权限隔离时设置：
+
+```env
+ADMIN_API_KEY=your_admin_token
+REQUIRE_ADMIN_FOR_MUTATIONS=true
+```
+
+开启后所有写操作都需要 `X-Admin-Token`。运维入口：
+
+- `GET /ops/readiness`：数据库、LLM、embedding、reranker readiness。
+- `GET /ops/metrics`：请求数、平均延迟、状态码分布、Agent run/task/LLM call 状态分布。
+- `GET /ops/config`：脱敏配置摘要。
 
 API 也支持 smoke mode：
 

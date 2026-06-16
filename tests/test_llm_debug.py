@@ -1,4 +1,6 @@
 import time
+import asyncio
+import httpx
 
 from app.core.llm import LLMClient
 from app.core.llm import llm_trace_context
@@ -127,4 +129,86 @@ def test_openai_compatible_base_url_overrides_default_llm_base(monkeypatch):
     client = LLMClient()
 
     assert client.settings.effective_llm_base_url == "https://api.deepseek.com"
+    get_settings.cache_clear()
+
+
+def test_generate_json_uses_json_response_format(monkeypatch):
+    client = LLMClient()
+    captured = {}
+
+    async def fake_generate_text(**kwargs):
+        captured.update(kwargs)
+        return '{"ok": true}'
+
+    monkeypatch.setattr(client, "generate_text", fake_generate_text)
+
+    result = asyncio.run(
+        client.generate_json(
+            system_prompt="Return json.",
+            user_prompt="Return json.",
+        )
+    )
+
+    assert result == {"ok": True}
+    assert captured["response_format"] == {"type": "json_object"}
+
+
+def test_llm_client_retries_transient_transport_errors(monkeypatch, db_session):
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.deepseek.com")
+    monkeypatch.setenv("LLM_MODEL", "deepseek-v4-pro")
+    monkeypatch.setenv("LLM_RETRY_ATTEMPTS", "1")
+    monkeypatch.setenv("LLM_RETRY_BACKOFF_SECONDS", "0")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+
+    class FakeResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+    class FakeAsyncClient:
+        calls = 0
+
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, headers, json):
+            FakeAsyncClient.calls += 1
+            if FakeAsyncClient.calls == 1:
+                raise httpx.ConnectError("temporary disconnect")
+            return FakeResponse()
+
+    monkeypatch.setattr("app.core.llm.httpx.AsyncClient", FakeAsyncClient)
+    client = LLMClient()
+
+    text = asyncio.run(
+        client.generate_text(
+            system_prompt="system",
+            user_prompt="user",
+            db=db_session,
+            trace_name="unit_test.retry",
+        )
+    )
+
+    rows = (
+        db_session.query(LLMCallLog)
+        .filter(LLMCallLog.trace_name == "unit_test.retry")
+        .order_by(LLMCallLog.id.asc())
+        .all()
+    )
+    assert text == "ok"
+    assert FakeAsyncClient.calls == 2
+    assert [row.status for row in rows] == ["retryable_failed", "completed"]
+    assert rows[0].prompt_preview_json["attempt"] == 1
+    assert rows[1].prompt_preview_json["attempt"] == 2
     get_settings.cache_clear()

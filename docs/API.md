@@ -354,6 +354,7 @@ GET /llm/debug/logs?evaluation_run_id=12&case_name=agent_candidate_strong_agent_
 支持按 `evaluation_run_id`、`case_name` 和 `stage` 过滤。过滤是在最近日志窗口内完成，适合开发期从评测 run 快速定位对应 LLM 调用；接口仍不会返回 API key。
 
 Resume parser 和 JD parser 的真实 LLM 链路会显式记录 `resume_parser.parse_structured_resume.retry_1`、`jd_parser.parse_jd.retry_1`、`jd_parser.parse_jd.retry_2` 和 `jd_parser.parse_jd.repair_json` 等 trace 名称。空返回/超时/服务端断连只做有限业务层重试；JD 截断或非法 JSON 会触发一次 repair/reparse，仍失败时直接向上报错，不静默兜底。
+底层 LLM HTTP 客户端对网络断连、429 和 5xx 会做有限短重试；中间失败会以 `retryable_failed` 写入 `llm_call_logs.status`，最终失败仍会暴露到调用方。
 
 ## 量化评测
 
@@ -453,6 +454,30 @@ POST /evaluations/llm-workflow?case_limit=3&resume_from_last_completed=true
 `case_limit` 用于真实 LLM smoke 评测。`resume_from_last_completed=true` 时，服务默认读取 `data/runtime/llm_workflow_trace_latest.jsonl`，跳过 trace 中连续完成的 case，从第一个缺失 case 继续运行。返回的 `case_results_json` 中，每个 case 都包含 `stage_trace`，用于检查简历解析、JD 解析、RAG 证据、fit judge、tailor 和 Guardrail 的中间结果。新 trace 事件会写入完整 `case_result`，便于长跑中断后继续。
 
 `/ui/evaluations` 提供该接口的轻量运行入口，会展示最新 LLM workflow 的 summary、逐 case stage trace、失败阶段、fit label/score 和当前 `evaluation_run_id` 关联的 LLM 调用日志、retry/repair 计数。它用于开发期观察真实链路；18-case 长跑建议使用 `scripts/run_llm_workflow_eval.py` 写入 JSONL checkpoint。
+
+后台运行真实 LLM workflow：
+
+```http
+POST /tasks/llm-workflow?case_limit=18&trace_path=data/runtime/llm_workflow_trace_latest.jsonl
+GET /tasks
+GET /tasks/{task_id}
+```
+
+该接口使用 FastAPI BackgroundTasks 在进程内后台执行，`task_runs` 表记录 queued/running/completed/failed、进度、错误和最终 `evaluation_run_id`。它不是分布式队列；如果要多实例部署，应升级到 Redis/Celery/Arq 这类外部队列。
+
+## 权限与运维接口
+
+```http
+GET /ops/readiness
+GET /ops/metrics
+GET /ops/config
+```
+
+- `ADMIN_API_KEY` 配置后，管理接口需要 `X-Admin-Token`。
+- `REQUIRE_ADMIN_FOR_MUTATIONS=true` 时，所有写操作都需要 `X-Admin-Token`。
+- `/ops/readiness` 返回数据库、LLM、embedding 和 reranker 的健康状态。
+- `/ops/metrics` 返回请求计数、平均延迟、状态码分布、Agent run/task/LLM call 状态分布和最近评测摘要。
+- `/ops/config` 只返回脱敏配置摘要，不返回 API key。
 
 查询历史评测：
 

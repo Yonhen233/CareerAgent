@@ -4,6 +4,7 @@ import math
 import re
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -723,6 +724,7 @@ class EvaluationService:
         case_indexes: list[int] | None = None,
         trace_path: Path | None = None,
         resume_from_last_completed: bool = False,
+        progress_callback: Callable[[EvaluationRun], None] | None = None,
     ) -> EvaluationRun:
         if not self.llm.available:
             raise LLMConfigurationError("LLM_API_KEY/LLM_BASE_URL 未配置，无法进行真实 LLM 调用评测。")
@@ -752,6 +754,8 @@ class EvaluationService:
         db.add(run)
         db.commit()
         db.refresh(run)
+        if progress_callback:
+            progress_callback(run)
         case_results: list[dict[str, Any]] = list(existing_results)
         if trace_path:
             trace_path.parent.mkdir(parents=True, exist_ok=True)
@@ -775,6 +779,8 @@ class EvaluationService:
             db.add(run)
             db.commit()
             db.refresh(run)
+            if progress_callback:
+                progress_callback(run)
             return run
         for index, case in enumerate(remaining_cases, start=len(existing_results) + 1):
             case_result = await self._run_llm_workflow_case(db, case, evaluation_run_id=run.id)
@@ -796,6 +802,8 @@ class EvaluationService:
             db.add(run)
             db.commit()
             db.refresh(run)
+            if progress_callback:
+                progress_callback(run)
             self._append_llm_trace(trace_path, case_result, summary)
         return run
 
