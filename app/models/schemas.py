@@ -57,10 +57,12 @@ class ProfileStructured(BaseModel):
     name: str | None = None
     email: str | None = None
     phone: str | None = None
+    photo_data_url: str | None = None
     location: str | None = None
     availability: str | None = None
     headline: str | None = None
     self_summary: str | None = None
+    enabled_sections: list[str] = Field(default_factory=list)
     target_roles: list[str] = Field(default_factory=list)
     education: list[EducationItem] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
@@ -75,9 +77,10 @@ class ProfileStructured(BaseModel):
 
     _normalize_raw_text = field_validator("raw_text", mode="before")(empty_string_when_missing)
     _normalize_optional_strings = field_validator(
-        "location", "availability", "self_summary", mode="before"
+        "photo_data_url", "location", "availability", "self_summary", mode="before"
     )(lambda value: None if value is None else str(value))
     _normalize_lists = field_validator(
+        "enabled_sections",
         "target_roles",
         "skills",
         "education",
@@ -96,10 +99,12 @@ class GuidedProfileRequest(BaseModel):
     name: str
     email: str | None = None
     phone: str | None = None
+    photo_data_url: str | None = None
     location: str | None = None
     availability: str | None = None
     headline: str | None = "Agent 开发实习生候选人"
     self_summary: str | None = None
+    enabled_sections: list[str] = Field(default_factory=list)
     target_roles: list[str] = Field(default_factory=lambda: ["Agent 开发实习生"])
     education: list[EducationItem] = Field(default_factory=list)
     skills: list[str] = Field(default_factory=list)
@@ -112,6 +117,7 @@ class GuidedProfileRequest(BaseModel):
     portfolio_links: list[str] = Field(default_factory=list)
 
     _normalize_lists = field_validator(
+        "enabled_sections",
         "target_roles",
         "education",
         "skills",

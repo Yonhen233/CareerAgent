@@ -82,10 +82,12 @@ Content-Type: application/json
   "name": "李明",
   "email": "liming@example.com",
   "phone": "13800000000",
+  "photo_data_url": "data:image/png;base64,...",
   "location": "深圳",
   "availability": "2026 年暑期可实习",
   "headline": "Agent 开发实习生候选人",
   "self_summary": "熟悉 FastAPI、RAG 和 Agent workflow，有真实求职助手项目经验。",
+  "enabled_sections": ["intent", "summary", "photo", "education", "projects", "skills"],
   "target_roles": ["Agent 开发实习生"],
   "education": [
     {
@@ -129,7 +131,7 @@ Content-Type: application/json
 }
 ```
 
-手动建档字段按中文求职简历常见结构组织。除姓名外，其余字段都可以留空；已填写的教育、实习/工作、项目、校园实践、证书和奖项会进入结构化 Profile、简历 chunk 与 HTML 预览。
+手动建档字段按中文求职简历常见结构组织。除姓名外，其余字段都可以留空；前端会通过 `enabled_sections` 记录用户选择的栏目，并只提交已启用栏目。已填写的教育、实习/工作、项目、校园实践、证书和奖项会进入结构化 Profile、简历 chunk 与 HTML 预览。`photo_data_url` 只用于 HTML 预览，不会写入 raw resume text 或向量 chunk。
 
 ### 查询 Profile
 

@@ -161,6 +161,7 @@ function formJson(form) {
   const data = new FormData(form);
   const obj = {};
   for (const [key, value] of data.entries()) {
+    if (typeof File !== "undefined" && value instanceof File) continue;
     if (value === "") continue;
     obj[key] = value;
   }
@@ -176,6 +177,61 @@ function splitList(value) {
 
 function hasAnyValue(...values) {
   return values.some((value) => String(value || "").trim());
+}
+
+function selectedProfileSections(form) {
+  return Array.from(form.querySelectorAll("[data-profile-section-toggle]:checked")).map((input) => input.value);
+}
+
+function resumeSectionEnabled(enabled, section) {
+  return !enabled || enabled.has(section);
+}
+
+function updateProfileSectionVisibility(form) {
+  if (!form) return;
+  const enabled = new Set(selectedProfileSections(form));
+  form.querySelectorAll("[data-resume-section]").forEach((section) => {
+    const isEnabled = enabled.has(section.dataset.resumeSection);
+    section.hidden = !isEnabled;
+    section.querySelectorAll("input, textarea, select").forEach((control) => {
+      control.disabled = !isEnabled;
+    });
+  });
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("照片读取失败"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function readProfilePhotoDataUrl(form) {
+  const file = form.elements.photo_file?.files?.[0];
+  if (!file || file.size === 0) return null;
+  if (!file.type.startsWith("image/")) {
+    throw new Error("请上传 PNG、JPG 或 WebP 格式的照片。");
+  }
+  if (file.size > 1.5 * 1024 * 1024) {
+    throw new Error("照片文件不能超过 1.5MB。");
+  }
+  return await readFileAsDataUrl(file);
+}
+
+async function updateProfilePhotoPreview(input) {
+  const preview = $("#profile-photo-preview");
+  if (!preview) return;
+  const file = input.files?.[0];
+  if (!file || file.size === 0) {
+    preview.hidden = true;
+    preview.removeAttribute("src");
+    return;
+  }
+  const dataUrl = await readProfilePhotoDataUrl(input.form);
+  preview.src = dataUrl;
+  preview.hidden = false;
 }
 
 async function loadHealth() {
@@ -694,13 +750,14 @@ function renderCareerFlowResult(state) {
   if (window.lucide) window.lucide.createIcons();
 }
 
-function guidedProfilePayload(raw) {
+function guidedProfilePayload(raw, enabledSections = null) {
+  const enabled = enabledSections ? new Set(enabledSections) : null;
   const skills = splitList(raw.skills);
-  const targetRoles = splitList(raw.target_roles);
+  const targetRoles = resumeSectionEnabled(enabled, "intent") ? splitList(raw.target_roles) : [];
   const projectDescription = raw.project_description || raw.project || "";
   const projectLines = projectDescription.split("\n").filter(Boolean);
   const projectTechStack = splitList(raw.project_tech_stack).length ? splitList(raw.project_tech_stack) : skills.slice(0, 8);
-  const projects = hasAnyValue(raw.project_name, projectDescription, raw.project_impact, raw.project_tech_stack)
+  const projects = resumeSectionEnabled(enabled, "projects") && hasAnyValue(raw.project_name, projectDescription, raw.project_impact, raw.project_tech_stack)
     ? [{
       name: raw.project_name || projectLines[0]?.split("：")[0] || projectLines[0] || "项目经历",
       description: projectDescription,
@@ -708,7 +765,7 @@ function guidedProfilePayload(raw) {
       impact: raw.project_impact || projectLines.at(-1) || "",
     }]
     : [];
-  const education = hasAnyValue(raw.education_school, raw.education_degree, raw.education_major, raw.education_duration, raw.education_details)
+  const education = resumeSectionEnabled(enabled, "education") && hasAnyValue(raw.education_school, raw.education_degree, raw.education_major, raw.education_duration, raw.education_details)
     ? [{
       school: raw.education_school || "",
       degree: raw.education_degree || "",
@@ -717,7 +774,7 @@ function guidedProfilePayload(raw) {
       details: raw.education_details || "",
     }]
     : [];
-  const workExperience = hasAnyValue(raw.work_company, raw.work_role, raw.work_duration, raw.work_details, raw.work_tech_stack)
+  const workExperience = resumeSectionEnabled(enabled, "work") && hasAnyValue(raw.work_company, raw.work_role, raw.work_duration, raw.work_details, raw.work_tech_stack)
     ? [{
       company: raw.work_company || "",
       role: raw.work_role || "",
@@ -726,7 +783,7 @@ function guidedProfilePayload(raw) {
       tech_stack: splitList(raw.work_tech_stack),
     }]
     : [];
-  const campusExperience = hasAnyValue(raw.campus_organization, raw.campus_role, raw.campus_duration, raw.campus_details)
+  const campusExperience = resumeSectionEnabled(enabled, "campus") && hasAnyValue(raw.campus_organization, raw.campus_role, raw.campus_duration, raw.campus_details)
     ? [{
       company: raw.campus_organization || "",
       role: raw.campus_role || "",
@@ -740,19 +797,20 @@ function guidedProfilePayload(raw) {
     email: raw.email,
     phone: raw.phone,
     location: raw.location,
-    availability: raw.availability,
-    headline: raw.headline,
-    self_summary: raw.self_summary,
+    availability: resumeSectionEnabled(enabled, "intent") ? raw.availability : undefined,
+    headline: resumeSectionEnabled(enabled, "intent") ? raw.headline : undefined,
+    self_summary: resumeSectionEnabled(enabled, "summary") ? raw.self_summary : undefined,
+    enabled_sections: enabledSections || [],
     target_roles: targetRoles,
     education,
-    skills,
+    skills: resumeSectionEnabled(enabled, "skills") ? skills : [],
     projects,
     work_experience: workExperience,
     campus_experience: campusExperience,
-    certifications: splitList(raw.certifications),
-    awards: splitList(raw.awards),
-    languages: splitList(raw.languages),
-    portfolio_links: splitList(raw.portfolio_links),
+    certifications: resumeSectionEnabled(enabled, "extras") ? splitList(raw.certifications) : [],
+    awards: resumeSectionEnabled(enabled, "extras") ? splitList(raw.awards) : [],
+    languages: resumeSectionEnabled(enabled, "extras") ? splitList(raw.languages) : [],
+    portfolio_links: resumeSectionEnabled(enabled, "portfolio") ? splitList(raw.portfolio_links) : [],
   };
 }
 
@@ -1431,6 +1489,22 @@ function bindForms() {
     fillCareerDemo($("#career-start-form"));
   });
 
+  const guidedProfileForm = $("#guided-profile-form");
+  if (guidedProfileForm) {
+    updateProfileSectionVisibility(guidedProfileForm);
+    guidedProfileForm.querySelectorAll("[data-profile-section-toggle]").forEach((input) => {
+      input.addEventListener("change", () => updateProfileSectionVisibility(guidedProfileForm));
+    });
+    guidedProfileForm.elements.photo_file?.addEventListener("change", async (event) => {
+      try {
+        await updateProfilePhotoPreview(event.currentTarget);
+      } catch (error) {
+        toast(error.message);
+        event.currentTarget.value = "";
+      }
+    });
+  }
+
   $("#upload-profile-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -1444,10 +1518,22 @@ function bindForms() {
 
   $("#guided-profile-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const raw = formJson(event.currentTarget);
-    await api("/profiles/guided", { method: "POST", body: JSON.stringify(guidedProfilePayload(raw)) });
+    const form = event.currentTarget;
+    const raw = formJson(form);
+    const enabledSections = selectedProfileSections(form);
+    const payload = guidedProfilePayload(raw, enabledSections);
+    if (enabledSections.includes("photo")) {
+      payload.photo_data_url = await readProfilePhotoDataUrl(form);
+    }
+    await api("/profiles/guided", { method: "POST", body: JSON.stringify(payload) });
     toast("简历档案已保存");
-    event.currentTarget.reset();
+    form.reset();
+    updateProfileSectionVisibility(form);
+    const preview = $("#profile-photo-preview");
+    if (preview) {
+      preview.hidden = true;
+      preview.removeAttribute("src");
+    }
     loadProfiles();
   });
 

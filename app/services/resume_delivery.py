@@ -14,6 +14,7 @@ class ResumeHTMLRenderer:
         data = profile.structured_profile_json or {}
         name = data.get("name") or profile.name or "未命名简历"
         headline = data.get("headline") or profile.headline or "求职候选人"
+        photo_src = self._safe_photo_src(data.get("photo_data_url"))
         contact = self._join_present(
             [
                 data.get("email") or profile.email,
@@ -45,7 +46,10 @@ class ResumeHTMLRenderer:
                 <h1>{escape(str(name))}</h1>
                 <p class="headline">{escape(str(headline))}</p>
               </div>
-              <div class="contact">{escape(contact)}</div>
+              <div class="header-side">
+                {f'<img class="resume-photo" src="{escape(photo_src, quote=True)}" alt="简历照片">' if photo_src else ''}
+                <div class="contact">{escape(contact)}</div>
+              </div>
             </header>
             {body or self._empty_state("这份简历还没有足够的结构化内容，请补充项目、经历或技能。")}
             """,
@@ -217,6 +221,12 @@ class ResumeHTMLRenderer:
     def _join_present(self, values: list[Any]) -> str:
         return " · ".join(str(value).strip() for value in values if str(value or "").strip())
 
+    def _safe_photo_src(self, value: Any) -> str:
+        text = str(value or "").strip()
+        if re.match(r"^data:image/(?:png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$", text):
+            return text
+        return ""
+
     def _empty_state(self, text: str) -> str:
         return f'<div class="empty-state">{escape(text)}</div>'
 
@@ -270,6 +280,19 @@ class ResumeHTMLRenderer:
     code {{ background: var(--soft); padding: 1px 5px; border-radius: 4px; }}
     .headline {{ color: var(--muted); margin-top: 8px; }}
     .contact {{ color: var(--muted); text-align: right; min-width: 180px; }}
+    .header-side {{
+      display: grid;
+      justify-items: end;
+      gap: 10px;
+      min-width: 190px;
+    }}
+    .resume-photo {{
+      width: 92px;
+      height: 118px;
+      object-fit: cover;
+      border: 1px solid var(--line);
+      background: var(--soft);
+    }}
     .resume-layout {{
       display: grid;
       grid-template-columns: minmax(0, 1fr) 260px;
@@ -324,6 +347,7 @@ class ResumeHTMLRenderer:
     @media (max-width: 760px) {{
       .page {{ padding: 24px; }}
       .resume-header, .resume-layout {{ display: block; }}
+      .header-side {{ justify-items: start; margin-top: 12px; }}
       .contact {{ text-align: left; margin-top: 12px; }}
       .resume-side {{ border-left: 0; padding-left: 0; margin-top: 24px; }}
     }}

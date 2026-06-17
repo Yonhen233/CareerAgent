@@ -18,6 +18,7 @@ def test_profile_and_resume_html_preview_routes(db_session):
             "name": "李明",
             "email": "liming@example.com",
             "phone": "13800000000",
+            "photo_data_url": "data:image/png;base64,iVBORw0KGgo=",
             "location": "深圳",
             "availability": "2026 年暑期可实习",
             "headline": "Agent 开发实习生候选人",
@@ -97,6 +98,8 @@ def test_profile_and_resume_html_preview_routes(db_session):
     assert "教育经历" in profile_response.text
     assert "校园/实践经历" in profile_response.text
     assert "证书" in profile_response.text
+    assert 'class="resume-photo"' in profile_response.text
+    assert "data:image/png;base64,iVBORw0KGgo=" in profile_response.text
     assert "打印 / 另存为 PDF" in profile_response.text
 
     assert resume_response.status_code == 200

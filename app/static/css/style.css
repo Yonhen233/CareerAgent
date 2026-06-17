@@ -179,6 +179,15 @@ a {
   border-top: 1px solid var(--line);
 }
 
+.resume-form-section[hidden] {
+  display: none;
+}
+
+.section-picker-block {
+  padding-top: 4px;
+  border-top: 0;
+}
+
 .resume-form-section:first-child {
   border-top: 0;
   padding-top: 4px;
@@ -186,6 +195,62 @@ a {
 
 .section-title h2 {
   font-size: 17px;
+}
+
+.section-title .meta {
+  margin-top: 6px;
+}
+
+.section-picker {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  font-weight: 720;
+}
+
+.section-toggle input {
+  width: 18px;
+  min-height: 18px;
+}
+
+.section-toggle:has(input:checked) {
+  border-color: #9bb9e8;
+  background: #f5f8ff;
+}
+
+.photo-upload-grid {
+  align-items: start;
+}
+
+.photo-preview-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 100px;
+  padding: 12px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.photo-preview-box img {
+  width: 72px;
+  height: 92px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  background: #fff;
 }
 
 .resume-form-actions {
@@ -793,6 +858,10 @@ button svg,
   }
 
   .resume-section-map {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .section-picker {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

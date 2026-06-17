@@ -13,7 +13,7 @@ uvicorn app.main:app --reload
 启动后常用入口：
 
 - `/`：用户开始页，支持自然语言描述需求，也支持上传/输入简历后一键运行完整求职流程。
-- `/ui/profiles`：用户简历档案页，手动建档按中文简历常见栏目填写；列表中的“预览简历”会打开 `/profiles/{profile_id}/html`。
+- `/ui/profiles`：用户简历档案页，手动建档按中文简历常见栏目填写，支持自定义栏目和可选照片；列表中的“预览简历”会打开 `/profiles/{profile_id}/html`。
 - `/ui/resumes`：定制简历页，默认嵌入 `/resumes/{resume_version_id}/html` 进行排版预览，Markdown 下载只作为辅助出口。
 - `/ui/ops`：右上角“控制台”，集中查看 readiness、metrics、脱敏配置、后台任务和 LLM trace。
 - `/ui/quality`：评测和长跑任务入口，从控制台进入。

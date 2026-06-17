@@ -94,18 +94,27 @@ def test_profiles_page_exposes_complete_chinese_resume_sections():
 
     assert response.status_code == 200
     for text in [
-        "基础信息与求职意向",
+        "选择简历栏目",
+        "基础信息",
+        "求职意向",
         "教育经历",
         "实习/工作经历",
         "项目经历",
         "校园/实践经历",
-        "技能、证书与荣誉",
+        "技能",
+        "证书、荣誉与语言",
+        "简历照片",
         "个人总结",
         "作品链接",
         "到岗时间",
     ]:
         assert text in response.text
+    for section in ["photo", "summary", "work", "campus", "extras"]:
+        assert f'data-resume-section="{section}" hidden' in response.text
+    for section in ["intent", "education", "projects", "skills"]:
+        assert f'data-profile-section-toggle value="{section}" checked' in response.text
     for field in [
+        "photo_file",
         "education_school",
         "work_company",
         "project_tech_stack",
@@ -115,9 +124,14 @@ def test_profiles_page_exposes_complete_chinese_resume_sections():
     ]:
         assert f'name="{field}"' in response.text
     assert "campus_experience" in main_js
-    assert "certifications: splitList" in main_js
+    assert "certifications: resumeSectionEnabled" in main_js
+    assert "selectedProfileSections" in main_js
+    assert "updateProfileSectionVisibility" in main_js
+    assert "readProfilePhotoDataUrl" in main_js
     assert "resume-section-map" in style_css
     assert "resume-form-section" in style_css
+    assert "section-picker" in style_css
+    assert "photo-preview-box" in style_css
 
 
 def test_evaluations_frontend_exposes_llm_workflow_trace_panel():

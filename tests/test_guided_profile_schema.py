@@ -7,10 +7,12 @@ def test_guided_profile_keeps_mainstream_chinese_resume_sections(db_session):
         name="王一",
         email="wangyi@example.com",
         phone="13900000000",
+        photo_data_url="data:image/png;base64,iVBORw0KGgo=",
         location="深圳",
         availability="2026 年暑期可实习",
         headline="Agent 开发实习生候选人",
         self_summary="熟悉 FastAPI、RAG 和 Agent workflow，有真实项目交付经验。",
+        enabled_sections=["intent", "summary", "photo", "education", "projects", "skills"],
         target_roles=["Agent 开发实习生"],
         education=[
             EducationItem(
@@ -57,6 +59,8 @@ def test_guided_profile_keeps_mainstream_chinese_resume_sections(db_session):
     structured = profile.structured_profile_json
 
     assert structured["location"] == "深圳"
+    assert structured["photo_data_url"].startswith("data:image/png;base64")
+    assert "photo" in structured["enabled_sections"]
     assert structured["availability"] == "2026 年暑期可实习"
     assert structured["self_summary"].startswith("熟悉 FastAPI")
     assert structured["education"][0]["school"] == "华南理工大学"
@@ -66,3 +70,4 @@ def test_guided_profile_keeps_mainstream_chinese_resume_sections(db_session):
     assert structured["portfolio_links"] == ["https://github.com/example/CareerAgent"]
     assert "Campus experience" in profile.raw_resume_text
     assert "Certifications" in profile.raw_resume_text
+    assert "data:image" not in profile.raw_resume_text
