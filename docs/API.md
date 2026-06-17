@@ -131,7 +131,7 @@ Content-Type: application/json
 }
 ```
 
-手动建档字段按中文求职简历常见结构组织。除姓名外，其余字段都可以留空；前端会通过 `enabled_sections` 记录用户选择的栏目，并只提交已启用栏目。已填写的教育、实习/工作、项目、校园实践、证书和奖项会进入结构化 Profile、简历 chunk 与 HTML 预览。`photo_data_url` 只用于 HTML 预览，不会写入 raw resume text 或向量 chunk。
+手动建档字段按中文求职简历常见结构组织。除姓名外，其余字段都可以留空；前端会通过 `enabled_sections` 记录用户选择的栏目，并只提交已启用栏目。`education`、`work_experience`、`projects`、`campus_experience` 都是数组，前端支持添加多段条目。已填写的教育、实习/工作、项目、校园实践、证书和奖项会进入结构化 Profile、简历 chunk 与 HTML 预览。`photo_data_url` 只用于 HTML 预览，不会写入 raw resume text 或向量 chunk。
 
 ### 查询 Profile
 

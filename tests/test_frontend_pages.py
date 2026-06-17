@@ -123,15 +123,23 @@ def test_profiles_page_exposes_complete_chinese_resume_sections():
         "portfolio_links",
     ]:
         assert f'name="{field}"' in response.text
+    for repeat_name in ["education", "work", "projects", "campus"]:
+        assert f'data-repeat-list="{repeat_name}"' in response.text
+        assert f'data-repeat-add="{repeat_name}"' in response.text
+    assert "data-repeat-remove" in response.text
     assert "campus_experience" in main_js
     assert "certifications: resumeSectionEnabled" in main_js
     assert "selectedProfileSections" in main_js
     assert "updateProfileSectionVisibility" in main_js
     assert "readProfilePhotoDataUrl" in main_js
+    assert "collectRepeatList" in main_js
+    assert "addRepeatEntry" in main_js
+    assert "removeRepeatEntry" in main_js
     assert "resume-section-map" in style_css
     assert "resume-form-section" in style_css
     assert "section-picker" in style_css
     assert "photo-preview-box" in style_css
+    assert "repeat-entry" in style_css
 
 
 def test_evaluations_frontend_exposes_llm_workflow_trace_panel():

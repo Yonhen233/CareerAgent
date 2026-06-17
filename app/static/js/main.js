@@ -179,6 +179,20 @@ function hasAnyValue(...values) {
   return values.some((value) => String(value || "").trim());
 }
 
+function valueIn(container, name) {
+  return container.querySelector(`[name="${name}"]`)?.value?.trim() || "";
+}
+
+function repeatEntries(form, listName) {
+  return Array.from(form?.querySelectorAll(`[data-repeat-list="${listName}"] [data-repeat-item]`) || []);
+}
+
+function collectRepeatList(form, listName, mapper) {
+  return repeatEntries(form, listName)
+    .map((entry) => mapper(entry))
+    .filter((item) => hasAnyValue(...Object.values(item).flat()));
+}
+
 function selectedProfileSections(form) {
   return Array.from(form.querySelectorAll("[data-profile-section-toggle]:checked")).map((input) => input.value);
 }
@@ -193,9 +207,67 @@ function updateProfileSectionVisibility(form) {
   form.querySelectorAll("[data-resume-section]").forEach((section) => {
     const isEnabled = enabled.has(section.dataset.resumeSection);
     section.hidden = !isEnabled;
-    section.querySelectorAll("input, textarea, select").forEach((control) => {
+    section.querySelectorAll("input, textarea, select, button[data-repeat-add], button[data-repeat-remove]").forEach((control) => {
       control.disabled = !isEnabled;
     });
+  });
+}
+
+function updateRepeatListLabels(list) {
+  const label = list.dataset.repeatLabel || "经历";
+  const entries = Array.from(list.querySelectorAll("[data-repeat-item]"));
+  entries.forEach((entry, index) => {
+    const title = entry.querySelector(".repeat-entry-head strong");
+    if (title) title.textContent = `${label} ${index + 1}`;
+    const removeButton = entry.querySelector("[data-repeat-remove]");
+    if (removeButton) removeButton.hidden = entries.length <= 1;
+  });
+}
+
+function clearRepeatEntry(entry) {
+  entry.querySelectorAll("input, textarea, select").forEach((control) => {
+    if (control.type === "checkbox" || control.type === "radio") {
+      control.checked = false;
+    } else {
+      control.value = "";
+    }
+  });
+}
+
+function addRepeatEntry(form, listName) {
+  const list = form.querySelector(`[data-repeat-list="${listName}"]`);
+  const template = list?.querySelector("[data-repeat-item]");
+  if (!list || !template) return;
+  const clone = template.cloneNode(true);
+  clearRepeatEntry(clone);
+  list.appendChild(clone);
+  updateRepeatListLabels(list);
+  clone.querySelector("input, textarea, select")?.focus();
+  if (window.lucide) window.lucide.createIcons();
+}
+
+function removeRepeatEntry(button) {
+  const entry = button.closest("[data-repeat-item]");
+  const list = button.closest("[data-repeat-list]");
+  if (!entry || !list) return;
+  const entries = list.querySelectorAll("[data-repeat-item]");
+  if (entries.length <= 1) {
+    clearRepeatEntry(entry);
+  } else {
+    entry.remove();
+  }
+  updateRepeatListLabels(list);
+}
+
+function initializeRepeatLists(form) {
+  form?.querySelectorAll("[data-repeat-list]").forEach(updateRepeatListLabels);
+}
+
+function resetRepeatLists(form) {
+  form?.querySelectorAll("[data-repeat-list]").forEach((list) => {
+    const entries = Array.from(list.querySelectorAll("[data-repeat-item]"));
+    entries.slice(1).forEach((entry) => entry.remove());
+    updateRepeatListLabels(list);
   });
 }
 
@@ -750,47 +822,78 @@ function renderCareerFlowResult(state) {
   if (window.lucide) window.lucide.createIcons();
 }
 
-function guidedProfilePayload(raw, enabledSections = null) {
+function guidedProfilePayload(raw, enabledSections = null, form = null) {
   const enabled = enabledSections ? new Set(enabledSections) : null;
   const skills = splitList(raw.skills);
   const targetRoles = resumeSectionEnabled(enabled, "intent") ? splitList(raw.target_roles) : [];
   const projectDescription = raw.project_description || raw.project || "";
   const projectLines = projectDescription.split("\n").filter(Boolean);
   const projectTechStack = splitList(raw.project_tech_stack).length ? splitList(raw.project_tech_stack) : skills.slice(0, 8);
-  const projects = resumeSectionEnabled(enabled, "projects") && hasAnyValue(raw.project_name, projectDescription, raw.project_impact, raw.project_tech_stack)
-    ? [{
+  const projects = resumeSectionEnabled(enabled, "projects")
+    ? (form
+      ? collectRepeatList(form, "projects", (entry) => ({
+        name: valueIn(entry, "project_name") || "项目经历",
+        description: valueIn(entry, "project_description"),
+        tech_stack: splitList(valueIn(entry, "project_tech_stack")),
+        impact: valueIn(entry, "project_impact"),
+      }))
+      : hasAnyValue(raw.project_name, projectDescription, raw.project_impact, raw.project_tech_stack) ? [{
       name: raw.project_name || projectLines[0]?.split("：")[0] || projectLines[0] || "项目经历",
       description: projectDescription,
       tech_stack: projectTechStack,
       impact: raw.project_impact || projectLines.at(-1) || "",
-    }]
+    }] : [])
     : [];
-  const education = resumeSectionEnabled(enabled, "education") && hasAnyValue(raw.education_school, raw.education_degree, raw.education_major, raw.education_duration, raw.education_details)
-    ? [{
+  const education = resumeSectionEnabled(enabled, "education")
+    ? (form
+      ? collectRepeatList(form, "education", (entry) => ({
+        school: valueIn(entry, "education_school"),
+        degree: valueIn(entry, "education_degree"),
+        major: valueIn(entry, "education_major"),
+        duration: valueIn(entry, "education_duration"),
+        details: valueIn(entry, "education_details"),
+      }))
+      : hasAnyValue(raw.education_school, raw.education_degree, raw.education_major, raw.education_duration, raw.education_details) ? [{
       school: raw.education_school || "",
       degree: raw.education_degree || "",
       major: raw.education_major || "",
       duration: raw.education_duration || "",
       details: raw.education_details || "",
-    }]
+    }] : [])
     : [];
-  const workExperience = resumeSectionEnabled(enabled, "work") && hasAnyValue(raw.work_company, raw.work_role, raw.work_duration, raw.work_details, raw.work_tech_stack)
-    ? [{
+  const workExperience = resumeSectionEnabled(enabled, "work")
+    ? (form
+      ? collectRepeatList(form, "work", (entry) => ({
+        company: valueIn(entry, "work_company"),
+        role: valueIn(entry, "work_role"),
+        duration: valueIn(entry, "work_duration"),
+        details: valueIn(entry, "work_details"),
+        tech_stack: splitList(valueIn(entry, "work_tech_stack")),
+      }))
+      : hasAnyValue(raw.work_company, raw.work_role, raw.work_duration, raw.work_details, raw.work_tech_stack) ? [{
       company: raw.work_company || "",
       role: raw.work_role || "",
       duration: raw.work_duration || "",
       details: raw.work_details || "",
       tech_stack: splitList(raw.work_tech_stack),
-    }]
+    }] : [])
     : [];
-  const campusExperience = resumeSectionEnabled(enabled, "campus") && hasAnyValue(raw.campus_organization, raw.campus_role, raw.campus_duration, raw.campus_details)
-    ? [{
+  const campusExperience = resumeSectionEnabled(enabled, "campus")
+    ? (form
+      ? collectRepeatList(form, "campus", (entry) => ({
+        company: valueIn(entry, "campus_organization"),
+        role: valueIn(entry, "campus_role"),
+        duration: valueIn(entry, "campus_duration"),
+        details: valueIn(entry, "campus_details"),
+        tech_stack: [],
+      }))
+      : hasAnyValue(raw.campus_organization, raw.campus_role, raw.campus_duration, raw.campus_details) ? [{
       company: raw.campus_organization || "",
       role: raw.campus_role || "",
       duration: raw.campus_duration || "",
       details: raw.campus_details || "",
       tech_stack: [],
-    }]
+    }] : [])
     : [];
   return {
     name: raw.name,
@@ -1491,9 +1594,22 @@ function bindForms() {
 
   const guidedProfileForm = $("#guided-profile-form");
   if (guidedProfileForm) {
+    initializeRepeatLists(guidedProfileForm);
     updateProfileSectionVisibility(guidedProfileForm);
     guidedProfileForm.querySelectorAll("[data-profile-section-toggle]").forEach((input) => {
       input.addEventListener("change", () => updateProfileSectionVisibility(guidedProfileForm));
+    });
+    guidedProfileForm.addEventListener("click", (event) => {
+      if (!(event.target instanceof Element)) return;
+      const addButton = event.target.closest("[data-repeat-add]");
+      if (addButton) {
+        addRepeatEntry(guidedProfileForm, addButton.dataset.repeatAdd);
+        return;
+      }
+      const removeButton = event.target.closest("[data-repeat-remove]");
+      if (removeButton) {
+        removeRepeatEntry(removeButton);
+      }
     });
     guidedProfileForm.elements.photo_file?.addEventListener("change", async (event) => {
       try {
@@ -1521,13 +1637,14 @@ function bindForms() {
     const form = event.currentTarget;
     const raw = formJson(form);
     const enabledSections = selectedProfileSections(form);
-    const payload = guidedProfilePayload(raw, enabledSections);
+    const payload = guidedProfilePayload(raw, enabledSections, form);
     if (enabledSections.includes("photo")) {
       payload.photo_data_url = await readProfilePhotoDataUrl(form);
     }
     await api("/profiles/guided", { method: "POST", body: JSON.stringify(payload) });
     toast("简历档案已保存");
     form.reset();
+    resetRepeatLists(form);
     updateProfileSectionVisibility(form);
     const preview = $("#profile-photo-preview");
     if (preview) {

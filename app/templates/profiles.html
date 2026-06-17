@@ -118,50 +118,86 @@
       <div class="section-title">
         <h2>教育经历</h2>
       </div>
-      <div class="form-grid">
-        <label>学校<input name="education_school" placeholder="XX大学"></label>
-        <label>学历<input name="education_degree" placeholder="本科 / 硕士"></label>
-        <label>专业<input name="education_major" placeholder="计算机科学与技术"></label>
-        <label>时间<input name="education_duration" placeholder="2023.09 - 2027.06"></label>
-        <label class="wide">成绩/课程/论文<textarea name="education_details" rows="3" placeholder="GPA、排名、核心课程、毕业设计、论文或与岗位相关的学习成果。"></textarea></label>
+      <div class="repeat-list" data-repeat-list="education" data-repeat-label="教育经历">
+        <div class="repeat-entry" data-repeat-item>
+          <div class="repeat-entry-head">
+            <strong>教育经历 1</strong>
+            <button type="button" class="ghost compact-button" data-repeat-remove>删除</button>
+          </div>
+          <div class="form-grid">
+            <label>学校<input name="education_school" placeholder="XX大学"></label>
+            <label>学历<input name="education_degree" placeholder="本科 / 硕士"></label>
+            <label>专业<input name="education_major" placeholder="计算机科学与技术"></label>
+            <label>时间<input name="education_duration" placeholder="2023.09 - 2027.06"></label>
+            <label class="wide">成绩/课程/论文<textarea name="education_details" rows="3" placeholder="GPA、排名、核心课程、毕业设计、论文或与岗位相关的学习成果。"></textarea></label>
+          </div>
+        </div>
       </div>
+      <button type="button" class="ghost repeat-add-button" data-repeat-add="education"><i data-lucide="plus"></i> 添加教育经历</button>
     </div>
 
     <div class="resume-form-section" data-resume-section="work" hidden>
       <div class="section-title">
         <h2>实习/工作经历</h2>
       </div>
-      <div class="form-grid">
-        <label>公司/团队<input name="work_company" placeholder="XX科技 / 实验室 / 开源团队"></label>
-        <label>岗位/角色<input name="work_role" placeholder="后端开发实习生 / Agent 开发实习生"></label>
-        <label>时间<input name="work_duration" placeholder="2025.07 - 2025.10"></label>
-        <label>相关技术<input name="work_tech_stack" placeholder="Python, FastAPI, SQL, Docker"></label>
-        <label class="wide">工作内容与成果<textarea name="work_details" rows="4" placeholder="按职责、动作、结果填写，尽量写清楚指标、规模、上线情况或协作对象。"></textarea></label>
+      <div class="repeat-list" data-repeat-list="work" data-repeat-label="实习/工作经历">
+        <div class="repeat-entry" data-repeat-item>
+          <div class="repeat-entry-head">
+            <strong>实习/工作经历 1</strong>
+            <button type="button" class="ghost compact-button" data-repeat-remove>删除</button>
+          </div>
+          <div class="form-grid">
+            <label>公司/团队<input name="work_company" placeholder="XX科技 / 实验室 / 开源团队"></label>
+            <label>岗位/角色<input name="work_role" placeholder="后端开发实习生 / Agent 开发实习生"></label>
+            <label>时间<input name="work_duration" placeholder="2025.07 - 2025.10"></label>
+            <label>相关技术<input name="work_tech_stack" placeholder="Python, FastAPI, SQL, Docker"></label>
+            <label class="wide">工作内容与成果<textarea name="work_details" rows="4" placeholder="按职责、动作、结果填写，尽量写清楚指标、规模、上线情况或协作对象。"></textarea></label>
+          </div>
+        </div>
       </div>
+      <button type="button" class="ghost repeat-add-button" data-repeat-add="work"><i data-lucide="plus"></i> 添加实习/工作经历</button>
     </div>
 
     <div class="resume-form-section" data-resume-section="projects">
       <div class="section-title">
         <h2>项目经历</h2>
       </div>
-      <div class="form-grid">
-        <label>项目名称<input name="project_name" value="CareerAgent"></label>
-        <label>技术栈<input name="project_tech_stack" value="Python, FastAPI, RAG, SQLite, Agent"></label>
-        <label class="wide">项目描述<textarea name="project_description" rows="4" placeholder="项目目标、你的职责、核心架构、关键模块、工程难点。"></textarea></label>
-        <label class="wide">结果/影响<textarea name="project_impact" rows="3" placeholder="例如：跑通真实 LLM 全流程，支持简历解析、岗位匹配、简历定制、投递包和面试包。"></textarea></label>
+      <div class="repeat-list" data-repeat-list="projects" data-repeat-label="项目经历">
+        <div class="repeat-entry" data-repeat-item>
+          <div class="repeat-entry-head">
+            <strong>项目经历 1</strong>
+            <button type="button" class="ghost compact-button" data-repeat-remove>删除</button>
+          </div>
+          <div class="form-grid">
+            <label>项目名称<input name="project_name" value="CareerAgent"></label>
+            <label>技术栈<input name="project_tech_stack" value="Python, FastAPI, RAG, SQLite, Agent"></label>
+            <label class="wide">项目描述<textarea name="project_description" rows="4" placeholder="项目目标、你的职责、核心架构、关键模块、工程难点。"></textarea></label>
+            <label class="wide">结果/影响<textarea name="project_impact" rows="3" placeholder="例如：跑通真实 LLM 全流程，支持简历解析、岗位匹配、简历定制、投递包和面试包。"></textarea></label>
+          </div>
+        </div>
       </div>
+      <button type="button" class="ghost repeat-add-button" data-repeat-add="projects"><i data-lucide="plus"></i> 添加项目经历</button>
     </div>
 
     <div class="resume-form-section" data-resume-section="campus" hidden>
       <div class="section-title">
         <h2>校园/实践经历</h2>
       </div>
-      <div class="form-grid">
-        <label>组织/活动<input name="campus_organization" placeholder="学生会 / 社团 / 竞赛团队 / 志愿项目"></label>
-        <label>角色<input name="campus_role" placeholder="负责人 / 组员 / 志愿者"></label>
-        <label>时间<input name="campus_duration" placeholder="2024.09 - 2025.01"></label>
-        <label class="wide">经历描述<textarea name="campus_details" rows="3" placeholder="组织规模、你的分工、协作过程、产出结果。"></textarea></label>
+      <div class="repeat-list" data-repeat-list="campus" data-repeat-label="校园/实践经历">
+        <div class="repeat-entry" data-repeat-item>
+          <div class="repeat-entry-head">
+            <strong>校园/实践经历 1</strong>
+            <button type="button" class="ghost compact-button" data-repeat-remove>删除</button>
+          </div>
+          <div class="form-grid">
+            <label>组织/活动<input name="campus_organization" placeholder="学生会 / 社团 / 竞赛团队 / 志愿项目"></label>
+            <label>角色<input name="campus_role" placeholder="负责人 / 组员 / 志愿者"></label>
+            <label>时间<input name="campus_duration" placeholder="2024.09 - 2025.01"></label>
+            <label class="wide">经历描述<textarea name="campus_details" rows="3" placeholder="组织规模、你的分工、协作过程、产出结果。"></textarea></label>
+          </div>
+        </div>
       </div>
+      <button type="button" class="ghost repeat-add-button" data-repeat-add="campus"><i data-lucide="plus"></i> 添加校园/实践经历</button>
     </div>
 
     <div class="resume-form-section" data-resume-section="skills">
