@@ -140,6 +140,60 @@ a {
   grid-column: span 7;
 }
 
+.profile-guide-panel {
+  align-self: stretch;
+}
+
+.resume-section-map {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.resume-section-map span {
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.profile-form-panel {
+  padding-bottom: 12px;
+}
+
+.resume-form {
+  display: grid;
+  gap: 0;
+}
+
+.resume-form-section {
+  display: grid;
+  gap: 14px;
+  padding: 20px 0;
+  border-top: 1px solid var(--line);
+}
+
+.resume-form-section:first-child {
+  border-top: 0;
+  padding-top: 4px;
+}
+
+.section-title h2 {
+  font-size: 17px;
+}
+
+.resume-form-actions {
+  justify-content: flex-end;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
 .panel {
   margin-bottom: 18px;
   padding: 22px;
@@ -736,6 +790,10 @@ button svg,
   .span-6,
   .span-7 {
     grid-column: span 1;
+  }
+
+  .resume-section-map {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .panel-heading {

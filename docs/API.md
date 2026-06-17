@@ -79,9 +79,23 @@ Content-Type: application/json
 
 ```json
 {
-  "name": "Candidate",
-  "email": "candidate@example.com",
+  "name": "李明",
+  "email": "liming@example.com",
+  "phone": "13800000000",
+  "location": "深圳",
+  "availability": "2026 年暑期可实习",
+  "headline": "Agent 开发实习生候选人",
+  "self_summary": "熟悉 FastAPI、RAG 和 Agent workflow，有真实求职助手项目经验。",
   "target_roles": ["Agent 开发实习生"],
+  "education": [
+    {
+      "school": "XX大学",
+      "degree": "本科",
+      "major": "计算机科学与技术",
+      "duration": "2023.09 - 2027.06",
+      "details": "GPA 3.7/4.0，核心课程：数据库、机器学习、软件工程。"
+    }
+  ],
   "skills": ["Python", "FastAPI", "RAG", "SQLite"],
   "projects": [
     {
@@ -90,9 +104,32 @@ Content-Type: application/json
       "tech_stack": ["FastAPI", "SQLite"],
       "impact": "完成可运行的端到端求职流程。"
     }
-  ]
+  ],
+  "work_experience": [
+    {
+      "company": "AI Lab",
+      "role": "后端开发实习生",
+      "duration": "2025.07 - 2025.10",
+      "details": "维护 FastAPI 服务和 SQLite 数据链路。",
+      "tech_stack": ["FastAPI", "SQLite"]
+    }
+  ],
+  "campus_experience": [
+    {
+      "company": "AI 社团",
+      "role": "技术组成员",
+      "duration": "2024.09 - 2025.01",
+      "details": "组织 Agent 技术分享。"
+    }
+  ],
+  "certifications": ["英语六级"],
+  "awards": ["校级二等奖学金"],
+  "languages": ["中文", "英语 CET-6"],
+  "portfolio_links": ["https://github.com/example/CareerAgent"]
 }
 ```
+
+手动建档字段按中文求职简历常见结构组织。除姓名外，其余字段都可以留空；已填写的教育、实习/工作、项目、校园实践、证书和奖项会进入结构化 Profile、简历 chunk 与 HTML 预览。
 
 ### 查询 Profile
 

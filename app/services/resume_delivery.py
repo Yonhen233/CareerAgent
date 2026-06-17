@@ -14,15 +14,26 @@ class ResumeHTMLRenderer:
         data = profile.structured_profile_json or {}
         name = data.get("name") or profile.name or "未命名简历"
         headline = data.get("headline") or profile.headline or "求职候选人"
-        contact = self._join_present([data.get("email") or profile.email, data.get("phone") or profile.phone])
+        contact = self._join_present(
+            [
+                data.get("email") or profile.email,
+                data.get("phone") or profile.phone,
+                data.get("location"),
+                data.get("availability"),
+                *(data.get("portfolio_links") or []),
+            ]
+        )
         target_roles = data.get("target_roles") or profile.target_roles_json or []
         sections = [
+            self._paragraph_section("个人总结", data.get("self_summary")),
             self._chips_section("目标岗位", target_roles),
-            self._chips_section("技能", data.get("skills") or []),
-            self._projects_section(data.get("projects") or []),
-            self._experience_section(data.get("work_experience") or []),
             self._education_section(data.get("education") or []),
-            self._list_section("奖项与证书", data.get("awards") or []),
+            self._experience_section(data.get("work_experience") or [], section_title="实习/工作经历"),
+            self._projects_section(data.get("projects") or []),
+            self._experience_section(data.get("campus_experience") or [], section_title="校园/实践经历"),
+            self._chips_section("技能", data.get("skills") or []),
+            self._list_section("证书", data.get("certifications") or []),
+            self._list_section("荣誉奖项", data.get("awards") or []),
             self._chips_section("语言", data.get("languages") or []),
         ]
         body = "\n".join(section for section in sections if section)
@@ -138,7 +149,7 @@ class ResumeHTMLRenderer:
             )
         return self._section("项目经历", "".join(cards)) if cards else ""
 
-    def _experience_section(self, experiences: list[dict[str, Any]]) -> str:
+    def _experience_section(self, experiences: list[dict[str, Any]], *, section_title: str = "工作与实习经历") -> str:
         cards = []
         for exp in experiences:
             title = self._join_present([exp.get("company"), exp.get("role")]) or "工作经历"
@@ -154,7 +165,7 @@ class ResumeHTMLRenderer:
                 </section>
                 """
             )
-        return self._section("工作与实习经历", "".join(cards)) if cards else ""
+        return self._section(section_title, "".join(cards)) if cards else ""
 
     def _education_section(self, education: list[dict[str, Any]]) -> str:
         cards = []
@@ -174,6 +185,10 @@ class ResumeHTMLRenderer:
     def _chips_section(self, title: str, values: list[Any]) -> str:
         chips = self._chips(values)
         return self._section(title, chips) if chips else ""
+
+    def _paragraph_section(self, title: str, value: Any) -> str:
+        text = str(value or "").strip()
+        return self._section(title, f"<p>{escape(text)}</p>") if text else ""
 
     def _list_section(self, title: str, values: list[Any]) -> str:
         items = [f"<li>{escape(str(item))}</li>" for item in values if str(item).strip()]

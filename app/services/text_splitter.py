@@ -156,6 +156,18 @@ class ResumeTextSplitter:
 
     def split_structured_profile(self, profile: dict, *, prefix: str = "structured") -> list[TextChunk]:
         chunks: list[TextChunk] = []
+        summary = str(profile.get("self_summary") or "").strip()
+        if summary:
+            chunks.append(
+                TextChunk(
+                    f"{prefix}_summary",
+                    summary,
+                    "summary",
+                    "profile.self_summary",
+                    {"field": "self_summary", "strategy": "structured_profile_field"},
+                )
+            )
+
         for idx, skill in enumerate(profile.get("skills", []) or []):
             text = str(skill).strip()
             if text:
@@ -195,6 +207,19 @@ class ResumeTextSplitter:
                     )
                 )
 
+        for idx, exp in enumerate(profile.get("campus_experience", []) or []):
+            text = self._flatten_mapping(exp)
+            if text:
+                chunks.append(
+                    TextChunk(
+                        f"{prefix}_campus_experience_{idx}",
+                        text,
+                        "experience",
+                        "profile.campus_experience",
+                        {"field": "campus_experience", "item_index": idx, "strategy": "structured_profile_field"},
+                    )
+                )
+
         for idx, edu in enumerate(profile.get("education", []) or []):
             text = self._flatten_mapping(edu)
             if text:
@@ -207,6 +232,26 @@ class ResumeTextSplitter:
                         {"field": "education", "item_index": idx, "strategy": "structured_profile_field"},
                     )
                 )
+
+        list_fields = {
+            "certifications": "credential",
+            "awards": "award",
+            "languages": "language",
+            "portfolio_links": "portfolio",
+        }
+        for field, chunk_type in list_fields.items():
+            for idx, item in enumerate(profile.get(field, []) or []):
+                text = str(item).strip()
+                if text:
+                    chunks.append(
+                        TextChunk(
+                            f"{prefix}_{field}_{idx}",
+                            text,
+                            chunk_type,
+                            f"profile.{field}",
+                            {"field": field, "item_index": idx, "strategy": "structured_profile_field"},
+                        )
+                    )
 
         return chunks
 

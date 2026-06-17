@@ -18,8 +18,20 @@ def test_profile_and_resume_html_preview_routes(db_session):
             "name": "李明",
             "email": "liming@example.com",
             "phone": "13800000000",
+            "location": "深圳",
+            "availability": "2026 年暑期可实习",
             "headline": "Agent 开发实习生候选人",
+            "self_summary": "熟悉 RAG、FastAPI 和 Agent 工作流，有真实求职助手项目经验。",
             "target_roles": ["Agent 开发实习生"],
+            "education": [
+                {
+                    "school": "南方科技大学",
+                    "degree": "本科",
+                    "major": "计算机科学与技术",
+                    "duration": "2023.09 - 2027.06",
+                    "details": "核心课程：数据结构、数据库、机器学习。",
+                }
+            ],
             "skills": ["Python", "FastAPI", "RAG", "SQLite"],
             "projects": [
                 {
@@ -29,6 +41,18 @@ def test_profile_and_resume_html_preview_routes(db_session):
                     "impact": "跑通简历定制、投递包和面试准备流程。",
                 }
             ],
+            "campus_experience": [
+                {
+                    "company": "AI 社团",
+                    "role": "技术组成员",
+                    "duration": "2024.09 - 2025.01",
+                    "details": "组织 Agent 分享并维护示例项目。",
+                    "tech_stack": [],
+                }
+            ],
+            "certifications": ["英语六级"],
+            "awards": ["校级二等奖学金"],
+            "languages": ["中文", "英语 CET-6"],
             "raw_text": "CareerAgent with Python FastAPI RAG SQLite.",
         },
     )
@@ -69,6 +93,10 @@ def test_profile_and_resume_html_preview_routes(db_session):
     assert "text/html" in profile_response.headers["content-type"]
     assert "李明" in profile_response.text
     assert "CareerAgent" in profile_response.text
+    assert "个人总结" in profile_response.text
+    assert "教育经历" in profile_response.text
+    assert "校园/实践经历" in profile_response.text
+    assert "证书" in profile_response.text
     assert "打印 / 另存为 PDF" in profile_response.text
 
     assert resume_response.status_code == 200

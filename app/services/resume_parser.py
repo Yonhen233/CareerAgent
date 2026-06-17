@@ -95,14 +95,20 @@ class ResumeParserService:
             name=payload.name,
             email=payload.email,
             phone=payload.phone,
+            location=payload.location,
+            availability=payload.availability,
             headline=payload.headline,
+            self_summary=payload.self_summary,
             target_roles=payload.target_roles,
             education=payload.education,
             skills=payload.skills,
             projects=payload.projects,
             work_experience=payload.work_experience,
+            campus_experience=payload.campus_experience,
+            certifications=payload.certifications,
             awards=payload.awards,
             languages=payload.languages,
+            portfolio_links=payload.portfolio_links,
             raw_text=self._guided_payload_to_text(payload),
         ).model_dump()
         return self._create_profile(db, structured=structured, source_type="guided")
@@ -126,14 +132,20 @@ Parse the resume into this JSON schema:
   "name": string|null,
   "email": string|null,
   "phone": string|null,
+  "location": string|null,
+  "availability": string|null,
   "headline": string|null,
+  "self_summary": string|null,
   "target_roles": [string],
   "education": [{{"school": string, "degree": string, "major": string, "duration": string, "details": string}}],
   "skills": [string],
   "projects": [{{"name": string, "description": string, "tech_stack": [string], "impact": string}}],
   "work_experience": [{{"company": string, "role": string, "duration": string, "details": string, "tech_stack": [string]}}],
+  "campus_experience": [{{"company": string, "role": string, "duration": string, "details": string, "tech_stack": [string]}}],
+  "certifications": [string],
   "awards": [string],
   "languages": [string],
+  "portfolio_links": [string],
   "raw_text": string
 }}
 
@@ -251,14 +263,20 @@ Resume:
             name=first_line if first_line and len(first_line) <= 40 else None,
             email=email.group(0) if email else None,
             phone=phone.group(0).strip() if phone else None,
+            location=None,
+            availability=None,
             headline=self._guess_headline(lines),
+            self_summary="\n".join(sections.get("summary", [])[:4]) or None,
             target_roles=["Agent 开发实习生"] if "agent" in raw_text.lower() else [],
             education=self._parse_loose_items(sections.get("education", []), "education"),
             skills=skills,
             projects=self._parse_loose_items(sections.get("projects", []), "project"),
             work_experience=self._parse_loose_items(sections.get("experience", []), "experience"),
+            campus_experience=self._parse_loose_items(sections.get("campus", []), "experience"),
+            certifications=sections.get("certifications", [])[:10],
             awards=sections.get("awards", [])[:8],
             languages=[x for x in ["Chinese", "English"] if x.lower() in raw_text.lower()],
+            portfolio_links=[],
             raw_text=raw_text,
         ).model_dump()
 
@@ -280,13 +298,19 @@ Resume:
     def _section_lines(self, lines: list[str]) -> dict[str, list[str]]:
         section = "summary"
         output: dict[str, list[str]] = {
+            "summary": [],
             "education": [],
             "projects": [],
             "experience": [],
+            "campus": [],
+            "certifications": [],
             "awards": [],
         }
         for line in lines:
             key = line.lower().strip(":：")
+            if any(token in key for token in ["summary", "profile", "个人总结", "自我评价", "个人优势"]):
+                section = "summary"
+                continue
             if any(token in key for token in ["education", "教育", "学历"]):
                 section = "education"
                 continue
@@ -295,6 +319,12 @@ Resume:
                 continue
             if any(token in key for token in ["experience", "work", "实习", "工作经历"]):
                 section = "experience"
+                continue
+            if any(token in key for token in ["campus", "校园", "社团", "学生会", "实践经历"]):
+                section = "campus"
+                continue
+            if any(token in key for token in ["certificate", "certification", "证书", "技能证书"]):
+                section = "certifications"
                 continue
             if any(token in key for token in ["award", "honor", "获奖"]):
                 section = "awards"
@@ -321,16 +351,30 @@ Resume:
             parts.append(payload.email)
         if payload.phone:
             parts.append(payload.phone)
+        if payload.location:
+            parts.append("Location: " + payload.location)
+        if payload.availability:
+            parts.append("Availability: " + payload.availability)
         if payload.target_roles:
             parts.append("Target roles: " + ", ".join(payload.target_roles))
+        if payload.self_summary:
+            parts.append("Summary: " + payload.self_summary)
+        if payload.portfolio_links:
+            parts.append("Portfolio: " + "; ".join(payload.portfolio_links))
         if payload.skills:
             parts.append("Skills: " + ", ".join(payload.skills))
         for project in payload.projects:
             parts.append(f"Project: {project.name}\n{project.description}\n{project.impact}")
         for exp in payload.work_experience:
             parts.append(f"Experience: {exp.company} {exp.role}\n{exp.details}")
+        for exp in payload.campus_experience:
+            parts.append(f"Campus experience: {exp.company} {exp.role}\n{exp.details}")
         for edu in payload.education:
             parts.append(f"Education: {edu.school} {edu.degree} {edu.major}\n{edu.details}")
+        if payload.certifications:
+            parts.append("Certifications: " + "; ".join(payload.certifications))
         if payload.awards:
             parts.append("Awards: " + "; ".join(payload.awards))
+        if payload.languages:
+            parts.append("Languages: " + "; ".join(payload.languages))
         return "\n\n".join(part for part in parts if part)

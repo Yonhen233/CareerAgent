@@ -86,6 +86,40 @@ def test_resume_pages_expose_html_preview_controls():
     assert "resume-preview-frame" in style_css
 
 
+def test_profiles_page_exposes_complete_chinese_resume_sections():
+    client = TestClient(app)
+    response = client.get("/ui/profiles")
+    main_js = Path("app/static/js/main.js").read_text(encoding="utf-8")
+    style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")
+
+    assert response.status_code == 200
+    for text in [
+        "基础信息与求职意向",
+        "教育经历",
+        "实习/工作经历",
+        "项目经历",
+        "校园/实践经历",
+        "技能、证书与荣誉",
+        "个人总结",
+        "作品链接",
+        "到岗时间",
+    ]:
+        assert text in response.text
+    for field in [
+        "education_school",
+        "work_company",
+        "project_tech_stack",
+        "campus_organization",
+        "certifications",
+        "portfolio_links",
+    ]:
+        assert f'name="{field}"' in response.text
+    assert "campus_experience" in main_js
+    assert "certifications: splitList" in main_js
+    assert "resume-section-map" in style_css
+    assert "resume-form-section" in style_css
+
+
 def test_evaluations_frontend_exposes_llm_workflow_trace_panel():
     main_js = Path("app/static/js/main.js").read_text(encoding="utf-8")
     style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")

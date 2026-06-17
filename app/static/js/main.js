@@ -167,6 +167,17 @@ function formJson(form) {
   return obj;
 }
 
+function splitList(value) {
+  return String(value || "")
+    .split(/[,，;；\n]/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+function hasAnyValue(...values) {
+  return values.some((value) => String(value || "").trim());
+}
+
 async function loadHealth() {
   const pill = $("#health-pill");
   if (!pill) return;
@@ -684,19 +695,64 @@ function renderCareerFlowResult(state) {
 }
 
 function guidedProfilePayload(raw) {
-  const projectLines = (raw.project || "").split("\n").filter(Boolean);
+  const skills = splitList(raw.skills);
+  const targetRoles = splitList(raw.target_roles);
+  const projectDescription = raw.project_description || raw.project || "";
+  const projectLines = projectDescription.split("\n").filter(Boolean);
+  const projectTechStack = splitList(raw.project_tech_stack).length ? splitList(raw.project_tech_stack) : skills.slice(0, 8);
+  const projects = hasAnyValue(raw.project_name, projectDescription, raw.project_impact, raw.project_tech_stack)
+    ? [{
+      name: raw.project_name || projectLines[0]?.split("：")[0] || projectLines[0] || "项目经历",
+      description: projectDescription,
+      tech_stack: projectTechStack,
+      impact: raw.project_impact || projectLines.at(-1) || "",
+    }]
+    : [];
+  const education = hasAnyValue(raw.education_school, raw.education_degree, raw.education_major, raw.education_duration, raw.education_details)
+    ? [{
+      school: raw.education_school || "",
+      degree: raw.education_degree || "",
+      major: raw.education_major || "",
+      duration: raw.education_duration || "",
+      details: raw.education_details || "",
+    }]
+    : [];
+  const workExperience = hasAnyValue(raw.work_company, raw.work_role, raw.work_duration, raw.work_details, raw.work_tech_stack)
+    ? [{
+      company: raw.work_company || "",
+      role: raw.work_role || "",
+      duration: raw.work_duration || "",
+      details: raw.work_details || "",
+      tech_stack: splitList(raw.work_tech_stack),
+    }]
+    : [];
+  const campusExperience = hasAnyValue(raw.campus_organization, raw.campus_role, raw.campus_duration, raw.campus_details)
+    ? [{
+      company: raw.campus_organization || "",
+      role: raw.campus_role || "",
+      duration: raw.campus_duration || "",
+      details: raw.campus_details || "",
+      tech_stack: [],
+    }]
+    : [];
   return {
     name: raw.name,
     email: raw.email,
     phone: raw.phone,
-    target_roles: (raw.target_roles || "").split(",").map((x) => x.trim()).filter(Boolean),
-    skills: (raw.skills || "").split(",").map((x) => x.trim()).filter(Boolean),
-    projects: raw.project ? [{
-      name: projectLines[0]?.split("：")[0] || projectLines[0] || "CareerAgent",
-      description: raw.project,
-      tech_stack: (raw.skills || "").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 8),
-      impact: projectLines.at(-1) || "",
-    }] : [],
+    location: raw.location,
+    availability: raw.availability,
+    headline: raw.headline,
+    self_summary: raw.self_summary,
+    target_roles: targetRoles,
+    education,
+    skills,
+    projects,
+    work_experience: workExperience,
+    campus_experience: campusExperience,
+    certifications: splitList(raw.certifications),
+    awards: splitList(raw.awards),
+    languages: splitList(raw.languages),
+    portfolio_links: splitList(raw.portfolio_links),
   };
 }
 
@@ -1389,17 +1445,8 @@ function bindForms() {
   $("#guided-profile-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const raw = formJson(event.currentTarget);
-    const projectLines = (raw.project || "").split("\n").filter(Boolean);
-    const payload = {
-      name: raw.name,
-      email: raw.email,
-      phone: raw.phone,
-      target_roles: (raw.target_roles || "").split(",").map((x) => x.trim()).filter(Boolean),
-      skills: (raw.skills || "").split(",").map((x) => x.trim()).filter(Boolean),
-      projects: raw.project ? [{ name: projectLines[0] || "Project", description: raw.project, tech_stack: [], impact: projectLines.at(-1) || "" }] : [],
-    };
-    await api("/profiles/guided", { method: "POST", body: JSON.stringify(payload) });
-    toast("Guided profile created");
+    await api("/profiles/guided", { method: "POST", body: JSON.stringify(guidedProfilePayload(raw)) });
+    toast("简历档案已保存");
     event.currentTarget.reset();
     loadProfiles();
   });
