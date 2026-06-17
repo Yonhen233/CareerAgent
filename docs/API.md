@@ -101,6 +101,14 @@ GET /profiles
 GET /profiles/{profile_id}
 ```
 
+### 预览简历档案
+
+```http
+GET /profiles/{profile_id}/html
+```
+
+返回 `text/html`，用结构化 Profile 渲染一份可预览、可打印、可另存为 PDF 的简历页面。该接口用于“我的简历档案”中的预览按钮。
+
 ## 岗位
 
 ### 搜索真实岗位
@@ -196,12 +204,20 @@ Content-Type: application/json
 
 返回：
 
-- 定制简历 Markdown。
+- 定制简历内容。
 - change summary。
 - keyword alignment。
 - source evidence。
 - guardrail verification。
 - diff。
+
+HTML 预览：
+
+```http
+GET /resumes/{resume_version_id}/html
+```
+
+返回 `text/html`，将历史 Markdown 内容渲染为简历排版页面，并在侧栏展示事实检查、改动摘要和关键词覆盖情况。
 
 下载 Markdown：
 

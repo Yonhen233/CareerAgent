@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.entities import Job, Profile, ResumeVersion
 from app.models.schemas import ResumeVersionResponse, TailorResumeRequest
+from app.services.resume_delivery import ResumeHTMLRenderer
 from app.services.resume_tailor import ResumeTailorService
 
 router = APIRouter(prefix="/resumes", tags=["resumes"])
@@ -44,3 +45,12 @@ def download_markdown(resume_version_id: int, db: Session = Depends(get_db)) -> 
         media_type="text/markdown; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+@router.get("/{resume_version_id}/html")
+def preview_resume_html(resume_version_id: int, db: Session = Depends(get_db)) -> Response:
+    version = db.query(ResumeVersion).filter(ResumeVersion.id == resume_version_id).first()
+    if version is None:
+        raise HTTPException(status_code=404, detail="Resume version not found.")
+    html = ResumeHTMLRenderer().render_resume_version(version)
+    return Response(content=html, media_type="text/html; charset=utf-8")

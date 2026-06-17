@@ -661,7 +661,7 @@ button svg,
 
 .resume-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
 }
 
@@ -683,6 +683,16 @@ button svg,
   color: #f7f8fb;
   border-radius: 8px;
   white-space: pre-wrap;
+}
+
+.resume-preview-frame {
+  width: 100%;
+  min-height: 680px;
+  margin: 12px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #eef2f6;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7);
 }
 
 .toast {

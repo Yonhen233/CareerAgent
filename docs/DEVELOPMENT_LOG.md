@@ -1,5 +1,30 @@
 # 开发日志
 
+## 2026-06-17 09:34:11 +08:00：简历 HTML 预览与档案点击查看
+### 这次做了什么
+- 新增 `ResumeHTMLRenderer`，把结构化 Profile 和定制简历 Markdown 渲染为可预览、可打印、可另存为 PDF 的 HTML 简历页面。
+- 新增 `GET /profiles/{profile_id}/html`，用于“我的简历档案”直接打开 HTML 预览。
+- 新增 `GET /resumes/{resume_version_id}/html`，用于定制简历的 HTML 排版预览；原 `/markdown` 下载接口保留，作为调试和二次编辑出口。
+- `/ui/profiles` 的每个档案卡片新增“预览简历”按钮。
+- `/ui/resumes` 从大段 Markdown `<pre>` 改为嵌入 HTML iframe 预览，并提供“打开 HTML 预览”和“下载 Markdown”两个动作。
+### 发现的问题
+- 当前定制简历数据库字段仍叫 `tailored_resume_markdown`，历史数据也是 Markdown；如果直接改存储格式会破坏已有版本和 guardrail 逻辑。
+- PDF 上传时原始文件存到了 `data/uploads`，但数据库没有记录上传 PDF 路径；所以“我的简历档案”暂时不能可靠地回放原 PDF，只能根据结构化 Profile 生成 HTML 预览。
+- 定制简历预览如果继续双列显示会太窄，接近不了真实简历阅读宽度。
+### 怎么修复
+- 不改历史存储格式，在交付层把 Markdown 转成安全 HTML 片段；这样兼容旧数据，也能立刻提升预览排版。
+- Profile 预览走结构化字段渲染，展示姓名、联系方式、目标岗位、技能、项目、经历、教育、奖项和语言。
+- 定制简历页改为单列布局，iframe 高度固定，便于扫读；HTML 预览页内置打印按钮，浏览器可直接另存为 PDF。
+### 验证结果
+- 目标测试：`pytest tests\test_resume_html_preview.py tests\test_frontend_pages.py -q`，8 个测试通过。
+- 语法检查：`python -m py_compile app\services\resume_delivery.py app\api\profiles.py app\api\resumes.py` 通过；`node --check app\static\js\main.js` 通过。
+### 未修复的问题
+- 还没有真正的服务器端 PDF 渲染接口；原因是需要引入 wkhtmltopdf、Playwright PDF 或 WeasyPrint 这类渲染依赖，当前先用浏览器 HTML 打印/另存 PDF 满足预览和排版确认。
+- 原始上传 PDF 路径未入库，暂时不能在 Profile 页面回放用户上传的原 PDF；后续应给 `profiles` 增加 `source_file_path/source_file_name` 字段或独立附件表。
+### 下一步
+- 给 HTML 简历预览增加主题模板选择、A4 分页优化和导出 PDF 后台任务。
+- 在 Profile 入库时记录上传文件元数据，让 PDF 上传档案既能看结构化 HTML，也能回看原 PDF。
+
 ## 2026-06-16 23:48:27 +08:00：用户页二次产品化与自然语言 Agent 入口
 ### 这次做了什么
 - 继续把普通用户页面从“后台数据展示”改成“求职操作页面”：过程页、简历页、岗位页、投递页、面试页的字段名、辅助标签、空状态和错误提示都改为中文用户语言；运维、Trace、LLM logs、配置和评测入口继续集中在右上角控制台。

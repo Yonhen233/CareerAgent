@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.entities import Profile
 from app.models.schemas import GuidedProfileRequest, ProfileResponse
+from app.services.resume_delivery import ResumeHTMLRenderer
 from app.services.resume_parser import ResumeParserService
 
 router = APIRouter(prefix="/profiles", tags=["profiles"])
@@ -43,3 +44,12 @@ def get_profile(profile_id: int, db: Session = Depends(get_db)) -> ProfileRespon
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile not found.")
     return ProfileResponse.model_validate(profile)
+
+
+@router.get("/{profile_id}/html")
+def preview_profile_html(profile_id: int, db: Session = Depends(get_db)) -> Response:
+    profile = db.query(Profile).filter(Profile.id == profile_id).first()
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found.")
+    html = ResumeHTMLRenderer().render_profile(profile)
+    return Response(content=html, media_type="text/html; charset=utf-8")

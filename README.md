@@ -140,10 +140,10 @@ LLM_THINKING_MODE=auto
 ## 主要页面
 
 - `/`：面向用户的一键开始页。顶部支持自然语言需求入口；下方支持已有 Profile ID、上传 PDF、填写简历核心信息；岗位侧可搜索真实岗位，也可输入已有 Job ID 或粘贴目标 JD 来稳定跑通完整流程。页面会展示简历建档、岗位搜索/读取、匹配排序、定制简历、投递包、面试包 6 个阶段。
-- `/ui/profiles`：上传 PDF 或问答式生成简历档案。
+- `/ui/profiles`：上传 PDF 或问答式生成简历档案；“我的简历档案”支持一键打开 HTML 简历预览，并可在浏览器中打印或另存为 PDF。
 - `/ui/jobs`：搜索真实岗位或手动粘贴 JD。
 - `/ui/agent-runs`：运行 Agent 并查看步骤。
-- `/ui/resumes`：查看和下载定制简历版本。
+- `/ui/resumes`：查看定制简历版本；默认以 HTML 简历预览展示排版效果，保留 Markdown 下载用于调试或二次编辑。
 - `/ui/applications`：查看投递包、投递状态、Guardrail issues/warnings 和人工确认边界。
 - `/ui/prep`：导入同岗面经材料，生成和查看面试准备包，展示网上同岗面经、简历项目技术栈和其他可能面试问题三类准备角度，展示 LLM 连续追问、题目质量分、可点击定位的失败项、面经参考链接，导出 Markdown，并记录按题练习状态。兼容旧路径 `/ui/interview-prep`。
 - `/ui/quality`：运行面经来源 smoke 和真实 LLM workflow smoke，查看最近评测结果、逐 case stage trace、当前 run 的 LLM retry/repair 调用树和 source 层健康度，并把候选面经人工确认后导入；导入成功后可带着 `experience_ids` 快速生成面试包。该页面从右上角“控制台”进入，兼容旧路径 `/ui/evaluations`。
@@ -190,6 +190,8 @@ python scripts/run_user_flow_smoke.py --pdf demo_resumes/agent_intern_strong_res
 - `GET /agent/subagents`
 - `GET /agent/runs/{run_id}/steps`
 - `POST /resumes/tailor`
+- `GET /profiles/{profile_id}/html`
+- `GET /resumes/{resume_version_id}/html`
 - `POST /interview-prep`
 - `GET /interview-prep/{prep_id}/questions`
 - `GET /interview-prep/{prep_id}/markdown`

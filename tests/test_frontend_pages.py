@@ -73,6 +73,19 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "console-entry" in style_css
 
 
+def test_resume_pages_expose_html_preview_controls():
+    main_js = Path("app/static/js/main.js").read_text(encoding="utf-8")
+    style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")
+
+    assert "/profiles/${row.id}/html" in main_js
+    assert "预览简历" in main_js
+    assert "/resumes/${row.id}/html" in main_js
+    assert "resume-preview-frame" in main_js
+    assert "打开 HTML 预览" in main_js
+    assert "下载 Markdown" in main_js
+    assert "resume-preview-frame" in style_css
+
+
 def test_evaluations_frontend_exposes_llm_workflow_trace_panel():
     main_js = Path("app/static/js/main.js").read_text(encoding="utf-8")
     style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")

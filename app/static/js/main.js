@@ -182,6 +182,9 @@ async function loadProfiles() {
       <div class="item-title"><span>#${row.id} ${escapeHtml(row.name || "未命名简历")}</span><span class="meta">${row.source_type === "pdf" ? "PDF 上传" : "手动填写"}</span></div>
       <div class="meta">${escapeHtml(row.headline || "")}</div>
       ${tags(row.structured_profile_json.skills || [])}
+      <div class="flow-result-actions">
+        <a class="button ghost" href="/profiles/${row.id}/html" target="_blank"><i data-lucide="eye"></i> 预览简历</a>
+      </div>
     </article>
   `);
 }
@@ -264,8 +267,11 @@ async function loadResumes() {
     <article class="resume-card">
       <div class="item-title"><span>#${row.id} ${escapeHtml(row.title)}</span><span class="status-pill ${row.verification_json.passed ? "ok" : "risk"}">${row.verification_json.passed ? "事实检查通过" : "需检查"}</span></div>
       <p class="meta">简历 ${row.profile_id} · 岗位 ${row.job_id}</p>
-      <pre>${escapeHtml(row.tailored_resume_markdown)}</pre>
-      <a class="button ghost" href="/resumes/${row.id}/markdown"><i data-lucide="download"></i> Markdown</a>
+      <iframe class="resume-preview-frame" src="/resumes/${row.id}/html" title="定制简历 #${row.id} 预览"></iframe>
+      <div class="flow-result-actions">
+        <a class="button ghost" href="/resumes/${row.id}/html" target="_blank"><i data-lucide="eye"></i> 打开 HTML 预览</a>
+        <a class="button ghost" href="/resumes/${row.id}/markdown"><i data-lucide="download"></i> 下载 Markdown</a>
+      </div>
     </article>
   `).join("");
   if (window.lucide) window.lucide.createIcons();
