@@ -2,6 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 from app.agents.natural_language import NaturalLanguageAgentService
+from app.models.entities import AgentEvent
 from app.models.schemas import NaturalLanguageAgentRequest
 
 
@@ -45,8 +46,16 @@ def test_natural_language_agent_creates_profile_from_user_description(db_session
     assert run.status == "completed"
     assert run.task_type == "natural_language_request"
     assert run.output_json["status"] == "completed"
+    assert run.output_json["orchestration_framework"] == "langgraph"
+    assert run.output_json["graph_thread_id"].startswith("natural-run-")
     assert run.output_json["result_json"]["profile"]["id"] > 0
     assert "简历档案" in run.output_json["user_message"]
+    event_types = {
+        row.event_type
+        for row in db_session.query(AgentEvent).filter(AgentEvent.run_id == run.id).all()
+    }
+    assert "graph_node_started" in event_types
+    assert "graph_node_completed" in event_types
 
 
 def test_natural_language_agent_repairs_missing_job_plan(db_session, monkeypatch):

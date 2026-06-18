@@ -72,12 +72,15 @@ JOB_INGEST_CONCURRENCY=6
 ## LangGraph 编排开发约定
 
 - 主 Agent 编排位于 `app/agents/langgraph_orchestrator.py`，`app/agents/orchestrator.py` 只保留兼容类名。
+- 自然语言入口位于 `app/agents/natural_language.py`，也使用独立 LangGraph `StateGraph` 表达 parse/execute/repair/finalize。
 - 所有新增 Agent task 都应先加入 LangGraph `StateGraph` 节点和条件边，再暴露到 API 或前端。
 - Graph state 只能保存 JSON 友好的 ID、列表和字典，不要保存 SQLAlchemy ORM 对象、DB Session、文件句柄或模型实例。
 - 节点内部继续使用 `TraceService.step()` 写入 `agent_steps`，这样前端、评测和排障仍可复用原 trace。
+- 图运行统一通过 `astream_events(version="v2")` 写入 `agent_events`；新增节点时需要确认事件里能看出节点开始、更新、完成、失败或 interrupt。
 - 如果节点有数据库写入副作用，必须保证幂等或先检查已有记录；后续接入 checkpointer/interrupt 后，节点可能因为恢复而重新执行。
 - 当前 LangGraph 使用 SQLite checkpointer，默认文件是 `data/runtime/langgraph_checkpoints.sqlite`。
 - `quick_apply` 和 `full_career_flow` 会在生成投递包前触发 interrupt；确认前不得写入 `applications` 或执行浏览器/邮箱等外部副作用。
+- 长流程优先使用 `POST /agent/runs/background` + `/agent/runs/{run_id}/events/stream`，不要在前端串多个独立 run 伪造完整流程。
 - 现阶段 LangGraph 使用运行期 `run_id -> Session` 映射接入现有 FastAPI DB Session；如果后续要支持更长时间跨度的恢复，应把每个节点改成独立打开 Session，并让节点写入保持幂等。
 
 ## 数据库

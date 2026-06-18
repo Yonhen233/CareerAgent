@@ -774,6 +774,45 @@ button svg,
   white-space: pre-wrap;
 }
 
+.nested-heading {
+  margin-top: 18px;
+}
+
+.event-timeline {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 8px;
+}
+
+.event-row {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.event-row strong {
+  font-size: 0.86rem;
+}
+
+.event-row small {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.event-row.running {
+  border-color: var(--blue);
+}
+
+.event-row.failed {
+  border-color: var(--red);
+}
+
 .quick-actions {
   display: grid;
   gap: 10px;

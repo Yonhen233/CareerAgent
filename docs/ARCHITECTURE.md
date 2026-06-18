@@ -47,7 +47,21 @@ CareerAgent 的目标不是“一个 Prompt 生成简历”，而是一个可观
 
 ## Agent 工作流
 
-Agent 主编排已经迁移到 LangGraph。`app/agents/orchestrator.py` 只保留兼容类名，实际实现位于 `app/agents/langgraph_orchestrator.py`。所有任务先进入 `plan_task` 节点，再由 LangGraph 条件边路由到具体流程。SQLite 中的 `agent_runs`、`agent_steps` 和 `agent_artifacts` 仍是产品侧可观测数据源；LangGraph state 只保存 ID 和 JSON 产物，不保存 ORM 对象。LangGraph checkpoint 使用独立 SQLite 文件保存，默认位于 `data/runtime/langgraph_checkpoints.sqlite`。
+Agent 主编排已经迁移到 LangGraph。`app/agents/orchestrator.py` 只保留兼容类名，实际实现位于 `app/agents/langgraph_orchestrator.py`。所有任务先进入 `plan_task` 节点，再由 LangGraph 条件边路由到具体流程。SQLite 中的 `agent_runs`、`agent_steps`、`agent_artifacts` 和 `agent_events` 是产品侧可观测数据源；LangGraph state 只保存 ID 和 JSON 产物，不保存 ORM 对象。LangGraph checkpoint 使用独立 SQLite 文件保存，默认位于 `data/runtime/langgraph_checkpoints.sqlite`。
+
+`agent_events` 保存两类进度：一类来自 `TraceService` 的 run/step/artifact 事件，另一类来自 LangGraph `astream_events` 的 graph/node/interrupt 事件。`/agent/runs/{run_id}/events/stream` 以 SSE 输出这些事件，前端流程页和首页一键流程都直接消费该事件流。
+
+### `full_career_flow`
+
+完整求职流程是单个 LangGraph run，而不是前端串多个小任务：
+
+1. 已有 `job_id` 时直接加载目标岗位；没有 `job_id` 时先搜索岗位并选择最高匹配岗位。
+2. 运行匹配并生成 `selected_job`。
+3. 生成定制简历。
+4. 通过 `fit_gate` 后进入投递前 interrupt。
+5. 用户确认或一键流程自动确认后，从 checkpoint 恢复并生成投递包。
+6. 生成面试准备包。
+7. 输出 `selected_job`、`matches`、`tailor`、`application`、`interview_prep` 和 UI links。
 
 ### `find_jobs_for_profile`
 
@@ -75,7 +89,7 @@ Agent 主编排已经迁移到 LangGraph。`app/agents/orchestrator.py` 只保�
 - Observe：读取 JD 缺口、Top20 检索证据和当前简历草稿。
 - Act：生成或修复定制简历。
 - Observe：Guardrail 检查新增事实、关键词覆盖和风险等级。
-- Act：高风险时回退到证据更强的表达，最多迭代 2 次。
+- Act：高风险时回退到证据更强的表达，当前最多修复 1 轮。
 
 ### `quick_apply`
 

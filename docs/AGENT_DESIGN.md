@@ -77,6 +77,7 @@ LLM 不再直接读取全量 Profile、全量 JD 和全部证据，而是由 `Co
 3. 先执行 `plan_task` 节点，由 `AgentPlanner` 生成计划并写入 `agent_artifacts`。
 4. 根据 `task_type` 走条件边，进入 `find_jobs_for_profile`、`tailor_resume_for_job`、`quick_apply`、`prepare_interview_for_job` 或 `full_career_flow` 对应子流程。
 5. 每个业务节点继续写入 `agent_steps`，保留原有 step trace、artifact 和错误追踪。
+6. LangGraph `astream_events` 产生的 graph/node/interrupt 事件会写入 `agent_events`，前端可通过 SSE 实时展示节点级进度。
 
 Graph state 只保存 JSON 友好的 ID、状态和产物摘要，例如 `profile_id`、`job_id`、`resume_version_id`、`matches`、`selected_job`、`fit_gate` 和 `output`。SQLAlchemy Session 不进入 state，而是通过运行期 `run_id -> Session` 映射注入节点；当前 graph 已接入 LangGraph SQLite checkpointer，checkpoint 文件默认位于 `data/runtime/langgraph_checkpoints.sqlite`。
 
@@ -88,7 +89,7 @@ Graph state 只保存 JSON 友好的 ID、状态和产物摘要，例如 `profil
 
 当前计划是确定性 planner。后续可以升级为 LLM planner，但执行仍应限制在注册工具内，避免模型自由调用不可控能力。
 
-自然语言入口使用 LLM planner，但只负责意图解析和计划修复，不直接执行浏览器、文件或数据库写入。执行阶段仍由 `AgentOrchestrator`、`ResumeParserService`、`JDParserService` 等受控服务完成。首次执行失败会触发 1 轮 plan repair；repair 后仍失败则返回 `status=failed` 和 Run ID，不把失败包装成成功结果。
+自然语言入口本身也是一个 LangGraph 图：`parse_user_request -> execute_user_plan -> repair_user_plan -> execute_repaired_user_plan -> finalize`。LLM planner 只负责意图解析和计划修复，不直接执行浏览器、文件或数据库写入。执行阶段仍由 `AgentOrchestrator`、`ResumeParserService`、`JDParserService` 等受控服务完成。首次执行失败会触发 1 轮 plan repair；repair 后仍失败则返回 `status=failed` 和 Run ID，不把失败包装成成功结果。
 
 执行计划现在会包含：
 
@@ -225,11 +226,14 @@ RAG 证据不再只按向量分和关键词分排序，`MatcherService.retrieve_
 已完成：
 
 - `find_jobs_for_profile`、`tailor_resume_for_job`、`quick_apply`、`prepare_interview_for_job` 和 `full_career_flow` 都通过同一个 `StateGraph` 运行。
-- FastAPI `/agent/runs`、自然语言 Agent、Agent full-flow 评测和面试包评测仍调用 `AgentOrchestrator`，因此自动走 LangGraph 编排。
-- 计划、步骤、artifact 和错误仍写入原有 SQLite trace 表，前端无需大改即可继续展示。
+- FastAPI `/agent/runs`、自然语言 Agent、Agent full-flow 评测和面试包评测都走 LangGraph 编排。
+- 自然语言入口有独立 LangGraph 图，覆盖意图解析、计划执行、repair 和最终汇总。
+- 计划、步骤、artifact、event 和错误仍写入 SQLite trace 表，前端无需访问 LangGraph 内部对象即可展示。
 - `execution_plan.langgraph_decision.migrated=true`，运行输入输出都带有 `orchestration_framework=langgraph`。
 - SQLite checkpointer 已持久化 LangGraph checkpoint；`POST /agent/runs/{run_id}/resume` 可以在新 Orchestrator 实例中按 `graph_thread_id` 恢复。
 - `quick_apply` 和 `full_career_flow` 会在生成投递包前触发 LangGraph interrupt；确认前不会写入 `applications`。
+- `POST /agent/runs/background` 支持后台启动 queued run；`GET /agent/runs/{run_id}/events/stream` 支持 LangGraph SSE 事件流。
+- 首页一键流程已经改成单个后台 `full_career_flow` run，通过 SSE 推进阶段状态。
 
 迁移中特别处理的问题：
 
@@ -239,6 +243,6 @@ RAG 证据不再只按向量分和关键词分排序，`MatcherService.retrieve_
 
 后续增强：
 
-- 将长流程前端进度从轮询 AgentStep 升级为 LangGraph event streaming。
-- 后续接入浏览器辅助填写、邮件发送等更高风险工具时，继续在对应节点前加入 interrupt，并把确认记录写入独立审计表。
+- 后续接入浏览器辅助填写、邮件发送等更高风险工具时，继续在对应节点前加入 interrupt，并把确认记录写入独立审批/审计表。
+- 为应用包创建、面试包创建等写库节点补充业务幂等键，减少 checkpoint 恢复或后台重试造成重复写入的风险。
 - 当浏览器、邮箱、日历等工具 MCP 化后，把对应节点改为跨进程工具调用。

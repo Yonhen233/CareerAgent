@@ -346,6 +346,7 @@ POST /evaluations/agent-full-flow
 - 对需要投递的 case 运行 `quick_apply`；弱匹配 case 期望被 `fit_gate` 阻断。
 - 检查每个 Agent run 是否生成 `execution_plan` artifact，并记录完整 step trace。
 - 检查 `execution_plan.orchestration_framework=langgraph` 和 `output_json.orchestration_framework=langgraph`，确保全流程评测覆盖 LangGraph 主编排入口。
+- 检查 `agent_events` 中是否出现 LangGraph node start/end、step completed、run finished 等事件，避免只凭最终结果判断流程健康。
 - 自动化评测会显式传入 `application_confirmed=true`，避免人工确认 interrupt 阻塞批量回归；真实用户默认仍会在投递包生成前等待确认。
 
 最新离线全流程结果：

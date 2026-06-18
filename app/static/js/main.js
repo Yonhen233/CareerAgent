@@ -1,5 +1,6 @@
 const $ = (selector) => document.querySelector(selector);
 const ADMIN_TOKEN_KEY = "careeragent.admin_token";
+let activeRunEventSource = null;
 
 function toast(message) {
   const el = $("#toast");
@@ -392,6 +393,124 @@ async function loadRunSteps(runId) {
       <div class="meta">${row.latency_ms}ms${row.error_message ? ` · ${escapeHtml(row.error_message)}` : ""}</div>
     </article>
   `);
+  await loadRunEvents(runId);
+  subscribeAgentRunEvents(runId);
+}
+
+function eventLabel(eventType, nodeName = "") {
+  const labels = {
+    run_created: "创建流程",
+    run_started: "开始运行",
+    run_resumed: "恢复运行",
+    run_finished: "流程结束",
+    run_closed: "连接关闭",
+    graph_started: "图开始",
+    graph_completed: "图完成",
+    graph_update: "图更新",
+    graph_interrupt: "等待确认",
+    graph_node_started: "节点开始",
+    graph_node_update: "节点更新",
+    graph_node_completed: "节点完成",
+    graph_failed: "图失败",
+    step_started: "步骤开始",
+    step_completed: "步骤完成",
+    step_failed: "步骤失败",
+    artifact_created: "产物生成",
+    heartbeat: "保持连接",
+  };
+  const base = labels[eventType] || eventType;
+  return nodeName ? `${base}：${stepLabel(nodeName)}` : base;
+}
+
+function renderRunEvents(events) {
+  const el = $("#run-events");
+  if (!el) return;
+  if (!events.length) {
+    el.innerHTML = `<article class="event-row"><strong>暂无事件</strong><small>流程开始后会显示 LangGraph 节点进度</small></article>`;
+    return;
+  }
+  el.innerHTML = events.slice(-80).map((event) => {
+    const type = event.event_type || event.type || "";
+    const node = event.node_name || event.event_json?.node_name || "";
+    const statusClass = type.includes("failed") ? "failed" : type.includes("started") || type.includes("interrupt") ? "running" : "";
+    const time = event.created_at ? new Date(event.created_at).toLocaleTimeString() : "";
+    const detail = event.event_json?.error || event.event_json?.status || event.event_json?.artifact_type || event.event_json?.tool_name || "";
+    return `
+      <article class="event-row ${statusClass}" data-event-id="${escapeHtml(event.id || "")}">
+        <strong>${escapeHtml(eventLabel(type, node))}</strong>
+        <small>${escapeHtml(time)}${detail ? ` · ${escapeHtml(detail)}` : ""}</small>
+      </article>
+    `;
+  }).join("");
+}
+
+async function loadRunEvents(runId) {
+  const events = await api(`/agent/runs/${runId}/events`);
+  renderRunEvents(events);
+  return events;
+}
+
+function subscribeAgentRunEvents(runId, callbacks = {}) {
+  if (!$("#run-events") && !callbacks.onEvent) return null;
+  if (typeof EventSource === "undefined") {
+    return null;
+  }
+  if (activeRunEventSource) activeRunEventSource.close();
+  const source = new EventSource(`/agent/runs/${runId}/events/stream`);
+  activeRunEventSource = source;
+  const events = [];
+  const push = (event) => {
+    if (event.event_type !== "heartbeat") {
+      events.push(event);
+      if ($("#run-events")) renderRunEvents(events);
+      callbacks.onEvent?.(event);
+    }
+  };
+  source.onmessage = (message) => {
+    try {
+      push(JSON.parse(message.data));
+    } catch (_) {
+      // Ignore malformed keepalive frames.
+    }
+  };
+  [
+    "run_created",
+    "run_started",
+    "run_resumed",
+    "run_finished",
+    "run_closed",
+    "graph_started",
+    "graph_completed",
+    "graph_update",
+    "graph_interrupt",
+    "graph_node_started",
+    "graph_node_update",
+    "graph_node_completed",
+    "graph_failed",
+    "step_started",
+    "step_completed",
+    "step_failed",
+    "artifact_created",
+    "heartbeat",
+  ].forEach((type) => {
+    source.addEventListener(type, (message) => {
+      try {
+        const payload = JSON.parse(message.data);
+        push({ ...payload, event_type: payload.event_type || type });
+        if (type === "run_finished" || type === "run_closed" || type === "graph_interrupt" || type === "graph_failed") {
+          callbacks.onTerminal?.(payload, type);
+          if (type !== "graph_interrupt") source.close();
+        }
+      } catch (_) {
+        // Ignore malformed frames.
+      }
+    });
+  });
+  source.onerror = () => {
+    callbacks.onError?.();
+    source.close();
+  };
+  return source;
 }
 
 async function loadRecentRuns() {
@@ -826,6 +945,7 @@ function renderCareerFlowResult(state) {
         ${tailor.resume_version_id ? `<a class="button ghost" href="/ui/resumes"><i data-lucide="file-check-2"></i> 简历版本 #${tailor.resume_version_id}</a>` : ""}
         ${apply.application_id ? `<a class="button ghost" href="/ui/applications"><i data-lucide="send"></i> 投递包 #${apply.application_id}</a>` : ""}
         ${interview.interview_prep_id ? `<a class="button ghost" href="/ui/prep?job_id=${escapeHtml(selected.job_id || "")}"><i data-lucide="messages-square"></i> 面试包 #${interview.interview_prep_id}</a>` : ""}
+        ${careerFlowRunLink(state.fullRun, "完整流程")}
         ${careerFlowRunLink(state.searchRun, "找岗")}
         ${careerFlowRunLink(state.tailorRun, "定制")}
         ${careerFlowRunLink(state.applyRun, "投递")}
@@ -991,6 +1111,82 @@ async function createAgentRun(payload, label, options = {}) {
   return run;
 }
 
+async function createBackgroundAgentRun(payload) {
+  return api("/agent/runs/background", { method: "POST", body: JSON.stringify(payload) });
+}
+
+function updateCareerFlowFromEvent(event) {
+  const node = event.node_name || event.event_json?.node_name || "";
+  const type = event.event_type || "";
+  const running = type.includes("started") || type.includes("update");
+  const done = type.includes("completed");
+  const status = running ? "running" : done ? "done" : "";
+  if (!status) return;
+  const map = {
+    search_jobs: "search",
+    match_jobs: "match",
+    select_job: "match",
+    match_job: "match",
+    tailor_resume: "tailor",
+    fit_gate: "apply",
+    ensure_resume_version: "apply",
+    create_application_packet: "apply",
+    generate_interview_prep: "interview",
+  };
+  const stage = map[node];
+  if (!stage) return;
+  const detail = status === "running" ? eventLabel(type, node) : "已完成";
+  setCareerStage(stage, status, detail);
+}
+
+function waitForAgentRun(runId, options = {}) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = async () => {
+      if (settled) return;
+      settled = true;
+      try {
+        let run = await api(`/agent/runs/${runId}`);
+        if (run.status === "waiting_for_confirmation" && options.autoConfirmApplication) {
+          toast("投递包生成前需要确认，已按一键流程继续。");
+          run = await resumeAgentRun(run.id, {
+            confirmed: true,
+            note: options.confirmationNote || "用户在一键流程中确认生成投递包。",
+            resume_json: { source: "frontend_auto_confirm" },
+          });
+        }
+        if (run.status === "completed") resolve(run);
+        else reject(new Error(run.error_message || run.output_json?.error || `流程状态：${run.status}`));
+      } catch (error) {
+        reject(error);
+      }
+    };
+    const fallback = setInterval(async () => {
+      try {
+        const run = await api(`/agent/runs/${runId}`);
+        if (["completed", "failed", "waiting_for_confirmation"].includes(run.status)) {
+          clearInterval(fallback);
+          finish();
+        }
+      } catch (_) {
+        // SSE path will surface the error if the stream is still alive.
+      }
+    }, 1500);
+    subscribeAgentRunEvents(runId, {
+      onEvent: (event) => {
+        updateCareerFlowFromEvent(event);
+        options.onEvent?.(event);
+      },
+      onTerminal: async (_payload, type) => {
+        if (type === "graph_interrupt" && options.autoConfirmApplication) return;
+        clearInterval(fallback);
+        await finish();
+      },
+      onError: () => {},
+    });
+  });
+}
+
 function selectedJobFromMatch(job, match) {
   return {
     job_id: job.id,
@@ -1044,55 +1240,36 @@ async function runCareerStartFlow(form) {
       state.selectedJob = directJob;
       setCareerStage("search", "done", `Job #${directJob.job_id}`);
     } else {
-      state.searchRun = await createAgentRun(
-        {
-          task_type: "find_jobs_for_profile",
-          profile_id: Number(state.profile.id),
-          query: raw.query || "Agent 开发实习生",
-          location: raw.location || null,
-          limit: Number(raw.limit || 8),
-        },
-        "岗位搜索"
-      );
-      setCareerStage("search", "done", `Run #${state.searchRun.id}`);
-      state.selectedJob = topMatchedJob(state.searchRun);
+      setCareerStage("search", "running", "LangGraph 搜索真实岗位");
     }
-    setCareerStage("match", "running", "选择最高匹配岗位");
-    setCareerStage("match", "done", `${state.selectedJob.company || ""} ${state.selectedJob.overall_score}`);
 
-    setCareerStage("tailor", "running", "生成定制简历");
-    state.tailorRun = await createAgentRun(
+    setCareerStage("match", "running", "LangGraph 匹配岗位");
+    const queuedRun = await createBackgroundAgentRun(
       {
-        task_type: "tailor_resume_for_job",
+        task_type: "full_career_flow",
         profile_id: Number(state.profile.id),
-        job_id: Number(state.selectedJob.job_id),
-      },
-      "定制简历"
+        job_id: state.selectedJob?.job_id ? Number(state.selectedJob.job_id) : null,
+        query: raw.query || "Agent 开发实习生",
+        location: raw.location || null,
+        limit: Number(raw.limit || 8),
+      }
     );
+    state.fullRun = await waitForAgentRun(
+      queuedRun.id,
+      {
+        autoConfirmApplication: true,
+        confirmationNote: "用户在首页一键流程中确认生成投递包。",
+      }
+    );
+    const output = state.fullRun.output_json || {};
+    state.selectedJob = output.selected_job || state.selectedJob || topMatchedJob(state.fullRun);
+    state.tailorRun = { id: state.fullRun.id, output_json: output.tailor || {} };
+    state.applyRun = { id: state.fullRun.id, output_json: output.application || {} };
+    state.interviewRun = { id: state.fullRun.id, output_json: output.interview_prep || {} };
+    setCareerStage("search", "done", state.selectedJob?.job_id ? `Job #${state.selectedJob.job_id}` : `Run #${state.fullRun.id}`);
+    setCareerStage("match", "done", `${state.selectedJob?.company || ""} ${state.selectedJob?.overall_score || ""}`);
     setCareerStage("tailor", "done", `版本 #${state.tailorRun.output_json?.resume_version_id || "-"}`);
-
-    setCareerStage("apply", "running", "生成投递包");
-    state.applyRun = await createAgentRun(
-      {
-        task_type: "quick_apply",
-        profile_id: Number(state.profile.id),
-        job_id: Number(state.selectedJob.job_id),
-        resume_version_id: Number(state.tailorRun.output_json?.resume_version_id || 0) || null,
-      },
-      "投递包",
-      { autoConfirmApplication: true }
-    );
     setCareerStage("apply", "done", `投递包 #${state.applyRun.output_json?.application_id || "-"}`);
-
-    setCareerStage("interview", "running", "生成面试包");
-    state.interviewRun = await createAgentRun(
-      {
-        task_type: "prepare_interview_for_job",
-        profile_id: Number(state.profile.id),
-        job_id: Number(state.selectedJob.job_id),
-      },
-      "面试包"
-    );
     setCareerStage("interview", "done", `面试包 #${state.interviewRun.output_json?.interview_prep_id || "-"}`);
     renderCareerFlowResult(state);
     toast("完整求职流程已完成");

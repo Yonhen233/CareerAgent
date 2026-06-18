@@ -1,5 +1,45 @@
 # 开发日志
 
+## 2026-06-18 15:52:03 +08:00：统一 LangGraph 运行时、事件流和后台一键流程
+### 这次做了什么
+- 新增 `agent_events` 表和 `AgentEventResponse`，把 run、step、artifact、LangGraph graph/node/interrupt 事件统一持久化。
+- `TraceService` 在 run 创建、启动、完成、step 开始/完成/失败、artifact 生成时写入事件，便于前端和排障读取同一套进度源。
+- `LangGraphAgentOrchestrator` 改为通过 `astream_events(version="v2")` 执行 graph，捕获 `graph_node_started/update/completed`、`graph_interrupt`、`graph_completed` 和 `graph_failed`。
+- 新增 `POST /agent/runs/background`，先创建 `status=queued` 的 run，再用 FastAPI `BackgroundTasks` 启动同一个 LangGraph graph。
+- 新增 `GET /agent/runs/{run_id}/events` 和 `GET /agent/runs/{run_id}/events/stream`，前者用于 JSON 查询，后者用于 SSE 实时进度。
+- 自然语言入口迁移为独立 LangGraph 图：`parse_user_request -> execute_user_plan -> repair_user_plan -> execute_repaired_user_plan -> finalize`。
+- 首页一键流程改为单个后台 `full_career_flow` run，并通过 SSE 推进阶段进度，不再由前端串多个小 run。
+- `full_career_flow` 支持已有 `job_id` 的目标岗位直跑：跳过岗位搜索，直接匹配、定制简历、投递包和面试包。
+- 流程页新增 LangGraph 事件流时间线，点击 run 后同时展示 step trace 和 event stream。
+### 发现的问题
+- 之前“首页一键流程”虽然体验上完整，但本质是前端串行调用找岗、定制、投递和面试多个 run，不利于展示一个现代 Agent 的统一图编排。
+- `full_career_flow` 之前只支持“先搜索再选岗位”，用户粘贴 JD 或已经选择岗位时仍无法作为单图流程直跑。
+- 只看最终结果和 `agent_steps` 仍不够定位 LangGraph 中间状态，尤其是 interrupt、checkpoint 和后台运行时的节点级事件。
+- 自然语言 Agent 之前是手写 try/except 编排，虽然会调用主 Orchestrator，但自身的 parse/execute/repair/finalize 没有用 LangGraph 表达。
+- 内置浏览器环境里 `EventSource` 不可用，如果前端直接 new EventSource，会让一键流程在部分客户端无法启动进度监听。
+### 怎么修复
+- 用 `agent_events` 作为统一事件源，SSE 只读事件表；这样同步 run、后台 run、resume run 和自然语言 run 都能复用同一套前端展示。
+- 把主 Orchestrator 的同步执行、queued 执行和 resume 执行收敛到同一套 `_execute_run/_invoke_graph` 逻辑。
+- 自然语言服务保留原有工具调用边界，但外层改成 LangGraph 节点和条件边，失败进入 repair 节点，repair 后仍失败则结构化返回 failed。
+- 修改 `full_career_flow` 路由：有 `job_id` 时从 `load_job` 进入目标岗位链路，没有 `job_id` 才搜索岗位；`match_job` 会为目标岗位直跑补齐 `selected_job`。
+- 前端新增 `subscribeAgentRunEvents()`、`waitForAgentRun()` 和事件时间线；首页一键流程创建后台 run 后等待 SSE/轮询完成。
+- `subscribeAgentRunEvents()` 增加 EventSource 能力检测；不支持 SSE 的客户端会自动退回轮询完成状态。
+### 验证结果
+- 目标回归 `python -m pytest tests\test_agent_workflow.py tests\test_natural_language_agent.py tests\test_frontend_pages.py -q` 通过，19 个测试全部通过。
+- `python -m pytest -q` 全量回归通过，98 个测试全部通过。
+- `node --check app\static\js\main.js` 通过。
+- `python -m py_compile app\agents\langgraph_orchestrator.py app\agents\natural_language.py app\api\agent_runs.py app\services\trace_service.py app\models\entities.py app\models\schemas.py` 通过。
+- `git diff --check` 通过，仅有 Windows CRLF 提示，无空白错误。
+- 内置浏览器 smoke 通过：`http://127.0.0.1:8060/` 首页和 `/ui/agent-runs` 流程页正常渲染，流程页显示“事件流”，页面 console error 为空。
+### 未修复的问题
+- 后台 Agent run 仍使用 FastAPI 进程内 `BackgroundTasks`，不是分布式队列；单机开发和简历项目展示足够，多实例生产部署应替换为 Redis/Celery/Arq。
+- LangGraph 节点内部仍复用当前 FastAPI DB Session；如果要支持跨天恢复或多 worker 抢占式恢复，后续应让节点独立打开 Session，并为写库节点补业务幂等键。
+- 投递确认记录目前写在 run output 和事件里，还没有独立审批/审计表；等接入浏览器填写、邮件发送等更高风险工具时应拆出审批表。
+### 下一步
+- 为投递、浏览器辅助填写、邮件草稿/发送等高风险工具建立独立审批/审计表。
+- 把后台 Agent run 从 FastAPI `BackgroundTasks` 升级为可取消、可重试、可横向扩展的外部队列。
+- 为应用包创建、面试包创建、简历版本创建补充业务幂等键，减少 checkpoint 恢复和后台重试带来的重复写入风险。
+
 ## 2026-06-18 15:23:03 +08:00：LangGraph SQLite checkpoint 与投递前人工确认 interrupt
 ### 这次做了什么
 - 将 LangGraph checkpointer 从 `InMemorySaver` 升级为 `AsyncSqliteSaver`，默认持久化到 `data/runtime/langgraph_checkpoints.sqlite`。

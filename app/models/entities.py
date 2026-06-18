@@ -265,6 +265,7 @@ class AgentRun(Base):
     job: Mapped[Job | None] = relationship(back_populates="agent_runs")
     steps: Mapped[list["AgentStep"]] = relationship(back_populates="run", cascade="all, delete-orphan")
     artifacts: Mapped[list["AgentArtifact"]] = relationship(back_populates="run", cascade="all, delete-orphan")
+    events: Mapped[list["AgentEvent"]] = relationship(back_populates="run", cascade="all, delete-orphan")
 
 
 class AgentStep(Base):
@@ -294,6 +295,19 @@ class AgentArtifact(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     run: Mapped[AgentRun] = relationship(back_populates="artifacts")
+
+
+class AgentEvent(Base):
+    __tablename__ = "agent_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("agent_runs.id"), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    node_name: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    event_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+    run: Mapped[AgentRun] = relationship(back_populates="events")
 
 
 class LLMCallLog(Base):

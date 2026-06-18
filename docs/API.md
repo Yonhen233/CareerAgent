@@ -21,7 +21,7 @@ POST /assistant/natural-language
 Content-Type: application/json
 ```
 
-用于用户直接描述需求，例如生成简历档案、按 JD 定制简历、搜索岗位、生成投递包和面试包。接口会先调用 LLM 解析意图和计划，再调用现有 Agent 工具链执行。
+用于用户直接描述需求，例如生成简历档案、按 JD 定制简历、搜索岗位、生成投递包和面试包。该入口本身也是 LangGraph 图：先调用 LLM 解析意图和计划，再执行受控工具链；执行失败会进入一次 plan repair，最终成功、等待确认或失败都会写入 trace 和 `agent_events`。
 
 ```json
 {
@@ -266,7 +266,7 @@ GET /resumes/{resume_version_id}/markdown
 
 ## Agent Runs
 
-`POST /agent/runs` 现在由 LangGraph 主编排执行。兼容类名仍是 `AgentOrchestrator`，但内部实际调用 `LangGraphAgentOrchestrator` 的 `StateGraph`。所有任务都会先执行 `plan_task` 节点，再根据 `task_type` 通过条件边进入对应流程。返回的 `input_json`、`output_json` 和 `execution_plan` 会包含 `orchestration_framework=langgraph`，`execution_plan.graph_thread_id` 记录本次运行的 LangGraph thread 标识。checkpoint 默认持久化到 `data/runtime/langgraph_checkpoints.sqlite`。
+`POST /agent/runs` 现在由 LangGraph 主编排执行。兼容类名仍是 `AgentOrchestrator`，但内部实际调用 `LangGraphAgentOrchestrator` 的 `StateGraph`。所有任务都会先执行 `plan_task` 节点，再根据 `task_type` 通过条件边进入对应流程。返回的 `input_json`、`output_json` 和 `execution_plan` 会包含 `orchestration_framework=langgraph`，`execution_plan.graph_thread_id` 记录本次运行的 LangGraph thread 标识。checkpoint 默认持久化到 `data/runtime/langgraph_checkpoints.sqlite`。每个 run 还会写入 `agent_events`，用于 JSON 查询和 SSE 实时进度。
 
 ### 一体化求职流程
 
@@ -285,6 +285,16 @@ Content-Type: application/json
 }
 ```
 
+如果用户已经粘贴 JD 或选择了目标岗位，也可以直接传入 `job_id`，LangGraph 会跳过岗位搜索，直接围绕该岗位执行匹配、定制、投递包和面试包：
+
+```json
+{
+  "task_type": "full_career_flow",
+  "profile_id": 1,
+  "job_id": 12
+}
+```
+
 效果：
 
 - 搜索真实岗位并按匹配分选择最高岗位。
@@ -294,6 +304,37 @@ Content-Type: application/json
 - 在同一个 `agent_run` 下写入 execution plan、selected job、tailored resume、fit gate、application 和 interview prep artifacts。
 - 每个业务节点仍写入 `agent_steps`，因此前端和调试 API 可以继续按原方式查看步骤、耗时和错误。
 - 如果请求没有显式传入 `"application_confirmed": true`，流程会在投递包生成前返回 `status=waiting_for_confirmation`，`output_json.interrupts` 中包含待确认岗位、简历版本和 fit gate 信息。
+
+### 后台启动 Agent Run
+
+```http
+POST /agent/runs/background
+Content-Type: application/json
+```
+
+请求体与 `POST /agent/runs` 相同。接口立即返回 `status=queued` 的 `AgentRunResponse`，FastAPI `BackgroundTasks` 会在进程内启动同一个 LangGraph graph。它适合前端长流程进度展示；生产多实例部署时可以把这个入口替换为 Redis/Celery/Arq 等外部队列，但 graph/checkpoint/事件表语义保持不变。
+
+### 查询事件列表
+
+```http
+GET /agent/runs/{run_id}/events?after_id=0&limit=200
+```
+
+返回 `agent_events` 中保存的运行事件，包括：
+
+- `run_created`、`run_started`、`run_resumed`、`run_finished`
+- `graph_started`、`graph_node_started`、`graph_node_update`、`graph_node_completed`、`graph_interrupt`、`graph_completed`
+- `step_started`、`step_completed`、`step_failed`
+- `artifact_created`
+
+### LangGraph SSE 事件流
+
+```http
+GET /agent/runs/{run_id}/events/stream
+Accept: text/event-stream
+```
+
+服务端会持续推送上述事件，并在 run 进入 `completed`、`failed`、`waiting_for_confirmation` 或 `cancelled` 后发送 `run_closed`。前端流程页和首页一键流程都使用该接口展示节点级进度。
 
 ### 恢复等待确认的流程
 

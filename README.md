@@ -8,7 +8,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
 
 - 自然语言求职入口：
   - 用户可以直接描述“生成简历、修改上传简历、搜索岗位、按 JD 改简历、生成投递包、生成面试包”等需求。
-  - `POST /assistant/natural-language` 会用 LLM 解析意图和执行计划，再调用现有 Agent 工具链执行。
+  - `POST /assistant/natural-language` 本身也运行在 LangGraph `StateGraph` 上：解析意图、执行计划、一次 repair、最终汇总都是可追踪节点。
   - 失败不静默兜底：计划执行失败会触发 1 轮 repair，仍失败时返回 `status=failed`、Run ID、错误原因和可追踪步骤。
 - 简历来源：
   - 上传 PDF，使用 `pypdf` 提取页级文本。
@@ -38,7 +38,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - `interview-source-smoke` 独立探测牛客网、OfferShow、小红书公开搜索页的可达性、空结果、面经信号、query relevance 和内容可抽取性，不绕过登录或反爬，也不影响核心面试包回归。
   - 面经正文难以稳定获取时，面试包只附上参考链接、标题和搜索入口；核心问题生成转向 JD、简历项目和 RAG 证据。
 - Agent 工作流：
-  - 主编排已经迁移到 LangGraph：所有 `/agent/runs`、自然语言 Agent 和 Agent full-flow 评测都通过 `LangGraphAgentOrchestrator` 的 `StateGraph` 运行；旧 `AgentOrchestrator` 类名只保留兼容 import。
+  - 主编排已经迁移到 LangGraph：所有 `/agent/runs`、自然语言 Agent 和 Agent full-flow 评测都通过 LangGraph `StateGraph` 运行；旧 `AgentOrchestrator` 类名只保留兼容 import。
   - `full_career_flow`：搜索/选择岗位、匹配、定制简历、投递包、面试包的一体化流程；适合 API 层验证完整链路。
   - `find_jobs_for_profile`：搜索岗位、解析 JD、入库、匹配、排序。
   - `tailor_resume_for_job`：匹配岗位、检索简历证据、定制简历、校验幻觉风险。
@@ -48,6 +48,8 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - 每次 run 先生成 Plan-Execute 执行计划，并写入 Trace artifact。
   - `execution_plan` 和 run 输入输出会标记 `orchestration_framework=langgraph`，并保留 `graph_thread_id`；当前使用 LangGraph SQLite checkpointer 持久化到 `data/runtime/langgraph_checkpoints.sqlite`。
   - `quick_apply` 和 `full_career_flow` 在生成投递包前会触发 LangGraph interrupt，返回 `waiting_for_confirmation`；用户或前端通过 `/agent/runs/{run_id}/resume` 确认后继续执行。
+  - 支持后台启动和 LangGraph SSE 事件流：`POST /agent/runs/background` 返回 queued run，`GET /agent/runs/{run_id}/events/stream` 持续输出 graph/node/step/interrupt 进度。
+  - 首页一键流程现在只创建一个后台 `full_career_flow` run；前端通过 SSE 推进阶段进度，不再在浏览器里拼接多个小 run。
   - 显式注册 Tool、Skill 和 SubAgent，计划产物会展示当前任务使用的能力边界。
   - 简历定制带 1 轮 ReAct repair loop：Guardrail 高风险时读取 issues 和压缩上下文，修复后再次验证，并记录 `react_repair` 元数据。
 - LLM 上下文治理：
@@ -73,7 +75,8 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - PDF Chunk、RAG 和 LLM workflow 都有独立评测集；LLM workflow 会真实跑简历解析、JD 解析、fit judge、简历定制和 Guardrail，并逐 case 写入中间 trace。
   - LLM workflow 支持 `resume_from_last_completed`，可以从 JSONL trace 中连续完成的 case 后继续长跑评测。
 - 可观测性：
-  - `agent_runs`、`agent_steps`、`agent_artifacts` 记录每次工作流。
+  - `agent_runs`、`agent_steps`、`agent_artifacts`、`agent_events` 记录每次工作流。
+  - `agent_events` 会保存 `run_created/run_started/run_finished`、LangGraph node start/update/end、interrupt、step start/end/fail 和 artifact 事件。
   - 可通过 UI 或 API 查看 Trace。
 
 ## 架构概览
@@ -94,7 +97,7 @@ flowchart LR
     SQLite --> Vector["SQLite Vector + 可选 Chroma 镜像"]
     Tailor -.可选.-> LLM["DeepSeek / OpenAI-compatible LLM"]
     LLM --> Debug["LLM 调用日志"]
-    Agent --> Trace["Run / Step / Artifact Trace"]
+    Agent --> Trace["Run / Step / Artifact / Event Trace"]
 ```
 
 ## 快速启动

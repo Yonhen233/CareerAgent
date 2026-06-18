@@ -3,11 +3,16 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from typing import Any
+from typing import Any, TypedDict
+from uuid import uuid4
 
+import aiosqlite
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.graph import END, START, StateGraph
 from sqlalchemy.orm import Session
 
 from app.agents.orchestrator import AgentOrchestrator
+from app.core.config import get_settings
 from app.core.llm import LLMClient, llm_trace_context
 from app.models.entities import Job, Profile
 from app.models.schemas import AgentRunRequest, GuidedProfileRequest, NaturalLanguageAgentRequest
@@ -29,6 +34,17 @@ INTENTS = {
 }
 
 
+class NaturalLanguageGraphState(TypedDict, total=False):
+    request: dict[str, Any]
+    run_id: int
+    graph_thread_id: str
+    plan: dict[str, Any]
+    result: dict[str, Any]
+    execution_error: str | None
+    repair_attempts: list[dict[str, Any]]
+    output: dict[str, Any]
+
+
 class NaturalLanguageAgentService:
     def __init__(
         self,
@@ -44,81 +60,70 @@ class NaturalLanguageAgentService:
         self.jd_parser = JDParserService()
         self.splitter = ResumeTextSplitter()
         self.vector_index = SQLiteVectorIndex()
+        self.settings = get_settings()
+        self._runtime_dbs: dict[int, Session] = {}
+        self._checkpoint_conn = None
+        self.checkpointer = None
+        self._graph = None
 
     async def run(self, db: Session, request: NaturalLanguageAgentRequest) -> dict[str, Any]:
         started = time.perf_counter()
+        graph_thread_id = f"natural-run-{uuid4().hex}"
         run = self.trace.create_run(
             db,
             task_type="natural_language_request",
             profile_id=request.profile_id,
             job_id=request.job_id,
-            input_json=request.model_dump(),
+            input_json={
+                **request.model_dump(),
+                "orchestration_framework": "langgraph",
+                "graph_thread_id": graph_thread_id,
+            },
         )
-        repair_attempts: list[dict[str, Any]] = []
-        plan: dict[str, Any] = {}
+        self._runtime_dbs[run.id] = db
+        self.trace.add_event(
+            db,
+            run_id=run.id,
+            event_type="run_started",
+            payload={"task_type": "natural_language_request", "graph_thread_id": graph_thread_id},
+        )
         try:
-            plan = await self.trace.step(
-                db,
+            graph = await self._ensure_graph()
+            final_state = await self._invoke_graph(
+                graph,
+                {
+                    "request": request.model_dump(),
+                    "run_id": run.id,
+                    "graph_thread_id": graph_thread_id,
+                    "repair_attempts": [],
+                },
+                db=db,
                 run_id=run.id,
-                step_name="parse_user_request",
-                tool_name="llm.intent_planner",
-                input_json={"instruction": request.instruction},
-                handler=lambda: self._build_plan(db, request),
+                config={"configurable": {"thread_id": graph_thread_id}},
             )
-            self.trace.add_artifact(db, run_id=run.id, artifact_type="natural_language_plan", payload=plan)
-            try:
-                result = await self.trace.step(
-                    db,
-                    run_id=run.id,
-                    step_name="execute_user_plan",
-                    tool_name="NaturalLanguageAgentService",
-                    input_json={"intent": plan.get("intent")},
-                    handler=lambda: self._execute_plan(db, request, plan),
-                )
-            except Exception as exc:  # noqa: BLE001
-                repaired_plan = await self.trace.step(
-                    db,
-                    run_id=run.id,
-                    step_name="repair_user_plan",
-                    tool_name="llm.intent_planner",
-                    input_json={"error": str(exc), "plan": plan},
-                    handler=lambda: self._repair_plan(db, request, plan, exc),
-                )
-                repair_attempts.append({"error": str(exc), "repaired_intent": repaired_plan.get("intent")})
-                self.trace.add_artifact(
-                    db,
-                    run_id=run.id,
-                    artifact_type="natural_language_repaired_plan",
-                    payload=repaired_plan,
-                )
-                plan = repaired_plan
-                result = await self.trace.step(
-                    db,
-                    run_id=run.id,
-                    step_name="execute_repaired_user_plan",
-                    tool_name="NaturalLanguageAgentService",
-                    input_json={"intent": plan.get("intent")},
-                    handler=lambda: self._execute_plan(db, request, plan),
-                )
-
-            response_status = "waiting_for_confirmation" if result.get("requires_confirmation") else "completed"
-            payload = {
-                "run_id": run.id,
-                "status": response_status,
-                "user_message": self._user_message(plan, result),
-                "plan_json": plan,
-                "result_json": result,
-                "repair_attempts": repair_attempts,
-            }
-            return self.trace.finish_run(db, run=run, status=response_status, output_json=payload, started_at=started)
+            payload = dict(final_state.get("output") or {})
+            payload["orchestration_framework"] = "langgraph"
+            payload["graph_thread_id"] = graph_thread_id
+            response_status = str(payload.get("status") or "completed")
+            error_message = (payload.get("result_json") or {}).get("error") if response_status == "failed" else None
+            return self.trace.finish_run(
+                db,
+                run=run,
+                status=response_status,
+                output_json=payload,
+                error_message=error_message,
+                started_at=started,
+            )
         except Exception as exc:  # noqa: BLE001
             payload = {
                 "run_id": run.id,
                 "status": "failed",
                 "user_message": f"处理失败：{self._public_error_message(exc)}",
-                "plan_json": plan,
+                "plan_json": {},
                 "result_json": {"error": str(exc)},
-                "repair_attempts": repair_attempts,
+                "repair_attempts": [],
+                "orchestration_framework": "langgraph",
+                "graph_thread_id": graph_thread_id,
             }
             return self.trace.finish_run(
                 db,
@@ -128,6 +133,224 @@ class NaturalLanguageAgentService:
                 error_message=str(exc),
                 started_at=started,
             )
+        finally:
+            self._runtime_dbs.pop(run.id, None)
+            await self._close_checkpoint()
+
+    def _build_graph(self):
+        graph = StateGraph(NaturalLanguageGraphState)
+        graph.add_node("parse_user_request", self._node_parse_user_request)
+        graph.add_node("execute_user_plan", self._node_execute_user_plan)
+        graph.add_node("repair_user_plan", self._node_repair_user_plan)
+        graph.add_node("execute_repaired_user_plan", self._node_execute_repaired_user_plan)
+        graph.add_node("finalize_success", self._node_finalize_success)
+        graph.add_node("finalize_failed", self._node_finalize_failed)
+        graph.add_edge(START, "parse_user_request")
+        graph.add_edge("parse_user_request", "execute_user_plan")
+        graph.add_conditional_edges(
+            "execute_user_plan",
+            self._route_after_execute,
+            {"repair_user_plan": "repair_user_plan", "finalize_success": "finalize_success"},
+        )
+        graph.add_edge("repair_user_plan", "execute_repaired_user_plan")
+        graph.add_conditional_edges(
+            "execute_repaired_user_plan",
+            self._route_after_repaired_execute,
+            {"finalize_success": "finalize_success", "finalize_failed": "finalize_failed"},
+        )
+        graph.add_edge("finalize_success", END)
+        graph.add_edge("finalize_failed", END)
+        return graph.compile(checkpointer=self.checkpointer)
+
+    async def _ensure_graph(self):
+        if self._graph is not None:
+            return self._graph
+        path = self.settings.langgraph_checkpoint_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._checkpoint_conn = await aiosqlite.connect(str(path))
+        self.checkpointer = AsyncSqliteSaver(self._checkpoint_conn)
+        await self.checkpointer.setup()
+        self._graph = self._build_graph()
+        return self._graph
+
+    async def _close_checkpoint(self) -> None:
+        if self._checkpoint_conn is not None:
+            await self._checkpoint_conn.close()
+        self._checkpoint_conn = None
+        self.checkpointer = None
+        self._graph = None
+
+    async def _invoke_graph(
+        self,
+        graph,
+        payload: dict[str, Any],
+        *,
+        db: Session,
+        run_id: int,
+        config: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            async for event in graph.astream_events(payload, config=config, version="v2"):
+                self._record_langgraph_event(db, run_id=run_id, event=event)
+            snapshot = await graph.aget_state(config)
+            state = dict(snapshot.values or {})
+            if snapshot.config:
+                state["checkpoint_id"] = (snapshot.config or {}).get("configurable", {}).get("checkpoint_id")
+            return state
+        except Exception as exc:
+            self.trace.add_event(
+                db,
+                run_id=run_id,
+                event_type="graph_failed",
+                payload={"error": str(exc), "error_type": exc.__class__.__name__},
+            )
+            raise
+
+    async def _node_parse_user_request(self, state: NaturalLanguageGraphState) -> dict[str, Any]:
+        request = NaturalLanguageAgentRequest(**state["request"])
+        db = self._db_from_state(state)
+        plan = await self.trace.step(
+            db,
+            run_id=state["run_id"],
+            step_name="parse_user_request",
+            tool_name="llm.intent_planner",
+            input_json={"instruction": request.instruction},
+            handler=lambda: self._build_plan(db, request),
+        )
+        self.trace.add_artifact(db, run_id=state["run_id"], artifact_type="natural_language_plan", payload=plan)
+        return {"plan": plan}
+
+    async def _node_execute_user_plan(self, state: NaturalLanguageGraphState) -> dict[str, Any]:
+        request = NaturalLanguageAgentRequest(**state["request"])
+        db = self._db_from_state(state)
+        plan = state.get("plan") or {}
+        try:
+            result = await self.trace.step(
+                db,
+                run_id=state["run_id"],
+                step_name="execute_user_plan",
+                tool_name="NaturalLanguageAgentService",
+                input_json={"intent": plan.get("intent")},
+                handler=lambda: self._execute_plan(db, request, plan),
+            )
+            return {"result": result, "execution_error": None}
+        except Exception as exc:  # noqa: BLE001
+            return {"execution_error": str(exc)}
+
+    async def _node_repair_user_plan(self, state: NaturalLanguageGraphState) -> dict[str, Any]:
+        request = NaturalLanguageAgentRequest(**state["request"])
+        db = self._db_from_state(state)
+        plan = state.get("plan") or {}
+        error = RuntimeError(state.get("execution_error") or "执行失败")
+        repaired_plan = await self.trace.step(
+            db,
+            run_id=state["run_id"],
+            step_name="repair_user_plan",
+            tool_name="llm.intent_planner",
+            input_json={"error": str(error), "plan": plan},
+            handler=lambda: self._repair_plan(db, request, plan, error),
+        )
+        repair_attempts = [
+            *(state.get("repair_attempts") or []),
+            {"error": str(error), "repaired_intent": repaired_plan.get("intent")},
+        ]
+        self.trace.add_artifact(
+            db,
+            run_id=state["run_id"],
+            artifact_type="natural_language_repaired_plan",
+            payload=repaired_plan,
+        )
+        return {"plan": repaired_plan, "repair_attempts": repair_attempts, "execution_error": None}
+
+    async def _node_execute_repaired_user_plan(self, state: NaturalLanguageGraphState) -> dict[str, Any]:
+        request = NaturalLanguageAgentRequest(**state["request"])
+        db = self._db_from_state(state)
+        plan = state.get("plan") or {}
+        try:
+            result = await self.trace.step(
+                db,
+                run_id=state["run_id"],
+                step_name="execute_repaired_user_plan",
+                tool_name="NaturalLanguageAgentService",
+                input_json={"intent": plan.get("intent")},
+                handler=lambda: self._execute_plan(db, request, plan),
+            )
+            return {"result": result, "execution_error": None}
+        except Exception as exc:  # noqa: BLE001
+            return {"execution_error": str(exc), "result": {"error": str(exc)}}
+
+    async def _node_finalize_success(self, state: NaturalLanguageGraphState) -> dict[str, Any]:
+        plan = state.get("plan") or {}
+        result = state.get("result") or {}
+        response_status = "waiting_for_confirmation" if result.get("requires_confirmation") else "completed"
+        payload = {
+            "run_id": state["run_id"],
+            "status": response_status,
+            "user_message": self._user_message(plan, result),
+            "plan_json": plan,
+            "result_json": result,
+            "repair_attempts": state.get("repair_attempts") or [],
+        }
+        return {"output": payload}
+
+    async def _node_finalize_failed(self, state: NaturalLanguageGraphState) -> dict[str, Any]:
+        error = state.get("execution_error") or "未知错误"
+        payload = {
+            "run_id": state["run_id"],
+            "status": "failed",
+            "user_message": f"处理失败：{self._public_error_message(RuntimeError(error))}",
+            "plan_json": state.get("plan") or {},
+            "result_json": {"error": error},
+            "repair_attempts": state.get("repair_attempts") or [],
+        }
+        return {"output": payload}
+
+    def _route_after_execute(self, state: NaturalLanguageGraphState) -> str:
+        return "repair_user_plan" if state.get("execution_error") else "finalize_success"
+
+    def _route_after_repaired_execute(self, state: NaturalLanguageGraphState) -> str:
+        return "finalize_failed" if state.get("execution_error") else "finalize_success"
+
+    def _db_from_state(self, state: NaturalLanguageGraphState) -> Session:
+        db = self._runtime_dbs.get(int(state["run_id"]))
+        if db is None:
+            raise RuntimeError("Natural language LangGraph state is missing the active database session.")
+        return db
+
+    def _record_langgraph_event(self, db: Session, *, run_id: int, event: dict[str, Any]) -> None:
+        event_name = str(event.get("event") or "")
+        node_name = str(event.get("name") or "")
+        data = event.get("data") or {}
+        if event_name == "on_chain_start":
+            event_type = "graph_started" if node_name == "LangGraph" else "graph_node_started"
+        elif event_name == "on_chain_end":
+            event_type = "graph_completed" if node_name == "LangGraph" else "graph_node_completed"
+        elif event_name == "on_chain_stream":
+            event_type = "graph_update" if node_name == "LangGraph" else "graph_node_update"
+        else:
+            return
+        self.trace.add_event(
+            db,
+            run_id=run_id,
+            event_type=event_type,
+            node_name=None if node_name == "LangGraph" else node_name,
+            payload={
+                "langgraph_event": event_name,
+                "node_name": node_name,
+                "data": self._json_safe_graph_value(data),
+            },
+        )
+
+    def _json_safe_graph_value(self, value: Any) -> Any:
+        if hasattr(value, "id") and hasattr(value, "value"):
+            return {"id": str(getattr(value, "id")), "value": self.trace._json_safe(getattr(value, "value"))}
+        if isinstance(value, tuple):
+            return [self._json_safe_graph_value(item) for item in value]
+        if isinstance(value, list):
+            return [self._json_safe_graph_value(item) for item in value]
+        if isinstance(value, dict):
+            return {str(key): self._json_safe_graph_value(item) for key, item in value.items()}
+        return self.trace._json_safe(value)
 
     async def _build_plan(self, db: Session, request: NaturalLanguageAgentRequest) -> dict[str, Any]:
         system_prompt = (
@@ -278,17 +501,19 @@ query={request.query}
             self._assert_search_has_matches(run)
             return result
 
-        if intent == "full_flow" and job is None:
+        if intent == "full_flow":
             profile = self._require_profile(profile)
+            run_request = AgentRunRequest(
+                task_type="full_career_flow",
+                profile_id=profile.id,
+                job_id=job.id if job else None,
+                query=plan.get("query") or request.query,
+                location=request.location,
+                limit=request.limit,
+            )
             run = await self.orchestrator.run(
                 db,
-                AgentRunRequest(
-                    task_type="full_career_flow",
-                    profile_id=profile.id,
-                    query=plan.get("query") or request.query,
-                    location=request.location,
-                    limit=request.limit,
-                ),
+                run_request,
             )
             result["agent_runs"].append(self._run_payload(run))
             if run.status == "waiting_for_confirmation":
@@ -297,13 +522,16 @@ query={request.query}
                 return result
             self._assert_run_completed(run, "完整流程")
             result["full_flow"] = run.output_json
+            result["tailor"] = (run.output_json or {}).get("tailor")
+            result["application"] = (run.output_json or {}).get("application")
+            result["interview_prep"] = (run.output_json or {}).get("interview_prep")
             return result
 
-        if intent in {"tailor_resume", "quick_apply", "interview_prep", "full_flow"}:
+        if intent in {"tailor_resume", "quick_apply", "interview_prep"}:
             profile = self._require_profile(profile)
             job = self._require_job(job)
 
-        if intent in {"tailor_resume", "full_flow", "quick_apply"}:
+        if intent in {"tailor_resume", "quick_apply"}:
             tailor_run = await self.orchestrator.run(
                 db,
                 AgentRunRequest(task_type="tailor_resume_for_job", profile_id=profile.id, job_id=job.id),
@@ -311,7 +539,7 @@ query={request.query}
             self._assert_run_completed(tailor_run, "定制简历")
             result["agent_runs"].append(self._run_payload(tailor_run))
             result["tailor"] = tailor_run.output_json
-        if intent in {"quick_apply", "full_flow"}:
+        if intent == "quick_apply":
             apply_run = await self.orchestrator.run(
                 db,
                 AgentRunRequest(
@@ -328,7 +556,7 @@ query={request.query}
                 return result
             self._assert_run_completed(apply_run, "投递包")
             result["application"] = apply_run.output_json
-        if intent in {"interview_prep", "full_flow"}:
+        if intent == "interview_prep":
             interview_run = await self.orchestrator.run(
                 db,
                 AgentRunRequest(task_type="prepare_interview_for_job", profile_id=profile.id, job_id=job.id),

@@ -238,11 +238,11 @@ class AgentPlanner:
             "migrated": True,
             "reason": (
                 "当前主 AgentOrchestrator 已迁移为 LangGraph StateGraph，旧类名只作为兼容外壳；"
-                "FastAPI、自然语言入口和评测仍复用同一编排入口。"
+                "FastAPI、自然语言入口和评测都通过 LangGraph 图执行。"
             ),
             "migration_trigger": (
-                "当前已接入 SQLite checkpointer 和投递前 interrupt；下一阶段继续接入事件流进度、"
-                "更多高风险工具的人类审批节点和跨工具权限隔离。"
+                "当前已接入 SQLite checkpointer、投递前 interrupt、后台 queued run 和 SSE 事件流；"
+                "下一阶段继续补更多高风险工具的人类审批节点和跨工具权限隔离。"
             ),
         }
 

@@ -65,6 +65,12 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "renderNaturalLanguageResult" in main_js
     assert "createProfileForCareerFlow" in main_js
     assert "createAgentRun" in main_js
+    assert "createBackgroundAgentRun" in main_js
+    assert "waitForAgentRun" in main_js
+    assert "EventSource" in main_js
+    assert "/agent/runs/background" in main_js
+    assert "/events/stream" in main_js
+    assert "task_type: \"full_career_flow\"" in main_js
     assert "run.status !== \"completed\"" in main_js
     assert "resolveDirectJobForCareerFlow" in main_js
     assert "/matches" in main_js
@@ -84,6 +90,21 @@ def test_resume_pages_expose_html_preview_controls():
     assert "打开 HTML 预览" in main_js
     assert "下载 Markdown" in main_js
     assert "resume-preview-frame" in style_css
+
+
+def test_agent_runs_page_exposes_langgraph_event_timeline():
+    client = TestClient(app)
+    response = client.get("/ui/agent-runs")
+    main_js = Path("app/static/js/main.js").read_text(encoding="utf-8")
+    style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")
+
+    assert response.status_code == 200
+    assert "run-events" in response.text
+    assert "事件流" in response.text
+    assert "loadRunEvents" in main_js
+    assert "subscribeAgentRunEvents" in main_js
+    assert "event-timeline" in style_css
+    assert "event-row" in style_css
 
 
 def test_profiles_page_exposes_complete_chinese_resume_sections():

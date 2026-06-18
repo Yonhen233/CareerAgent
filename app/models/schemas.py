@@ -314,6 +314,17 @@ class AgentStepResponse(BaseModel):
     created_at: datetime
 
 
+class AgentEventResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    run_id: int
+    event_type: str
+    node_name: str | None
+    event_json: dict[str, Any]
+    created_at: datetime
+
+
 class NaturalLanguageAgentRequest(BaseModel):
     instruction: str = Field(min_length=4)
     profile_id: int | None = None

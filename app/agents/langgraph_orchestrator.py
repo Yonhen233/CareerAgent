@@ -99,10 +99,58 @@ class LangGraphAgentOrchestrator:
                 "graph_thread_id": graph_thread_id,
             },
         )
+        return await self._execute_run(db, run, request, graph_thread_id, started)
+
+    def queue_run(self, db: Session, request: AgentRunRequest) -> AgentRun:
+        graph_thread_id = f"agent-run-{uuid4().hex}"
+        return self.trace.create_run(
+            db,
+            task_type=request.task_type,
+            profile_id=request.profile_id,
+            job_id=request.job_id,
+            status="queued",
+            input_json={
+                **request.model_dump(),
+                "orchestration_framework": "langgraph",
+                "graph_thread_id": graph_thread_id,
+            },
+        )
+
+    async def run_existing(self, db: Session, run_id: int) -> AgentRun:
+        run = db.query(AgentRun).filter(AgentRun.id == run_id).first()
+        if run is None:
+            raise ValueError(f"Agent run {run_id} not found.")
+        if run.status not in {"queued", "running"}:
+            raise ValueError(f"Agent run {run_id} cannot be started from status {run.status}.")
+        payload = dict(run.input_json or {})
+        request_payload = {key: payload.get(key) for key in AgentRunRequest.model_fields if key in payload}
+        request = AgentRunRequest(**request_payload)
+        graph_thread_id = self._graph_thread_id_from_run(run)
+        started = time.perf_counter()
+        return await self._execute_run(db, run, request, graph_thread_id, started)
+
+    async def _execute_run(
+        self,
+        db: Session,
+        run: AgentRun,
+        request: AgentRunRequest,
+        graph_thread_id: str,
+        started: float,
+    ) -> AgentRun:
         self._runtime_dbs[run.id] = db
+        run.status = "running"
+        db.add(run)
+        db.commit()
+        self.trace.add_event(
+            db,
+            run_id=run.id,
+            event_type="run_started",
+            payload={"task_type": request.task_type, "graph_thread_id": graph_thread_id},
+        )
         try:
             graph = await self._ensure_graph()
-            final_state = await graph.ainvoke(
+            final_state = await self._invoke_graph(
+                graph,
                 {
                     "request": request.model_dump(),
                     "run_id": run.id,
@@ -116,6 +164,8 @@ class LangGraphAgentOrchestrator:
                     "application_confirmed": request.application_confirmed,
                     "graph_thread_id": graph_thread_id,
                 },
+                db=db,
+                run_id=run.id,
                 config={"configurable": {"thread_id": graph_thread_id}},
             )
             interrupts = self._interrupt_payloads(final_state)
@@ -174,10 +224,19 @@ class LangGraphAgentOrchestrator:
         run.status = "running"
         db.add(run)
         db.commit()
+        self.trace.add_event(
+            db,
+            run_id=run.id,
+            event_type="run_resumed",
+            payload={"graph_thread_id": graph_thread_id, "resume_payload": resume_payload},
+        )
         try:
             graph = await self._ensure_graph()
-            final_state = await graph.ainvoke(
+            final_state = await self._invoke_graph(
+                graph,
                 Command(resume=resume_payload),
+                db=db,
+                run_id=run.id,
                 config={"configurable": {"thread_id": graph_thread_id}},
             )
             interrupts = self._interrupt_payloads(final_state)
@@ -240,6 +299,79 @@ class LangGraphAgentOrchestrator:
             }
         finally:
             await self._close_checkpoint()
+
+    async def _invoke_graph(
+        self,
+        graph,
+        payload: dict[str, Any] | Command,
+        *,
+        db: Session,
+        run_id: int,
+        config: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            async for event in graph.astream_events(payload, config=config, version="v2"):
+                self._record_langgraph_event(db, run_id=run_id, event=event)
+            snapshot = await graph.aget_state(config)
+            state = dict(snapshot.values or {})
+            interrupts = list(getattr(snapshot, "interrupts", ()) or ())
+            if interrupts:
+                state["__interrupt__"] = interrupts
+            if snapshot.config:
+                state["checkpoint_id"] = (snapshot.config or {}).get("configurable", {}).get("checkpoint_id")
+            return state
+        except Exception as exc:
+            self.trace.add_event(
+                db,
+                run_id=run_id,
+                event_type="graph_failed",
+                payload={"error": str(exc), "error_type": exc.__class__.__name__},
+            )
+            raise
+
+    def _record_langgraph_event(self, db: Session, *, run_id: int, event: dict[str, Any]) -> None:
+        event_name = str(event.get("event") or "")
+        node_name = str(event.get("name") or "")
+        data = event.get("data") or {}
+        if node_name and node_name.startswith("Channel"):
+            return
+        if event_name == "on_chain_start":
+            event_type = "graph_started" if node_name == "LangGraph" else "graph_node_started"
+        elif event_name == "on_chain_end":
+            event_type = "graph_completed" if node_name == "LangGraph" else "graph_node_completed"
+        elif event_name == "on_chain_stream":
+            chunk = data.get("chunk") if isinstance(data, dict) else None
+            if isinstance(chunk, dict) and "__interrupt__" in chunk:
+                event_type = "graph_interrupt"
+            else:
+                event_type = "graph_update" if node_name == "LangGraph" else "graph_node_update"
+        else:
+            return
+        self.trace.add_event(
+            db,
+            run_id=run_id,
+            event_type=event_type,
+            node_name=None if node_name == "LangGraph" else node_name,
+            payload={
+                "langgraph_event": event_name,
+                "node_name": node_name,
+                "data": self._json_safe_graph_value(data),
+            },
+        )
+
+    def _json_safe_graph_value(self, value: Any) -> Any:
+        if hasattr(value, "id") and hasattr(value, "value"):
+            return {
+                "id": str(getattr(value, "id")),
+                "value": self.trace._json_safe(getattr(value, "value")),
+            }
+        if isinstance(value, tuple):
+            return [self._json_safe_graph_value(item) for item in value]
+        if isinstance(value, list):
+            return [self._json_safe_graph_value(item) for item in value]
+        if isinstance(value, dict):
+            return {str(key): self._json_safe_graph_value(item) for key, item in value.items()}
+        return self.trace._json_safe(value)
 
     def _build_graph(self):
         graph = StateGraph(CareerAgentGraphState)
@@ -486,12 +618,24 @@ class LangGraphAgentOrchestrator:
             input_json={"profile_id": profile.id, "job_id": job.id},
             handler=lambda: self._async_value(self.matcher.create_match_result(db, profile, job)),
         )
-        return {
+        payload = {
             "match_result_id": match.id,
             "overall_score": match.overall_score,
             "matched_skills": match.matched_skills_json,
             "missing_skills": match.missing_skills_json,
         }
+        if state["task_type"] == "full_career_flow":
+            payload["selected_job"] = {
+                "job_id": job.id,
+                "title": job.title,
+                "company": job.company,
+                "overall_score": match.overall_score,
+                "matched_skills": match.matched_skills_json,
+                "missing_skills": match.missing_skills_json,
+                "apply_url": job.apply_url,
+            }
+            payload["selected_job_id"] = job.id
+        return payload
 
     async def _node_tailor_resume(self, state: CareerAgentGraphState) -> dict[str, Any]:
         db = self._db_from_state(state)
@@ -646,7 +790,9 @@ class LangGraphAgentOrchestrator:
         return str(state["task_type"])
 
     def _route_after_profile(self, state: CareerAgentGraphState) -> str:
-        if state["task_type"] in {"find_jobs_for_profile", "full_career_flow"}:
+        if state["task_type"] == "find_jobs_for_profile":
+            return "search_jobs"
+        if state["task_type"] == "full_career_flow" and not state.get("job_id"):
             return "search_jobs"
         return "load_job"
 

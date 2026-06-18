@@ -4,7 +4,7 @@ from app.agents.orchestrator import AgentOrchestrator
 from app.agents.skills import active_skill_names_for_task
 from app.agents.subagents import subagents_for_task
 from app.agents.tools import AgentPlanner
-from app.models.entities import Application, InterviewPrep, Job, MatchResult, Profile, ResumeVersion
+from app.models.entities import AgentEvent, Application, InterviewPrep, Job, MatchResult, Profile, ResumeVersion
 from app.models.schemas import AgentRunRequest
 from app.services.resume_tailor import ResumeTailorService
 from app.services.text_splitter import ResumeTextSplitter
@@ -296,6 +296,189 @@ def test_full_career_flow_orchestrator_runs_all_core_stages(db_session):
     assert run.output_json["execution_plan"]["task_type"] == "full_career_flow"
     assert run.output_json["orchestration_framework"] == "langgraph"
     assert run.output_json["execution_plan"]["graph_thread_id"] == run.output_json["graph_thread_id"]
+    event_types = {
+        row.event_type
+        for row in db_session.query(AgentEvent).filter(AgentEvent.run_id == run.id).all()
+    }
+    assert "graph_node_started" in event_types
+    assert "graph_node_completed" in event_types
+    assert "step_completed" in event_types
+    assert "run_finished" in event_types
+
+
+def test_full_career_flow_with_target_job_skips_job_search(db_session):
+    profile = Profile(
+        name="Candidate",
+        source_type="guided",
+        raw_resume_text="Built CareerAgent with FastAPI, RAG, SQLite and LangGraph.",
+        structured_profile_json={"skills": ["FastAPI", "RAG", "SQLite", "LangGraph"]},
+    )
+    job = Job(
+        source="manual",
+        external_id="target-job",
+        title="Agent 开发实习生",
+        company="DemoAI",
+        apply_url="https://example.com/apply",
+        raw_jd_text="负责 LangGraph Agent、FastAPI、RAG 和 SQLite。",
+        structured_jd_json={"required_skills": ["FastAPI", "RAG", "SQLite", "LangGraph"]},
+    )
+    db_session.add_all([profile, job])
+    db_session.commit()
+    db_session.refresh(profile)
+    db_session.refresh(job)
+
+    class FailingJobSearch:
+        async def search(self, *args, **kwargs):
+            raise AssertionError("full_career_flow with job_id should not search jobs")
+
+    class FakeMatcher:
+        def create_match_result(self, db, profile, job):
+            result = MatchResult(
+                profile_id=profile.id,
+                job_id=job.id,
+                overall_score=91,
+                dimension_scores_json={"required_skill_coverage": 100},
+                matched_skills_json=["FastAPI", "RAG", "SQLite", "LangGraph"],
+                missing_skills_json=[],
+                relevant_evidence_json=[],
+                suggestions_json=[],
+            )
+            db.add(result)
+            db.commit()
+            db.refresh(result)
+            return result
+
+    class FakeTailor:
+        async def tailor_resume(self, db, profile, job):
+            version = ResumeVersion(
+                profile_id=profile.id,
+                job_id=job.id,
+                title="目标岗位定制简历",
+                tailored_resume_markdown="CareerAgent with LangGraph, FastAPI, RAG and SQLite.",
+                change_summary_json=[],
+                keyword_alignment_json={"covered": ["LangGraph", "FastAPI"]},
+                source_evidence_json=[],
+                verification_json={"passed": True, "risk_level": "low"},
+                diff_text=None,
+            )
+            db.add(version)
+            db.commit()
+            db.refresh(version)
+            return version
+
+    class FakeApplication:
+        async def create_quick_apply_packet(self, db, *, profile, job, resume_version, browser_assist=False):
+            application = Application(
+                profile_id=profile.id,
+                job_id=job.id,
+                resume_version_id=resume_version.id,
+                status="ready",
+                apply_url=job.apply_url,
+                cover_letter="申请 Agent 开发实习生。",
+                outreach_message="希望交流 Agent 实习机会。",
+                checklist_json=["确认事实"],
+                automation_result_json={"packet_validation": {"passed": True, "risk_level": "low"}},
+            )
+            db.add(application)
+            db.commit()
+            db.refresh(application)
+            return application
+
+    class FakeInterviewPrep:
+        async def create_interview_prep_with_llm(self, db, *, profile, job, match_result):
+            prep = InterviewPrep(
+                profile_id=profile.id,
+                job_id=job.id,
+                match_result_id=match_result.id,
+                title="目标岗位面试包",
+                summary_json={"fit_level": "strong"},
+                question_sets_json=[],
+                gap_drills_json=[],
+                research_checklist_json=[],
+                source_evidence_json=[],
+                coverage_json={"passed": True},
+                generation_mode="fake",
+            )
+            db.add(prep)
+            db.commit()
+            db.refresh(prep)
+            return prep
+
+    run = asyncio.run(
+        AgentOrchestrator(
+            job_search=FailingJobSearch(),
+            matcher=FakeMatcher(),
+            tailor=FakeTailor(),
+            application=FakeApplication(),
+            interview_prep=FakeInterviewPrep(),
+        ).run(
+            db_session,
+            AgentRunRequest(
+                task_type="full_career_flow",
+                profile_id=profile.id,
+                job_id=job.id,
+                application_confirmed=True,
+            ),
+        )
+    )
+
+    assert run.status == "completed"
+    assert run.output_json["selected_job"]["title"] == "Agent 开发实习生"
+    assert run.output_json["tailor"]["job_id"] == job.id
+    step_names = {event.node_name for event in db_session.query(AgentEvent).filter(AgentEvent.run_id == run.id).all()}
+    assert "search_jobs" not in step_names
+    assert "load_job" in step_names
+
+
+def test_queued_run_can_be_started_and_records_events(db_session, monkeypatch):
+    from pathlib import Path
+    from uuid import uuid4
+
+    from app.core.config import get_settings
+
+    checkpoint_path = Path(".tmp_test") / f"queued_checkpoints_{uuid4().hex}.sqlite"
+    checkpoint_path.parent.mkdir(exist_ok=True)
+    monkeypatch.setenv("LANGGRAPH_CHECKPOINT_FILE", str(checkpoint_path.resolve()))
+    get_settings.cache_clear()
+
+    profile = Profile(
+        name="Candidate",
+        source_type="guided",
+        raw_resume_text="Built CareerAgent with FastAPI and RAG.",
+        structured_profile_json={"skills": ["FastAPI", "RAG"]},
+        target_roles_json=["Agent 开发实习生"],
+    )
+    db_session.add(profile)
+    db_session.commit()
+    db_session.refresh(profile)
+
+    class EmptyJobSearch:
+        async def search(self, db, **kwargs):
+            return [], {}
+
+    orchestrator = AgentOrchestrator(job_search=EmptyJobSearch())
+    queued = orchestrator.queue_run(
+        db_session,
+        AgentRunRequest(task_type="find_jobs_for_profile", profile_id=profile.id, query="Agent 开发实习生"),
+    )
+
+    assert queued.status == "queued"
+    assert queued.input_json["graph_thread_id"].startswith("agent-run-")
+
+    completed = asyncio.run(AgentOrchestrator(job_search=EmptyJobSearch()).run_existing(db_session, queued.id))
+
+    assert completed.status == "completed"
+    assert completed.output_json["matches"] == []
+    event_types = [
+        row.event_type
+        for row in db_session.query(AgentEvent).filter(AgentEvent.run_id == completed.id).order_by(AgentEvent.id).all()
+    ]
+    assert "run_created" in event_types
+    assert "run_started" in event_types
+    assert "graph_completed" in event_types
+    assert "run_finished" in event_types
+    get_settings.cache_clear()
+    checkpoint_path.unlink(missing_ok=True)
 
 
 def test_quick_apply_interrupts_and_resumes_from_sqlite_checkpoint(db_session, monkeypatch):
