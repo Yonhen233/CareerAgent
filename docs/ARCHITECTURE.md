@@ -6,7 +6,7 @@ CareerAgent 的目标不是“一个 Prompt 生成简历”，而是一个可观
 
 - `app/api`：FastAPI 路由层，负责请求校验、DB Session 注入和服务编排。
 - `app/frontend`：Jinja 页面路由，提供本地工作台。
-- `app/agents`：Agent 工作流编排、Tool 注册表、Skill 注册表和 SubAgent 注册表。
+- `app/agents`：LangGraph Agent 工作流编排、Tool 注册表、Skill 注册表和 SubAgent 注册表。
 - `app/services`：领域服务，包括简历解析、JD 解析、岗位搜索、RAG 检索、匹配、简历定制、Guardrails、投递包、评测和 Trace。
 - `app/models`：SQLAlchemy 数据模型和 Pydantic 响应模型。
 - `app/core`：配置、数据库、LLM 客户端。
@@ -47,9 +47,11 @@ CareerAgent 的目标不是“一个 Prompt 生成简历”，而是一个可观
 
 ## Agent 工作流
 
+Agent 主编排已经迁移到 LangGraph。`app/agents/orchestrator.py` 只保留兼容类名，实际实现位于 `app/agents/langgraph_orchestrator.py`。所有任务先进入 `plan_task` 节点，再由 LangGraph 条件边路由到具体流程。SQLite 中的 `agent_runs`、`agent_steps` 和 `agent_artifacts` 仍是产品侧可观测数据源；LangGraph state 只保存 ID 和 JSON 产物，不保存 ORM 对象。
+
 ### `find_jobs_for_profile`
 
-1. `plan_task` 生成 Plan-Execute 执行计划，包含 tools、skills、subagents 和 context policy，并写入 `agent_artifacts`。
+1. LangGraph `plan_task` 节点生成 Plan-Execute 执行计划，包含 tools、skills、subagents、context policy 和 `orchestration_framework=langgraph`，并写入 `agent_artifacts`。
 2. 加载 Profile。
 3. 并发搜索岗位源。
 4. 并发解析 JD。
@@ -59,7 +61,7 @@ CareerAgent 的目标不是“一个 Prompt 生成简历”，而是一个可观
 
 ### `tailor_resume_for_job`
 
-1. `plan_task` 生成 Plan-Execute 执行计划。
+1. LangGraph `plan_task` 节点生成 Plan-Execute 执行计划。
 2. 加载 Profile 和 Job。
 3. 生成匹配结果。
 4. 检索简历 RAG 证据。

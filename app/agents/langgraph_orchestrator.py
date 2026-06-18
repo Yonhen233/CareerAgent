@@ -1,0 +1,604 @@
+import time
+from typing import Any, Literal, TypedDict
+
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.graph import END, START, StateGraph
+from sqlalchemy.orm import Session
+
+from app.agents.tools import AgentPlanner
+from app.models.entities import Application, Job, Profile, ResumeVersion
+from app.models.schemas import AgentRunRequest
+from app.services.application_service import ApplicationService
+from app.services.interview_prep import InterviewPrepService
+from app.services.job_search import JobSearchService
+from app.services.matcher import MatcherService
+from app.services.resume_tailor import ResumeTailorService
+from app.services.trace_service import TraceService
+
+
+TaskType = Literal[
+    "find_jobs_for_profile",
+    "tailor_resume_for_job",
+    "quick_apply",
+    "prepare_interview_for_job",
+    "full_career_flow",
+]
+
+
+class CareerAgentGraphState(TypedDict, total=False):
+    request: dict[str, Any]
+    run_id: int
+    task_type: TaskType
+    execution_plan: dict[str, Any]
+    profile_id: int | None
+    job_id: int | None
+    resume_version_id: int | None
+    query: str | None
+    location: str | None
+    limit: int
+    job_ids: list[int]
+    matches: list[dict[str, Any]]
+    source_errors: dict[str, str]
+    selected_job: dict[str, Any]
+    selected_job_id: int
+    match_result_id: int
+    overall_score: float
+    verification: dict[str, Any]
+    fit_gate: dict[str, Any]
+    tailor: dict[str, Any]
+    application: dict[str, Any]
+    interview_prep: dict[str, Any]
+    output: dict[str, Any]
+
+
+class LangGraphAgentOrchestrator:
+    def __init__(
+        self,
+        *,
+        trace: TraceService | None = None,
+        job_search: JobSearchService | None = None,
+        matcher: MatcherService | None = None,
+        tailor: ResumeTailorService | None = None,
+        application: ApplicationService | None = None,
+        interview_prep: InterviewPrepService | None = None,
+        planner: AgentPlanner | None = None,
+    ) -> None:
+        self.trace = trace or TraceService()
+        self.job_search = job_search or JobSearchService()
+        self.matcher = matcher or MatcherService()
+        self.tailor = tailor or ResumeTailorService()
+        self.application = application or ApplicationService()
+        self.interview_prep = interview_prep or InterviewPrepService()
+        self.planner = planner or AgentPlanner()
+        self._runtime_dbs: dict[int, Session] = {}
+        self._runtime_plans: dict[int, dict[str, Any]] = {}
+        self.checkpointer = InMemorySaver()
+        self._graph = self._build_graph()
+
+    async def run(self, db: Session, request: AgentRunRequest):
+        started = time.perf_counter()
+        run = self.trace.create_run(
+            db,
+            task_type=request.task_type,
+            profile_id=request.profile_id,
+            job_id=request.job_id,
+            input_json={
+                **request.model_dump(),
+                "orchestration_framework": "langgraph",
+            },
+        )
+        self._runtime_dbs[run.id] = db
+        try:
+            final_state = await self._graph.ainvoke(
+                {
+                    "request": request.model_dump(),
+                    "run_id": run.id,
+                    "task_type": request.task_type,
+                    "profile_id": request.profile_id,
+                    "job_id": request.job_id,
+                    "resume_version_id": request.resume_version_id,
+                    "query": request.query,
+                    "location": request.location,
+                    "limit": request.limit,
+                },
+                config={"configurable": {"thread_id": f"agent-run-{run.id}"}},
+            )
+            output = dict(final_state.get("output") or {})
+            output["execution_plan"] = final_state.get("execution_plan") or {}
+            output["orchestration_framework"] = "langgraph"
+            return self.trace.finish_run(db, run=run, status="completed", output_json=output, started_at=started)
+        except Exception as exc:  # noqa: BLE001
+            return self.trace.finish_run(
+                db,
+                run=run,
+                status="failed",
+                output_json={
+                    "error": str(exc),
+                    "orchestration_framework": "langgraph",
+                    "execution_plan": self._runtime_plans.get(run.id) or {},
+                },
+                error_message=str(exc),
+                started_at=started,
+            )
+        finally:
+            self._runtime_dbs.pop(run.id, None)
+            self._runtime_plans.pop(run.id, None)
+
+    def _build_graph(self):
+        graph = StateGraph(CareerAgentGraphState)
+        graph.add_node("plan_task", self._node_plan_task)
+        graph.add_node("load_profile", self._node_load_profile)
+        graph.add_node("search_jobs", self._node_search_jobs)
+        graph.add_node("match_jobs", self._node_match_jobs)
+        graph.add_node("select_job", self._node_select_job)
+        graph.add_node("load_job", self._node_load_job)
+        graph.add_node("match_job", self._node_match_job)
+        graph.add_node("tailor_resume", self._node_tailor_resume)
+        graph.add_node("fit_gate", self._node_fit_gate)
+        graph.add_node("ensure_resume_version", self._node_ensure_resume_version)
+        graph.add_node("create_application_packet", self._node_create_application_packet)
+        graph.add_node("generate_interview_prep", self._node_generate_interview_prep)
+        graph.add_node("finalize_find_jobs", self._node_finalize_find_jobs)
+        graph.add_node("finalize_tailor", self._node_finalize_tailor)
+        graph.add_node("finalize_quick_apply", self._node_finalize_quick_apply)
+        graph.add_node("finalize_interview", self._node_finalize_interview)
+        graph.add_node("finalize_full_flow", self._node_finalize_full_flow)
+
+        graph.add_edge(START, "plan_task")
+        graph.add_conditional_edges(
+            "plan_task",
+            self._route_after_plan,
+            {
+                "find_jobs_for_profile": "load_profile",
+                "tailor_resume_for_job": "load_profile",
+                "quick_apply": "load_profile",
+                "prepare_interview_for_job": "load_profile",
+                "full_career_flow": "load_profile",
+            },
+        )
+        graph.add_conditional_edges(
+            "load_profile",
+            self._route_after_profile,
+            {
+                "search_jobs": "search_jobs",
+                "load_job": "load_job",
+            },
+        )
+        graph.add_edge("search_jobs", "match_jobs")
+        graph.add_conditional_edges(
+            "match_jobs",
+            self._route_after_match_jobs,
+            {
+                "finalize_find_jobs": "finalize_find_jobs",
+                "select_job": "select_job",
+            },
+        )
+        graph.add_edge("select_job", "load_job")
+        graph.add_edge("load_job", "match_job")
+        graph.add_conditional_edges(
+            "match_job",
+            self._route_after_match_job,
+            {
+                "tailor_resume": "tailor_resume",
+                "fit_gate": "fit_gate",
+                "generate_interview_prep": "generate_interview_prep",
+            },
+        )
+        graph.add_conditional_edges(
+            "tailor_resume",
+            self._route_after_tailor,
+            {
+                "finalize_tailor": "finalize_tailor",
+                "fit_gate": "fit_gate",
+            },
+        )
+        graph.add_edge("fit_gate", "ensure_resume_version")
+        graph.add_edge("ensure_resume_version", "create_application_packet")
+        graph.add_conditional_edges(
+            "create_application_packet",
+            self._route_after_application,
+            {
+                "finalize_quick_apply": "finalize_quick_apply",
+                "generate_interview_prep": "generate_interview_prep",
+            },
+        )
+        graph.add_conditional_edges(
+            "generate_interview_prep",
+            self._route_after_interview,
+            {
+                "finalize_interview": "finalize_interview",
+                "finalize_full_flow": "finalize_full_flow",
+            },
+        )
+        graph.add_edge("finalize_find_jobs", END)
+        graph.add_edge("finalize_tailor", END)
+        graph.add_edge("finalize_quick_apply", END)
+        graph.add_edge("finalize_interview", END)
+        graph.add_edge("finalize_full_flow", END)
+        return graph.compile(checkpointer=self.checkpointer)
+
+    def _request(self, state: CareerAgentGraphState) -> AgentRunRequest:
+        return AgentRunRequest(**state["request"])
+
+    async def _node_plan_task(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        request = self._request(state)
+        db = self._db_from_state(state)
+        plan = await self.trace.step(
+            db,
+            run_id=state["run_id"],
+            step_name="plan_task",
+            tool_name="LangGraph.AgentPlanner",
+            input_json={"task_type": request.task_type},
+            handler=lambda: self._async_value(
+                {
+                    **self.planner.build_plan(request),
+                    "orchestration_framework": "langgraph",
+                    "graph_thread_id": f"agent-run-{state['run_id']}",
+                }
+            ),
+        )
+        self._runtime_plans[state["run_id"]] = plan
+        self.trace.add_artifact(db, run_id=state["run_id"], artifact_type="execution_plan", payload=plan)
+        return {"execution_plan": plan}
+
+    async def _node_load_profile(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        db = self._db_from_state(state)
+        profile = await self.trace.step(
+            db,
+            run_id=state["run_id"],
+            step_name="load_profile",
+            tool_name="ProfileRepository",
+            input_json={"profile_id": state.get("profile_id")},
+            handler=lambda: self._load_profile(db, state.get("profile_id")),
+        )
+        query = state.get("query") or " ".join(profile.target_roles_json or []) or "Agent 开发实习生"
+        return {"profile_id": profile.id, "query": query}
+
+    async def _node_search_jobs(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        db = self._db_from_state(state)
+        jobs, source_errors = await self.trace.step(
+            db,
+            run_id=state["run_id"],
+            step_name="search_jobs",
+            tool_name="JobSearchService",
+            input_json={"query": state.get("query"), "location": state.get("location"), "limit": state.get("limit")},
+            handler=lambda: self.job_search.search(
+                db,
+                query=state.get("query") or "Agent 开发实习生",
+                location=state.get("location"),
+                internship_only=True,
+                limit=int(state.get("limit") or 20),
+                store_results=True,
+            ),
+        )
+        return {"job_ids": [job.id for job in jobs], "source_errors": source_errors}
+
+    async def _node_match_jobs(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        db = self._db_from_state(state)
+        profile = await self._load_profile(db, state.get("profile_id"))
+        matches: list[dict[str, Any]] = []
+        for job_id in state.get("job_ids", []):
+            job = await self._load_job(db, int(job_id))
+            match = await self.trace.step(
+                db,
+                run_id=state["run_id"],
+                step_name=f"match_job_{job.id}",
+                tool_name="MatcherService",
+                input_json={"profile_id": profile.id, "job_id": job.id},
+                handler=lambda job=job: self._async_value(self.matcher.create_match_result(db, profile, job)),
+            )
+            matches.append(
+                {
+                    "job_id": job.id,
+                    "title": job.title,
+                    "company": job.company,
+                    "overall_score": match.overall_score,
+                    "matched_skills": match.matched_skills_json,
+                    "missing_skills": match.missing_skills_json,
+                    "apply_url": job.apply_url,
+                }
+            )
+        matches.sort(key=lambda item: item["overall_score"], reverse=True)
+        payload = {
+            "profile_id": profile.id,
+            "query": state.get("query"),
+            "matches": matches,
+            "source_errors": state.get("source_errors") or {},
+        }
+        self.trace.add_artifact(db, run_id=state["run_id"], artifact_type="ranked_jobs", payload=payload)
+        return {"matches": matches}
+
+    async def _node_select_job(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        matches = state.get("matches") or []
+        if not matches:
+            raise ValueError(
+                "Full career flow stopped: no matched jobs found. "
+                f"source_errors={state.get('source_errors') or {}}"
+            )
+        selected_job = dict(matches[0])
+        db = self._db_from_state(state)
+        self.trace.add_artifact(
+            db,
+            run_id=state["run_id"],
+            artifact_type="selected_job",
+            payload={"selection_policy": "highest_overall_score", "selected_job": selected_job},
+        )
+        return {"selected_job": selected_job, "job_id": int(selected_job["job_id"]), "selected_job_id": int(selected_job["job_id"])}
+
+    async def _node_load_job(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        db = self._db_from_state(state)
+        job = await self.trace.step(
+            db,
+            run_id=state["run_id"],
+            step_name="load_job",
+            tool_name="JobRepository",
+            input_json={"job_id": state.get("job_id")},
+            handler=lambda: self._load_job(db, state.get("job_id")),
+        )
+        return {"job_id": job.id}
+
+    async def _node_match_job(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        db = self._db_from_state(state)
+        profile = await self._load_profile(db, state.get("profile_id"))
+        job = await self._load_job(db, state.get("job_id"))
+        match = await self.trace.step(
+            db,
+            run_id=state["run_id"],
+            step_name="match_job",
+            tool_name="MatcherService",
+            input_json={"profile_id": profile.id, "job_id": job.id},
+            handler=lambda: self._async_value(self.matcher.create_match_result(db, profile, job)),
+        )
+        return {
+            "match_result_id": match.id,
+            "overall_score": match.overall_score,
+            "matched_skills": match.matched_skills_json,
+            "missing_skills": match.missing_skills_json,
+        }
+
+    async def _node_tailor_resume(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        db = self._db_from_state(state)
+        profile = await self._load_profile(db, state.get("profile_id"))
+        job = await self._load_job(db, state.get("job_id"))
+        version = await self.trace.step(
+            db,
+            run_id=state["run_id"],
+            step_name="tailor_resume_with_rag",
+            tool_name="ResumeTailorService",
+            input_json={"profile_id": profile.id, "job_id": job.id},
+            handler=lambda: self.tailor.tailor_resume(db, profile, job),
+        )
+        payload = {
+            "profile_id": profile.id,
+            "job_id": job.id,
+            "match_result_id": state.get("match_result_id"),
+            "overall_score": state.get("overall_score"),
+            "resume_version_id": version.id,
+            "verification": version.verification_json,
+        }
+        self.trace.add_artifact(db, run_id=state["run_id"], artifact_type="tailored_resume", payload=payload)
+        return {
+            "resume_version_id": version.id,
+            "verification": version.verification_json,
+            "tailor": payload,
+        }
+
+    async def _node_fit_gate(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        db = self._db_from_state(state)
+        profile = await self._load_profile(db, state.get("profile_id"))
+        job = await self._load_job(db, state.get("job_id"))
+        fit_gate = await self.trace.step(
+            db,
+            run_id=state["run_id"],
+            step_name="fit_gate",
+            tool_name="MatcherService",
+            input_json={"profile_id": profile.id, "job_id": job.id, "min_score": 55},
+            handler=lambda: self._async_value(self._fit_gate(db, profile, job)),
+        )
+        self.trace.add_artifact(db, run_id=state["run_id"], artifact_type="fit_gate", payload=fit_gate)
+        return {"fit_gate": fit_gate}
+
+    async def _node_ensure_resume_version(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        if state.get("resume_version_id"):
+            return {"resume_version_id": int(state["resume_version_id"])}
+        db = self._db_from_state(state)
+        profile = await self._load_profile(db, state.get("profile_id"))
+        job = await self._load_job(db, state.get("job_id"))
+        version = await self.trace.step(
+            db,
+            run_id=state["run_id"],
+            step_name="create_missing_tailored_resume",
+            tool_name="ResumeTailorService",
+            input_json={"profile_id": profile.id, "job_id": job.id},
+            handler=lambda: self.tailor.tailor_resume(db, profile, job),
+        )
+        return {"resume_version_id": version.id}
+
+    async def _node_create_application_packet(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        db = self._db_from_state(state)
+        profile = await self._load_profile(db, state.get("profile_id"))
+        job = await self._load_job(db, state.get("job_id"))
+        resume_version = db.query(ResumeVersion).filter(ResumeVersion.id == state.get("resume_version_id")).first()
+        if resume_version is None:
+            raise ValueError(f"ResumeVersion {state.get('resume_version_id')} not found.")
+        application = await self.trace.step(
+            db,
+            run_id=state["run_id"],
+            step_name="create_application_packet",
+            tool_name="ApplicationService",
+            input_json={"profile_id": profile.id, "job_id": job.id, "resume_version_id": resume_version.id},
+            handler=lambda: self.application.create_quick_apply_packet(
+                db,
+                profile=profile,
+                job=job,
+                resume_version=resume_version,
+                browser_assist=False,
+            ),
+        )
+        payload = self._application_payload(application)
+        payload["fit_gate"] = state.get("fit_gate")
+        return {"application": payload}
+
+    async def _node_generate_interview_prep(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        db = self._db_from_state(state)
+        profile = await self._load_profile(db, state.get("profile_id"))
+        job = await self._load_job(db, state.get("job_id"))
+        match_result = self.matcher.create_match_result(db, profile, job)
+        prep = await self.trace.step(
+            db,
+            run_id=state["run_id"],
+            step_name="generate_interview_prep",
+            tool_name="InterviewPrepService",
+            input_json={"profile_id": profile.id, "job_id": job.id, "match_result_id": match_result.id},
+            handler=lambda: self.interview_prep.create_interview_prep_with_llm(
+                db, profile=profile, job=job, match_result=match_result
+            ),
+        )
+        payload = self._interview_prep_payload(prep)
+        self.trace.add_artifact(db, run_id=state["run_id"], artifact_type="interview_prep", payload=payload)
+        return {"interview_prep": payload}
+
+    async def _node_finalize_find_jobs(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        return {
+            "output": {
+                "profile_id": state.get("profile_id"),
+                "query": state.get("query"),
+                "matches": state.get("matches") or [],
+                "source_errors": state.get("source_errors") or {},
+            }
+        }
+
+    async def _node_finalize_tailor(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        return {"output": dict(state.get("tailor") or {})}
+
+    async def _node_finalize_quick_apply(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        return {"output": dict(state.get("application") or {})}
+
+    async def _node_finalize_interview(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        return {"output": dict(state.get("interview_prep") or {})}
+
+    async def _node_finalize_full_flow(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        selected_job_id = int(state.get("selected_job_id") or state.get("job_id") or 0)
+        payload = {
+            "profile_id": state.get("profile_id"),
+            "query": state.get("query"),
+            "selected_job": state.get("selected_job") or {},
+            "matches": state.get("matches") or [],
+            "source_errors": state.get("source_errors") or {},
+            "tailor": state.get("tailor") or {},
+            "application": state.get("application") or {},
+            "interview_prep": state.get("interview_prep") or {},
+            "links": {
+                "profile": f"/ui/profiles?profile_id={state.get('profile_id')}",
+                "job": f"/ui/jobs?job_id={selected_job_id}",
+                "resume_versions": "/ui/resumes",
+                "applications": "/ui/applications",
+                "interview_prep": f"/ui/prep?job_id={selected_job_id}",
+                "trace": "/ui/agent-runs",
+            },
+        }
+        db = self._db_from_state(state)
+        self.trace.add_artifact(db, run_id=state["run_id"], artifact_type="full_career_flow", payload=payload)
+        return {"output": payload}
+
+    def _route_after_plan(self, state: CareerAgentGraphState) -> str:
+        return str(state["task_type"])
+
+    def _route_after_profile(self, state: CareerAgentGraphState) -> str:
+        if state["task_type"] in {"find_jobs_for_profile", "full_career_flow"}:
+            return "search_jobs"
+        return "load_job"
+
+    def _route_after_match_jobs(self, state: CareerAgentGraphState) -> str:
+        if state["task_type"] == "find_jobs_for_profile":
+            return "finalize_find_jobs"
+        return "select_job"
+
+    def _route_after_match_job(self, state: CareerAgentGraphState) -> str:
+        task_type = state["task_type"]
+        if task_type in {"tailor_resume_for_job", "full_career_flow"}:
+            return "tailor_resume"
+        if task_type == "quick_apply":
+            return "fit_gate"
+        if task_type == "prepare_interview_for_job":
+            return "generate_interview_prep"
+        raise ValueError(f"Unsupported task_type after match_job: {task_type}")
+
+    def _route_after_tailor(self, state: CareerAgentGraphState) -> str:
+        return "fit_gate" if state["task_type"] == "full_career_flow" else "finalize_tailor"
+
+    def _route_after_application(self, state: CareerAgentGraphState) -> str:
+        return "generate_interview_prep" if state["task_type"] == "full_career_flow" else "finalize_quick_apply"
+
+    def _route_after_interview(self, state: CareerAgentGraphState) -> str:
+        return "finalize_full_flow" if state["task_type"] == "full_career_flow" else "finalize_interview"
+
+    def _db_from_state(self, state: CareerAgentGraphState) -> Session:
+        db = self._runtime_dbs.get(int(state["run_id"]))
+        if db is None:
+            raise RuntimeError("LangGraph node state is missing the active database session.")
+        return db
+
+    async def _load_profile(self, db: Session, profile_id: int | None) -> Profile:
+        if profile_id is None:
+            raise ValueError("profile_id is required.")
+        profile = db.query(Profile).filter(Profile.id == profile_id).first()
+        if profile is None:
+            raise ValueError(f"Profile {profile_id} not found.")
+        return profile
+
+    async def _load_job(self, db: Session, job_id: int | None) -> Job:
+        if job_id is None:
+            raise ValueError("job_id is required.")
+        job = db.query(Job).filter(Job.id == job_id).first()
+        if job is None:
+            raise ValueError(f"Job {job_id} not found.")
+        return job
+
+    async def _async_value(self, value):
+        return value
+
+    def _fit_gate(self, db: Session, profile: Profile, job: Job) -> dict[str, Any]:
+        match = self.matcher.create_match_result(db, profile, job)
+        payload = {
+            "match_result_id": match.id,
+            "overall_score": match.overall_score,
+            "matched_skills": match.matched_skills_json,
+            "missing_skills": match.missing_skills_json,
+            "passed": match.overall_score >= 55,
+            "min_score": 55,
+        }
+        if not payload["passed"]:
+            raise ValueError(
+                f"Fit gate blocked quick_apply: score {match.overall_score} is below 55. "
+                f"Missing skills: {', '.join(match.missing_skills_json[:6])}"
+            )
+        return payload
+
+    def _application_payload(self, application: Application) -> dict[str, Any]:
+        automation_result = application.automation_result_json or {}
+        return {
+            "application_id": application.id,
+            "profile_id": application.profile_id,
+            "job_id": application.job_id,
+            "resume_version_id": application.resume_version_id,
+            "status": application.status,
+            "apply_url": application.apply_url,
+            "checklist": application.checklist_json,
+            "packet_validation": automation_result.get("packet_validation"),
+            "automation_result": automation_result,
+        }
+
+    def _interview_prep_payload(self, prep) -> dict[str, Any]:
+        return {
+            "interview_prep_id": prep.id,
+            "profile_id": prep.profile_id,
+            "job_id": prep.job_id,
+            "match_result_id": prep.match_result_id,
+            "title": prep.title,
+            "summary": prep.summary_json,
+            "coverage": prep.coverage_json,
+            "question_set_count": len(prep.question_sets_json or []),
+            "gap_drill_count": len(prep.gap_drills_json or []),
+            "research_item_count": len(prep.research_checklist_json or []),
+        }

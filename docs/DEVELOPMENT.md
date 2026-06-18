@@ -67,6 +67,16 @@ JOB_INGEST_CONCURRENCY=6
 - `RERANKER_ANCHOR_TOP_N=5`：保留前 5 条一阶段证据顺序，降低 reranker 牺牲召回的风险。
 - `JOB_INGEST_CONCURRENCY`：并发解析 JD 的最大并发数。
 
+## LangGraph 编排开发约定
+
+- 主 Agent 编排位于 `app/agents/langgraph_orchestrator.py`，`app/agents/orchestrator.py` 只保留兼容类名。
+- 所有新增 Agent task 都应先加入 LangGraph `StateGraph` 节点和条件边，再暴露到 API 或前端。
+- Graph state 只能保存 JSON 友好的 ID、列表和字典，不要保存 SQLAlchemy ORM 对象、DB Session、文件句柄或模型实例。
+- 节点内部继续使用 `TraceService.step()` 写入 `agent_steps`，这样前端、评测和排障仍可复用原 trace。
+- 如果节点有数据库写入副作用，必须保证幂等或先检查已有记录；后续接入 checkpointer/interrupt 后，节点可能因为恢复而重新执行。
+- 当前 LangGraph 已使用 `InMemorySaver` checkpointer；它适合本地运行和单进程调试，不提供跨进程恢复。
+- 现阶段 LangGraph 使用运行期 `run_id -> Session` 映射接入现有 FastAPI DB Session；替换为持久化 checkpointer 时，需要把长流程恢复改成每个节点独立打开 Session。
+
 ## 数据库
 
 默认使用 SQLite：

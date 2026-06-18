@@ -1,5 +1,37 @@
 # 开发日志
 
+## 2026-06-18 12:46:25 +08:00：Agent 主编排整体迁移到 LangGraph
+### 这次做了什么
+- 新增 `app/agents/langgraph_orchestrator.py`，用 LangGraph `StateGraph` 承接全部 Agent task：`find_jobs_for_profile`、`tailor_resume_for_job`、`quick_apply`、`prepare_interview_for_job` 和 `full_career_flow`。
+- 将旧 `AgentOrchestrator` 改为兼容外壳，所有 FastAPI `/agent/runs`、自然语言 Agent、Agent full-flow 评测和面试包流程继续使用原 import，但实际执行已经走 LangGraph。
+- 为 LangGraph graph 接入 `InMemorySaver` checkpointer，并在运行配置中写入 `graph_thread_id=agent-run-{id}`。
+- 保留原有 `agent_runs`、`agent_steps`、`agent_artifacts` 可观测链路；每个 LangGraph 节点内部继续通过 `TraceService.step()` 写入步骤级 input/output/latency/error。
+- `AgentPlanner` 和 run 输入输出新增 `orchestration_framework=langgraph`，`execution_plan.langgraph_decision.migrated=true`。
+- Agent full-flow 评测新增 `langgraph_pass_rate`，并把 LangGraph 标识纳入 case 通过条件，避免后续绕过 LangGraph 主编排。
+- 更新 README、Agent 设计、架构、API、开发说明和评测文档，说明当前已迁移到 LangGraph，以及 checkpointer、state 和后续 interrupt 的边界。
+### 发现的问题
+- LangGraph 的 `TypedDict` state schema 会丢弃未声明字段；初版 `search_jobs` 节点返回了 `job_ids`，但 state 未声明，导致 full-flow 后续选择岗位时看不到任何匹配结果。
+- 弱匹配 case 中 `quick_apply` 被 `fit_gate` 正确阻断，run 状态是 failed；初版失败输出没有带回 `execution_plan`，导致评测无法证明 failed run 也经过 LangGraph 编排。
+- 不能把 SQLAlchemy Session 或 ORM 对象放进 LangGraph state；否则后续接入 checkpointer/resume 时会出现序列化和副作用重放问题。
+- 本地命令里 `pytest.exe` 和 `python` 可能来自不同解释器；LangGraph 安装后应使用 `python -m pytest` 固定解释器。
+### 怎么修复
+- 在 `CareerAgentGraphState` 中显式声明 `job_ids`，并通过回归测试覆盖 full-flow 选择岗位链路。
+- 在 `LangGraphAgentOrchestrator` 中增加运行期 `run_id -> Session` 和 `run_id -> execution_plan` 映射：state 只保存 JSON 友好数据，失败 run 也能在 `output_json.execution_plan` 中保留计划。
+- 为 graph compile 接入 `InMemorySaver`，让 `thread_id` 在单进程内有 checkpoint 语义；文档明确跨进程恢复需要后续替换为持久化 checkpointer。
+- 保留所有 service 依赖注入参数，评测中的 fake `job_search`、`matcher`、`tailor`、`application`、`interview_prep` 仍能替换节点内部服务。
+### 验证结果
+- 迁移相关测试 `python -m pytest tests\test_agent_workflow.py tests\test_evaluation_service.py tests\test_natural_language_agent.py tests\test_interview_prep.py -q` 通过，41 个测试全部通过。
+- 完整回归测试 `python -m pytest -q` 通过，94 个测试全部通过。
+- `python -m py_compile app\agents\langgraph_orchestrator.py app\agents\orchestrator.py app\agents\tools.py app\services\evaluation_service.py` 通过。
+### 未修复的问题
+- 当前 checkpointer 是 `InMemorySaver`，适合本地单进程运行和调试；跨进程、重启后的恢复还需要换成 SQLite/Postgres 等持久化 checkpointer。
+- 还没有把投递前人工确认改为 LangGraph interrupt；原因是现有产品已经通过 `ApplicationPacketGuardrail` 和人工确认字段阻止自动提交，真正的 interrupt 更适合和后续浏览器/邮箱/MCP 工具一起接入。
+- 前端进度仍读取 `agent_steps`，没有直接消费 LangGraph event stream；原因是保留原有 UI 兼容性，后续可在不破坏 trace 表的前提下加 streaming。
+### 下一步
+- 将 `InMemorySaver` 替换为持久化 checkpointer，并为 `graph_thread_id` 增加恢复 API。
+- 在投递、浏览器辅助填写、邮件发送等真实副作用节点前加入 LangGraph interrupt。
+- 增加前端事件流进度视图，直接展示 LangGraph 节点状态和中间产物。
+
 ## 2026-06-18 08:34:57 +08:00：复杂 PDF 简历与真实 LLM 前端主流程验收
 ### 这次做了什么
 - 生成复杂中文 PDF 简历样例 `D:\CareerAgent\generated_samples\complex_agent_resume_zh_20260618.pdf`，包含 3 页内容、多段教育/实习/项目、英文技术术语、社团经历和噪声文本，用于贴近真实简历上传测试。

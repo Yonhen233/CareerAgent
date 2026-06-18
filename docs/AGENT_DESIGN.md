@@ -66,9 +66,19 @@ LLM 不再直接读取全量 Profile、全量 JD 和全部证据，而是由 `Co
 
 这个能力不会出现在 Skill 注册表里，因为它不是用户意图层的能力，而是 LLM 调用链路的上下文策略。Skill 仍保留给 `fit_assessment`、`resume_tailoring` 这类可执行任务能力。
 
-## Plan-Execute
+## LangGraph Plan-Execute
 
-`AgentOrchestrator.run` 会先执行 `plan_task`，由 `AgentPlanner` 生成计划并写入 `agent_artifacts`。
+`AgentOrchestrator` 已经迁移为 LangGraph 编排器。旧的 `app.agents.orchestrator.AgentOrchestrator` 类名只作为兼容外壳，实际继承 `LangGraphAgentOrchestrator`，核心实现位于 `app/agents/langgraph_orchestrator.py`。
+
+每次运行都会：
+
+1. 创建 `agent_runs` 记录，并在 `input_json.orchestration_framework` 标记 `langgraph`。
+2. 进入 LangGraph `StateGraph`。
+3. 先执行 `plan_task` 节点，由 `AgentPlanner` 生成计划并写入 `agent_artifacts`。
+4. 根据 `task_type` 走条件边，进入 `find_jobs_for_profile`、`tailor_resume_for_job`、`quick_apply`、`prepare_interview_for_job` 或 `full_career_flow` 对应子流程。
+5. 每个业务节点继续写入 `agent_steps`，保留原有 step trace、artifact 和错误追踪。
+
+Graph state 只保存 JSON 友好的 ID、状态和产物摘要，例如 `profile_id`、`job_id`、`resume_version_id`、`matches`、`selected_job`、`fit_gate` 和 `output`。SQLAlchemy Session 不进入 state，而是通过运行期 `run_id -> Session` 映射注入节点；当前 graph 已接入 LangGraph `InMemorySaver` checkpointer，后续替换为 SQLite/Postgres checkpointer 时不会被 ORM 对象阻塞。
 
 适合 Plan-Execute 的原因：
 
@@ -88,6 +98,8 @@ LLM 不再直接读取全量 Profile、全量 JD 和全部证据，而是由 `Co
 - `react_loops`
 - `mcp_recommendation`
 - `langgraph_decision`
+- `orchestration_framework=langgraph`
+- `graph_thread_id`
 
 ## ReAct
 
@@ -206,22 +218,26 @@ RAG 证据不再只按向量分和关键词分排序，`MatcherService.retrieve_
 2. 当浏览器/邮箱/日历接入后，把这些外部工具封装为 MCP。
 3. Orchestrator 只面向统一 Tool Spec，不直接依赖某个 MCP server 的实现。
 
-## 是否需要 LangGraph
+## LangGraph 迁移状态
 
-当前不把整个项目迁移到 LangGraph。
+当前主 Agent 编排已经迁移到 LangGraph。
 
-理由：
+已完成：
 
-- 现有 Orchestrator 已经有显式 Plan-Execute、step trace、artifact、失败状态和工具边界。
-- 目前真正缺的是上下文治理、能力注册、真实评测和失败追踪，而不是图框架本身。
-- 直接迁移会增加依赖和重构成本，但对当前简历项目的可展示能力提升有限。
+- `find_jobs_for_profile`、`tailor_resume_for_job`、`quick_apply`、`prepare_interview_for_job` 和 `full_career_flow` 都通过同一个 `StateGraph` 运行。
+- FastAPI `/agent/runs`、自然语言 Agent、Agent full-flow 评测和面试包评测仍调用 `AgentOrchestrator`，因此自动走 LangGraph 编排。
+- 计划、步骤、artifact 和错误仍写入原有 SQLite trace 表，前端无需大改即可继续展示。
+- `execution_plan.langgraph_decision.migrated=true`，运行输入输出都带有 `orchestration_framework=langgraph`。
 
-适合迁移到 LangGraph 的触发条件：
+迁移中特别处理的问题：
 
-- 出现多分支状态机，例如多个岗位并行推进、不同状态恢复。
-- 需要人工审批节点，例如投递前确认、表单提交前确认。
-- 需要后台长任务恢复，例如持续抓取岗位、定时投递提醒。
-- 接入多个 MCP server，需要统一工具调用、重试和权限隔离。
-- ReAct repair loop 从 1-2 轮扩展成复杂策略搜索。
+- Graph state 不保存 ORM 对象，只保存 ID 和 JSON 产物，避免后续持久化和恢复失败。
+- 搜索岗位后返回的 `job_ids` 必须在 `TypedDict` state schema 中声明；否则 LangGraph 会丢弃该字段，导致后续节点拿不到岗位。这已经通过回归测试固定。
+- 保留依赖注入参数，测试和评测中的 fake `job_search`、`matcher`、`tailor`、`application`、`interview_prep` 仍可替换节点内部服务。
 
-所以当前选择是“先实现 LangGraph 关注的工程能力，再决定是否换框架”：状态、节点、工具、trace、上下文预算和评测都已经显式化。
+后续增强：
+
+- 将当前 `InMemorySaver` 替换为持久化 checkpointer，把 `graph_thread_id` 变成真正可跨进程恢复的游标。
+- 在投递前确认、浏览器辅助填写、邮件发送等真实副作用前加入 LangGraph interrupt。
+- 将长流程前端进度从轮询 AgentStep 升级为 LangGraph event streaming。
+- 当浏览器、邮箱、日历等工具 MCP 化后，把对应节点改为跨进程工具调用。

@@ -38,6 +38,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - `interview-source-smoke` 独立探测牛客网、OfferShow、小红书公开搜索页的可达性、空结果、面经信号、query relevance 和内容可抽取性，不绕过登录或反爬，也不影响核心面试包回归。
   - 面经正文难以稳定获取时，面试包只附上参考链接、标题和搜索入口；核心问题生成转向 JD、简历项目和 RAG 证据。
 - Agent 工作流：
+  - 主编排已经迁移到 LangGraph：所有 `/agent/runs`、自然语言 Agent 和 Agent full-flow 评测都通过 `LangGraphAgentOrchestrator` 的 `StateGraph` 运行；旧 `AgentOrchestrator` 类名只保留兼容 import。
   - `full_career_flow`：搜索/选择岗位、匹配、定制简历、投递包、面试包的一体化流程；适合 API 层验证完整链路。
   - `find_jobs_for_profile`：搜索岗位、解析 JD、入库、匹配、排序。
   - `tailor_resume_for_job`：匹配岗位、检索简历证据、定制简历、校验幻觉风险。
@@ -45,6 +46,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - `prepare_interview_for_job`：基于 JD、匹配结果、RAG 证据和已导入同岗面经生成面试准备包，显式按“网上同岗位面经、简历项目技术栈、其他可能面试问题”三类准备角度组织问题。真实入口会调用 LLM 生成项目实现追问和八股/基础追问链，面经只作为参考链接和标题，不再把抓正文作为核心依赖。
   - `quick_apply` 前置 `fit_gate`：低匹配岗位直接阻断，并把缺口写入 Agent step trace。
   - 每次 run 先生成 Plan-Execute 执行计划，并写入 Trace artifact。
+  - `execution_plan` 和 run 输入输出会标记 `orchestration_framework=langgraph`，并保留 `graph_thread_id`；当前使用 LangGraph `InMemorySaver` checkpointer，后续可替换为持久化 checkpointer 和 interrupt。
   - 显式注册 Tool、Skill 和 SubAgent，计划产物会展示当前任务使用的能力边界。
   - 简历定制带 1 轮 ReAct repair loop：Guardrail 高风险时读取 issues 和压缩上下文，修复后再次验证，并记录 `react_repair` 元数据。
 - LLM 上下文治理：
@@ -78,7 +80,7 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
 ```mermaid
 flowchart LR
     UI["Jinja 用户开始页 + 控制台"] --> API["FastAPI API"]
-    API --> Agent["Agent Orchestrator"]
+    API --> Agent["LangGraph Agent Orchestrator"]
     Agent --> Search["并发岗位搜索"]
     Agent --> Match["岗位匹配"]
     Agent --> Tailor["RAG 简历定制"]

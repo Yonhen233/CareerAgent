@@ -911,6 +911,7 @@ class EvaluationService:
             runs = [run for run in [find_run, tailor_run, quick_apply_run] if run is not None]
             trace_passed = all(self._run_has_completed_plan(db, run.id) for run in runs)
             artifact_passed = all(self._run_has_artifact(db, run.id, "execution_plan") for run in runs)
+            langgraph_passed = all(self._run_uses_langgraph(run) for run in runs)
             result.update(
                 {
                     "status": "completed",
@@ -931,6 +932,7 @@ class EvaluationService:
                     "application_packet_passed": application_packet_passed,
                     "trace_passed": trace_passed,
                     "artifact_passed": artifact_passed,
+                    "langgraph_passed": langgraph_passed,
                     "resume_version_id": resume_version_id,
                     "application_id": application_id,
                     "matches": matches,
@@ -1419,6 +1421,7 @@ class EvaluationService:
             and bool(result.get("score_passed"))
             and bool(result.get("trace_passed"))
             and bool(result.get("artifact_passed"))
+            and bool(result.get("langgraph_passed"))
         )
         if not base:
             return False
@@ -1454,15 +1457,27 @@ class EvaluationService:
             "fit_gate_block_count": len(blocked_cases),
             "trace_pass_rate": self._avg_bool(case_results, "trace_passed"),
             "artifact_pass_rate": self._avg_bool(case_results, "artifact_passed"),
+            "langgraph_pass_rate": self._avg_bool(case_results, "langgraph_passed"),
             "avg_top_job_score": self._avg_number(case_results, "top_job_score"),
             "avg_ranking_margin": self._avg_number(case_results, "ranking_margin"),
             "failure_breakdown": self._agent_full_flow_failure_breakdown(case_results),
             "notes": [
                 "覆盖 find_jobs_for_profile、tailor_resume_for_job、quick_apply、Trace、Artifact、RAG 证据和 Guardrail。",
+                "所有 Agent run 必须通过 LangGraph 主编排，input/output/execution_plan 均需标记 orchestration_framework=langgraph。",
                 "岗位源使用可控评测源，避免外部招聘站波动影响全链路回归；真实岗位抓取由 job source 单独测试。",
                 "低匹配 quick_apply 应被 fit_gate 阻断，失败直接写入 Agent step trace。",
             ],
         }
+
+    def _run_uses_langgraph(self, run) -> bool:
+        output = run.output_json or {}
+        plan = output.get("execution_plan") or {}
+        return (
+            (run.input_json or {}).get("orchestration_framework") == "langgraph"
+            and output.get("orchestration_framework") == "langgraph"
+            and plan.get("orchestration_framework") == "langgraph"
+            and bool(plan.get("graph_thread_id"))
+        )
 
     def _summarize_real_job_source_smoke(
         self,

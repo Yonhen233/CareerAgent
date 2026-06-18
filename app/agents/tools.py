@@ -201,6 +201,7 @@ class AgentPlanner:
 
         return {
             "mode": "plan_execute",
+            "orchestration_framework": "langgraph",
             "task_type": task_type,
             "skills": active_skill_names_for_task(task_type),
             "subagents": subagents_for_task(task_type),
@@ -233,14 +234,15 @@ class AgentPlanner:
 
     def _langgraph_decision(self) -> dict[str, Any]:
         return {
-            "migrate_now": False,
+            "migrate_now": True,
+            "migrated": True,
             "reason": (
-                "当前 Orchestrator 已经有显式 plan_execute、step trace、artifact 和注册工具边界；"
-                "此阶段优先补齐 Skill、SubAgent、上下文压缩和评测闭环。"
+                "当前主 AgentOrchestrator 已迁移为 LangGraph StateGraph，旧类名只作为兼容外壳；"
+                "FastAPI、自然语言入口和评测仍复用同一编排入口。"
             ),
             "migration_trigger": (
-                "当出现多分支状态机、人工审批节点、后台长任务恢复、跨 MCP server 工具调用或复杂 retry policy 时，"
-                "再迁移到 LangGraph 会更有工程收益。"
+                "下一阶段继续接入持久化 checkpointer、interrupt 人工确认和事件流进度，"
+                "把投递前确认与长任务恢复完全交给 LangGraph runtime。"
             ),
         }
 

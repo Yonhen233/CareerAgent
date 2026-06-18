@@ -266,6 +266,8 @@ GET /resumes/{resume_version_id}/markdown
 
 ## Agent Runs
 
+`POST /agent/runs` 现在由 LangGraph 主编排执行。兼容类名仍是 `AgentOrchestrator`，但内部实际调用 `LangGraphAgentOrchestrator` 的 `StateGraph`。所有任务都会先执行 `plan_task` 节点，再根据 `task_type` 通过条件边进入对应流程。返回的 `input_json`、`output_json` 和 `execution_plan` 会包含 `orchestration_framework=langgraph`，`execution_plan.graph_thread_id` 记录本次运行的 LangGraph thread 标识。
+
 ### 一体化求职流程
 
 ```http
@@ -290,6 +292,7 @@ Content-Type: application/json
 - 通过 `fit_gate` 后生成投递包。
 - 生成面试准备包。
 - 在同一个 `agent_run` 下写入 execution plan、selected job、tailored resume、fit gate、application 和 interview prep artifacts。
+- 每个业务节点仍写入 `agent_steps`，因此前端和调试 API 可以继续按原方式查看步骤、耗时和错误。
 
 ### 搜索并排序岗位
 
@@ -354,7 +357,7 @@ GET /agent/runs/{run_id}/steps
 GET /agent/tools
 ```
 
-返回当前 Orchestrator 可调用的工具、输入输出描述、副作用和是否适合后续 MCP 化。
+返回当前 LangGraph Orchestrator 可调用的工具、输入输出描述、副作用和是否适合后续 MCP 化。
 
 ### 查询 Agent Skill 与 SubAgent 注册表
 

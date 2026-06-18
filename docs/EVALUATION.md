@@ -345,6 +345,7 @@ POST /evaluations/agent-full-flow
 - 对需要定制的 case 运行 `tailor_resume_for_job`，检查 Guardrail 和关键词覆盖。
 - 对需要投递的 case 运行 `quick_apply`；弱匹配 case 期望被 `fit_gate` 阻断。
 - 检查每个 Agent run 是否生成 `execution_plan` artifact，并记录完整 step trace。
+- 检查 `execution_plan.orchestration_framework=langgraph` 和 `output_json.orchestration_framework=langgraph`，确保全流程评测覆盖 LangGraph 主编排入口。
 
 最新离线全流程结果：
 

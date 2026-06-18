@@ -53,9 +53,11 @@ def test_agent_full_flow_evaluation_covers_orchestrator_components(db_session):
     assert run.summary_json["application_packet_pass_rate"] == 1.0
     assert run.summary_json["trace_pass_rate"] == 1.0
     assert run.summary_json["artifact_pass_rate"] == 1.0
+    assert run.summary_json["langgraph_pass_rate"] == 1.0
     assert run.summary_json["fit_gate_block_count"] >= 3
     assert any(item.get("fit_gate_blocked") for item in run.case_results_json)
     assert all(item.get("run_trace") for item in run.case_results_json)
+    assert all(item.get("langgraph_passed") for item in run.case_results_json)
 
 
 def test_jd_parser_evaluation_covers_noisy_realistic_cases(db_session):

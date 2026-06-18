@@ -67,6 +67,9 @@ def test_tailor_resume_agent_workflow(db_session):
     assert run.status == "completed"
     assert run.output_json["resume_version_id"] > 0
     assert run.output_json["verification"]["risk_level"] in {"low", "medium", "high"}
+    assert run.input_json["orchestration_framework"] == "langgraph"
+    assert run.output_json["orchestration_framework"] == "langgraph"
+    assert run.output_json["execution_plan"]["orchestration_framework"] == "langgraph"
     assert run.output_json["execution_plan"]["context_policy"]["progressive_disclosure"] is True
     assert not any(item["name"] == "context_manager" for item in run.output_json["execution_plan"]["subagents"])
 
@@ -135,6 +138,8 @@ def test_full_career_flow_plan_exposes_modern_agent_boundaries():
     plan = AgentPlanner().build_plan(request)
 
     assert plan["mode"] == "plan_execute"
+    assert plan["orchestration_framework"] == "langgraph"
+    assert plan["langgraph_decision"]["migrated"] is True
     assert "resume_tailoring" in active_skill_names_for_task("full_career_flow")
     assert "interview_preparation" in active_skill_names_for_task("full_career_flow")
     assert "context_manager" not in [item["name"] for item in subagents_for_task("full_career_flow")]
@@ -283,3 +288,5 @@ def test_full_career_flow_orchestrator_runs_all_core_stages(db_session):
     assert run.output_json["application"]["application_id"] > 0
     assert run.output_json["interview_prep"]["interview_prep_id"] > 0
     assert run.output_json["execution_plan"]["task_type"] == "full_career_flow"
+    assert run.output_json["orchestration_framework"] == "langgraph"
+    assert run.output_json["execution_plan"]["graph_thread_id"] == f"agent-run-{run.id}"
