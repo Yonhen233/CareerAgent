@@ -1,4 +1,9 @@
+import pytest
+from fastapi import HTTPException
+
+from app.api.matches import create_match
 from app.models.entities import Job, Profile
+from app.models.schemas import MatchCreateRequest
 from app.services.matcher import MatcherService
 from app.services.text_splitter import ResumeTextSplitter
 from app.services.vector_index import SQLiteVectorIndex
@@ -106,3 +111,36 @@ def test_matcher_does_not_treat_machine_learning_as_negative_evidence():
 
     assert matcher._contains_negative_evidence("built machine learning workflows") is False
     assert matcher._contains_negative_evidence("currently learning RAG from tutorials") is True
+
+
+def test_matches_api_returns_structured_error_for_matching_failure(db_session, monkeypatch):
+    profile = Profile(
+        name="Candidate",
+        source_type="guided",
+        raw_resume_text="Python FastAPI RAG",
+        structured_profile_json={"skills": ["Python", "FastAPI", "RAG"], "raw_text": "Python FastAPI RAG"},
+    )
+    job = Job(
+        source="manual",
+        external_id="job-error",
+        title="Agent Development Intern",
+        raw_jd_text="Build Agent systems.",
+        structured_jd_json={"required_skills": ["Agent"]},
+    )
+    db_session.add_all([profile, job])
+    db_session.commit()
+    db_session.refresh(profile)
+    db_session.refresh(job)
+
+    class BrokenMatcher:
+        def create_match_result(self, db, profile, job):  # noqa: ANN001
+            raise ValueError("Unsupported reranker provider: keyword")
+
+    monkeypatch.setattr("app.api.matches.MatcherService", BrokenMatcher)
+
+    with pytest.raises(HTTPException) as exc_info:
+        create_match(MatchCreateRequest(profile_id=profile.id, job_id=job.id), db_session)
+
+    assert exc_info.value.status_code == 500
+    assert "Match generation failed" in exc_info.value.detail
+    assert "Unsupported reranker provider: keyword" in exc_info.value.detail

@@ -1,5 +1,42 @@
 # 开发日志
 
+## 2026-06-18 08:34:57 +08:00：复杂 PDF 简历与真实 LLM 前端主流程验收
+### 这次做了什么
+- 生成复杂中文 PDF 简历样例 `D:\CareerAgent\generated_samples\complex_agent_resume_zh_20260618.pdf`，包含 3 页内容、多段教育/实习/项目、英文技术术语、社团经历和噪声文本，用于贴近真实简历上传测试。
+- 使用真实 DeepSeek LLM 配置启动本地服务，并通过内置浏览器验证首页、简历档案页、HTML 简历预览页和一键求职流程。
+- 修复 PDF 简历结构化解析 prompt：不再要求 LLM 输出完整 `raw_text`，由服务端回填原文，避免复杂 PDF 解析时 JSON 被截断。
+- 将简历解析 LLM 输出预算从 1400 tokens 提升到 3600 tokens，并增加回归测试固定 prompt 约束和服务端回填逻辑。
+- 为 `/matches` 增加异常包装：匹配阶段失败时回滚事务并返回包含根因的结构化错误，避免前端只显示 `Internal Server Error`。
+- 将本地服务验收产生的 `.tmp_logs/` 加入 `.gitignore`，避免运行日志污染提交状态。
+- 用上传后的 Profile #150 和中文 Agent 开发实习 JD 在首页跑通一键流程，生成 Job #193、Resume #81、Application #22、InterviewPrep #35，对应 Agent run #154/#155/#156 全部完成。
+### 发现的问题
+- 复杂多页 PDF 上传时，原 prompt 要求 LLM 在 JSON 里返回完整 `raw_text`，真实调用会因为输出过长导致 JSON 截断，上传失败。
+- 首次前端一键流程用到了不支持的 `RERANKER_PROVIDER=keyword` 测试配置，匹配阶段抛出异常；旧接口没有包装根因，用户侧只能看到泛化 500。
+- `/ui/resumes` 当前会一次加载历史上所有定制简历 iframe，本次已有 81 个版本，页面仍可用但继续增长后会变重。
+- 内置浏览器控制台存在 Statsig 和 `MutationObserver.observe` 相关噪声；源码中没有对应调用，页面内容和后端 trace 均正常，判断为浏览器注入脚本噪声。
+### 怎么修复
+- 在 `ResumeParserService` 中移除 `raw_text` 的 LLM 输出要求，明确提示“不要在 JSON 中包含 raw_text”，解析成功后由服务端统一写入原文。
+- 增加简历解析测试，验证 prompt 不包含 `"raw_text": string`，并验证 LLM 未返回 `raw_text` 时服务端仍会回填。
+- 在 `/matches` API 中捕获 matcher 异常，执行 `db.rollback()`，并通过 `format_exception()` 返回可追溯错误。
+- 使用项目支持的 `heuristic` reranker 重新启动服务，重新跑前端一键流程。
+- 忽略 `.tmp_logs/`，保留本地排障日志但不进入版本控制。
+### 验证结果
+- `pypdf` 本地抽取 PDF：3 页、4486 个字符，关键字段 `林知远`、`CareerAgent`、`RAGEvalBoard`、`PromptShield Lite`、`DeepSeek`、`FastAPI` 均命中。
+- `/profiles/upload` 成功创建 Profile #150，HTML 预览页能展示姓名、上海交通大学、北京大学、星河智能应用实验室、CareerAgent、RAGEvalBoard 和 PromptShield Lite。
+- 内置浏览器首页一键流程完成 6 个阶段：档案、岗位、匹配、简历定制、投递包、面试包全部为完成态，匹配分数 71.71。
+- `/ui/resumes` 可看到简历版本 #81，`/ui/applications` 可看到投递包 #22，`/ui/prep?job_id=193` 可看到面试包 #35 和问题列表。
+- Agent trace 中 #154/#155/#156 的关键步骤均 completed；LLM 日志中 JD 解析、简历定制、面试题生成均 completed，且后端错误日志没有新增应用异常。
+- 目标回归测试 `pytest tests\test_resume_parser.py tests\test_matcher.py -q` 通过，7 个测试全部通过。
+- 完整回归测试 `pytest -q` 通过，94 个测试全部通过。
+### 未修复的问题
+- 当前 Browser API 没有文件选择器上传能力，本次用同一个后端上传接口上传 PDF 后，再在前端选择 Profile ID 跑流程；这不影响用户真实浏览器手动上传，但影响自动化浏览器端到端脚本。
+- PDF 样例生成临时使用本机 `reportlab`，它是测试样例生成工具，没有加入项目运行依赖。
+- `/ui/resumes` 需要分页或懒加载；原因是历史定制版本会持续增长，一次渲染全部 iframe 不适合长期上线。
+### 下一步
+- 为 `/ui/resumes` 增加分页或懒加载，避免历史版本过多时拖慢用户页面。
+- 增加“已有 Profile ID + JD 文本”的前端 E2E smoke，把本轮人工浏览器验收固化成自动化测试。
+- 在运维控制台增加 reranker provider 配置健康检查，对不支持的 provider 给出启动前或页面级提示。
+
 ## 2026-06-17 13:08:07 +08:00：简历经历类栏目支持多段条目
 ### 这次做了什么
 - 将 `/ui/profiles` 手动建档中的教育经历、实习/工作经历、项目经历、校园/实践经历改为可重复条目。

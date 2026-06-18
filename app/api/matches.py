@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.llm import format_exception
 from app.core.database import get_db
 from app.models.entities import Job, MatchResult, Profile
 from app.models.schemas import MatchCreateRequest, MatchResponse
@@ -15,7 +16,11 @@ def create_match(payload: MatchCreateRequest, db: Session = Depends(get_db)) -> 
     job = db.query(Job).filter(Job.id == payload.job_id).first()
     if profile is None or job is None:
         raise HTTPException(status_code=404, detail="Profile or job not found.")
-    result = MatcherService().create_match_result(db, profile, job)
+    try:
+        result = MatcherService().create_match_result(db, profile, job)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Match generation failed: {format_exception(exc)}") from exc
     return MatchResponse.model_validate(result)
 
 

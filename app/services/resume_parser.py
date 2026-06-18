@@ -149,14 +149,13 @@ Parse the resume into this JSON schema:
   "certifications": [string],
   "awards": [string],
   "languages": [string],
-  "portfolio_links": [string],
-  "raw_text": string
+  "portfolio_links": [string]
 }}
 
 Rules:
 - Use null or [] when unknown.
 - Keep all facts grounded in the original text.
-- raw_text must be exactly the original resume text.
+- Do not include raw_text in the JSON output. The service will store the original text separately.
 
 Resume:
 {raw_text}
@@ -165,7 +164,7 @@ Resume:
             parsed = await self._generate_resume_json_with_retry(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
-                max_tokens=1400,
+                max_tokens=3600,
                 db=db,
             )
             parsed["raw_text"] = raw_text
