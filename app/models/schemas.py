@@ -275,6 +275,13 @@ class AgentRunRequest(BaseModel):
     query: str | None = "Agent 开发实习生"
     location: str | None = None
     limit: int = Field(default=20, ge=1, le=80)
+    application_confirmed: bool = False
+
+
+class AgentRunResumeRequest(BaseModel):
+    confirmed: bool = True
+    note: str | None = None
+    resume_json: dict[str, Any] = Field(default_factory=dict)
 
 
 class AgentRunResponse(BaseModel):

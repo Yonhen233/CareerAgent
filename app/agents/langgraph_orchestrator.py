@@ -1,11 +1,16 @@
 import time
 from typing import Any, Literal, TypedDict
+from uuid import uuid4
 
-from langgraph.checkpoint.memory import InMemorySaver
+import aiosqlite
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import Command, interrupt
 from sqlalchemy.orm import Session
 
 from app.agents.tools import AgentPlanner
+from app.core.config import get_settings
+from app.models.entities import AgentRun
 from app.models.entities import Application, Job, Profile, ResumeVersion
 from app.models.schemas import AgentRunRequest
 from app.services.application_service import ApplicationService
@@ -36,6 +41,8 @@ class CareerAgentGraphState(TypedDict, total=False):
     query: str | None
     location: str | None
     limit: int
+    graph_thread_id: str
+    application_confirmed: bool
     job_ids: list[int]
     matches: list[dict[str, Any]]
     source_errors: dict[str, str]
@@ -45,6 +52,7 @@ class CareerAgentGraphState(TypedDict, total=False):
     overall_score: float
     verification: dict[str, Any]
     fit_gate: dict[str, Any]
+    human_confirmation: dict[str, Any]
     tailor: dict[str, Any]
     application: dict[str, Any]
     interview_prep: dict[str, Any]
@@ -70,13 +78,16 @@ class LangGraphAgentOrchestrator:
         self.application = application or ApplicationService()
         self.interview_prep = interview_prep or InterviewPrepService()
         self.planner = planner or AgentPlanner()
+        self.settings = get_settings()
         self._runtime_dbs: dict[int, Session] = {}
         self._runtime_plans: dict[int, dict[str, Any]] = {}
-        self.checkpointer = InMemorySaver()
-        self._graph = self._build_graph()
+        self._checkpoint_conn = None
+        self.checkpointer = None
+        self._graph = None
 
     async def run(self, db: Session, request: AgentRunRequest):
         started = time.perf_counter()
+        graph_thread_id = f"agent-run-{uuid4().hex}"
         run = self.trace.create_run(
             db,
             task_type=request.task_type,
@@ -85,11 +96,13 @@ class LangGraphAgentOrchestrator:
             input_json={
                 **request.model_dump(),
                 "orchestration_framework": "langgraph",
+                "graph_thread_id": graph_thread_id,
             },
         )
         self._runtime_dbs[run.id] = db
         try:
-            final_state = await self._graph.ainvoke(
+            graph = await self._ensure_graph()
+            final_state = await graph.ainvoke(
                 {
                     "request": request.model_dump(),
                     "run_id": run.id,
@@ -100,12 +113,34 @@ class LangGraphAgentOrchestrator:
                     "query": request.query,
                     "location": request.location,
                     "limit": request.limit,
+                    "application_confirmed": request.application_confirmed,
+                    "graph_thread_id": graph_thread_id,
                 },
-                config={"configurable": {"thread_id": f"agent-run-{run.id}"}},
+                config={"configurable": {"thread_id": graph_thread_id}},
             )
+            interrupts = self._interrupt_payloads(final_state)
+            if interrupts:
+                output = {
+                    "requires_confirmation": True,
+                    "confirmation_type": "application_packet",
+                    "interrupts": interrupts,
+                    "graph_thread_id": graph_thread_id,
+                    "execution_plan": final_state.get("execution_plan") or {},
+                    "orchestration_framework": "langgraph",
+                    "resume_api": f"/agent/runs/{run.id}/resume",
+                }
+                self.trace.add_artifact(db, run_id=run.id, artifact_type="human_interrupt", payload=output)
+                return self.trace.finish_run(
+                    db,
+                    run=run,
+                    status="waiting_for_confirmation",
+                    output_json=output,
+                    started_at=started,
+                )
             output = dict(final_state.get("output") or {})
             output["execution_plan"] = final_state.get("execution_plan") or {}
             output["orchestration_framework"] = "langgraph"
+            output["graph_thread_id"] = graph_thread_id
             return self.trace.finish_run(db, run=run, status="completed", output_json=output, started_at=started)
         except Exception as exc:  # noqa: BLE001
             return self.trace.finish_run(
@@ -115,6 +150,7 @@ class LangGraphAgentOrchestrator:
                 output_json={
                     "error": str(exc),
                     "orchestration_framework": "langgraph",
+                    "graph_thread_id": graph_thread_id,
                     "execution_plan": self._runtime_plans.get(run.id) or {},
                 },
                 error_message=str(exc),
@@ -123,6 +159,87 @@ class LangGraphAgentOrchestrator:
         finally:
             self._runtime_dbs.pop(run.id, None)
             self._runtime_plans.pop(run.id, None)
+            await self._close_checkpoint()
+
+    async def resume(self, db: Session, run_id: int, resume_payload: dict[str, Any]) -> AgentRun:
+        run = db.query(AgentRun).filter(AgentRun.id == run_id).first()
+        if run is None:
+            raise ValueError(f"Agent run {run_id} not found.")
+        if run.status != "waiting_for_confirmation":
+            raise ValueError(f"Agent run {run_id} is not waiting for confirmation.")
+        graph_thread_id = self._graph_thread_id_from_run(run)
+        started = time.perf_counter()
+        self._runtime_dbs[run.id] = db
+        self._runtime_plans[run.id] = (run.output_json or {}).get("execution_plan") or {}
+        run.status = "running"
+        db.add(run)
+        db.commit()
+        try:
+            graph = await self._ensure_graph()
+            final_state = await graph.ainvoke(
+                Command(resume=resume_payload),
+                config={"configurable": {"thread_id": graph_thread_id}},
+            )
+            interrupts = self._interrupt_payloads(final_state)
+            if interrupts:
+                output = {
+                    "requires_confirmation": True,
+                    "confirmation_type": "application_packet",
+                    "interrupts": interrupts,
+                    "graph_thread_id": graph_thread_id,
+                    "execution_plan": final_state.get("execution_plan") or self._runtime_plans.get(run.id) or {},
+                    "orchestration_framework": "langgraph",
+                    "resume_api": f"/agent/runs/{run.id}/resume",
+                }
+                return self.trace.finish_run(
+                    db,
+                    run=run,
+                    status="waiting_for_confirmation",
+                    output_json=output,
+                    started_at=started,
+                )
+            output = dict(final_state.get("output") or {})
+            output["execution_plan"] = final_state.get("execution_plan") or self._runtime_plans.get(run.id) or {}
+            output["orchestration_framework"] = "langgraph"
+            output["graph_thread_id"] = graph_thread_id
+            return self.trace.finish_run(db, run=run, status="completed", output_json=output, started_at=started)
+        except Exception as exc:  # noqa: BLE001
+            return self.trace.finish_run(
+                db,
+                run=run,
+                status="failed",
+                output_json={
+                    "error": str(exc),
+                    "orchestration_framework": "langgraph",
+                    "graph_thread_id": graph_thread_id,
+                    "execution_plan": self._runtime_plans.get(run.id) or {},
+                },
+                error_message=str(exc),
+                started_at=started,
+            )
+        finally:
+            self._runtime_dbs.pop(run.id, None)
+            self._runtime_plans.pop(run.id, None)
+            await self._close_checkpoint()
+
+    async def graph_state(self, run: AgentRun) -> dict[str, Any]:
+        graph_thread_id = self._graph_thread_id_from_run(run)
+        graph = await self._ensure_graph()
+        try:
+            snapshot = await graph.aget_state({"configurable": {"thread_id": graph_thread_id}})
+            return {
+                "run_id": run.id,
+                "graph_thread_id": graph_thread_id,
+                "next": list(snapshot.next or ()),
+                "values": self.trace._json_safe(snapshot.values or {}),
+                "interrupts": [
+                    {"id": item.id, "value": item.value}
+                    for item in getattr(snapshot, "interrupts", ()) or ()
+                ],
+                "checkpoint_id": (snapshot.config or {}).get("configurable", {}).get("checkpoint_id"),
+            }
+        finally:
+            await self._close_checkpoint()
 
     def _build_graph(self):
         graph = StateGraph(CareerAgentGraphState)
@@ -217,6 +334,24 @@ class LangGraphAgentOrchestrator:
         graph.add_edge("finalize_full_flow", END)
         return graph.compile(checkpointer=self.checkpointer)
 
+    async def _ensure_graph(self):
+        if self._graph is not None:
+            return self._graph
+        path = self.settings.langgraph_checkpoint_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._checkpoint_conn = await aiosqlite.connect(str(path))
+        self.checkpointer = AsyncSqliteSaver(self._checkpoint_conn)
+        await self.checkpointer.setup()
+        self._graph = self._build_graph()
+        return self._graph
+
+    async def _close_checkpoint(self) -> None:
+        if self._checkpoint_conn is not None:
+            await self._checkpoint_conn.close()
+        self._checkpoint_conn = None
+        self.checkpointer = None
+        self._graph = None
+
     def _request(self, state: CareerAgentGraphState) -> AgentRunRequest:
         return AgentRunRequest(**state["request"])
 
@@ -233,7 +368,9 @@ class LangGraphAgentOrchestrator:
                 {
                     **self.planner.build_plan(request),
                     "orchestration_framework": "langgraph",
-                    "graph_thread_id": f"agent-run-{state['run_id']}",
+                    "graph_thread_id": state.get("graph_thread_id"),
+                    "checkpoint_backend": "sqlite",
+                    "interrupt_policy": "quick_apply_requires_application_confirmation",
                 }
             ),
         )
@@ -421,6 +558,9 @@ class LangGraphAgentOrchestrator:
         resume_version = db.query(ResumeVersion).filter(ResumeVersion.id == state.get("resume_version_id")).first()
         if resume_version is None:
             raise ValueError(f"ResumeVersion {state.get('resume_version_id')} not found.")
+        confirmation = self._application_confirmation(state, job, resume_version)
+        if not confirmation.get("confirmed"):
+            raise ValueError("Application confirmation rejected by user.")
         application = await self.trace.step(
             db,
             run_id=state["run_id"],
@@ -437,6 +577,7 @@ class LangGraphAgentOrchestrator:
         )
         payload = self._application_payload(application)
         payload["fit_gate"] = state.get("fit_gate")
+        payload["human_confirmation"] = confirmation
         return {"application": payload}
 
     async def _node_generate_interview_prep(self, state: CareerAgentGraphState) -> dict[str, Any]:
@@ -538,6 +679,58 @@ class LangGraphAgentOrchestrator:
         if db is None:
             raise RuntimeError("LangGraph node state is missing the active database session.")
         return db
+
+    def _application_confirmation(
+        self,
+        state: CareerAgentGraphState,
+        job: Job,
+        resume_version: ResumeVersion,
+    ) -> dict[str, Any]:
+        if state.get("application_confirmed"):
+            return {
+                "confirmed": True,
+                "source": "request.application_confirmed",
+                "message": "调用方已显式确认生成投递包。",
+            }
+        value = interrupt(
+            {
+                "kind": "application_packet_confirmation",
+                "message": "生成投递包前需要用户确认。系统只准备材料和链接，不会自动提交最终申请。",
+                "job_id": job.id,
+                "job_title": job.title,
+                "company": job.company,
+                "resume_version_id": resume_version.id,
+                "fit_gate": state.get("fit_gate") or {},
+                "required_action": "confirm_before_application_packet",
+            }
+        )
+        if isinstance(value, dict):
+            return {
+                "confirmed": bool(value.get("confirmed")),
+                "source": value.get("source") or "langgraph_resume",
+                "note": value.get("note"),
+                "resume_payload": value,
+            }
+        return {"confirmed": bool(value), "source": "langgraph_resume", "resume_payload": value}
+
+    def _interrupt_payloads(self, state: dict[str, Any]) -> list[dict[str, Any]]:
+        return [
+            {"id": item.id, "value": item.value}
+            for item in state.get("__interrupt__", []) or []
+        ]
+
+    def _graph_thread_id_from_run(self, run: AgentRun) -> str:
+        input_json = run.input_json or {}
+        output_json = run.output_json or {}
+        plan = output_json.get("execution_plan") or {}
+        graph_thread_id = (
+            input_json.get("graph_thread_id")
+            or output_json.get("graph_thread_id")
+            or plan.get("graph_thread_id")
+        )
+        if not graph_thread_id:
+            raise ValueError(f"Agent run {run.id} does not have a graph_thread_id.")
+        return str(graph_thread_id)
 
     async def _load_profile(self, db: Session, profile_id: int | None) -> Profile:
         if profile_id is None:

@@ -47,7 +47,7 @@ CareerAgent 的目标不是“一个 Prompt 生成简历”，而是一个可观
 
 ## Agent 工作流
 
-Agent 主编排已经迁移到 LangGraph。`app/agents/orchestrator.py` 只保留兼容类名，实际实现位于 `app/agents/langgraph_orchestrator.py`。所有任务先进入 `plan_task` 节点，再由 LangGraph 条件边路由到具体流程。SQLite 中的 `agent_runs`、`agent_steps` 和 `agent_artifacts` 仍是产品侧可观测数据源；LangGraph state 只保存 ID 和 JSON 产物，不保存 ORM 对象。
+Agent 主编排已经迁移到 LangGraph。`app/agents/orchestrator.py` 只保留兼容类名，实际实现位于 `app/agents/langgraph_orchestrator.py`。所有任务先进入 `plan_task` 节点，再由 LangGraph 条件边路由到具体流程。SQLite 中的 `agent_runs`、`agent_steps` 和 `agent_artifacts` 仍是产品侧可观测数据源；LangGraph state 只保存 ID 和 JSON 产物，不保存 ORM 对象。LangGraph checkpoint 使用独立 SQLite 文件保存，默认位于 `data/runtime/langgraph_checkpoints.sqlite`。
 
 ### `find_jobs_for_profile`
 
@@ -83,9 +83,10 @@ Agent 主编排已经迁移到 LangGraph。`app/agents/orchestrator.py` 只保�
 2. 运行 `fit_gate`，基于匹配分数、缺失技能和负面证据判断是否允许一键投递。
 3. 低于门禁分数时直接失败，并把阻断原因写入 Agent step trace。
 4. 通过门禁后复用或生成定制简历。
-5. 生成求职信和外联文案。
-6. 运行 `ApplicationPacketGuardrail`，检查投递包是否编造未支持的能力、是否提到目标岗位、是否保留人工确认边界。
-7. 保存投递清单、投递链接、Guardrail 结果和状态。
+5. 进入 LangGraph interrupt，等待用户确认继续生成投递包；确认前不写入投递包。
+6. 用户通过 `/agent/runs/{run_id}/resume` 确认后，从 checkpoint 恢复并生成求职信和外联文案。
+7. 运行 `ApplicationPacketGuardrail`，检查投递包是否编造未支持的能力、是否提到目标岗位、是否保留人工确认边界。
+8. 保存投递清单、投递链接、Guardrail 结果和状态。
 
 ### `prepare_interview_for_job`
 

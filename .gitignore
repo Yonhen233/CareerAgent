@@ -15,6 +15,7 @@ data/chroma/
 data/models/
 data/runtime/
 .tmp_logs/
+.tmp_test/
 
 careerpilot-agent/
 careerpilot-agent-v2/

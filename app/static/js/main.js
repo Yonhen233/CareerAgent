@@ -355,6 +355,19 @@ async function loadRuns(target = "#runs-list") {
   document.querySelectorAll("[data-run-id]").forEach((button) => {
     button.addEventListener("click", () => loadRunSteps(button.dataset.runId));
   });
+  document.querySelectorAll("[data-resume-run-id]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const runId = button.dataset.resumeRunId;
+      const resumed = await resumeAgentRun(runId, {
+        confirmed: true,
+        note: "用户在流程页面确认继续生成投递包。",
+        resume_json: { source: "agent_runs_page" },
+      });
+      toast(resumed.status === "completed" ? "已确认并继续完成" : `当前状态：${resumed.status}`);
+      loadRuns(target);
+      loadRunSteps(runId);
+    });
+  });
 }
 
 function renderRunOutcomeLinks(row) {
@@ -367,6 +380,7 @@ function renderRunOutcomeLinks(row) {
   if (applicationId) links.push(`<a class="button ghost" href="/ui/applications"><i data-lucide="send"></i> 投递包 #${applicationId}</a>`);
   if (prepId) links.push(`<a class="button ghost" href="/ui/prep"><i data-lucide="messages-square"></i> 面试包 #${prepId}</a>`);
   if (output.matches?.length) links.push(`<a class="button ghost" href="/ui/jobs"><i data-lucide="briefcase-business"></i> 推荐岗位 ${output.matches.length} 个</a>`);
+  if (output.requires_confirmation) links.push(`<button class="button primary" data-resume-run-id="${row.id}" type="button"><i data-lucide="check-circle-2"></i> 确认继续</button>`);
   return links.length ? `<div class="flow-result-actions">${links.join("")}</div>` : "";
 }
 
@@ -951,8 +965,25 @@ function topMatchedJob(run) {
   return matches[0];
 }
 
-async function createAgentRun(payload, label) {
+async function resumeAgentRun(runId, payload) {
+  return api(`/agent/runs/${runId}/resume`, { method: "POST", body: JSON.stringify(payload) });
+}
+
+async function createAgentRun(payload, label, options = {}) {
   const run = await api("/agent/runs", { method: "POST", body: JSON.stringify(payload) });
+  if (run.status === "waiting_for_confirmation" && options.autoConfirmApplication) {
+    toast("投递包生成前需要确认，已按一键流程继续。");
+    const resumed = await resumeAgentRun(run.id, {
+      confirmed: true,
+      note: options.confirmationNote || "用户在一键流程中确认生成投递包。",
+      resume_json: { source: "frontend_auto_confirm" },
+    });
+    if (resumed.status !== "completed") {
+      const message = resumed.error_message || resumed.output_json?.error || JSON.stringify(resumed.output_json || {});
+      throw new Error(`${label}确认后失败：${message}`);
+    }
+    return resumed;
+  }
   if (run.status !== "completed") {
     const message = run.error_message || run.output_json?.error || JSON.stringify(run.output_json || {});
     throw new Error(`${label}失败：${message}`);
@@ -1048,7 +1079,8 @@ async function runCareerStartFlow(form) {
         job_id: Number(state.selectedJob.job_id),
         resume_version_id: Number(state.tailorRun.output_json?.resume_version_id || 0) || null,
       },
-      "投递包"
+      "投递包",
+      { autoConfirmApplication: true }
     );
     setCareerStage("apply", "done", `投递包 #${state.applyRun.output_json?.application_id || "-"}`);
 
@@ -1692,8 +1724,8 @@ function bindForms() {
       query: raw.query,
       limit: raw.limit ? Number(raw.limit) : 12,
     };
-    await api("/agent/runs", { method: "POST", body: JSON.stringify(payload) });
-    toast("Agent run completed");
+    const run = await api("/agent/runs", { method: "POST", body: JSON.stringify(payload) });
+    toast(run.status === "waiting_for_confirmation" ? "流程等待确认" : "Agent run completed");
     loadRuns();
   });
 

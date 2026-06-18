@@ -1,5 +1,43 @@
 # 开发日志
 
+## 2026-06-18 15:23:03 +08:00：LangGraph SQLite checkpoint 与投递前人工确认 interrupt
+### 这次做了什么
+- 将 LangGraph checkpointer 从 `InMemorySaver` 升级为 `AsyncSqliteSaver`，默认持久化到 `data/runtime/langgraph_checkpoints.sqlite`。
+- 新增 `LANGGRAPH_CHECKPOINT_FILE` 配置项和 `Settings.langgraph_checkpoint_path`，支持把 checkpoint 文件切到其他路径。
+- 为 `quick_apply` 和 `full_career_flow` 的投递包生成前加入 LangGraph `interrupt()`；默认请求会返回 `status=waiting_for_confirmation`，确认前不会写入 `applications`。
+- 新增 `POST /agent/runs/{run_id}/resume`，用户确认后用同一个 `graph_thread_id` 从 SQLite checkpoint 恢复执行。
+- 新增 `GET /agent/runs/{run_id}/graph-state`，用于查看 checkpoint 的 next 节点、interrupt payload 和 checkpoint id。
+- `resume` API 会把非法状态或缺失 checkpoint 转为明确的 4xx 响应，避免前端只看到 500。
+- 前端一键流程收到等待确认后会调用 resume 继续，流程页的历史 run 卡片会显示“确认继续”按钮。
+- 自然语言 Agent 支持返回 `waiting_for_confirmation`，不再把人工确认 interrupt 当作失败。
+- Agent full-flow 评测继续显式传入 `application_confirmed=true`，保证批量回归不被人工节点卡住。
+### 发现的问题
+- 同步 `SqliteSaver` 不支持 async graph，直接用于 `ainvoke` 会报错，必须使用 `langgraph.checkpoint.sqlite.aio.AsyncSqliteSaver`。
+- SQLite saver 的创建是异步连接，不能在同步 `__init__` 中直接完成；需要在 `run/resume/graph_state` 时懒初始化 graph。
+- pytest 的默认 `tmp_path` 在当前 Windows 临时目录出现权限错误，新增 checkpoint 恢复测试改为项目内 `.tmp_test/` 临时路径。
+- 新增 interrupt 后，原本手动运行 quick_apply 的前端路径会把 `waiting_for_confirmation` 当失败；需要在 UI 层识别等待确认状态。
+- `resume_json` 如果和顶层 `confirmed/note` 同名，可能覆盖人工确认字段，导致审批语义不清晰。
+### 怎么修复
+- `LangGraphAgentOrchestrator` 改为异步懒加载 checkpoint：打开 `aiosqlite` 连接、初始化 `AsyncSqliteSaver`、compile graph，执行结束后关闭连接并清空 graph 实例。
+- `AgentRunRequest` 增加 `application_confirmed`；真实用户默认 `false` 触发 interrupt，评测或受控流程可显式传 `true`。
+- `AgentRunResumeRequest` 增加 `confirmed/note/resume_json`，resume payload 会传回中断节点，确认后继续创建投递包，拒绝则 run 失败且不创建投递包。
+- 新增跨实例恢复测试：第一个 Orchestrator 跑到 interrupt，第二个 Orchestrator 从 SQLite checkpoint 恢复并创建投递包。
+- `resume` API 现在以顶层 `confirmed/note` 为准，额外字段只作为补充上下文，并把非法状态映射为 `409`。
+- 前端 `createAgentRun()` 支持 `autoConfirmApplication`，首页一键流程自动确认继续；流程列表支持人工点击确认。
+### 验证结果
+- `python -m pytest -q` 全量回归通过，95 个测试全部通过。
+- `node --check app\static\js\main.js` 通过。
+- `python -m py_compile app\agents\langgraph_orchestrator.py app\api\agent_runs.py app\agents\natural_language.py app\models\schemas.py app\core\config.py app\services\evaluation_service.py` 通过。
+- `git diff --check` 通过，仅有 Windows CRLF 提示，无空白错误。
+- 内置浏览器 smoke 通过：`http://127.0.0.1:8050/` 首页显示“让 Agent 自动处理”和“一键运行”，`/ui/agent-runs` 流程页可打开，页面 console error 为空。
+### 未修复的问题
+- 前端进度仍主要读取 `agent_steps` 和 graph-state 快照，没有实现真正的 LangGraph SSE/event streaming；原因是本轮优先完成可恢复 checkpoint 和 interrupt，实时事件流适合单独设计前端订阅协议。
+- checkpoint 已经跨请求持久化，但节点内部仍复用当前 FastAPI DB Session；更长时间跨度恢复时，后续应让每个节点独立打开 Session 并增强幂等写入。
+### 下一步
+- 增加 LangGraph event streaming/SSE 进度端点，前端展示节点级实时事件。
+- 为投递确认、浏览器辅助填写、邮件发送等高风险操作建立独立审批/审计表。
+- 将应用包创建、面试包创建等写库节点补充业务幂等键，避免恢复重试时重复写入。
+
 ## 2026-06-18 12:46:25 +08:00：Agent 主编排整体迁移到 LangGraph
 ### 这次做了什么
 - 新增 `app/agents/langgraph_orchestrator.py`，用 LangGraph `StateGraph` 承接全部 Agent task：`find_jobs_for_profile`、`tailor_resume_for_job`、`quick_apply`、`prepare_interview_for_job` 和 `full_career_flow`。

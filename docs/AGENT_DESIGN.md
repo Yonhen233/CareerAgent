@@ -78,7 +78,7 @@ LLM 不再直接读取全量 Profile、全量 JD 和全部证据，而是由 `Co
 4. 根据 `task_type` 走条件边，进入 `find_jobs_for_profile`、`tailor_resume_for_job`、`quick_apply`、`prepare_interview_for_job` 或 `full_career_flow` 对应子流程。
 5. 每个业务节点继续写入 `agent_steps`，保留原有 step trace、artifact 和错误追踪。
 
-Graph state 只保存 JSON 友好的 ID、状态和产物摘要，例如 `profile_id`、`job_id`、`resume_version_id`、`matches`、`selected_job`、`fit_gate` 和 `output`。SQLAlchemy Session 不进入 state，而是通过运行期 `run_id -> Session` 映射注入节点；当前 graph 已接入 LangGraph `InMemorySaver` checkpointer，后续替换为 SQLite/Postgres checkpointer 时不会被 ORM 对象阻塞。
+Graph state 只保存 JSON 友好的 ID、状态和产物摘要，例如 `profile_id`、`job_id`、`resume_version_id`、`matches`、`selected_job`、`fit_gate` 和 `output`。SQLAlchemy Session 不进入 state，而是通过运行期 `run_id -> Session` 映射注入节点；当前 graph 已接入 LangGraph SQLite checkpointer，checkpoint 文件默认位于 `data/runtime/langgraph_checkpoints.sqlite`。
 
 适合 Plan-Execute 的原因：
 
@@ -228,6 +228,8 @@ RAG 证据不再只按向量分和关键词分排序，`MatcherService.retrieve_
 - FastAPI `/agent/runs`、自然语言 Agent、Agent full-flow 评测和面试包评测仍调用 `AgentOrchestrator`，因此自动走 LangGraph 编排。
 - 计划、步骤、artifact 和错误仍写入原有 SQLite trace 表，前端无需大改即可继续展示。
 - `execution_plan.langgraph_decision.migrated=true`，运行输入输出都带有 `orchestration_framework=langgraph`。
+- SQLite checkpointer 已持久化 LangGraph checkpoint；`POST /agent/runs/{run_id}/resume` 可以在新 Orchestrator 实例中按 `graph_thread_id` 恢复。
+- `quick_apply` 和 `full_career_flow` 会在生成投递包前触发 LangGraph interrupt；确认前不会写入 `applications`。
 
 迁移中特别处理的问题：
 
@@ -237,7 +239,6 @@ RAG 证据不再只按向量分和关键词分排序，`MatcherService.retrieve_
 
 后续增强：
 
-- 将当前 `InMemorySaver` 替换为持久化 checkpointer，把 `graph_thread_id` 变成真正可跨进程恢复的游标。
-- 在投递前确认、浏览器辅助填写、邮件发送等真实副作用前加入 LangGraph interrupt。
 - 将长流程前端进度从轮询 AgentStep 升级为 LangGraph event streaming。
+- 后续接入浏览器辅助填写、邮件发送等更高风险工具时，继续在对应节点前加入 interrupt，并把确认记录写入独立审计表。
 - 当浏览器、邮箱、日历等工具 MCP 化后，把对应节点改为跨进程工具调用。

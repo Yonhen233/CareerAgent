@@ -893,6 +893,7 @@ class EvaluationService:
                         profile_id=profile.id,
                         job_id=top_job.id,
                         resume_version_id=resume_version_id,
+                        application_confirmed=True,
                     ),
                 )
                 quick_output = quick_apply_run.output_json or {}

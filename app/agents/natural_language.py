@@ -101,15 +101,16 @@ class NaturalLanguageAgentService:
                     handler=lambda: self._execute_plan(db, request, plan),
                 )
 
+            response_status = "waiting_for_confirmation" if result.get("requires_confirmation") else "completed"
             payload = {
                 "run_id": run.id,
-                "status": "completed",
+                "status": response_status,
                 "user_message": self._user_message(plan, result),
                 "plan_json": plan,
                 "result_json": result,
                 "repair_attempts": repair_attempts,
             }
-            return self.trace.finish_run(db, run=run, status="completed", output_json=payload, started_at=started)
+            return self.trace.finish_run(db, run=run, status=response_status, output_json=payload, started_at=started)
         except Exception as exc:  # noqa: BLE001
             payload = {
                 "run_id": run.id,
@@ -289,8 +290,12 @@ query={request.query}
                     limit=request.limit,
                 ),
             )
-            self._assert_run_completed(run, "完整流程")
             result["agent_runs"].append(self._run_payload(run))
+            if run.status == "waiting_for_confirmation":
+                result["requires_confirmation"] = run.output_json
+                result["full_flow"] = run.output_json
+                return result
+            self._assert_run_completed(run, "完整流程")
             result["full_flow"] = run.output_json
             return result
 
@@ -316,8 +321,12 @@ query={request.query}
                     resume_version_id=(result.get("tailor") or {}).get("resume_version_id") or request.resume_version_id,
                 ),
             )
-            self._assert_run_completed(apply_run, "投递包")
             result["agent_runs"].append(self._run_payload(apply_run))
+            if apply_run.status == "waiting_for_confirmation":
+                result["requires_confirmation"] = apply_run.output_json
+                result["application"] = apply_run.output_json
+                return result
+            self._assert_run_completed(apply_run, "投递包")
             result["application"] = apply_run.output_json
         if intent in {"interview_prep", "full_flow"}:
             interview_run = await self.orchestrator.run(
@@ -547,13 +556,16 @@ query={request.query}
         if result.get("tailor"):
             pieces.append(f"定制简历 #{result['tailor'].get('resume_version_id')}")
         if result.get("application"):
-            pieces.append(f"投递包 #{result['application'].get('application_id')}")
+            application_id = result["application"].get("application_id")
+            pieces.append(f"投递包 #{application_id}" if application_id else "投递包等待确认")
         if result.get("interview_prep"):
             pieces.append(f"面试包 #{result['interview_prep'].get('interview_prep_id')}")
         if result.get("matches"):
             pieces.append(f"推荐岗位 {len(result['matches'])} 个")
         if result.get("full_flow"):
-            pieces.append("完整流程已完成")
+            pieces.append("完整流程等待确认" if result.get("requires_confirmation") else "完整流程已完成")
+        if result.get("requires_confirmation"):
+            pieces.append("需要人工确认后继续")
         if not pieces:
             pieces.append("需求已处理")
         return f"{task_label_for_intent(intent)}：{'，'.join(pieces)}。"

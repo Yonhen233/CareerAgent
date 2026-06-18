@@ -278,7 +278,13 @@ def test_full_career_flow_orchestrator_runs_all_core_stages(db_session):
             interview_prep=FakeInterviewPrep(),
         ).run(
             db_session,
-            AgentRunRequest(task_type="full_career_flow", profile_id=profile.id, query="Agent 开发实习生", limit=3),
+            AgentRunRequest(
+                task_type="full_career_flow",
+                profile_id=profile.id,
+                query="Agent 开发实习生",
+                limit=3,
+                application_confirmed=True,
+            ),
         )
     )
 
@@ -289,4 +295,121 @@ def test_full_career_flow_orchestrator_runs_all_core_stages(db_session):
     assert run.output_json["interview_prep"]["interview_prep_id"] > 0
     assert run.output_json["execution_plan"]["task_type"] == "full_career_flow"
     assert run.output_json["orchestration_framework"] == "langgraph"
-    assert run.output_json["execution_plan"]["graph_thread_id"] == f"agent-run-{run.id}"
+    assert run.output_json["execution_plan"]["graph_thread_id"] == run.output_json["graph_thread_id"]
+
+
+def test_quick_apply_interrupts_and_resumes_from_sqlite_checkpoint(db_session, monkeypatch):
+    from pathlib import Path
+    from uuid import uuid4
+
+    from app.core.config import get_settings
+
+    checkpoint_path = Path(".tmp_test") / f"langgraph_checkpoints_{uuid4().hex}.sqlite"
+    checkpoint_path.parent.mkdir(exist_ok=True)
+    monkeypatch.setenv("LANGGRAPH_CHECKPOINT_FILE", str(checkpoint_path.resolve()))
+    get_settings.cache_clear()
+
+    profile = Profile(
+        name="Candidate",
+        source_type="guided",
+        raw_resume_text="Built CareerAgent with FastAPI, RAG and SQLite.",
+        structured_profile_json={"skills": ["FastAPI", "RAG", "SQLite"]},
+    )
+    job = Job(
+        source="manual",
+        external_id="interrupt-job",
+        title="Agent 开发实习生",
+        company="DemoAI",
+        apply_url="https://example.com/apply",
+        raw_jd_text="负责 Agent、FastAPI、RAG 和 SQLite。",
+        structured_jd_json={"required_skills": ["FastAPI", "RAG", "SQLite"]},
+    )
+    db_session.add_all([profile, job])
+    db_session.commit()
+    db_session.refresh(profile)
+    db_session.refresh(job)
+    version = ResumeVersion(
+        profile_id=profile.id,
+        job_id=job.id,
+        title="定制简历",
+        tailored_resume_markdown="Built CareerAgent with FastAPI, RAG and SQLite.",
+        change_summary_json=[],
+        keyword_alignment_json={"covered": ["FastAPI", "RAG", "SQLite"]},
+        source_evidence_json=[],
+        verification_json={"passed": True, "risk_level": "low"},
+        diff_text=None,
+    )
+    db_session.add(version)
+    db_session.commit()
+    db_session.refresh(version)
+
+    class FakeMatcher:
+        def create_match_result(self, db, profile, job):
+            result = MatchResult(
+                profile_id=profile.id,
+                job_id=job.id,
+                overall_score=88.0,
+                dimension_scores_json={"required_skill_coverage": 100},
+                matched_skills_json=["FastAPI", "RAG", "SQLite"],
+                missing_skills_json=[],
+                relevant_evidence_json=[],
+                suggestions_json=[],
+            )
+            db.add(result)
+            db.commit()
+            db.refresh(result)
+            return result
+
+    class FakeApplication:
+        async def create_quick_apply_packet(self, db, *, profile, job, resume_version, browser_assist=False):
+            application = Application(
+                profile_id=profile.id,
+                job_id=job.id,
+                resume_version_id=resume_version.id,
+                status="ready",
+                apply_url=job.apply_url,
+                cover_letter="您好，我想申请 Agent 开发实习生岗位。",
+                outreach_message="您好，希望交流 Agent 开发实习机会。",
+                checklist_json=["确认岗位", "确认简历事实"],
+                automation_result_json={"packet_validation": {"passed": True, "risk_level": "low"}},
+            )
+            db.add(application)
+            db.commit()
+            db.refresh(application)
+            return application
+
+    first = asyncio.run(
+        AgentOrchestrator(matcher=FakeMatcher(), application=FakeApplication()).run(
+            db_session,
+            AgentRunRequest(
+                task_type="quick_apply",
+                profile_id=profile.id,
+                job_id=job.id,
+                resume_version_id=version.id,
+            ),
+        )
+    )
+
+    assert first.status == "waiting_for_confirmation"
+    assert first.output_json["requires_confirmation"] is True
+    assert first.output_json["interrupts"][0]["value"]["kind"] == "application_packet_confirmation"
+    assert db_session.query(Application).count() == 0
+
+    second_orchestrator = AgentOrchestrator(matcher=FakeMatcher(), application=FakeApplication())
+    graph_state = asyncio.run(second_orchestrator.graph_state(first))
+    assert graph_state["interrupts"][0]["value"]["required_action"] == "confirm_before_application_packet"
+
+    resumed = asyncio.run(
+        second_orchestrator.resume(
+            db_session,
+            first.id,
+            {"confirmed": True, "source": "test_resume", "note": "确认生成投递包"},
+        )
+    )
+
+    assert resumed.status == "completed"
+    assert resumed.output_json["application_id"] > 0
+    assert resumed.output_json["human_confirmation"]["source"] == "test_resume"
+    assert db_session.query(Application).count() == 1
+    get_settings.cache_clear()
+    checkpoint_path.unlink(missing_ok=True)

@@ -46,7 +46,8 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - `prepare_interview_for_job`：基于 JD、匹配结果、RAG 证据和已导入同岗面经生成面试准备包，显式按“网上同岗位面经、简历项目技术栈、其他可能面试问题”三类准备角度组织问题。真实入口会调用 LLM 生成项目实现追问和八股/基础追问链，面经只作为参考链接和标题，不再把抓正文作为核心依赖。
   - `quick_apply` 前置 `fit_gate`：低匹配岗位直接阻断，并把缺口写入 Agent step trace。
   - 每次 run 先生成 Plan-Execute 执行计划，并写入 Trace artifact。
-  - `execution_plan` 和 run 输入输出会标记 `orchestration_framework=langgraph`，并保留 `graph_thread_id`；当前使用 LangGraph `InMemorySaver` checkpointer，后续可替换为持久化 checkpointer 和 interrupt。
+  - `execution_plan` 和 run 输入输出会标记 `orchestration_framework=langgraph`，并保留 `graph_thread_id`；当前使用 LangGraph SQLite checkpointer 持久化到 `data/runtime/langgraph_checkpoints.sqlite`。
+  - `quick_apply` 和 `full_career_flow` 在生成投递包前会触发 LangGraph interrupt，返回 `waiting_for_confirmation`；用户或前端通过 `/agent/runs/{run_id}/resume` 确认后继续执行。
   - 显式注册 Tool、Skill 和 SubAgent，计划产物会展示当前任务使用的能力边界。
   - 简历定制带 1 轮 ReAct repair loop：Guardrail 高风险时读取 issues 和压缩上下文，修复后再次验证，并记录 `react_repair` 元数据。
 - LLM 上下文治理：

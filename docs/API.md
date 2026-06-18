@@ -266,7 +266,7 @@ GET /resumes/{resume_version_id}/markdown
 
 ## Agent Runs
 
-`POST /agent/runs` 现在由 LangGraph 主编排执行。兼容类名仍是 `AgentOrchestrator`，但内部实际调用 `LangGraphAgentOrchestrator` 的 `StateGraph`。所有任务都会先执行 `plan_task` 节点，再根据 `task_type` 通过条件边进入对应流程。返回的 `input_json`、`output_json` 和 `execution_plan` 会包含 `orchestration_framework=langgraph`，`execution_plan.graph_thread_id` 记录本次运行的 LangGraph thread 标识。
+`POST /agent/runs` 现在由 LangGraph 主编排执行。兼容类名仍是 `AgentOrchestrator`，但内部实际调用 `LangGraphAgentOrchestrator` 的 `StateGraph`。所有任务都会先执行 `plan_task` 节点，再根据 `task_type` 通过条件边进入对应流程。返回的 `input_json`、`output_json` 和 `execution_plan` 会包含 `orchestration_framework=langgraph`，`execution_plan.graph_thread_id` 记录本次运行的 LangGraph thread 标识。checkpoint 默认持久化到 `data/runtime/langgraph_checkpoints.sqlite`。
 
 ### 一体化求职流程
 
@@ -293,6 +293,45 @@ Content-Type: application/json
 - 生成面试准备包。
 - 在同一个 `agent_run` 下写入 execution plan、selected job、tailored resume、fit gate、application 和 interview prep artifacts。
 - 每个业务节点仍写入 `agent_steps`，因此前端和调试 API 可以继续按原方式查看步骤、耗时和错误。
+- 如果请求没有显式传入 `"application_confirmed": true`，流程会在投递包生成前返回 `status=waiting_for_confirmation`，`output_json.interrupts` 中包含待确认岗位、简历版本和 fit gate 信息。
+
+### 恢复等待确认的流程
+
+```http
+POST /agent/runs/{run_id}/resume
+Content-Type: application/json
+```
+
+确认继续：
+
+```json
+{
+  "confirmed": true,
+  "note": "用户确认生成投递包",
+  "resume_json": {
+    "source": "ui"
+  }
+}
+```
+
+拒绝继续：
+
+```json
+{
+  "confirmed": false,
+  "note": "暂不投递"
+}
+```
+
+确认后 LangGraph 会从 SQLite checkpoint 中按 `graph_thread_id` 恢复，继续执行 `create_application_packet` 节点；拒绝时 run 会变为 `failed`，且不会创建投递包。
+
+### 查询 Graph State
+
+```http
+GET /agent/runs/{run_id}/graph-state
+```
+
+返回当前 checkpoint 的 `next` 节点、`interrupts`、`checkpoint_id` 和已保存的 state 摘要，用于排查等待确认和跨请求恢复。
 
 ### 搜索并排序岗位
 

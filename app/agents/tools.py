@@ -241,8 +241,8 @@ class AgentPlanner:
                 "FastAPI、自然语言入口和评测仍复用同一编排入口。"
             ),
             "migration_trigger": (
-                "下一阶段继续接入持久化 checkpointer、interrupt 人工确认和事件流进度，"
-                "把投递前确认与长任务恢复完全交给 LangGraph runtime。"
+                "当前已接入 SQLite checkpointer 和投递前 interrupt；下一阶段继续接入事件流进度、"
+                "更多高风险工具的人类审批节点和跨工具权限隔离。"
             ),
         }
 

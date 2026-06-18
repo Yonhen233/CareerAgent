@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     upload_dir: str = "data/uploads"
     export_dir: str = "data/exports"
     chroma_dir: str = "data/chroma"
+    langgraph_checkpoint_file: str = "data/runtime/langgraph_checkpoints.sqlite"
     chunk_size: int = 900
     chunk_overlap: int = 160
     embedding_dimensions: int = 256
@@ -92,6 +93,10 @@ class Settings(BaseSettings):
     @property
     def chroma_path(self) -> Path:
         return self.base_path / self.chroma_dir
+
+    @property
+    def langgraph_checkpoint_path(self) -> Path:
+        return self.base_path / self.langgraph_checkpoint_file
 
     @property
     def embedding_cache_path(self) -> Path:
