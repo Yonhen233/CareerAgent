@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.agents.orchestrator import AgentOrchestrator
 from app.core.config import get_settings
 from app.core.llm import LLMClient, llm_trace_context
-from app.models.entities import Job, Profile
+from app.models.entities import AgentArtifact, Job, Profile
 from app.models.schemas import AgentRunRequest, GuidedProfileRequest, NaturalLanguageAgentRequest
 from app.services.jd_parser import JDParserService
 from app.services.resume_parser import ResumeParserService
@@ -546,8 +546,13 @@ query={request.query}
                 AgentRunRequest(task_type="tailor_resume_for_job", profile_id=profile.id, job_id=job.id),
             )
             self._assert_run_completed(tailor_run, "定制简历")
+            result["tailor"] = self._completed_run_output(
+                db,
+                tailor_run,
+                artifact_type="tailored_resume",
+                required_key="resume_version_id",
+            )
             result["agent_runs"].append(self._run_payload(tailor_run))
-            result["tailor"] = tailor_run.output_json
         if intent == "quick_apply":
             apply_run = await self.orchestrator.run(
                 db,
@@ -571,8 +576,13 @@ query={request.query}
                 AgentRunRequest(task_type="prepare_interview_for_job", profile_id=profile.id, job_id=job.id),
             )
             self._assert_run_completed(interview_run, "面试准备")
+            result["interview_prep"] = self._completed_run_output(
+                db,
+                interview_run,
+                artifact_type="interview_prep",
+                required_key="interview_prep_id",
+            )
             result["agent_runs"].append(self._run_payload(interview_run))
-            result["interview_prep"] = interview_run.output_json
         return result
 
     def _normalize_plan(self, plan: dict[str, Any], request: NaturalLanguageAgentRequest) -> dict[str, Any]:
@@ -838,6 +848,33 @@ query={request.query}
             "output_json": run.output_json or {},
         }
 
+    def _completed_run_output(
+        self,
+        db: Session,
+        run,
+        *,
+        artifact_type: str,
+        required_key: str,
+    ) -> dict[str, Any]:
+        output = dict(run.output_json or {})
+        if output.get(required_key):
+            return output
+        artifact = (
+            db.query(AgentArtifact)
+            .filter(AgentArtifact.run_id == run.id, AgentArtifact.artifact_type == artifact_type)
+            .order_by(AgentArtifact.id.desc())
+            .first()
+        )
+        if artifact is None or not isinstance(artifact.artifact_json, dict):
+            return output
+        enriched = {**artifact.artifact_json, **output}
+        if enriched != output:
+            run.output_json = enriched
+            db.add(run)
+            db.commit()
+            db.refresh(run)
+        return enriched
+
     def _user_message(self, plan: dict[str, Any], result: dict[str, Any]) -> str:
         intent = plan.get("intent")
         pieces = []
@@ -846,12 +883,14 @@ query={request.query}
         if result.get("job"):
             pieces.append(f"岗位 #{result['job']['id']}")
         if result.get("tailor"):
-            pieces.append(f"定制简历 #{result['tailor'].get('resume_version_id')}")
+            resume_version_id = result["tailor"].get("resume_version_id")
+            pieces.append(f"定制简历 #{resume_version_id}" if resume_version_id else "定制简历已完成")
         if result.get("application"):
             application_id = result["application"].get("application_id")
             pieces.append(f"投递包 #{application_id}" if application_id else "投递包等待确认")
         if result.get("interview_prep"):
-            pieces.append(f"面试包 #{result['interview_prep'].get('interview_prep_id')}")
+            interview_prep_id = result["interview_prep"].get("interview_prep_id")
+            pieces.append(f"面试包 #{interview_prep_id}" if interview_prep_id else "面试包已完成")
         if result.get("matches"):
             pieces.append(f"推荐岗位 {len(result['matches'])} 个")
         if result.get("full_flow"):

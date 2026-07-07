@@ -140,6 +140,38 @@ def test_interview_prep_quality_judge_flags_weak_questions(db_session):
     assert quality["issue_counts"]["follow_up_depth"] >= 1
 
 
+def test_interview_prep_dedupes_questions_before_quality_gate(db_session):
+    profile, job = _seed_profile_job(db_session)
+    duplicate_question = {
+        "question": "CareerAgent 的 RAG 检索从 query 到 evidence 的链路怎么设计？",
+        "follow_ups": ["Top20 为什么需要 reranker？", "SQLite 和向量库如何分工？"],
+        "intent": "验证项目实现细节。",
+        "answer_points": ["讲 chunk", "讲检索权重", "讲 trace"],
+        "skills": ["RAG", "SQLite"],
+        "risk_level": "low",
+        "source_perspective": "llm_project_implementation",
+    }
+
+    prep = InterviewPrepService().create_interview_prep(
+        db_session,
+        profile=profile,
+        job=job,
+        llm_question_sets=[
+            {"category": "LLM 重复题组 A", "questions": [dict(duplicate_question), dict(duplicate_question)]},
+            {"category": "LLM 重复题组 B", "questions": [dict(duplicate_question)]},
+        ],
+    )
+
+    normalized = [
+        InterviewPrepService()._normalize_question_text(question["question"])
+        for group in prep.question_sets_json
+        for question in group.get("questions", [])
+    ]
+    assert len(normalized) == len(set(normalized))
+    assert prep.coverage_json["question_quality_rates"]["duplicate_rate"] == 0.0
+    assert prep.coverage_json["question_quality_passed"] is True
+
+
 def test_interview_prep_agent_workflow_records_artifact(db_session):
     profile, job = _seed_profile_job(db_session)
 

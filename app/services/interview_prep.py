@@ -87,6 +87,7 @@ class InterviewPrepService:
             self._general_interview_questions(profile, job),
         ]
         question_sets = [item for item in question_sets if item["questions"]]
+        question_sets = self._dedupe_question_sets(question_sets)
         self._attach_question_metadata(question_sets, missing=missing)
         gap_drills = self._gap_drills(job, missing)
         research_checklist = self._research_checklist(job, required, missing)
@@ -238,8 +239,25 @@ class InterviewPrepService:
             ]
         return [
             "这个回答如何回到当前 JD 的具体职责？",
-            "你会用哪个项目、指标或失败案例支撑这个回答？",
+                "你会用哪个项目、指标或失败案例支撑这个回答？",
         ]
+
+    def _dedupe_question_sets(self, question_sets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        seen: set[str] = set()
+        deduped_sets: list[dict[str, Any]] = []
+        for group in question_sets:
+            unique_questions = []
+            for question in group.get("questions") or []:
+                key = self._normalize_question_text(str(question.get("question") or ""))
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                unique_questions.append(question)
+            if unique_questions:
+                new_group = dict(group)
+                new_group["questions"] = unique_questions
+                deduped_sets.append(new_group)
+        return deduped_sets
 
     def _source_backed_experience_questions(
         self,

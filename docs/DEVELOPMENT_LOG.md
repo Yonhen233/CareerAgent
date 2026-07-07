@@ -1,5 +1,39 @@
 # 开发日志
 
+## 2026-07-07 19:16:38 +08:00：真实浏览器复测与自然语言产物 ID 补齐
+### 这次做了什么
+- 保持 Redis、FastAPI 和 worker 真实运行，使用 Codex 内置浏览器打开 `http://127.0.0.1:8042/`，从首页自然语言入口提交真实 LLM 流程。
+- 使用已有中文简历 #156 与岗位 #197，要求 Agent 判断岗位适配、定制 HTML 简历并生成面试准备，不触发投递、邮件发送或外部申请。
+- 修复自然语言入口在 LangGraph 嵌套子 run 场景下，子 run `output_json` 偶发只含执行计划时，用户摘要显示 `定制简历 #None`、`面试包 #None` 的问题。
+- 修复面试包多路问题合并后没有全局去重，导致质量门禁因重复率过高失败的问题。
+- 增加回归测试，模拟子 run 输出缺少产物 ID 但 trace artifact 完整的情况，确保自然语言汇总会恢复真实 `resume_version_id` 和 `interview_prep_id`。
+- 增加面试包问题去重测试，确保质量 judge 前重复问题已被移除。
+### 发现的问题
+- 真实浏览器流程最终完成，生成自然语言 run #167、定制简历子 run #168、面试准备子 run #169，但页面首行摘要显示 `#None`。
+- 数据库中真实产物已经创建：定制简历版本 #89、面试包 #37；说明 LLM 和业务工具成功执行，问题在自然语言层汇总子 run 结果时过度依赖 `output_json`。
+- 当前服务直接调用 `/agent/runs` 跑 `tailor_resume_for_job` 能正确返回 `resume_version_id`，问题更集中在“自然语言 LangGraph 中嵌套调用子 Agent 图”的真实路径。
+- 修复版 8043 真实 LLM 复测后，自然语言摘要已正确显示“定制简历 #91，面试包 #38”，但面试包 `coverage.passed=false`，原因是 `duplicate_rate=0.1795`，超过 0.08 阈值。
+### 怎么修复
+- `NaturalLanguageAgentService._completed_run_output()` 会在子 run 缺少关键产物 ID 时，读取对应 `AgentArtifact`，把 `tailored_resume` / `interview_prep` artifact 里的产物 ID 合并回 run output。
+- `_user_message()` 不再把空 ID 格式化成 `#None`；即使没有恢复到 ID，也会显示“定制简历已完成”或“面试包已完成”。
+- `tests/test_natural_language_agent.py` 新增 artifact 恢复回归用例，覆盖自然语言汇总层的真实失败形态。
+- `InterviewPrepService._dedupe_question_sets()` 在问题元数据和质量 judge 前进行全局去重，保留先出现的问题来源，避免已导入面经、在线面经入口、规则题和 LLM 题之间重复。
+### 验证结果
+- 内置浏览器自然语言入口真实提交成功，页面无 500/Traceback，完成耗时约 61 秒。
+- 修复版 8043 API 真实 LLM 复测完成，run #171 返回“定制简历 #91，面试包 #38”，无 `#None`。
+- 修复版 8044 API 真实 LLM 复测完成，run #174 返回“定制简历 #92，面试包 #39”，面试包 `coverage.passed=true`、`duplicate_rate=0.0`、`question_quality_passed=true`。
+- 内置浏览器在 8044 首页再次提交自然语言表单，页面完成 run #177，展示“定制简历 #93，面试包 #40”，无 `#None`，无错误提示；面试包子 run #179 `coverage.passed=true`、`duplicate_rate=0.0`。
+- 内置浏览器抽查 `/ui/profiles`、`/ui/jobs`、`/ui/agent-runs`、`/ui/resumes`、`/ui/prep`、`/ui/ops`，页面均能打开且未出现 500/Traceback/接口请求失败文案。
+- `/ops/queue/status` 返回 Redis enabled、queued_count=0、dead_letter_count=0。
+- 目标回归 `python -m pytest tests\test_natural_language_agent.py tests\test_agent_workflow.py::test_tailor_resume_agent_workflow tests\test_interview_prep.py::test_interview_prep_agent_workflow_records_artifact -q` 通过，6 个测试全部通过。
+- 补充回归 `python -m pytest tests\test_interview_prep.py tests\test_natural_language_agent.py -q` 通过，13 个测试全部通过。
+- 全量回归 `python -m pytest -q` 通过，122 个测试全部通过。
+### 未修复的问题
+- 已完成的历史 run #167 的 `user_message` 仍保留旧文案；这是历史记录，不做运行态数据回写，避免修改既有 trace 证据。
+- 8043 复测产生的面试包 #38 是去重修复前生成的历史产物，质量门禁失败记录保留为问题证据。
+### 下一步
+- 持续观察后台 stale run，后续可把面试包参考链接按 URL/title 做进一步去重，减少历史重复导入的展示噪声。
+
 ## 2026-07-07 18:56:39 +08:00：安装轻量 Redis 并修复 Worker BRPOP 超时
 ### 这次做了什么
 - 评估本机资源与安装条件：当前机器 16GB 内存、16 线程、虚拟化开启，但当前非管理员；空闲内存约 0.9GB。

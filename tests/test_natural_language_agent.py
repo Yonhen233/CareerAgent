@@ -2,8 +2,9 @@ import asyncio
 from types import SimpleNamespace
 
 from app.agents.natural_language import NaturalLanguageAgentService
-from app.models.entities import AgentEvent
+from app.models.entities import AgentEvent, Job, Profile
 from app.models.schemas import NaturalLanguageAgentRequest
+from app.services.trace_service import TraceService
 
 
 def test_natural_language_agent_creates_profile_from_user_description(db_session, monkeypatch):
@@ -151,3 +152,95 @@ def test_natural_language_agent_fails_empty_job_search_after_repair(db_session, 
     assert run.status == "failed"
     assert run.output_json["repair_attempts"]
     assert "岗位搜索没有返回可推荐岗位" in run.error_message
+
+
+def test_natural_language_agent_recovers_child_artifact_ids(db_session, monkeypatch):
+    profile = Profile(
+        name="浏览器回归同学",
+        source_type="guided",
+        raw_resume_text="CareerAgent with Python FastAPI RAG SQLite.",
+        structured_profile_json={
+            "name": "浏览器回归同学",
+            "skills": ["Python", "FastAPI", "RAG", "SQLite"],
+            "projects": [{"name": "CareerAgent", "description": "Agent 求职助手"}],
+        },
+    )
+    job = Job(
+        source="manual",
+        external_id="job-natural-artifact",
+        title="Agent 开发实习生",
+        company="DemoAI",
+        raw_jd_text="要求 Python、FastAPI、RAG、SQLite。",
+        structured_jd_json={"required_skills": ["Python", "FastAPI", "RAG", "SQLite"]},
+    )
+    db_session.add_all([profile, job])
+    db_session.commit()
+    db_session.refresh(profile)
+    db_session.refresh(job)
+
+    trace = TraceService()
+
+    class ArtifactOnlyOrchestrator:
+        async def run(self, db, request):
+            run = trace.create_run(
+                db,
+                task_type=request.task_type,
+                profile_id=request.profile_id,
+                job_id=request.job_id,
+                input_json=request.model_dump(),
+            )
+            if request.task_type == "tailor_resume_for_job":
+                trace.add_artifact(
+                    db,
+                    run_id=run.id,
+                    artifact_type="tailored_resume",
+                    payload={"resume_version_id": 123, "profile_id": request.profile_id, "job_id": request.job_id},
+                )
+            elif request.task_type == "prepare_interview_for_job":
+                trace.add_artifact(
+                    db,
+                    run_id=run.id,
+                    artifact_type="interview_prep",
+                    payload={"interview_prep_id": 456, "profile_id": request.profile_id, "job_id": request.job_id},
+                )
+            return trace.finish_run(
+                db,
+                run=run,
+                status="completed",
+                output_json={"execution_plan": {"task_type": request.task_type}},
+                started_at=0.0,
+            )
+
+    service = NaturalLanguageAgentService(orchestrator=ArtifactOnlyOrchestrator())
+
+    async def fake_plan(db, request):
+        return {
+            "intent": "interview_prep",
+            "query": "Agent 开发实习生",
+            "profile": None,
+            "job": None,
+            "needs_profile": True,
+            "needs_job": True,
+            "actions": ["tailor_resume", "interview_prep"],
+            "reason": "测试子 run artifact 补齐。",
+        }
+
+    monkeypatch.setattr(service, "_build_plan", fake_plan)
+
+    run = asyncio.run(
+        service.run(
+            db_session,
+            NaturalLanguageAgentRequest(
+                instruction="请改简历并生成面试准备，不要投递。",
+                profile_id=profile.id,
+                job_id=job.id,
+            ),
+        )
+    )
+
+    assert run.status == "completed"
+    assert run.output_json["result_json"]["tailor"]["resume_version_id"] == 123
+    assert run.output_json["result_json"]["interview_prep"]["interview_prep_id"] == 456
+    assert "定制简历 #123" in run.output_json["user_message"]
+    assert "面试包 #456" in run.output_json["user_message"]
+    assert "#None" not in run.output_json["user_message"]
