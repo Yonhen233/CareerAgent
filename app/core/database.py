@@ -47,10 +47,21 @@ def _ensure_sqlite_columns() -> None:
         llm_log_columns = {column["name"] for column in inspector.get_columns("llm_call_logs")}
         if "context_json" not in llm_log_columns:
             statements.append("ALTER TABLE llm_call_logs ADD COLUMN context_json JSON NOT NULL DEFAULT '{}'")
+    for table_name in ["resume_versions", "applications", "interview_preps"]:
+        if table_name in tables:
+            columns = {column["name"] for column in inspector.get_columns(table_name)}
+            if "idempotency_key" not in columns:
+                statements.append(f"ALTER TABLE {table_name} ADD COLUMN idempotency_key VARCHAR(255)")
 
     with engine.begin() as conn:
         for statement in statements:
             conn.execute(text(statement))
+        for table_name in ["resume_versions", "applications", "interview_preps"]:
+            if table_name in tables:
+                index_name = f"ix_{table_name}_idempotency_key"
+                indexes = {index["name"] for index in inspector.get_indexes(table_name)}
+                if index_name not in indexes:
+                    conn.execute(text(f"CREATE UNIQUE INDEX IF NOT EXISTS {index_name} ON {table_name}(idempotency_key)"))
 
 
 def get_db() -> Generator[Session, None, None]:

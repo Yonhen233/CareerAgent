@@ -5,9 +5,12 @@ from fastapi import APIRouter, Depends
 
 from app.core.config import get_settings
 from app.core.database import engine, get_db
+from app.core.redis_client import RedisUnavailableError, get_redis_client
 from app.core.security import require_admin
 from app.core.telemetry import telemetry
 from app.models.entities import AgentRun, EvaluationRun, LLMCallLog, TaskRun
+from app.models.schemas import AgentRunResponse
+from app.services.stale_runs import StaleRunService
 
 router = APIRouter(prefix="/ops", tags=["ops"])
 
@@ -31,8 +34,18 @@ def readiness(db: Session = Depends(get_db)) -> dict:
         checks["database"] = f"failed:{exc.__class__.__name__}"
     settings = get_settings()
     checks["llm_configured"] = "ok" if settings.effective_llm_api_key else "missing"
+    checks["redis_enabled"] = settings.redis_enabled
+    if settings.redis_enabled:
+        try:
+            get_redis_client().ping()
+            checks["redis"] = "ok"
+        except RedisUnavailableError as exc:
+            checks["redis"] = f"failed:{exc}"
+    else:
+        checks["redis"] = "disabled"
     checks["embedding_provider"] = settings.embedding_provider
     checks["reranker_provider"] = settings.reranker_provider if settings.reranker_enabled else "disabled"
+    checks["stale_running_count"] = len(StaleRunService().find_stale(db))
     status = "ready" if checks["database"] == "ok" else "degraded"
     return {"status": status, "checks": checks}
 
@@ -85,4 +98,31 @@ def config_summary(_: None = Depends(require_admin)) -> dict:
             "admin_token_configured": bool(settings.admin_api_key),
             "require_admin_for_mutations": settings.require_admin_for_mutations,
         },
+        "queue": {
+            "redis_enabled": settings.redis_enabled,
+            "redis_url": settings.redis_url,
+            "queue_name": settings.redis_queue_name,
+            "run_lock_ttl_seconds": settings.redis_run_lock_ttl_seconds,
+            "heartbeat_ttl_seconds": settings.redis_heartbeat_ttl_seconds,
+            "active_run_limit_per_profile": settings.agent_active_run_limit_per_profile,
+        },
     }
+
+
+@router.get("/agent-runs/stale")
+def stale_agent_runs(
+    threshold_minutes: int | None = None,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_admin),
+) -> dict:
+    return {"stale_runs": StaleRunService().find_stale(db, threshold_minutes=threshold_minutes)}
+
+
+@router.post("/agent-runs/mark-stale", response_model=list[AgentRunResponse])
+def mark_stale_agent_runs(
+    threshold_minutes: int | None = None,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_admin),
+) -> list[AgentRunResponse]:
+    runs = StaleRunService().mark_stale(db, threshold_minutes=threshold_minutes)
+    return [AgentRunResponse.model_validate(run) for run in runs]

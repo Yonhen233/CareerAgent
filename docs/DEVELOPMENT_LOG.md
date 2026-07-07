@@ -1,5 +1,48 @@
 # 开发日志
 
+## 2026-07-07 11:09:45 +08:00：Redis 队列、取消幂等、审批审计与 Prompt Injection 硬化
+### 这次做了什么
+- 将 Agent 后台 run 从 FastAPI 进程内任务升级为 RedisTaskRunner：`POST /agent/runs/background` 只创建 queued run 并入 Redis 队列，`scripts/run_agent_worker.py` 独立消费执行 LangGraph。
+- 将 `/tasks/llm-workflow` 评测长跑也切到同一 Redis 队列，避免运维任务继续绑在 API 进程里。
+- 新增 Redis run lock、heartbeat、cancel flag、Profile 级短窗口 rate limit，并在 `/ops/readiness` 和 `/ops/config` 暴露队列配置状态。
+- 新增 `POST /agent/runs/{run_id}/cancel`，取消 queued/running/waiting run 时写事件、output、Redis cancel flag，并取消 pending approval。
+- 为 `ResumeVersion`、`Application`、`InterviewPrep` 增加 `idempotency_key` 和 SQLite 唯一索引；LangGraph 写库节点重复执行会复用已有产物并写 `idempotency_reused` 事件。
+- 新增 `agent_approvals` 审批审计表；投递包 interrupt 前创建 pending approval，resume 确认/拒绝和 cancel 都会更新审计状态。
+- 新增 `PromptInjectionGuard`，接入 JD 解析、PDF 简历解析、RAG evidence、导入面经和简历定制 prompt 构造前的过滤。
+- 新增 stale run 检测与运维接口：`GET /ops/agent-runs/stale`、`POST /ops/agent-runs/mark-stale`。
+- 新增硬化测试 `tests/test_agent_hardening.py`，覆盖 prompt injection、Redis queue/lock、取消阻止 resume、approval 状态、业务幂等和 stale run。
+- 新增/更新 Redis + SQLite 架构、Hardening Notes、面试 Q&A、README、API 和 Agent 设计文档。
+### 发现的问题
+- Agent 主流程已经迁移 LangGraph，但后台入口仍然由 API 进程启动任务，面试中会被追问 API 重启、页面关闭和多 worker 重复执行。
+- 投递确认之前只体现在 run output 和 interrupt payload 中，不足以回答“审批是否可审计、能否复用到浏览器/邮件工具”。
+- checkpoint 重放、worker retry 或重复 resume 会再次进入写库节点，如果没有业务幂等键，可能重复创建投递包或面试包。
+- JD、PDF 和 RAG chunk 都是外部不可信文本，之前没有统一的 prompt injection risk flag 和进入 LLM 前过滤。
+- 旧文档仍写 BackgroundTasks，和真实架构不一致。
+### 怎么修复
+- 抽象 `RedisTaskRunner`，统一承载 `agent_run` 和 `task_run` payload；worker 消费前获取 Redis lock，失败直接报错而不是退回进程内执行。
+- 在 LangGraph Orchestrator 的节点入口统一检查 SQLite run status 和 Redis cancel flag；取消后继续 resume 会返回明确冲突，不创建后续业务产物。
+- 在投递包 interrupt 前调用 `ApprovalService.get_or_create_pending()`，resume 后调用 `decide()` 写 approved/rejected，cancel 调用 `cancel_pending_for_run()`。
+- 在 `tailor_resume`、`ensure_resume_version`、`create_application_packet`、`generate_interview_prep` 节点中生成稳定 idempotency key，先查已有产物再写库。
+- 在 JD/PDF/面经/RAG evidence 进入 LLM 或下游生成前调用 `PromptInjectionGuard.sanitize_for_llm()` 或 `sanitize_evidence()`，保留风险 metadata。
+- 用 `StaleRunService` 按最后事件时间识别 running 卡死 run，并通过运维接口标记 failed、保留 last_event/last_stage。
+### 验证结果
+- `python -m pytest tests\test_agent_hardening.py -q` 通过，6 个测试全部通过。
+- `python -m pytest tests\test_agent_workflow.py -q` 通过，7 个测试全部通过。
+- `python -m pytest tests\test_frontend_pages.py -q` 通过，9 个测试全部通过。
+- `python -m pytest tests\test_resume_parser.py tests\test_matcher.py -q` 通过，7 个测试全部通过。
+- `node --check app\static\js\main.js` 通过。
+- `python -m py_compile app\agents\langgraph_orchestrator.py app\api\agent_runs.py app\api\ops.py app\api\tasks.py app\services\task_runner.py app\services\approval_service.py app\services\prompt_injection_guard.py app\services\stale_runs.py app\models\entities.py app\models\schemas.py` 通过。
+### 未修复的问题
+- 轻量 Redis worker 还不是 Celery/Arq 级调度平台；原因是当前目标是简历项目中可解释、可运行的现代 Agent 架构，先补齐 queue/lock/cancel/heartbeat/idempotency 的核心闭环。
+- SQLite 仍是业务事实库；原因是当前项目主要面向单机可上线演示和审计 trace，多租户高并发时再迁 PostgreSQL 更合理。
+- Prompt injection guard 仍是规则版；原因是本轮先保证基础检测、过滤和 trace，后续可用分类器和 adversarial eval 增强。
+- 还没有真实浏览器最终提交或邮件发送工具；原因是当前产品边界仍是准备材料和人工确认，真实外发工具需要单独权限隔离和更严格审批。
+### 下一步
+- 为 Redis worker 增加 dead-letter queue、queued run recovery scanner 和更细粒度 heartbeat stage。
+- 将审批表扩展到 `browser_apply`、`email_draft`、`email_send` 等更高风险动作。
+- 增加更多 adversarial JD/PDF/RAG 评测样本，量化 prompt injection guard 的召回率和误报率。
+- 在前端控制台展示 approval 列表、取消按钮、stale run 管理和 Redis queue 状态。
+
 ## 2026-06-18 15:52:03 +08:00：统一 LangGraph 运行时、事件流和后台一键流程
 ### 这次做了什么
 - 新增 `agent_events` 表和 `AgentEventResponse`，把 run、step、artifact、LangGraph graph/node/interrupt 事件统一持久化。

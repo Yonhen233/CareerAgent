@@ -48,7 +48,9 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - 每次 run 先生成 Plan-Execute 执行计划，并写入 Trace artifact。
   - `execution_plan` 和 run 输入输出会标记 `orchestration_framework=langgraph`，并保留 `graph_thread_id`；当前使用 LangGraph SQLite checkpointer 持久化到 `data/runtime/langgraph_checkpoints.sqlite`。
   - `quick_apply` 和 `full_career_flow` 在生成投递包前会触发 LangGraph interrupt，返回 `waiting_for_confirmation`；用户或前端通过 `/agent/runs/{run_id}/resume` 确认后继续执行。
-  - 支持后台启动和 LangGraph SSE 事件流：`POST /agent/runs/background` 返回 queued run，`GET /agent/runs/{run_id}/events/stream` 持续输出 graph/node/step/interrupt 进度。
+  - 支持后台启动和 LangGraph SSE 事件流：`POST /agent/runs/background` 返回 queued run 并写入 Redis 队列，`scripts/run_agent_worker.py` 独立消费执行，`GET /agent/runs/{run_id}/events/stream` 持续输出 graph/node/step/interrupt 进度。
+  - 支持用户取消 run、stale run 检测、业务幂等键、投递审批审计、Redis run lock 和 Profile 级 active/rate limit。
+  - JD、PDF 简历、RAG evidence 和导入面经进入 LLM 前会经过 PromptInjectionGuard 检测，风险写入结构化 metadata，高风险投递动作仍必须人工确认。
   - 首页一键流程现在只创建一个后台 `full_career_flow` run；前端通过 SSE 推进阶段进度，不再在浏览器里拼接多个小 run。
   - 显式注册 Tool、Skill 和 SubAgent，计划产物会展示当前任务使用的能力边界。
   - 简历定制带 1 轮 ReAct repair loop：Guardrail 高风险时读取 issues 和压缩上下文，修复后再次验证，并记录 `react_repair` 元数据。
@@ -84,7 +86,9 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
 ```mermaid
 flowchart LR
     UI["Jinja 用户开始页 + 控制台"] --> API["FastAPI API"]
-    API --> Agent["LangGraph Agent Orchestrator"]
+    API --> Redis["Redis Queue / Lock / RateLimit"]
+    Redis --> Worker["Agent Worker"]
+    Worker --> Agent["LangGraph Agent Orchestrator"]
     Agent --> Search["并发岗位搜索"]
     Agent --> Match["岗位匹配"]
     Agent --> Tailor["RAG 简历定制"]
@@ -98,6 +102,7 @@ flowchart LR
     Tailor -.可选.-> LLM["DeepSeek / OpenAI-compatible LLM"]
     LLM --> Debug["LLM 调用日志"]
     Agent --> Trace["Run / Step / Artifact / Event Trace"]
+    Trace -.pub/sub.-> Redis
 ```
 
 ## 快速启动
@@ -108,6 +113,14 @@ python -m venv .venv
 pip install -r requirements.txt
 copy .env.example .env
 uvicorn app.main:app --reload
+```
+
+后台一键流程需要 Redis 和独立 worker：
+
+```powershell
+$env:REDIS_ENABLED='true'
+$env:REDIS_URL='redis://localhost:6379/0'
+python scripts/run_agent_worker.py
 ```
 
 打开：
@@ -191,6 +204,9 @@ python scripts/run_user_flow_smoke.py --pdf demo_resumes/agent_intern_strong_res
 - `POST /jobs/search`
 - `GET /jobs/{job_id}/chunks`
 - `POST /agent/runs`
+- `POST /agent/runs/background`
+- `POST /agent/runs/{run_id}/cancel`
+- `GET /agent/runs/{run_id}/approvals`
 - `GET /agent/tools`
 - `GET /agent/skills`
 - `GET /agent/subagents`
@@ -223,6 +239,8 @@ python scripts/run_user_flow_smoke.py --pdf demo_resumes/agent_intern_strong_res
 - `GET /ops/readiness`
 - `GET /ops/metrics`
 - `GET /ops/config`
+- `GET /ops/agent-runs/stale`
+- `POST /ops/agent-runs/mark-stale`
 - `GET /evaluations/results`
 
 更完整的接口说明见 [docs/API.md](docs/API.md)。
@@ -259,6 +277,9 @@ pytest -q
 
 - [架构设计](docs/ARCHITECTURE.md)
 - [Agent 设计说明](docs/AGENT_DESIGN.md)
+- [Redis + SQLite 架构说明](docs/CAREER_AGENT_REDIS_SQLITE_ARCHITECTURE.md)
+- [Production Hardening Notes](docs/CAREER_AGENT_HARDENING_NOTES.md)
+- [面试 Hardening Q&A](docs/CAREER_AGENT_INTERVIEW_HARDENING_QA.md)
 - [API 说明](docs/API.md)
 - [PDF Chunk 方案](docs/PDF_CHUNKING.md)
 - [量化评测方案](docs/EVALUATION.md)

@@ -10,9 +10,11 @@ from sqlalchemy.orm import Session
 
 from app.agents.tools import AgentPlanner
 from app.core.config import get_settings
+from app.core.redis_client import RedisUnavailableError, get_redis_client, redis_key
 from app.models.entities import AgentRun
 from app.models.entities import Application, Job, Profile, ResumeVersion
 from app.models.schemas import AgentRunRequest
+from app.services.approval_service import ApprovalService
 from app.services.application_service import ApplicationService
 from app.services.interview_prep import InterviewPrepService
 from app.services.job_search import JobSearchService
@@ -59,6 +61,10 @@ class CareerAgentGraphState(TypedDict, total=False):
     output: dict[str, Any]
 
 
+class AgentRunCancelled(RuntimeError):
+    pass
+
+
 class LangGraphAgentOrchestrator:
     def __init__(
         self,
@@ -70,6 +76,7 @@ class LangGraphAgentOrchestrator:
         application: ApplicationService | None = None,
         interview_prep: InterviewPrepService | None = None,
         planner: AgentPlanner | None = None,
+        approvals: ApprovalService | None = None,
     ) -> None:
         self.trace = trace or TraceService()
         self.job_search = job_search or JobSearchService()
@@ -78,6 +85,7 @@ class LangGraphAgentOrchestrator:
         self.application = application or ApplicationService()
         self.interview_prep = interview_prep or InterviewPrepService()
         self.planner = planner or AgentPlanner()
+        self.approvals = approvals or ApprovalService()
         self.settings = get_settings()
         self._runtime_dbs: dict[int, Session] = {}
         self._runtime_plans: dict[int, dict[str, Any]] = {}
@@ -141,6 +149,7 @@ class LangGraphAgentOrchestrator:
         run.status = "running"
         db.add(run)
         db.commit()
+        self._raise_if_cancelled(db, run.id)
         self.trace.add_event(
             db,
             run_id=run.id,
@@ -192,6 +201,21 @@ class LangGraphAgentOrchestrator:
             output["orchestration_framework"] = "langgraph"
             output["graph_thread_id"] = graph_thread_id
             return self.trace.finish_run(db, run=run, status="completed", output_json=output, started_at=started)
+        except AgentRunCancelled as exc:
+            return self.trace.finish_run(
+                db,
+                run=run,
+                status="cancelled",
+                output_json={
+                    "cancelled": True,
+                    "error": str(exc),
+                    "orchestration_framework": "langgraph",
+                    "graph_thread_id": graph_thread_id,
+                    "execution_plan": self._runtime_plans.get(run.id) or {},
+                },
+                error_message=str(exc),
+                started_at=started,
+            )
         except Exception as exc:  # noqa: BLE001
             return self.trace.finish_run(
                 db,
@@ -224,6 +248,7 @@ class LangGraphAgentOrchestrator:
         run.status = "running"
         db.add(run)
         db.commit()
+        self._raise_if_cancelled(db, run.id)
         self.trace.add_event(
             db,
             run_id=run.id,
@@ -262,6 +287,21 @@ class LangGraphAgentOrchestrator:
             output["orchestration_framework"] = "langgraph"
             output["graph_thread_id"] = graph_thread_id
             return self.trace.finish_run(db, run=run, status="completed", output_json=output, started_at=started)
+        except AgentRunCancelled as exc:
+            return self.trace.finish_run(
+                db,
+                run=run,
+                status="cancelled",
+                output_json={
+                    "cancelled": True,
+                    "error": str(exc),
+                    "orchestration_framework": "langgraph",
+                    "graph_thread_id": graph_thread_id,
+                    "execution_plan": self._runtime_plans.get(run.id) or {},
+                },
+                error_message=str(exc),
+                started_at=started,
+            )
         except Exception as exc:  # noqa: BLE001
             return self.trace.finish_run(
                 db,
@@ -280,6 +320,36 @@ class LangGraphAgentOrchestrator:
             self._runtime_dbs.pop(run.id, None)
             self._runtime_plans.pop(run.id, None)
             await self._close_checkpoint()
+
+    def cancel(self, db: Session, run_id: int, *, reason: str | None = None) -> AgentRun:
+        run = db.query(AgentRun).filter(AgentRun.id == run_id).first()
+        if run is None:
+            raise ValueError(f"Agent run {run_id} not found.")
+        if run.status not in {"queued", "running", "waiting_for_confirmation"}:
+            raise ValueError(f"Agent run {run_id} cannot be cancelled from status {run.status}.")
+        self.trace.add_event(
+            db,
+            run_id=run.id,
+            event_type="run_cancel_requested",
+            payload={"reason": reason, "previous_status": run.status},
+        )
+        self.approvals.cancel_pending_for_run(db, run_id=run.id, note=reason or "run cancelled")
+        output = dict(run.output_json or {})
+        output.update({"cancelled": True, "cancel_reason": reason, "previous_status": run.status})
+        run.status = "cancelled"
+        run.output_json = output
+        run.error_message = reason or "Agent run cancelled by user."
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        self._set_redis_cancel_flag(run.id)
+        self.trace.add_event(
+            db,
+            run_id=run.id,
+            event_type="run_cancelled",
+            payload={"reason": reason, "output_json": output},
+        )
+        return run
 
     async def graph_state(self, run: AgentRun) -> dict[str, Any]:
         graph_thread_id = self._graph_thread_id_from_run(run)
@@ -641,6 +711,11 @@ class LangGraphAgentOrchestrator:
         db = self._db_from_state(state)
         profile = await self._load_profile(db, state.get("profile_id"))
         job = await self._load_job(db, state.get("job_id"))
+        key = self._idempotency_key(state, "resume", profile.id, job.id)
+        existing = self._resume_by_idempotency_key(db, key)
+        if existing is not None:
+            self._record_idempotency_reuse(db, state["run_id"], "resume_version", key, existing.id)
+            return self._tailor_payload(state, profile, job, existing, idempotency_reused=True)
         version = await self.trace.step(
             db,
             run_id=state["run_id"],
@@ -649,14 +724,8 @@ class LangGraphAgentOrchestrator:
             input_json={"profile_id": profile.id, "job_id": job.id},
             handler=lambda: self.tailor.tailor_resume(db, profile, job),
         )
-        payload = {
-            "profile_id": profile.id,
-            "job_id": job.id,
-            "match_result_id": state.get("match_result_id"),
-            "overall_score": state.get("overall_score"),
-            "resume_version_id": version.id,
-            "verification": version.verification_json,
-        }
+        self._assign_idempotency_key(db, version, key)
+        payload = self._tailor_payload(state, profile, job, version, idempotency_reused=False)["tailor"]
         self.trace.add_artifact(db, run_id=state["run_id"], artifact_type="tailored_resume", payload=payload)
         return {
             "resume_version_id": version.id,
@@ -685,6 +754,11 @@ class LangGraphAgentOrchestrator:
         db = self._db_from_state(state)
         profile = await self._load_profile(db, state.get("profile_id"))
         job = await self._load_job(db, state.get("job_id"))
+        key = self._idempotency_key(state, "resume", profile.id, job.id)
+        existing = self._resume_by_idempotency_key(db, key)
+        if existing is not None:
+            self._record_idempotency_reuse(db, state["run_id"], "resume_version", key, existing.id)
+            return {"resume_version_id": existing.id}
         version = await self.trace.step(
             db,
             run_id=state["run_id"],
@@ -693,6 +767,7 @@ class LangGraphAgentOrchestrator:
             input_json={"profile_id": profile.id, "job_id": job.id},
             handler=lambda: self.tailor.tailor_resume(db, profile, job),
         )
+        self._assign_idempotency_key(db, version, key)
         return {"resume_version_id": version.id}
 
     async def _node_create_application_packet(self, state: CareerAgentGraphState) -> dict[str, Any]:
@@ -705,6 +780,15 @@ class LangGraphAgentOrchestrator:
         confirmation = self._application_confirmation(state, job, resume_version)
         if not confirmation.get("confirmed"):
             raise ValueError("Application confirmation rejected by user.")
+        key = self._idempotency_key(state, "application", profile.id, job.id, resume_version.id)
+        existing = self._application_by_idempotency_key(db, key)
+        if existing is not None:
+            self._record_idempotency_reuse(db, state["run_id"], "application", key, existing.id)
+            payload = self._application_payload(existing)
+            payload["fit_gate"] = state.get("fit_gate")
+            payload["human_confirmation"] = confirmation
+            payload["idempotency_reused"] = True
+            return {"application": payload}
         application = await self.trace.step(
             db,
             run_id=state["run_id"],
@@ -719,15 +803,25 @@ class LangGraphAgentOrchestrator:
                 browser_assist=False,
             ),
         )
+        self._assign_idempotency_key(db, application, key)
         payload = self._application_payload(application)
         payload["fit_gate"] = state.get("fit_gate")
         payload["human_confirmation"] = confirmation
+        payload["idempotency_reused"] = False
         return {"application": payload}
 
     async def _node_generate_interview_prep(self, state: CareerAgentGraphState) -> dict[str, Any]:
         db = self._db_from_state(state)
         profile = await self._load_profile(db, state.get("profile_id"))
         job = await self._load_job(db, state.get("job_id"))
+        key = self._idempotency_key(state, "interview_prep", profile.id, job.id)
+        existing = self._interview_prep_by_idempotency_key(db, key)
+        if existing is not None:
+            self._record_idempotency_reuse(db, state["run_id"], "interview_prep", key, existing.id)
+            payload = self._interview_prep_payload(existing)
+            payload["idempotency_reused"] = True
+            self.trace.add_artifact(db, run_id=state["run_id"], artifact_type="interview_prep", payload=payload)
+            return {"interview_prep": payload}
         match_result = self.matcher.create_match_result(db, profile, job)
         prep = await self.trace.step(
             db,
@@ -739,11 +833,14 @@ class LangGraphAgentOrchestrator:
                 db, profile=profile, job=job, match_result=match_result
             ),
         )
+        self._assign_idempotency_key(db, prep, key)
         payload = self._interview_prep_payload(prep)
+        payload["idempotency_reused"] = False
         self.trace.add_artifact(db, run_id=state["run_id"], artifact_type="interview_prep", payload=payload)
         return {"interview_prep": payload}
 
     async def _node_finalize_find_jobs(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        self._db_from_state(state)
         return {
             "output": {
                 "profile_id": state.get("profile_id"),
@@ -754,12 +851,15 @@ class LangGraphAgentOrchestrator:
         }
 
     async def _node_finalize_tailor(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        self._db_from_state(state)
         return {"output": dict(state.get("tailor") or {})}
 
     async def _node_finalize_quick_apply(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        self._db_from_state(state)
         return {"output": dict(state.get("application") or {})}
 
     async def _node_finalize_interview(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        self._db_from_state(state)
         return {"output": dict(state.get("interview_prep") or {})}
 
     async def _node_finalize_full_flow(self, state: CareerAgentGraphState) -> dict[str, Any]:
@@ -824,6 +924,7 @@ class LangGraphAgentOrchestrator:
         db = self._runtime_dbs.get(int(state["run_id"]))
         if db is None:
             raise RuntimeError("LangGraph node state is missing the active database session.")
+        self._raise_if_cancelled(db, int(state["run_id"]))
         return db
 
     def _application_confirmation(
@@ -832,11 +933,32 @@ class LangGraphAgentOrchestrator:
         job: Job,
         resume_version: ResumeVersion,
     ) -> dict[str, Any]:
+        db = self._db_from_state(state)
+        summary = {
+            "job_id": job.id,
+            "job_title": job.title,
+            "company": job.company,
+            "resume_version_id": resume_version.id,
+            "fit_gate": state.get("fit_gate") or {},
+        }
+        approval = self.approvals.get_or_create_pending(
+            db,
+            run_id=state["run_id"],
+            action_type="application_packet",
+            payload_summary=summary,
+        )
         if state.get("application_confirmed"):
+            self.approvals.decide(
+                db,
+                approval=approval,
+                approved=True,
+                note="request.application_confirmed",
+            )
             return {
                 "confirmed": True,
                 "source": "request.application_confirmed",
                 "message": "调用方已显式确认生成投递包。",
+                "approval_id": approval.id,
             }
         value = interrupt(
             {
@@ -846,18 +968,30 @@ class LangGraphAgentOrchestrator:
                 "job_title": job.title,
                 "company": job.company,
                 "resume_version_id": resume_version.id,
+                "approval_id": approval.id,
                 "fit_gate": state.get("fit_gate") or {},
                 "required_action": "confirm_before_application_packet",
             }
         )
         if isinstance(value, dict):
+            confirmed = bool(value.get("confirmed"))
+            self.approvals.decide(
+                db,
+                approval=approval,
+                approved=confirmed,
+                note=value.get("note"),
+                decided_by_user_id=value.get("decided_by_user_id"),
+            )
             return {
-                "confirmed": bool(value.get("confirmed")),
+                "confirmed": confirmed,
                 "source": value.get("source") or "langgraph_resume",
                 "note": value.get("note"),
                 "resume_payload": value,
+                "approval_id": approval.id,
             }
-        return {"confirmed": bool(value), "source": "langgraph_resume", "resume_payload": value}
+        confirmed = bool(value)
+        self.approvals.decide(db, approval=approval, approved=confirmed)
+        return {"confirmed": confirmed, "source": "langgraph_resume", "resume_payload": value, "approval_id": approval.id}
 
     def _interrupt_payloads(self, state: dict[str, Any]) -> list[dict[str, Any]]:
         return [
@@ -926,6 +1060,7 @@ class LangGraphAgentOrchestrator:
             "checklist": application.checklist_json,
             "packet_validation": automation_result.get("packet_validation"),
             "automation_result": automation_result,
+            "idempotency_key": application.idempotency_key,
         }
 
     def _interview_prep_payload(self, prep) -> dict[str, Any]:
@@ -940,4 +1075,90 @@ class LangGraphAgentOrchestrator:
             "question_set_count": len(prep.question_sets_json or []),
             "gap_drill_count": len(prep.gap_drills_json or []),
             "research_item_count": len(prep.research_checklist_json or []),
+            "idempotency_key": getattr(prep, "idempotency_key", None),
         }
+
+    def _tailor_payload(
+        self,
+        state: CareerAgentGraphState,
+        profile: Profile,
+        job: Job,
+        version: ResumeVersion,
+        *,
+        idempotency_reused: bool,
+    ) -> dict[str, Any]:
+        payload = {
+            "profile_id": profile.id,
+            "job_id": job.id,
+            "match_result_id": state.get("match_result_id"),
+            "overall_score": state.get("overall_score"),
+            "resume_version_id": version.id,
+            "verification": version.verification_json,
+            "idempotency_key": version.idempotency_key,
+            "idempotency_reused": idempotency_reused,
+        }
+        return {"resume_version_id": version.id, "verification": version.verification_json, "tailor": payload}
+
+    def _idempotency_key(self, state: CareerAgentGraphState, kind: str, *parts: object) -> str:
+        return ":".join(["agent_run", str(state["run_id"]), kind, *(str(part) for part in parts)])
+
+    def _resume_by_idempotency_key(self, db: Session, key: str) -> ResumeVersion | None:
+        return db.query(ResumeVersion).filter(ResumeVersion.idempotency_key == key).first()
+
+    def _application_by_idempotency_key(self, db: Session, key: str) -> Application | None:
+        return db.query(Application).filter(Application.idempotency_key == key).first()
+
+    def _interview_prep_by_idempotency_key(self, db: Session, key: str):
+        from app.models.entities import InterviewPrep
+
+        return db.query(InterviewPrep).filter(InterviewPrep.idempotency_key == key).first()
+
+    def _assign_idempotency_key(self, db: Session, row: Any, key: str) -> None:
+        if getattr(row, "idempotency_key", None) == key:
+            return
+        setattr(row, "idempotency_key", key)
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+
+    def _record_idempotency_reuse(
+        self,
+        db: Session,
+        run_id: int,
+        artifact_type: str,
+        key: str,
+        existing_id: int,
+    ) -> None:
+        self.trace.add_event(
+            db,
+            run_id=run_id,
+            event_type="idempotency_reused",
+            payload={"artifact_type": artifact_type, "idempotency_key": key, "existing_id": existing_id},
+            node_name=artifact_type,
+        )
+
+    def _raise_if_cancelled(self, db: Session, run_id: int) -> None:
+        try:
+            db.expire_all()
+        except Exception:
+            pass
+        run = db.query(AgentRun).filter(AgentRun.id == run_id).first()
+        redis_cancelled = self._redis_cancel_requested(run_id)
+        if run is not None and (run.status == "cancelled" or redis_cancelled):
+            raise AgentRunCancelled(f"Agent run {run_id} was cancelled.")
+
+    def _set_redis_cancel_flag(self, run_id: int) -> None:
+        try:
+            get_redis_client().set(
+                redis_key("career_agent", "runs", "cancel", run_id),
+                "1",
+                ex=self.settings.redis_run_lock_ttl_seconds,
+            )
+        except RedisUnavailableError:
+            return
+
+    def _redis_cancel_requested(self, run_id: int) -> bool:
+        try:
+            return bool(get_redis_client().get(redis_key("career_agent", "runs", "cancel", run_id)))
+        except RedisUnavailableError:
+            return False

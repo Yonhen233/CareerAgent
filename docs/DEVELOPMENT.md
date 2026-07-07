@@ -323,7 +323,7 @@ GET /tasks
 GET /tasks/{task_id}
 ```
 
-后台任务使用进程内 FastAPI BackgroundTasks 和 SQLite `task_runs` 表，适合开发期演示并发、轮询进度和失败追踪；生产多实例部署时应替换为 Redis/Celery/Arq 等外部队列。前端推荐使用 `/ui/quality` 的后台任务面板，或在 `/ui/ops` 查看最近任务和输出摘要。
+后台任务使用 RedisTaskRunner 入队，`scripts/run_agent_worker.py` 独立消费执行，SQLite `task_runs` 表记录 queued/running/completed/failed、进度、错误和最终 `evaluation_run_id`。Redis 未启用或不可用时入队直接失败，便于开发期暴露真实运行时问题。前端推荐使用 `/ui/quality` 的后台任务面板，或在 `/ui/ops` 查看最近任务和输出摘要。
 
 ## 权限与监控
 

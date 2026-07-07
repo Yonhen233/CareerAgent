@@ -232,7 +232,11 @@ RAG 证据不再只按向量分和关键词分排序，`MatcherService.retrieve_
 - `execution_plan.langgraph_decision.migrated=true`，运行输入输出都带有 `orchestration_framework=langgraph`。
 - SQLite checkpointer 已持久化 LangGraph checkpoint；`POST /agent/runs/{run_id}/resume` 可以在新 Orchestrator 实例中按 `graph_thread_id` 恢复。
 - `quick_apply` 和 `full_career_flow` 会在生成投递包前触发 LangGraph interrupt；确认前不会写入 `applications`。
-- `POST /agent/runs/background` 支持后台启动 queued run；`GET /agent/runs/{run_id}/events/stream` 支持 LangGraph SSE 事件流。
+- `POST /agent/runs/background` 支持后台启动 queued run，并通过 RedisTaskRunner 入队；`scripts/run_agent_worker.py` 独立消费执行 LangGraph。
+- 每个后台 run 执行前会获取 Redis run lock；节点开始前检查 SQLite 状态和 Redis cancel flag。
+- 简历版本、投递包、面试包写库节点都有业务幂等键，checkpoint 重放或重复 resume 会复用已有产物。
+- 投递包 interrupt 前会创建 `agent_approvals` 审批记录，resume 确认/拒绝/取消都有审计状态。
+- `GET /agent/runs/{run_id}/events/stream` 支持 LangGraph SSE 事件流，`TraceService` 写 SQLite event 后也会发布 Redis pub/sub 通知。
 - 首页一键流程已经改成单个后台 `full_career_flow` run，通过 SSE 推进阶段状态。
 
 迁移中特别处理的问题：
@@ -243,6 +247,5 @@ RAG 证据不再只按向量分和关键词分排序，`MatcherService.retrieve_
 
 后续增强：
 
-- 后续接入浏览器辅助填写、邮件发送等更高风险工具时，继续在对应节点前加入 interrupt，并把确认记录写入独立审批/审计表。
-- 为应用包创建、面试包创建等写库节点补充业务幂等键，减少 checkpoint 恢复或后台重试造成重复写入的风险。
+- 后续接入浏览器辅助填写、邮件发送等更高风险工具时，继续复用当前 approval table，并可增加 `action_type=browser_apply/email_send`。
 - 当浏览器、邮箱、日历等工具 MCP 化后，把对应节点改为跨进程工具调用。

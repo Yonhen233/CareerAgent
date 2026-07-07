@@ -1,17 +1,17 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import require_admin
 from app.models.schemas import TaskRunResponse
 from app.services.task_queue import TaskQueueService
+from app.services.task_runner import get_task_runner
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 
 @router.post("/llm-workflow", response_model=TaskRunResponse, status_code=status.HTTP_202_ACCEPTED)
 async def enqueue_llm_workflow_task(
-    background_tasks: BackgroundTasks,
     case_limit: int | None = Query(default=None, ge=1, le=18),
     resume_from_last_completed: bool = Query(default=False),
     trace_path: str | None = Query(default=None),
@@ -25,7 +25,14 @@ async def enqueue_llm_workflow_task(
         resume_from_last_completed=resume_from_last_completed,
         trace_path=trace_path,
     )
-    background_tasks.add_task(service.run_llm_workflow_task, task.id)
+    try:
+        get_task_runner().enqueue_task_run(task.id)
+    except Exception as exc:  # noqa: BLE001
+        task.status = "failed"
+        task.error_message = f"Queue enqueue failed: {exc}"
+        db.add(task)
+        db.commit()
+        raise HTTPException(status_code=503, detail=f"Task queue unavailable: {exc}") from exc
     return TaskRunResponse.model_validate(task)
 
 

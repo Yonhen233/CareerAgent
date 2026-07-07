@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models.entities import InterviewExperience, Job
 from app.services.matcher import normalize_skill
+from app.services.prompt_injection_guard import PromptInjectionGuard
 
 
 QUESTION_MARKERS = (
@@ -97,11 +98,12 @@ class InterviewExperienceService:
         role_keyword: str | None = None,
     ) -> InterviewExperience:
         text = self._normalize_text(raw_text)
+        sanitized_text, injection = self.injection_guard.sanitize_for_llm(text, source="interview_experience")
         if len(text) < 20:
             raise ValueError("Interview experience text is too short to extract reliable questions.")
 
         normalized_site = self.normalize_source_site(source_site)
-        extracted = self.extract(text)
+        extracted = self.extract(sanitized_text or text)
         row = InterviewExperience(
             job_id=job.id if job else None,
             source_site=normalized_site,
@@ -119,7 +121,8 @@ class InterviewExperienceService:
                 text=text,
                 question_count=len(extracted["questions"]),
                 topic_count=len(extracted["topics"]),
-            ),
+            )
+            | {"prompt_injection": injection.model_dump()},
         )
         db.add(row)
         db.commit()
@@ -346,3 +349,5 @@ class InterviewExperienceService:
         if len(text) <= limit:
             return text
         return text[: limit - 1].rstrip() + "..."
+    def __init__(self) -> None:
+        self.injection_guard = PromptInjectionGuard()

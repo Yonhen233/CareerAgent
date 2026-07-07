@@ -73,6 +73,7 @@ class ProfileStructured(BaseModel):
     awards: list[str] = Field(default_factory=list)
     languages: list[str] = Field(default_factory=list)
     portfolio_links: list[str] = Field(default_factory=list)
+    prompt_injection: dict[str, Any] = Field(default_factory=dict)
     raw_text: str = ""
 
     _normalize_raw_text = field_validator("raw_text", mode="before")(empty_string_when_missing)
@@ -157,6 +158,7 @@ class JDStructured(BaseModel):
     qualifications: list[str] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
     seniority: str | None = None
+    prompt_injection: dict[str, Any] = Field(default_factory=dict)
 
     _normalize_lists = field_validator(
         "required_skills",
@@ -258,6 +260,7 @@ class ResumeVersionResponse(BaseModel):
     source_evidence_json: list[dict[str, Any]]
     verification_json: dict[str, Any]
     diff_text: str | None
+    idempotency_key: str | None = None
     created_at: datetime
 
 
@@ -284,6 +287,10 @@ class AgentRunResumeRequest(BaseModel):
     resume_json: dict[str, Any] = Field(default_factory=dict)
 
 
+class AgentRunCancelRequest(BaseModel):
+    reason: str | None = None
+
+
 class AgentRunResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -297,6 +304,21 @@ class AgentRunResponse(BaseModel):
     error_message: str | None
     latency_ms: int
     created_at: datetime
+
+
+class AgentApprovalResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    run_id: int
+    action_type: str
+    status: str
+    payload_hash: str
+    payload_summary_json: dict[str, Any]
+    note: str | None
+    decided_by_user_id: str | None
+    created_at: datetime
+    decided_at: datetime | None
 
 
 class AgentStepResponse(BaseModel):
@@ -409,6 +431,7 @@ class ApplicationResponse(BaseModel):
     outreach_message: str | None
     checklist_json: list[str]
     automation_result_json: dict[str, Any] | None
+    idempotency_key: str | None = None
     created_at: datetime
 
 
@@ -433,6 +456,7 @@ class InterviewPrepResponse(BaseModel):
     source_evidence_json: list[dict[str, Any]]
     coverage_json: dict[str, Any]
     generation_mode: str
+    idempotency_key: str | None = None
     created_at: datetime
 
 

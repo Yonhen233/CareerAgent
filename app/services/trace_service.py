@@ -1,9 +1,11 @@
 import time
+import json
 from collections.abc import Callable
 from typing import Any, Awaitable, TypeVar
 
 from sqlalchemy.orm import Session
 
+from app.core.redis_client import RedisUnavailableError, get_redis_client, redis_key
 from app.models.entities import AgentArtifact, AgentEvent, AgentRun, AgentStep
 
 T = TypeVar("T")
@@ -136,6 +138,7 @@ class TraceService:
         db.add(event)
         db.commit()
         db.refresh(event)
+        self._publish_event(event)
         return event
 
     def finish_run(
@@ -177,3 +180,23 @@ class TraceService:
         if isinstance(value, (str, int, float, bool)) or value is None:
             return value
         return str(value)
+
+    def _publish_event(self, event: AgentEvent) -> None:
+        try:
+            redis = get_redis_client()
+            redis.publish(
+                redis_key("career_agent", "events", event.run_id),
+                json.dumps(
+                    {
+                        "id": event.id,
+                        "run_id": event.run_id,
+                        "event_type": event.event_type,
+                        "node_name": event.node_name,
+                        "event_json": event.event_json,
+                        "created_at": event.created_at.isoformat(),
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        except RedisUnavailableError:
+            return

@@ -6,6 +6,7 @@ from app.core.llm import LLMConfigurationError
 from app.core.llm import extract_json_object
 from app.core.llm import format_exception
 from app.models.schemas import JDStructured
+from app.services.prompt_injection_guard import PromptInjectionGuard
 from app.services.resume_parser import KNOWN_SKILLS
 
 
@@ -47,6 +48,7 @@ class JDParserService:
     def __init__(self) -> None:
         self.settings = get_settings()
         self.llm = LLMClient()
+        self.injection_guard = PromptInjectionGuard()
 
     async def parse_jd(
         self,
@@ -57,7 +59,9 @@ class JDParserService:
         location: str | None = None,
         db=None,
     ) -> dict:
-        heuristic = self.heuristic_parse(raw_text, title=title, company=company, location=location)
+        safe_text, injection = self.injection_guard.sanitize_for_llm(raw_text, source="jd")
+        heuristic = self.heuristic_parse(safe_text or raw_text, title=title, company=company, location=location)
+        heuristic["prompt_injection"] = injection.model_dump()
         if not self.llm.available:
             if not self.settings.llm_fallback_enabled:
                 raise LLMConfigurationError("LLM is required for JD parsing. Set LLM_FALLBACK_ENABLED=true for tests.")
@@ -85,7 +89,7 @@ Known title/company/location if provided:
 - location: {location}
 
 JD:
-{raw_text}
+{safe_text or raw_text}
 """
         try:
             parsed = await self._generate_jd_json_with_retry(
@@ -94,10 +98,13 @@ JD:
                 max_tokens=1200,
                 db=db,
             )
-            return JDStructured.model_validate(self._merge_llm_parse(heuristic, parsed, raw_text=raw_text)).model_dump()
+            merged = self._merge_llm_parse(heuristic, parsed, raw_text=safe_text or raw_text)
+            merged["prompt_injection"] = injection.model_dump()
+            return JDStructured.model_validate(merged).model_dump()
         except Exception:
             if not self.settings.llm_fallback_enabled:
                 raise
+            heuristic["prompt_injection"] = self.injection_guard.detect(raw_text, source="jd").model_dump()
             return heuristic
 
     async def _generate_jd_json_with_retry(

@@ -12,6 +12,7 @@ from app.core.llm import extract_json_object
 from app.core.llm import format_exception
 from app.models.entities import Profile
 from app.models.schemas import GuidedProfileRequest, ProfileStructured
+from app.services.prompt_injection_guard import PromptInjectionGuard
 from app.services.text_splitter import PDFPageText, ResumeTextSplitter
 from app.services.vector_index import SQLiteVectorIndex
 
@@ -76,6 +77,7 @@ class ResumeParserService:
         self.llm = LLMClient()
         self.splitter = ResumeTextSplitter(self.settings.chunk_size, self.settings.chunk_overlap)
         self.vector_index = SQLiteVectorIndex()
+        self.injection_guard = PromptInjectionGuard()
         self.settings.upload_path.mkdir(parents=True, exist_ok=True)
 
     async def create_profile_from_pdf(self, db: Session, *, filename: str, file_bytes: bytes) -> Profile:
@@ -111,12 +113,15 @@ class ResumeParserService:
             awards=payload.awards,
             languages=payload.languages,
             portfolio_links=payload.portfolio_links,
+            prompt_injection=self.injection_guard.detect(self._guided_payload_to_text(payload), source="guided_resume").model_dump(),
             raw_text=self._guided_payload_to_text(payload),
         ).model_dump()
         return self._create_profile(db, structured=structured, source_type="guided")
 
     async def parse_structured_resume(self, raw_text: str, db=None) -> dict:
+        safe_text, injection = self.injection_guard.sanitize_for_llm(raw_text, source="resume_pdf")
         heuristic = self._heuristic_parse(raw_text)
+        heuristic["prompt_injection"] = injection.model_dump()
         if not self.llm.available:
             if not self.settings.llm_fallback_enabled:
                 raise LLMConfigurationError(
@@ -158,7 +163,7 @@ Rules:
 - Do not include raw_text in the JSON output. The service will store the original text separately.
 
 Resume:
-{raw_text}
+{safe_text or raw_text}
 """
         try:
             parsed = await self._generate_resume_json_with_retry(
@@ -168,10 +173,12 @@ Resume:
                 db=db,
             )
             parsed["raw_text"] = raw_text
+            parsed["prompt_injection"] = injection.model_dump()
             return ProfileStructured.model_validate({**heuristic, **parsed}).model_dump()
         except Exception:
             if not self.settings.llm_fallback_enabled:
                 raise
+            heuristic["prompt_injection"] = injection.model_dump()
             return heuristic
 
     async def _generate_resume_json_with_retry(
@@ -282,6 +289,7 @@ Resume:
             awards=sections.get("awards", [])[:8],
             languages=[x for x in ["Chinese", "English"] if x.lower() in raw_text.lower()],
             portfolio_links=[],
+            prompt_injection=self.injection_guard.detect(raw_text, source="resume").model_dump(),
             raw_text=raw_text,
         ).model_dump()
 

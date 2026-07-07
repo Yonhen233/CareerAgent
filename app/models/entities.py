@@ -139,6 +139,7 @@ class ResumeVersion(Base):
     source_evidence_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
     verification_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     diff_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     profile: Mapped[Profile] = relationship(back_populates="resume_versions")
@@ -159,6 +160,7 @@ class Application(Base):
     outreach_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     checklist_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     automation_result_json: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -187,6 +189,7 @@ class InterviewPrep(Base):
     source_evidence_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
     coverage_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
     generation_mode: Mapped[str] = mapped_column(String(64), nullable=False, default="structured_rules_v1")
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     profile: Mapped[Profile] = relationship(back_populates="interview_preps")
@@ -266,6 +269,7 @@ class AgentRun(Base):
     steps: Mapped[list["AgentStep"]] = relationship(back_populates="run", cascade="all, delete-orphan")
     artifacts: Mapped[list["AgentArtifact"]] = relationship(back_populates="run", cascade="all, delete-orphan")
     events: Mapped[list["AgentEvent"]] = relationship(back_populates="run", cascade="all, delete-orphan")
+    approvals: Mapped[list["AgentApproval"]] = relationship(back_populates="run", cascade="all, delete-orphan")
 
 
 class AgentStep(Base):
@@ -295,6 +299,23 @@ class AgentArtifact(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     run: Mapped[AgentRun] = relationship(back_populates="artifacts")
+
+
+class AgentApproval(Base):
+    __tablename__ = "agent_approvals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("agent_runs.id"), nullable=False, index=True)
+    action_type: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
+    payload_hash: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    payload_summary_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decided_by_user_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    run: Mapped[AgentRun] = relationship(back_populates="approvals")
 
 
 class AgentEvent(Base):

@@ -36,6 +36,15 @@ class Settings(BaseSettings):
     export_dir: str = "data/exports"
     chroma_dir: str = "data/chroma"
     langgraph_checkpoint_file: str = "data/runtime/langgraph_checkpoints.sqlite"
+    redis_enabled: bool = False
+    redis_url: str = "redis://localhost:6379/0"
+    redis_queue_name: str = "career_agent:runs"
+    redis_run_lock_ttl_seconds: int = 1800
+    redis_heartbeat_ttl_seconds: int = 300
+    redis_rate_limit_window_seconds: int = 60
+    redis_rate_limit_max_runs: int = 10
+    agent_run_stale_after_minutes: int = 30
+    agent_active_run_limit_per_profile: int = 3
     chunk_size: int = 900
     chunk_overlap: int = 160
     embedding_dimensions: int = 256

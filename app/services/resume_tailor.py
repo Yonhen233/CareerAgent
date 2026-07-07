@@ -12,6 +12,7 @@ from app.models.entities import Job, Profile, ResumeVersion
 from app.services.context_compressor import ContextCompressor
 from app.services.guardrails import ResumeGuardrailService
 from app.services.matcher import MatcherService
+from app.services.prompt_injection_guard import PromptInjectionGuard
 
 
 NEGATIVE_EVIDENCE_CUES = [
@@ -38,9 +39,11 @@ class ResumeTailorService:
         self.matcher = MatcherService()
         self.guardrails = ResumeGuardrailService()
         self.context_compressor = ContextCompressor()
+        self.injection_guard = PromptInjectionGuard()
 
     async def tailor_resume(self, db: Session, profile: Profile, job: Job) -> ResumeVersion:
-        evidence = self.matcher.retrieve_evidence(db, profile.id, job, top_k=10)
+        raw_evidence = self.matcher.retrieve_evidence(db, profile.id, job, top_k=10)
+        evidence, injection_risks = self.injection_guard.sanitize_evidence(raw_evidence, source="resume_rag")
         compressed_context = self.context_compressor.compress_tailor_context(
             profile=profile,
             job=job,
@@ -90,6 +93,10 @@ class ResumeTailorService:
                 **(draft.get("keyword_alignment", {}) if isinstance(draft.get("keyword_alignment"), dict) else {}),
                 "context_compression": compressed_context.get("context_compression", {}),
                 "react_repair": repair_metadata,
+                "prompt_injection": {
+                    "detected": bool(injection_risks),
+                    "risks": injection_risks,
+                },
             },
             source_evidence_json=evidence,
             verification_json=verification,

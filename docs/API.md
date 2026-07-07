@@ -312,7 +312,7 @@ POST /agent/runs/background
 Content-Type: application/json
 ```
 
-请求体与 `POST /agent/runs` 相同。接口立即返回 `status=queued` 的 `AgentRunResponse`，FastAPI `BackgroundTasks` 会在进程内启动同一个 LangGraph graph。它适合前端长流程进度展示；生产多实例部署时可以把这个入口替换为 Redis/Celery/Arq 等外部队列，但 graph/checkpoint/事件表语义保持不变。
+请求体与 `POST /agent/runs` 相同。接口立即返回 `status=queued` 的 `AgentRunResponse`，并通过 `RedisTaskRunner` 写入 Redis 队列；独立 worker 使用 `scripts/run_agent_worker.py` 消费执行同一个 LangGraph graph。Redis 未启用或不可用时接口返回 503，不会静默退回进程内后台任务。
 
 ### 查询事件列表
 
@@ -335,6 +335,29 @@ Accept: text/event-stream
 ```
 
 服务端会持续推送上述事件，并在 run 进入 `completed`、`failed`、`waiting_for_confirmation` 或 `cancelled` 后发送 `run_closed`。前端流程页和首页一键流程都使用该接口展示节点级进度。
+
+### 取消未完成流程
+
+```http
+POST /agent/runs/{run_id}/cancel
+Content-Type: application/json
+```
+
+```json
+{
+  "reason": "用户决定暂不投递"
+}
+```
+
+只允许取消 `queued`、`running` 和 `waiting_for_confirmation`。取消会写 `run_cancel_requested`、`run_cancelled`，设置 `output_json.cancelled=true`，取消 pending approval，并写 Redis cancel flag。已完成、失败或已取消的 run 返回 409。
+
+### 查询审批审计
+
+```http
+GET /agent/runs/{run_id}/approvals
+```
+
+返回投递包等高风险动作的审批记录，包括 `action_type`、`status`、`payload_hash`、`payload_summary_json`、`note` 和 `decided_at`。
 
 ### 恢复等待确认的流程
 
@@ -662,7 +685,7 @@ GET /tasks
 GET /tasks/{task_id}
 ```
 
-该接口使用 FastAPI BackgroundTasks 在进程内后台执行，`task_runs` 表记录 queued/running/completed/failed、进度、错误和最终 `evaluation_run_id`。它不是分布式队列；如果要多实例部署，应升级到 Redis/Celery/Arq 这类外部队列。
+该接口使用 RedisTaskRunner 入队，`scripts/run_agent_worker.py` 独立消费执行，`task_runs` 表记录 queued/running/completed/failed、进度、错误和最终 `evaluation_run_id`。Redis 未启用或不可用时入队直接失败，不会退回进程内后台任务。
 
 ## 权限与运维接口
 
@@ -677,6 +700,8 @@ GET /ops/config
 - `/ops/readiness` 返回数据库、LLM、embedding 和 reranker 的健康状态。
 - `/ops/metrics` 返回请求计数、平均延迟、状态码分布、Agent run/task/LLM call 状态分布和最近评测摘要。
 - `/ops/config` 只返回脱敏配置摘要，不返回 API key。
+- `/ops/agent-runs/stale` 返回长时间无事件进展的 running run。
+- `/ops/agent-runs/mark-stale` 将 stale running run 标记为 failed，并写 `run_marked_stale` 事件。
 - `/ui/ops` 是对应的前端运维面板，会展示 readiness、metrics、脱敏配置、后台任务和最近 LLM 调用日志，并支持在本机浏览器保存 `X-Admin-Token`。
 
 查询历史评测：
