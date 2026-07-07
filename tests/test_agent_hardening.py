@@ -91,6 +91,16 @@ class FakeRedis:
         return True
 
 
+class TimeoutRedis(FakeRedis):
+    def brpop(self, keys, timeout=0):
+        class FakeRedisTimeoutError(Exception):
+            pass
+
+        FakeRedisTimeoutError.__name__ = "TimeoutError"
+        FakeRedisTimeoutError.__module__ = "redis.exceptions"
+        raise FakeRedisTimeoutError("Timeout reading from socket")
+
+
 def _profile_job(db_session):
     profile = Profile(
         name="Candidate",
@@ -231,6 +241,12 @@ def test_redis_worker_dead_letters_invalid_payload():
     assert status["dead_letter_count"] == 1
     assert status["dead_letter_preview"][0]["kind"] == "invalid_payload"
     assert status["dead_letter_preview"][0]["dlq_index"] == 0
+
+
+def test_redis_worker_treats_socket_timeout_as_empty_poll():
+    settings = get_settings()
+    result = asyncio.run(consume_redis_queue_once(redis_client=TimeoutRedis(), settings=settings, timeout_seconds=10))
+    assert result is None
 
 
 def test_dead_letter_replay_and_discard_write_audit_events(db_session):

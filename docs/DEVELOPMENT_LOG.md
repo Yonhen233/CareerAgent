@@ -1,5 +1,31 @@
 # 开发日志
 
+## 2026-07-07 18:56:39 +08:00：安装轻量 Redis 并修复 Worker BRPOP 超时
+### 这次做了什么
+- 评估本机资源与安装条件：当前机器 16GB 内存、16 线程、虚拟化开启，但当前非管理员；空闲内存约 0.9GB。
+- 通过 winget 安装 `redis-windows` 8.8.0 portable 版本，并以本地开发模式启动 Redis：`127.0.0.1:6379`、数据目录 `data/runtime/redis`、关闭持久化。
+- 安装 Python `redis>=5.0.0` 客户端，让项目 RedisTaskRunner 能连接真实 Redis。
+- 修复 Redis worker 在 `BRPOP` 阻塞等待时被 socket timeout 打断并退出的问题。
+### 发现的问题
+- Redis server 本身非常轻：本轮启动后进程工作集约 12MB，`used_memory_human` 约 664KB。
+- Docker Desktop 对本机来说不是轻量项：当前非管理员、WSL 没有可用发行版且空闲内存偏低，直接安装 Docker Desktop 可能需要管理员权限、WSL 更新和重启。
+- 项目默认 `redis_socket_timeout_seconds=3`，但 worker `redis_worker_poll_timeout_seconds=10`；真实 Redis 下 `BRPOP` 还没到业务轮询超时，redis-py socket timeout 已先抛异常，导致 worker 退出，后台 run 停在 queued。
+### 怎么修复
+- 将默认 `redis_socket_timeout_seconds` 调整为 15 秒，使其大于默认 worker poll timeout。
+- `consume_redis_queue_once()` 捕获 redis-py socket timeout，并把它视为一次空轮询返回 `None`，避免 worker 因空队列等待超时而崩溃。
+- 增加单测覆盖 Redis socket timeout 场景，确保 worker 不退出。
+### 验证结果
+- `redis-cli -h 127.0.0.1 -p 6379 ping` 返回 `PONG`。
+- `RedisTaskRunner().queue_status()` 在 `REDIS_ENABLED=true` 下返回 Redis 队列状态。
+- FastAPI `/ops/readiness` 在 Redis enabled 模式下返回 `redis: ok`。
+- `python -m py_compile app\core\config.py app\services\task_runner.py tests\test_agent_hardening.py` 通过。
+- `python -m pytest tests\test_agent_hardening.py -q` 通过，20 个测试全部通过。
+- 启动真实 Redis worker 后，后台 run #166 从 `queued -> running -> completed`，耗时 46064ms，生成定制简历 #88，事实校验 `passed=true`。
+### 未修复的问题
+- Docker Desktop 暂未安装；原因是当前空闲内存偏低且需要管理员/WSL 条件，Redis 已能覆盖本项目当前队列、DLQ、heartbeat 和 worker 验证需求。
+### 下一步
+- 如果后续要验证 Mailpit、Redis HA、更多外部依赖编排，再在管理员权限和足够内存条件下安装 Docker Desktop 或配置 WSL2。
+
 ## 2026-07-07 17:43:49 +08:00：真实浏览器巡检与核心路由修复
 ### 这次做了什么
 - 启动 FastAPI 服务并配置真实 DeepSeek OpenAI-compatible LLM，使用 Playwright Chromium 从用户视角验证首页、简历页、岗位页、流程页、控制台和外发 smoke 页面。

@@ -288,7 +288,12 @@ async def consume_redis_queue_once(
 ) -> AgentRun | None:
     settings = settings or get_settings()
     runner = RedisTaskRunner(redis_client=redis_client, settings=settings)
-    item = runner.redis.brpop(settings.redis_priority_queue_names, timeout=timeout_seconds)
+    try:
+        item = runner.redis.brpop(settings.redis_priority_queue_names, timeout=timeout_seconds)
+    except Exception as exc:  # noqa: BLE001
+        if _is_redis_socket_timeout(exc):
+            return None
+        raise
     if not item:
         return None
     raw = item[1] if isinstance(item, tuple) else item
@@ -426,6 +431,10 @@ def run_redis_worker_forever() -> None:
             recover_queued_agent_runs_once(settings=settings)
             next_recovery_at = now + settings.redis_worker_recovery_interval_seconds
         asyncio.run(consume_redis_queue_once(timeout_seconds=settings.redis_worker_poll_timeout_seconds))
+
+
+def _is_redis_socket_timeout(exc: Exception) -> bool:
+    return exc.__class__.__name__ == "TimeoutError" and exc.__class__.__module__.startswith("redis.")
 
 
 def _decode_queue_item(item) -> dict:

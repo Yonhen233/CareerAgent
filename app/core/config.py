@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     redis_sentinel_urls: str = "redis://localhost:26379"
     redis_sentinel_master_name: str = "mymaster"
-    redis_socket_timeout_seconds: float = 3.0
+    redis_socket_timeout_seconds: float = 15.0
     redis_queue_name: str = "career_agent:runs"
     redis_high_priority_queue_name: str = "career_agent:runs:high"
     redis_low_priority_queue_name: str = "career_agent:runs:low"
