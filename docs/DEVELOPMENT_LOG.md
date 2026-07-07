@@ -1,5 +1,53 @@
 # 开发日志
 
+## 2026-07-07 17:43:49 +08:00：真实浏览器巡检与核心路由修复
+### 这次做了什么
+- 启动 FastAPI 服务并配置真实 DeepSeek OpenAI-compatible LLM，使用 Playwright Chromium 从用户视角验证首页、简历页、岗位页、流程页、控制台和外发 smoke 页面。
+- 真实上传 PDF、手动填写多段教育/项目/实习经历、打开 HTML 简历预览、保存目标 JD，并触发 Agent 定制简历与自然语言入口。
+- 修复 `/profiles/upload` 和 `/agent/runs` 的 FastAPI 路由装饰器误挂问题，让 PDF 上传和同步 Agent run 能命中真正接口。
+- 为 SQLite 连接增加 `timeout=30`、`PRAGMA journal_mode=WAL`、`PRAGMA busy_timeout=30000` 和 `foreign_keys=ON`，降低真实浏览器并发请求下的 `database is locked` 风险。
+- 修复自然语言入口对“不要投递/不要申请”的约束：计划归一化会禁止 `quick_apply/full_flow`，并支持“改简历 + 面试准备”的组合动作。
+- 修复 LangGraph `GraphInterrupt` 被通用异常捕获后写成 failed 的问题，投递前人工确认现在会稳定落到 `waiting_for_confirmation`。
+- 控制台队列状态在 Redis disabled 时改为返回结构化 disabled 状态，避免页面产生 503 console error。
+- 修复多个异步表单提交后 `event.currentTarget` 变空导致的前端 pageerror。
+- 定制简历页只对最新 3 个版本加载 iframe 预览，其余版本改为轻量占位和按需打开，避免历史版本多时一次性请求大量 HTML。
+- `.gitignore` 补充 SQLite WAL/SHM 文件，避免真实运行后把运行态数据库文件带入提交。
+### 发现的问题
+- `/profiles/upload` 装饰器误挂到 `_apply_tenant()` helper，页面提交 PDF 时实际返回 422；因为列表已有旧 PDF 数据，页面容易误判为成功。
+- `/agent/runs` 装饰器误挂到 `_tenant_query()` helper，流程页提交同步 Agent run 时返回 422，真实浏览器测试可以稳定暴露。
+- 保存 JD 时出现 SQLite `database is locked`，说明浏览器同时触发 LLM 解析、列表刷新、截图和后续 API 请求时，默认 SQLite 短等待策略不够稳。
+- 自然语言 Agent 在用户明确写“不要投递”时仍走 `full_flow`，触发投递确认 interrupt，最终被当成失败返回。
+- 当前 LangGraph 版本会以 `GraphInterrupt` 异常形式冒泡人工确认，旧代码只检查 final state 的 `__interrupt__`，因此遗漏了异常形态。
+- 控制台页面在 Redis 未启用的本地验证环境中请求 `/ops/queue/status` 会收到 503，浏览器 console 显示资源错误，影响前端巡检结果。
+- 真实浏览器暴露了异步事件处理的细节：`await` 之后再访问 `event.currentTarget.reset()` 可能拿到 `null`。
+- 定制简历历史版本很多时，页面会并发请求大量 `/resumes/{id}/html` iframe，用户打开页面明显变慢。
+- 启用 SQLite WAL 后会生成 `*.db-wal` 和 `*.db-shm`，原 `.gitignore` 没覆盖这些运行态文件。
+- 当前本机没有 Redis server、Docker 和 redis-py，首页一键流程的生产后台队列链路无法在本机完整验证；这不是静默兜底问题，需要环境具备 Redis worker 才能跑通。
+### 怎么修复
+- 将 `/profiles/upload` 装饰器移动到 `upload_resume()`，将 `/agent/runs` 装饰器移动到 `create_agent_run()`。
+- SQLite 使用 WAL 和 30 秒 busy timeout，避免短时间读写竞争直接失败。
+- 自然语言 planning prompt 明确禁止“不要投递”场景选择投递/完整流程；`_normalize_plan()` 再做一层硬规则兜底，并由 actions 驱动组合执行定制简历和面试准备。
+- `LangGraphAgentOrchestrator` 显式捕获 `GraphInterrupt`，把 interrupt payload 写入 human_interrupt artifact，并将 run 状态置为 `waiting_for_confirmation`。
+- `/ops/queue/status` 在 Redis disabled 时返回 200 + disabled payload，前端展示“Redis 队列未启用”。
+- 表单提交处理器在 `await` 前保存 `const form = event.currentTarget`，后续统一使用稳定引用。
+- `loadResumes()` 只渲染前三个 iframe，其他版本用 `.resume-preview-placeholder`。
+- `.gitignore` 增加 `data/*.db-wal`、`data/*.db-shm`、`data/*.sqlite-wal`、`data/*.sqlite-shm`。
+- 浏览器验证脚本改为关注真实接口状态、页面错误、截图和 run 列表，避免旧列表数据掩盖提交失败。
+### 验证结果
+- 第一轮真实浏览器验证已确认首页、手动建档、HTML 预览、目标 JD 页面和部分 LLM 流程可达，同时暴露上述 422/SQLite lock 问题。
+- `python -m py_compile app\api\ops.py app\agents\natural_language.py app\agents\langgraph_orchestrator.py app\api\profiles.py app\api\agent_runs.py app\core\database.py` 通过。
+- `node --check app\static\js\main.js` 通过。
+- `python -m pytest tests\test_agent_hardening.py tests\test_frontend_pages.py -q` 通过，30 个测试全部通过。
+- `python -m pytest -q` 通过，119 个测试全部通过。
+- 真实浏览器第三轮验证通过：PDF 上传新建 Profile #155、手动多段建档 Profile #156、HTML 简历预览、目标 JD Job #196、同步 Agent 定制简历 Run #161、自然语言“不要投递”Run #162、LangGraph interrupt Run #165 均按预期返回。
+- 真实浏览器轻量回归通过：`/ops/queue/status` 在 Redis disabled 时返回 200，定制简历页只加载 3 个 HTML iframe，手动岗位表单提交无 console/pageerror。
+### 未修复的问题
+- 本机没有 Redis 服务，`/agent/runs/background` 和首页一键后台队列无法按生产模式验证；需要启动 Redis/worker 或在部署环境验证。
+- 内置浏览器控制插件本轮因本地运行时路径问题不可用，所以改用 Playwright Chromium 做等价真实浏览器验证。
+### 下一步
+- 重启服务后重新跑 PDF 上传、同步 Agent run、自然语言入口和页面可达性回归。
+- 如要验证首页一键后台流程，补齐 Redis server 与 worker 进程后再跑 SSE/interrupt 全链路。
+
 ## 2026-07-07 16:56:55 +08:00：Session RBAC、外发 Smoke 与 Worker Supervisor 健康/Drain
 ### 这次做了什么
 - 新增 session 登录能力：`/auth/login`、`/auth/logout`、`/auth/me`，登录成功后签发 HttpOnly session cookie。

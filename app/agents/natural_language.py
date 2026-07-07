@@ -369,6 +369,11 @@ class NaturalLanguageAgentService:
 - interview_prep: 生成面试准备包
 - full_flow: 建档/找岗/定制/投递包/面试包完整流程
 
+重要约束:
+- 如果用户明确说“不要投递 / 不投递 / 不要申请 / 只改简历 / 只生成面试准备”，不要选择 quick_apply 或 full_flow。
+- 如果用户同时要求“改简历”和“面试准备”，intent 可选 interview_prep，并在 actions 中同时写入 tailor_resume 与 interview_prep。
+- full_flow 只用于用户明确要求一键完整流程或包含投递材料。
+
 返回 JSON schema:
 {{
   "intent": "create_profile|update_profile|search_jobs|tailor_resume|quick_apply|interview_prep|full_flow",
@@ -442,6 +447,7 @@ query={request.query}
 
 如果缺少 job_id 但有 JD，请设置 job.jd_text。
 如果用户想完整处理但缺少岗位，请使用 full_flow。
+如果用户明确不要投递或不要申请，不要使用 full_flow/quick_apply；可改为 tailor_resume 和 interview_prep。
 如果是投递匹配分不足，不要绕过 fit_gate，可改为生成定制简历和面试准备建议。
 返回与原计划相同 JSON schema。
 """
@@ -527,11 +533,14 @@ query={request.query}
             result["interview_prep"] = (run.output_json or {}).get("interview_prep")
             return result
 
-        if intent in {"tailor_resume", "quick_apply", "interview_prep"}:
+        wants_tailor = intent in {"tailor_resume", "quick_apply"} or self._requests_tailor(request.instruction, plan)
+        wants_interview = intent == "interview_prep" or self._requests_interview(request.instruction, plan)
+
+        if intent in {"tailor_resume", "quick_apply", "interview_prep"} or wants_tailor or wants_interview:
             profile = self._require_profile(profile)
             job = self._require_job(job)
 
-        if intent in {"tailor_resume", "quick_apply"}:
+        if wants_tailor:
             tailor_run = await self.orchestrator.run(
                 db,
                 AgentRunRequest(task_type="tailor_resume_for_job", profile_id=profile.id, job_id=job.id),
@@ -556,7 +565,7 @@ query={request.query}
                 return result
             self._assert_run_completed(apply_run, "投递包")
             result["application"] = apply_run.output_json
-        if intent == "interview_prep":
+        if wants_interview:
             interview_run = await self.orchestrator.run(
                 db,
                 AgentRunRequest(task_type="prepare_interview_for_job", profile_id=profile.id, job_id=job.id),
@@ -570,6 +579,8 @@ query={request.query}
         intent = str(plan.get("intent") or "").strip()
         if intent not in INTENTS:
             intent = self._heuristic_intent(request.instruction)
+        if self._forbids_application(request.instruction) and intent in {"quick_apply", "full_flow"}:
+            intent = "interview_prep" if self._text_wants_interview(request.instruction) else "tailor_resume"
         normalized = {
             "intent": intent,
             "query": plan.get("query") or request.query or "Agent 开发实习生",
@@ -580,12 +591,27 @@ query={request.query}
             "actions": [str(item) for item in plan.get("actions", []) if str(item).strip()],
             "reason": str(plan.get("reason") or ""),
         }
+        if self._forbids_application(request.instruction):
+            normalized["actions"] = [
+                action
+                for action in normalized["actions"]
+                if action not in {"quick_apply", "full_flow", "application_packet", "apply", "submit_application"}
+            ]
+            if self._text_wants_tailor(request.instruction) and "tailor_resume" not in normalized["actions"]:
+                normalized["actions"].append("tailor_resume")
+            if self._text_wants_interview(request.instruction) and "interview_prep" not in normalized["actions"]:
+                normalized["actions"].append("interview_prep")
         if request.jd_text:
             normalized["job"] = {**(normalized["job"] or {}), "jd_text": request.jd_text}
         return normalized
 
     def _heuristic_intent(self, instruction: str) -> str:
         text = instruction.lower()
+        if self._forbids_application(instruction):
+            if self._text_wants_interview(instruction):
+                return "interview_prep"
+            if self._text_wants_tailor(instruction):
+                return "tailor_resume"
         if any(word in text for word in ["一键", "全流程", "投递", "申请"]):
             return "full_flow"
         if any(word in text for word in ["面试", "八股", "追问"]):
@@ -595,6 +621,44 @@ query={request.query}
         if any(word in text for word in ["找岗位", "搜索岗位", "推荐岗位"]):
             return "search_jobs"
         return "create_profile"
+
+    def _forbids_application(self, instruction: str) -> bool:
+        text = instruction.lower()
+        negative_markers = [
+            "不要投递",
+            "不投递",
+            "无需投递",
+            "不用投递",
+            "先不投递",
+            "不要申请",
+            "不申请",
+            "无需申请",
+            "不用申请",
+            "不要生成投递",
+            "不要投递包",
+            "不要外发",
+            "不要发送",
+            "don't apply",
+            "do not apply",
+            "no application",
+        ]
+        return any(marker in text for marker in negative_markers)
+
+    def _text_wants_tailor(self, instruction: str) -> bool:
+        text = instruction.lower()
+        return any(word in text for word in ["改简历", "修改简历", "优化简历", "定制简历", "tailor resume"])
+
+    def _text_wants_interview(self, instruction: str) -> bool:
+        text = instruction.lower()
+        return any(word in text for word in ["面试", "八股", "追问", "interview"])
+
+    def _requests_tailor(self, instruction: str, plan: dict[str, Any]) -> bool:
+        actions = {str(action).strip() for action in plan.get("actions", [])}
+        return "tailor_resume" in actions or self._text_wants_tailor(instruction)
+
+    def _requests_interview(self, instruction: str, plan: dict[str, Any]) -> bool:
+        actions = {str(action).strip() for action in plan.get("actions", [])}
+        return "interview_prep" in actions or self._text_wants_interview(instruction)
 
     def _create_profile_from_plan(
         self,

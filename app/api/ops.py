@@ -131,7 +131,19 @@ def config_summary(_: AuthContext = Depends(require_admin)) -> dict:
 def queue_status(_: AuthContext = Depends(require_admin)) -> dict:
     settings = get_settings()
     if not settings.redis_enabled:
-        raise HTTPException(status_code=503, detail="Redis is disabled.")
+        return {
+            "redis_enabled": False,
+            "status": "disabled",
+            "message": "Redis is disabled.",
+            "queue_name": settings.redis_queue_name,
+            "priority_queues": settings.redis_queue_names_by_priority,
+            "queued_by_priority": {"high": 0, "normal": 0, "low": 0},
+            "queued_count": 0,
+            "dead_letter_count": 0,
+            "dead_letter_preview": [],
+            "worker_max_attempts": settings.redis_worker_max_attempts,
+            "queued_recovery_after_minutes": settings.redis_queued_recovery_after_minutes,
+        }
     try:
         return RedisTaskRunner().queue_status()
     except RedisUnavailableError as exc:

@@ -26,7 +26,6 @@ from app.services.task_runner import get_task_runner
 router = APIRouter(prefix="/agent/runs", tags=["agent-runs"])
 
 
-@router.post("", response_model=AgentRunResponse, status_code=status.HTTP_201_CREATED)
 def _tenant_query(query, auth: AuthContext):
     if get_settings().rbac_enabled:
         return query.filter(AgentRun.tenant_id == auth.tenant_id)
@@ -42,6 +41,7 @@ def _set_run_tenant(run: AgentRun, auth: AuthContext, db: Session) -> AgentRun:
     return run
 
 
+@router.post("", response_model=AgentRunResponse, status_code=status.HTTP_201_CREATED)
 async def create_agent_run(
     payload: AgentRunRequest,
     db: Session = Depends(get_db),

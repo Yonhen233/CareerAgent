@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import aiosqlite
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.errors import GraphInterrupt
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 from sqlalchemy.orm import Session
@@ -179,15 +180,12 @@ class LangGraphAgentOrchestrator:
             )
             interrupts = self._interrupt_payloads(final_state)
             if interrupts:
-                output = {
-                    "requires_confirmation": True,
-                    "confirmation_type": "application_packet",
-                    "interrupts": interrupts,
-                    "graph_thread_id": graph_thread_id,
-                    "execution_plan": final_state.get("execution_plan") or {},
-                    "orchestration_framework": "langgraph",
-                    "resume_api": f"/agent/runs/{run.id}/resume",
-                }
+                output = self._confirmation_output(
+                    run,
+                    interrupts=interrupts,
+                    graph_thread_id=graph_thread_id,
+                    execution_plan=final_state.get("execution_plan") or {},
+                )
                 self.trace.add_artifact(db, run_id=run.id, artifact_type="human_interrupt", payload=output)
                 return self.trace.finish_run(
                     db,
@@ -214,6 +212,22 @@ class LangGraphAgentOrchestrator:
                     "execution_plan": self._runtime_plans.get(run.id) or {},
                 },
                 error_message=str(exc),
+                started_at=started,
+            )
+        except GraphInterrupt as exc:
+            interrupts = self._interrupt_payloads_from_exception(exc)
+            output = self._confirmation_output(
+                run,
+                interrupts=interrupts,
+                graph_thread_id=graph_thread_id,
+                execution_plan=self._runtime_plans.get(run.id) or {},
+            )
+            self.trace.add_artifact(db, run_id=run.id, artifact_type="human_interrupt", payload=output)
+            return self.trace.finish_run(
+                db,
+                run=run,
+                status="waiting_for_confirmation",
+                output_json=output,
                 started_at=started,
             )
         except Exception as exc:  # noqa: BLE001
@@ -266,15 +280,12 @@ class LangGraphAgentOrchestrator:
             )
             interrupts = self._interrupt_payloads(final_state)
             if interrupts:
-                output = {
-                    "requires_confirmation": True,
-                    "confirmation_type": "application_packet",
-                    "interrupts": interrupts,
-                    "graph_thread_id": graph_thread_id,
-                    "execution_plan": final_state.get("execution_plan") or self._runtime_plans.get(run.id) or {},
-                    "orchestration_framework": "langgraph",
-                    "resume_api": f"/agent/runs/{run.id}/resume",
-                }
+                output = self._confirmation_output(
+                    run,
+                    interrupts=interrupts,
+                    graph_thread_id=graph_thread_id,
+                    execution_plan=final_state.get("execution_plan") or self._runtime_plans.get(run.id) or {},
+                )
                 return self.trace.finish_run(
                     db,
                     run=run,
@@ -300,6 +311,22 @@ class LangGraphAgentOrchestrator:
                     "execution_plan": self._runtime_plans.get(run.id) or {},
                 },
                 error_message=str(exc),
+                started_at=started,
+            )
+        except GraphInterrupt as exc:
+            interrupts = self._interrupt_payloads_from_exception(exc)
+            output = self._confirmation_output(
+                run,
+                interrupts=interrupts,
+                graph_thread_id=graph_thread_id,
+                execution_plan=self._runtime_plans.get(run.id) or {},
+            )
+            self.trace.add_artifact(db, run_id=run.id, artifact_type="human_interrupt", payload=output)
+            return self.trace.finish_run(
+                db,
+                run=run,
+                status="waiting_for_confirmation",
+                output_json=output,
                 started_at=started,
             )
         except Exception as exc:  # noqa: BLE001
@@ -998,6 +1025,30 @@ class LangGraphAgentOrchestrator:
             {"id": item.id, "value": item.value}
             for item in state.get("__interrupt__", []) or []
         ]
+
+    def _interrupt_payloads_from_exception(self, exc: GraphInterrupt) -> list[dict[str, Any]]:
+        return [
+            {"id": item.id, "value": item.value}
+            for item in getattr(exc, "interrupts", []) or []
+        ]
+
+    def _confirmation_output(
+        self,
+        run: AgentRun,
+        *,
+        interrupts: list[dict[str, Any]],
+        graph_thread_id: str,
+        execution_plan: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "requires_confirmation": True,
+            "confirmation_type": "application_packet",
+            "interrupts": interrupts,
+            "graph_thread_id": graph_thread_id,
+            "execution_plan": execution_plan,
+            "orchestration_framework": "langgraph",
+            "resume_api": f"/agent/runs/{run.id}/resume",
+        }
 
     def _graph_thread_id_from_run(self, run: AgentRun) -> str:
         input_json = run.input_json or {}

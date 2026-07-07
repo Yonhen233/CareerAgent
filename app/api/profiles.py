@@ -12,7 +12,6 @@ from app.services.resume_parser import ResumeParserService
 router = APIRouter(prefix="/profiles", tags=["profiles"])
 
 
-@router.post("/upload", response_model=ProfileResponse, status_code=status.HTTP_201_CREATED)
 def _apply_tenant(query, auth: AuthContext):
     settings = get_settings()
     if settings.rbac_enabled:
@@ -29,6 +28,7 @@ def _set_tenant(profile: Profile, auth: AuthContext, db: Session) -> Profile:
     return profile
 
 
+@router.post("/upload", response_model=ProfileResponse, status_code=status.HTTP_201_CREATED)
 async def upload_resume(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),

@@ -535,11 +535,13 @@ async function loadResumes() {
     el.innerHTML = `<div class="item meta">暂无定制版本</div>`;
     return;
   }
-  el.innerHTML = rows.map((row) => `
+  el.innerHTML = rows.map((row, index) => `
     <article class="resume-card">
       <div class="item-title"><span>#${row.id} ${escapeHtml(row.title)}</span><span class="status-pill ${row.verification_json.passed ? "ok" : "risk"}">${row.verification_json.passed ? "事实检查通过" : "需检查"}</span></div>
       <p class="meta">简历 ${row.profile_id} · 岗位 ${row.job_id}</p>
-      <iframe class="resume-preview-frame" src="/resumes/${row.id}/html" title="定制简历 #${row.id} 预览"></iframe>
+      ${index < 3
+        ? `<iframe class="resume-preview-frame" src="/resumes/${row.id}/html" loading="lazy" title="定制简历 #${row.id} 预览"></iframe>`
+        : `<div class="resume-preview-placeholder">点击下方按钮打开 HTML 预览</div>`}
       <div class="flow-result-actions">
         <a class="button ghost" href="/resumes/${row.id}/html" target="_blank"><i data-lucide="eye"></i> 打开 HTML 预览</a>
         <a class="button ghost" href="/resumes/${row.id}/markdown"><i data-lucide="download"></i> 下载 Markdown</a>
@@ -808,6 +810,14 @@ function renderOpsConfig(config) {
 
 function renderQueueStatus(queue) {
   const deadLetters = queue.dead_letter_preview || [];
+  if (queue.status === "disabled" || queue.redis_enabled === false) {
+    return `
+      <article class="item">
+        <div class="item-title"><span>Redis 队列未启用</span><span class="status-pill">disabled</span></div>
+        <p class="meta">${escapeHtml(queue.message || "后台队列需要 Redis 服务和 worker 进程。")}</p>
+      </article>
+    `;
+  }
   return `
     <article class="item">
       <div class="validation-grid">
@@ -2009,12 +2019,13 @@ function bindForms() {
 
   $("#job-search-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const raw = formJson(event.currentTarget);
+    const form = event.currentTarget;
+    const raw = formJson(form);
     const payload = {
       query: raw.query,
       location: raw.location || null,
       limit: Number(raw.limit || 20),
-      internship_only: event.currentTarget.internship_only.checked,
+      internship_only: form.internship_only.checked,
       sources: ["tencent"],
       store_results: true,
     };
@@ -2027,16 +2038,18 @@ function bindForms() {
 
   $("#manual-job-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const payload = formJson(event.currentTarget);
+    const form = event.currentTarget;
+    const payload = formJson(form);
     await api("/jobs", { method: "POST", body: JSON.stringify(payload) });
     toast("Job created");
-    event.currentTarget.reset();
+    form.reset();
     loadJobs();
   });
 
   $("#agent-run-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const raw = formJson(event.currentTarget);
+    const form = event.currentTarget;
+    const raw = formJson(form);
     const payload = {
       task_type: raw.task_type,
       profile_id: raw.profile_id ? Number(raw.profile_id) : null,
@@ -2103,7 +2116,8 @@ function bindForms() {
 
   $("#interview-prep-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const raw = formJson(event.currentTarget);
+    const form = event.currentTarget;
+    const raw = formJson(form);
     const payload = {
       profile_id: Number(raw.profile_id),
       job_id: Number(raw.job_id),
@@ -2119,13 +2133,14 @@ function bindForms() {
       body: JSON.stringify(payload),
     });
     toast("Interview prep created");
-    event.currentTarget.reset();
+    form.reset();
     loadInterviewPreps();
   });
 
   $("#interview-experience-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const raw = formJson(event.currentTarget);
+    const form = event.currentTarget;
+    const raw = formJson(form);
     await api("/interview-prep/experiences", {
       method: "POST",
       body: JSON.stringify({
@@ -2139,7 +2154,7 @@ function bindForms() {
       }),
     });
     toast("Interview experience imported");
-    event.currentTarget.reset();
+    form.reset();
     loadInterviewExperiences();
   });
 
@@ -2216,7 +2231,8 @@ function bindForms() {
 
   $("#interview-source-import-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const raw = formJson(event.currentTarget);
+    const form = event.currentTarget;
+    const raw = formJson(form);
     const created = await api("/interview-prep/experiences", {
       method: "POST",
       body: JSON.stringify({
@@ -2235,7 +2251,7 @@ function bindForms() {
       if (window.lucide) window.lucide.createIcons();
     }
     toast("面经已导入，可在面试页引用");
-    event.currentTarget.reset();
+    form.reset();
   });
 
   document.querySelectorAll("[data-refresh]").forEach((button) => {
