@@ -3180,6 +3180,9 @@ class EvaluationService:
             "max_false_positive_rate": 0.08,
             "min_category_recall": 0.9,
             "min_severity_accuracy": 0.9,
+            "min_source_detection_recall": {},
+            "max_source_false_positive_rate": {},
+            "min_category_recall_by_category": {},
         }
         if not path.exists():
             return default_policy
@@ -3235,6 +3238,9 @@ class EvaluationService:
             "max_false_positive_rate": 0.08,
             "min_category_recall": 0.9,
             "min_severity_accuracy": 0.9,
+            "min_source_detection_recall": {},
+            "max_source_false_positive_rate": {},
+            "min_category_recall_by_category": {},
             **(policy or {}),
         }
         checks = [
@@ -3279,6 +3285,39 @@ class EvaluationService:
             for metric, passed, actual, threshold, operator in checks
             if not passed
         ]
+        for source, threshold in effective_policy.get("min_source_detection_recall", {}).items():
+            actual = (summary.get("source_breakdown") or {}).get(source, {}).get("detection_recall")
+            if actual is not None and actual < threshold:
+                failed.append(
+                    {
+                        "metric": f"source_detection_recall:{source}",
+                        "actual": actual,
+                        "threshold": threshold,
+                        "operator": ">=",
+                    }
+                )
+        for source, threshold in effective_policy.get("max_source_false_positive_rate", {}).items():
+            actual = (summary.get("source_breakdown") or {}).get(source, {}).get("false_positive_rate")
+            if actual is not None and actual > threshold:
+                failed.append(
+                    {
+                        "metric": f"source_false_positive_rate:{source}",
+                        "actual": actual,
+                        "threshold": threshold,
+                        "operator": "<=",
+                    }
+                )
+        for category, threshold in effective_policy.get("min_category_recall_by_category", {}).items():
+            actual = (summary.get("category_breakdown") or {}).get(category, {}).get("recall")
+            if actual is not None and actual < threshold:
+                failed.append(
+                    {
+                        "metric": f"category_recall:{category}",
+                        "actual": actual,
+                        "threshold": threshold,
+                        "operator": ">=",
+                    }
+                )
         return {
             "release": effective_policy["release"],
             "passed": not failed,

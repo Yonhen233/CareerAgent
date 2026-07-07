@@ -36,11 +36,34 @@ def get_redis_client() -> RedisLike:
     except Exception as exc:  # noqa: BLE001
         raise RedisUnavailableError("redis package is not installed. Install redis>=5 to enable Redis.") from exc
     try:
-        client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
+        if settings.redis_mode.lower() == "sentinel":
+            sentinel = redis.sentinel.Sentinel(
+                settings.redis_sentinel_endpoints,
+                socket_timeout=settings.redis_socket_timeout_seconds,
+                decode_responses=True,
+            )
+            client = sentinel.master_for(
+                settings.redis_sentinel_master_name,
+                socket_timeout=settings.redis_socket_timeout_seconds,
+                decode_responses=True,
+            )
+        elif settings.redis_mode.lower() == "standalone":
+            client = redis.Redis.from_url(
+                settings.redis_url,
+                decode_responses=True,
+                socket_timeout=settings.redis_socket_timeout_seconds,
+            )
+        else:
+            raise RedisUnavailableError(f"Unsupported REDIS_MODE={settings.redis_mode}.")
         client.ping()
         return client
     except Exception as exc:  # noqa: BLE001
-        raise RedisUnavailableError(f"Redis is unavailable at {settings.redis_url}: {exc}") from exc
+        target = (
+            f"sentinel:{settings.redis_sentinel_master_name}@{settings.redis_sentinel_urls}"
+            if settings.redis_mode.lower() == "sentinel"
+            else settings.redis_url
+        )
+        raise RedisUnavailableError(f"Redis is unavailable at {target}: {exc}") from exc
 
 
 def redis_key(*parts: object) -> str:

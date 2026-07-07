@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.core.config import get_settings
 from app.core.database import engine, get_db
 from app.core.redis_client import RedisUnavailableError, get_redis_client
-from app.core.security import require_admin
+from app.core.security import AuthContext, require_admin
 from app.core.telemetry import telemetry
 from app.models.entities import AgentApproval, AgentRun, EvaluationRun, LLMCallLog, OpsAuditEvent, TaskRun
 from app.models.schemas import (
@@ -14,11 +14,13 @@ from app.models.schemas import (
     AgentApprovalDecisionRequest,
     AgentApprovalResponse,
     AgentRunResponse,
+    HighRiskActionExecuteRequest,
     HighRiskActionRequest,
     OpsAuditEventResponse,
 )
 from app.services.approval_service import ApprovalService
 from app.services.high_risk_action_tools import ApprovalRequiredError, HighRiskActionToolService
+from app.services.outbound_tools import OutboundToolError
 from app.services.stale_runs import StaleRunService
 from app.services.task_runner import RedisTaskRunner
 
@@ -83,7 +85,7 @@ def metrics(db: Session = Depends(get_db)) -> dict:
 
 
 @router.get("/config")
-def config_summary(_: None = Depends(require_admin)) -> dict:
+def config_summary(_: AuthContext = Depends(require_admin)) -> dict:
     settings = get_settings()
     return {
         "app_env": settings.app_env,
@@ -107,11 +109,17 @@ def config_summary(_: None = Depends(require_admin)) -> dict:
         "security": {
             "admin_token_configured": bool(settings.admin_api_key),
             "require_admin_for_mutations": settings.require_admin_for_mutations,
+            "rbac_enabled": settings.rbac_enabled,
+            "rbac_admin_roles": sorted(settings.rbac_admin_role_set),
         },
         "queue": {
             "redis_enabled": settings.redis_enabled,
+            "redis_mode": settings.redis_mode,
             "redis_url": settings.redis_url,
             "queue_name": settings.redis_queue_name,
+            "high_priority_queue_name": settings.redis_high_priority_queue_name,
+            "low_priority_queue_name": settings.redis_low_priority_queue_name,
+            "worker_concurrency": settings.redis_worker_concurrency,
             "run_lock_ttl_seconds": settings.redis_run_lock_ttl_seconds,
             "heartbeat_ttl_seconds": settings.redis_heartbeat_ttl_seconds,
             "active_run_limit_per_profile": settings.agent_active_run_limit_per_profile,
@@ -120,7 +128,7 @@ def config_summary(_: None = Depends(require_admin)) -> dict:
 
 
 @router.get("/queue/status")
-def queue_status(_: None = Depends(require_admin)) -> dict:
+def queue_status(_: AuthContext = Depends(require_admin)) -> dict:
     settings = get_settings()
     if not settings.redis_enabled:
         raise HTTPException(status_code=503, detail="Redis is disabled.")
@@ -149,15 +157,15 @@ def recover_queued_runs(
 @router.post("/queue/dead-letter/{dlq_index}/replay")
 def replay_dead_letter_payload(
     dlq_index: int,
-    actor: str | None = Query(default="admin"),
+    actor: str | None = Query(default=None),
     db: Session = Depends(get_db),
-    _: None = Depends(require_admin),
+    auth: AuthContext = Depends(require_admin),
 ) -> dict:
     settings = get_settings()
     if not settings.redis_enabled:
         raise HTTPException(status_code=503, detail="Redis is disabled.")
     try:
-        return RedisTaskRunner().replay_dead_letter(db, dlq_index=dlq_index, actor=actor)
+        return RedisTaskRunner().replay_dead_letter(db, dlq_index=dlq_index, actor=actor or auth.actor)
     except RedisUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
@@ -167,15 +175,15 @@ def replay_dead_letter_payload(
 @router.post("/queue/dead-letter/{dlq_index}/discard")
 def discard_dead_letter_payload(
     dlq_index: int,
-    actor: str | None = Query(default="admin"),
+    actor: str | None = Query(default=None),
     db: Session = Depends(get_db),
-    _: None = Depends(require_admin),
+    auth: AuthContext = Depends(require_admin),
 ) -> dict:
     settings = get_settings()
     if not settings.redis_enabled:
         raise HTTPException(status_code=503, detail="Redis is disabled.")
     try:
-        return RedisTaskRunner().discard_dead_letter(db, dlq_index=dlq_index, actor=actor)
+        return RedisTaskRunner().discard_dead_letter(db, dlq_index=dlq_index, actor=actor or auth.actor)
     except RedisUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
@@ -262,7 +270,7 @@ def decide_approval(
 def request_high_risk_action(
     payload: HighRiskActionRequest,
     db: Session = Depends(get_db),
-    _: None = Depends(require_admin),
+    _: AuthContext = Depends(require_admin),
 ) -> AgentApprovalResponse:
     try:
         approval = HighRiskActionToolService().request_approval(
@@ -279,14 +287,22 @@ def request_high_risk_action(
 @router.post("/high-risk-actions/{approval_id}/execute")
 def execute_high_risk_action(
     approval_id: int,
-    actor: str | None = Query(default="admin"),
+    payload: HighRiskActionExecuteRequest | None = None,
+    actor: str | None = Query(default=None),
     db: Session = Depends(get_db),
-    _: None = Depends(require_admin),
+    auth: AuthContext = Depends(require_admin),
 ) -> dict:
     try:
-        return HighRiskActionToolService().execute_after_approval(db, approval_id=approval_id, actor=actor)
+        return HighRiskActionToolService().execute_after_approval(
+            db,
+            approval_id=approval_id,
+            actor=actor or auth.actor,
+            tool_payload=payload.tool_payload_json if payload else {},
+        )
     except ApprovalRequiredError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except OutboundToolError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -296,7 +312,7 @@ def list_audit_events(
     limit: int = Query(default=50, ge=1, le=200),
     event_type: str | None = None,
     db: Session = Depends(get_db),
-    _: None = Depends(require_admin),
+    _: AuthContext = Depends(require_admin),
 ) -> list[OpsAuditEventResponse]:
     query = db.query(OpsAuditEvent)
     if event_type:

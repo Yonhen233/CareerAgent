@@ -37,8 +37,14 @@ class Settings(BaseSettings):
     chroma_dir: str = "data/chroma"
     langgraph_checkpoint_file: str = "data/runtime/langgraph_checkpoints.sqlite"
     redis_enabled: bool = False
+    redis_mode: str = "standalone"
     redis_url: str = "redis://localhost:6379/0"
+    redis_sentinel_urls: str = "redis://localhost:26379"
+    redis_sentinel_master_name: str = "mymaster"
+    redis_socket_timeout_seconds: float = 3.0
     redis_queue_name: str = "career_agent:runs"
+    redis_high_priority_queue_name: str = "career_agent:runs:high"
+    redis_low_priority_queue_name: str = "career_agent:runs:low"
     redis_dead_letter_queue_name: str = "career_agent:runs:dead_letter"
     redis_run_lock_ttl_seconds: int = 1800
     redis_heartbeat_ttl_seconds: int = 300
@@ -46,8 +52,26 @@ class Settings(BaseSettings):
     redis_rate_limit_max_runs: int = 10
     redis_worker_max_attempts: int = 3
     redis_queued_recovery_after_minutes: int = 5
+    redis_worker_concurrency: int = 2
+    redis_worker_poll_timeout_seconds: int = 10
+    redis_worker_recovery_interval_seconds: int = 60
     agent_run_stale_after_minutes: int = 30
     agent_active_run_limit_per_profile: int = 3
+    rbac_enabled: bool = False
+    rbac_trusted_header_auth: bool = True
+    rbac_default_tenant_id: str = "default"
+    rbac_admin_roles: str = "owner,admin,ops"
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_use_tls: bool = True
+    smtp_from_email: str | None = None
+    outbound_email_draft_dir: str = "data/exports/email_drafts"
+    browser_apply_headless: bool = True
+    browser_apply_timeout_ms: int = 30000
+    prompt_injection_classifier_enabled: bool = True
+    prompt_injection_classifier_threshold: float = 0.72
     chunk_size: int = 900
     chunk_overlap: int = 160
     embedding_dimensions: int = 256
@@ -128,6 +152,43 @@ class Settings(BaseSettings):
     @property
     def lever_slugs(self) -> list[str]:
         return [slug.strip() for slug in self.lever_company_slugs.split(",") if slug.strip()]
+
+    @property
+    def redis_sentinel_endpoints(self) -> list[tuple[str, int]]:
+        endpoints: list[tuple[str, int]] = []
+        for raw in self.redis_sentinel_urls.split(","):
+            value = raw.strip()
+            if not value:
+                continue
+            if "://" in value:
+                value = value.split("://", 1)[1]
+            host, _, port = value.partition(":")
+            endpoints.append((host, int(port or 26379)))
+        return endpoints
+
+    @property
+    def redis_queue_names_by_priority(self) -> dict[str, str]:
+        return {
+            "high": self.redis_high_priority_queue_name,
+            "normal": self.redis_queue_name,
+            "low": self.redis_low_priority_queue_name,
+        }
+
+    @property
+    def redis_priority_queue_names(self) -> list[str]:
+        return [
+            self.redis_high_priority_queue_name,
+            self.redis_queue_name,
+            self.redis_low_priority_queue_name,
+        ]
+
+    @property
+    def rbac_admin_role_set(self) -> set[str]:
+        return {role.strip() for role in self.rbac_admin_roles.split(",") if role.strip()}
+
+    @property
+    def outbound_email_draft_path(self) -> Path:
+        return self.base_path / self.outbound_email_draft_dir
 
 
 @lru_cache(maxsize=1)

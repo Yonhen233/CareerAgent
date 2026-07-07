@@ -782,6 +782,7 @@ function renderOpsConfig(config) {
   const llm = config.llm || {};
   const retrieval = config.retrieval || {};
   const security = config.security || {};
+  const queue = config.queue || {};
   return `
     <article class="item">
       <div class="validation-grid">
@@ -793,6 +794,9 @@ function renderOpsConfig(config) {
         ${metricCell("Embedding", retrieval.embedding_provider || "-")}
         ${metricCell("Reranker", retrieval.reranker_enabled ? retrieval.reranker_provider : "disabled")}
         ${metricCell("写权限保护", security.require_admin_for_mutations ? "已开启" : "未开启")}
+        ${metricCell("RBAC", security.rbac_enabled ? "已开启" : "未开启")}
+        ${metricCell("Redis", queue.redis_mode || "-")}
+        ${metricCell("Worker 并发", queue.worker_concurrency ?? "-")}
       </div>
       <details class="details-block">
         <summary>完整脱敏配置</summary>
@@ -811,6 +815,9 @@ function renderQueueStatus(queue) {
         ${metricCell("queued", queue.queued_count ?? "-")}
         ${metricCell("DLQ", queue.dead_letter_count ?? "-")}
         ${metricCell("最大重试", queue.worker_max_attempts ?? "-")}
+        ${metricCell("high", queue.queued_by_priority?.high ?? 0)}
+        ${metricCell("normal", queue.queued_by_priority?.normal ?? 0)}
+        ${metricCell("low", queue.queued_by_priority?.low ?? 0)}
       </div>
       ${deadLetters.length ? `
         <div class="result-list compact-list">

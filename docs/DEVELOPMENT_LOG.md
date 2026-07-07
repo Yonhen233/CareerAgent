@@ -1,5 +1,43 @@
 # 开发日志
 
+## 2026-07-07 12:13:57 +08:00：真实外发工具、Worker Supervisor、Redis HA、RBAC 与分类器版 Injection Detector
+### 这次做了什么
+- 将 `HighRiskActionToolService` 从“审批后放行”升级为真实工具网关：`email_draft` 生成 RFC822 `.eml` 草稿，`email_send` 通过 SMTP 发送，`browser_apply` 通过 Playwright 打开页面并按 selector 填写/提交。
+- 高风险工具执行成功或失败都会写入 `agent_artifacts`，并继续写 `ops_audit_events` 与 run trace。
+- Redis worker 支持 high/normal/low 三个优先级队列，`brpop` 按高优先级到低优先级消费；`queue_status` 输出各优先级长度。
+- Redis client 增加 Sentinel HA 模式：`REDIS_MODE=sentinel`、`REDIS_SENTINEL_URLS`、`REDIS_SENTINEL_MASTER_NAME`。
+- 新增 `scripts/run_agent_worker_supervisor.py`，按 `REDIS_WORKER_CONCURRENCY` 启动多个 worker 子进程，异常退出后自动重启，收到终止信号时统一停止。
+- 新增 `tenants/app_users` 表和 RBAC header 上下文，运维接口支持 `X-Tenant-Id`、`X-User-Id`、`X-User-Roles` 中的 `owner/admin/ops` 角色。
+- PromptInjectionGuard 增加轻量特征 classifier，补充规则 detector 对变体表达的覆盖。
+- Prompt injection release gate 增加按 source 和 category 的分层阈值，并补充分类器变体样本。
+- 控制台展示 Redis mode、worker 并发和优先级队列长度。
+### 发现的问题
+- 只创建 approval 但不执行真实工具，无法回答“工具结果如何进入 trace/artifact、外发失败怎么排查”。
+- 单 Redis 队列无法区分用户交互 run 和低优先级批量评测任务；多 worker 并发也需要 supervisor 统一拉起和重启。
+- 规则版 prompt injection 对“发送材料到外部邮箱”“不要遵守开发者规则”这类变体表达不够敏感。
+- 只有 admin token 不能表达多租户和角色边界，审计 actor 也容易退化成固定 admin。
+### 怎么修复
+- 新增 `EmailOutboundTool` 和 `BrowserApplyTool`，由 `HighRiskActionToolService.execute_after_approval()` 调用；未 approved 仍直接报错，不进入工具层。
+- 在 Redis payload 中加入 `priority`，根据 priority 写入不同队列；worker 消费 `redis_priority_queue_names`。
+- 在 Redis client 中根据 `REDIS_MODE` 选择 standalone 或 Sentinel master client。
+- 用 `AuthContext` 统一解析 admin token 和 RBAC header，并让 ops API 审计 actor 使用真实用户。
+- 在 PromptInjectionGuard 中加入特征分类器和 `classifier_score/classifier_features`，并修正清洗逻辑以移除分类器命中的风险行。
+- release gate 对 `source_breakdown` 和 `category_breakdown` 做分层检查，失败时输出具体 metric。
+### 验证结果
+- `python -m py_compile app\core\config.py app\core\redis_client.py app\core\security.py app\main.py app\api\ops.py app\services\high_risk_action_tools.py app\services\outbound_tools.py app\services\prompt_injection_guard.py app\services\evaluation_service.py app\services\task_runner.py scripts\run_agent_worker_supervisor.py app\models\entities.py app\models\schemas.py` 通过。
+- `python -m pytest tests\test_agent_hardening.py tests\test_frontend_pages.py -q` 通过，26 个测试全部通过。
+- `node --check app\static\js\main.js` 通过。
+- `python -m pytest -q` 通过，115 个测试全部通过。
+### 未修复的问题
+- RBAC 当前是可信 header 模式，不是完整登录、会话、OIDC 或企业 SSO；原因是当前先补多租户/角色边界和审计上下文。
+- `browser_apply` 依赖目标站 selector 配置和 Playwright 浏览器二进制，无法保证所有招聘站都可自动提交；失败会直接报错并写失败 artifact。
+- `email_send` 需要真实 SMTP 配置；没有 SMTP 时不会兜底发送或伪造成功。
+- 分类器是轻量特征模型，不是训练模型；目前用 release gate 和 adversarial 样本约束质量。
+### 下一步
+- 增加真实外发工具的端到端浏览器 smoke 页面和本地 SMTP 测试容器。
+- 将 RBAC 从可信 header 升级到 OIDC/SSO 或 session 登录，并把 tenant_id 逐步下沉到核心业务表查询。
+- 给 worker supervisor 增加结构化日志、健康探针和优雅 drain 模式。
+
 ## 2026-07-07 11:46:15 +08:00：DLQ 人工处置、高风险工具审批网关与 Prompt Injection Release Gate
 ### 这次做了什么
 - 为 Redis DLQ 增加人工选择重放/丢弃能力：`/ops/queue/dead-letter/{dlq_index}/replay` 会移除 DLQ payload、重置 attempts 并重新入主队列，`discard` 会移除并停止重放。

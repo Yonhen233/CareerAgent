@@ -22,6 +22,7 @@ from app.api.resumes import router as resumes_router
 from app.api.tasks import router as tasks_router
 from app.core.config import get_settings
 from app.core.database import init_db
+from app.core.security import request_has_mutation_access
 from app.core.telemetry import telemetry
 from app.frontend.routes import router as frontend_router
 
@@ -56,9 +57,8 @@ async def record_request_metrics(request, call_next):
     started = time.perf_counter()
     if (
         settings.require_admin_for_mutations
-        and settings.admin_api_key
         and request.method in {"POST", "PUT", "PATCH", "DELETE"}
-        and request.headers.get("x-admin-token") != settings.admin_api_key
+        and not request_has_mutation_access(request.headers)
     ):
         response = JSONResponse(
             status_code=401,

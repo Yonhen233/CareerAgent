@@ -710,6 +710,7 @@ POST /ops/high-risk-actions/{approval_id}/execute
 
 - `ADMIN_API_KEY` 配置后，管理接口需要 `X-Admin-Token`。
 - `REQUIRE_ADMIN_FOR_MUTATIONS=true` 时，所有写操作都需要 `X-Admin-Token`。
+- `RBAC_ENABLED=true` 时，管理接口也接受可信 header：`X-Tenant-Id`、`X-User-Id`、`X-User-Roles`。带 `owner/admin/ops` 角色的用户可访问运维接口，审计 actor 使用 `X-User-Id`。
 - `/ops/readiness` 返回数据库、LLM、embedding 和 reranker 的健康状态。
 - `/ops/metrics` 返回请求计数、平均延迟、状态码分布、Agent run/task/LLM call 状态分布和最近评测摘要。
 - `/ops/config` 只返回脱敏配置摘要，不返回 API key。
@@ -720,7 +721,7 @@ POST /ops/high-risk-actions/{approval_id}/execute
 - `/ops/approvals` 查询投递包、浏览器投递、邮件草稿和邮件发送等高风险动作审批记录。
 - `/ops/approvals/{approval_id}/decision` 用于控制台审批通过或拒绝 pending approval。
 - `/ops/high-risk-actions/request` 为 `browser_apply`、`email_draft`、`email_send` 创建或复用 pending approval。
-- `/ops/high-risk-actions/{approval_id}/execute` 是高风险工具执行网关：只有对应 approval 为 `approved` 才放行，否则返回 409。
+- `/ops/high-risk-actions/{approval_id}/execute` 是高风险工具执行网关：只有对应 approval 为 `approved` 才执行真实工具，否则返回 409。请求体可传 `tool_payload_json` 覆盖或补充审批摘要；`email_draft` 生成 `.eml` artifact，`email_send` 使用 SMTP，`browser_apply` 使用 Playwright selector 填表。
 - `/ops/audit-events` 查询 DLQ 处置、高风险工具放行等运维审计事件。
 - `/ops/agent-runs/stale` 返回长时间无事件进展的 running run。
 - `/ops/agent-runs/mark-stale` 将 stale running run 标记为 failed，并写 `run_marked_stale` 事件。

@@ -62,8 +62,14 @@ class RedisTaskRunner:
         self.enqueue_payload({"kind": "task_run", "task_id": task_id, "attempts": 0})
 
     def enqueue_payload(self, payload: dict) -> None:
-        payload = {**payload, "enqueued_at": datetime.now(timezone.utc).isoformat()}
-        self.redis.lpush(self.settings.redis_queue_name, json.dumps(payload, ensure_ascii=False, default=str))
+        priority = self._normalize_priority(str(payload.get("priority") or "normal"))
+        queue_name = self.settings.redis_queue_names_by_priority[priority]
+        payload = {**payload, "priority": priority, "enqueued_at": datetime.now(timezone.utc).isoformat()}
+        self.redis.lpush(queue_name, json.dumps(payload, ensure_ascii=False, default=str))
+
+    def _normalize_priority(self, priority: str) -> str:
+        value = priority.lower().strip()
+        return value if value in self.settings.redis_queue_names_by_priority else "normal"
 
     def _dead_letter_items(self, *, limit: int = 5) -> list[tuple[int, str, dict]]:
         raw_items = self.redis.lrange(self.settings.redis_dead_letter_queue_name, 0, max(limit - 1, 0)) or []
@@ -145,8 +151,15 @@ class RedisTaskRunner:
         return {
             "redis_enabled": self.settings.redis_enabled,
             "queue_name": self.settings.redis_queue_name,
+            "priority_queues": self.settings.redis_queue_names_by_priority,
+            "queued_by_priority": {
+                priority: int(self.redis.llen(queue_name))
+                for priority, queue_name in self.settings.redis_queue_names_by_priority.items()
+            },
             "dead_letter_queue_name": self.settings.redis_dead_letter_queue_name,
-            "queued_count": int(self.redis.llen(self.settings.redis_queue_name)),
+            "queued_count": sum(
+                int(self.redis.llen(queue_name)) for queue_name in self.settings.redis_queue_names_by_priority.values()
+            ),
             "dead_letter_count": int(self.redis.llen(self.settings.redis_dead_letter_queue_name)),
             "dead_letter_preview": [decoded for _, _, decoded in self._dead_letter_items(limit=5)],
             "worker_max_attempts": self.settings.redis_worker_max_attempts,
@@ -275,7 +288,7 @@ async def consume_redis_queue_once(
 ) -> AgentRun | None:
     settings = settings or get_settings()
     runner = RedisTaskRunner(redis_client=redis_client, settings=settings)
-    item = runner.redis.brpop(settings.redis_queue_name, timeout=timeout_seconds)
+    item = runner.redis.brpop(settings.redis_priority_queue_names, timeout=timeout_seconds)
     if not item:
         return None
     raw = item[1] if isinstance(item, tuple) else item
@@ -411,8 +424,8 @@ def run_redis_worker_forever() -> None:
         now = time.monotonic()
         if now >= next_recovery_at:
             recover_queued_agent_runs_once(settings=settings)
-            next_recovery_at = now + 60
-        asyncio.run(consume_redis_queue_once(timeout_seconds=10))
+            next_recovery_at = now + settings.redis_worker_recovery_interval_seconds
+        asyncio.run(consume_redis_queue_once(timeout_seconds=settings.redis_worker_poll_timeout_seconds))
 
 
 def _decode_queue_item(item) -> dict:

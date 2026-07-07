@@ -351,6 +351,10 @@ class HighRiskActionRequest(BaseModel):
     payload_summary_json: dict[str, Any] = Field(default_factory=dict)
 
 
+class HighRiskActionExecuteRequest(BaseModel):
+    tool_payload_json: dict[str, Any] = Field(default_factory=dict)
+
+
 class AgentStepResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

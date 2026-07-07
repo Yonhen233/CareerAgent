@@ -12,6 +12,33 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class Tenant(Base):
+    __tablename__ = "tenants"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    slug: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+    users: Mapped[list["AppUser"]] = relationship(back_populates="tenant", cascade="all, delete-orphan")
+
+
+class AppUser(Base):
+    __tablename__ = "app_users"
+    __table_args__ = (UniqueConstraint("tenant_id", "external_user_id", name="uq_app_users_tenant_external"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), nullable=False, index=True)
+    external_user_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    roles_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+    tenant: Mapped[Tenant] = relationship(back_populates="users")
+
+
 class Profile(Base):
     __tablename__ = "profiles"
 
