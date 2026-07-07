@@ -1,0 +1,8 @@
+{
+  "release": "production-hardening-minimum-slice",
+  "min_case_count": 60,
+  "min_detection_recall": 0.95,
+  "max_false_positive_rate": 0.08,
+  "min_category_recall": 0.9,
+  "min_severity_accuracy": 0.9
+}

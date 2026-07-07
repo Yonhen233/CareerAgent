@@ -333,6 +333,24 @@ class AgentApprovalDecisionRequest(BaseModel):
     decided_by_user_id: str | None = None
 
 
+class OpsAuditEventResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    event_type: str
+    actor: str | None
+    target_type: str
+    target_id: str | None
+    payload_json: dict[str, Any]
+    created_at: datetime
+
+
+class HighRiskActionRequest(BaseModel):
+    run_id: int
+    action_type: Literal["browser_apply", "email_draft", "email_send"]
+    payload_summary_json: dict[str, Any] = Field(default_factory=dict)
+
+
 class AgentStepResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

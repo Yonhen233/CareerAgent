@@ -701,6 +701,11 @@ GET /tasks/{task_id}
 GET /ops/readiness
 GET /ops/metrics
 GET /ops/config
+GET /ops/audit-events
+POST /ops/queue/dead-letter/{dlq_index}/replay
+POST /ops/queue/dead-letter/{dlq_index}/discard
+POST /ops/high-risk-actions/request
+POST /ops/high-risk-actions/{approval_id}/execute
 ```
 
 - `ADMIN_API_KEY` 配置后，管理接口需要 `X-Admin-Token`。
@@ -708,10 +713,15 @@ GET /ops/config
 - `/ops/readiness` 返回数据库、LLM、embedding 和 reranker 的健康状态。
 - `/ops/metrics` 返回请求计数、平均延迟、状态码分布、Agent run/task/LLM call 状态分布和最近评测摘要。
 - `/ops/config` 只返回脱敏配置摘要，不返回 API key。
-- `/ops/queue/status` 返回 Redis queue、dead-letter queue、DLQ 预览、最大重试次数和 queued recovery 配置。
+- `/ops/queue/status` 返回 Redis queue、dead-letter queue、带 `dlq_index` 的 DLQ 预览、最大重试次数和 queued recovery 配置。
 - `/ops/queue/recover-queued` 扫描 SQLite 中长时间 `queued` 的 Agent run，并重新写入 Redis 队列。
+- `/ops/queue/dead-letter/{dlq_index}/replay` 从 DLQ 中移除指定 payload，重置 attempts 后重新入主队列，并写 `ops_audit_events` 与 run trace。
+- `/ops/queue/dead-letter/{dlq_index}/discard` 从 DLQ 中移除指定 payload，不再重放，并写 `ops_audit_events` 与 run trace。
 - `/ops/approvals` 查询投递包、浏览器投递、邮件草稿和邮件发送等高风险动作审批记录。
 - `/ops/approvals/{approval_id}/decision` 用于控制台审批通过或拒绝 pending approval。
+- `/ops/high-risk-actions/request` 为 `browser_apply`、`email_draft`、`email_send` 创建或复用 pending approval。
+- `/ops/high-risk-actions/{approval_id}/execute` 是高风险工具执行网关：只有对应 approval 为 `approved` 才放行，否则返回 409。
+- `/ops/audit-events` 查询 DLQ 处置、高风险工具放行等运维审计事件。
 - `/ops/agent-runs/stale` 返回长时间无事件进展的 running run。
 - `/ops/agent-runs/mark-stale` 将 stale running run 标记为 failed，并写 `run_marked_stale` 事件。
 - `/ui/ops` 是对应的前端运维面板，会展示 readiness、metrics、脱敏配置、后台任务和最近 LLM 调用日志，并支持在本机浏览器保存 `X-Admin-Token`。

@@ -50,8 +50,9 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - `quick_apply` 和 `full_career_flow` 在生成投递包前会触发 LangGraph interrupt，返回 `waiting_for_confirmation`；用户或前端通过 `/agent/runs/{run_id}/resume` 确认后继续执行。
   - 支持后台启动和 LangGraph SSE 事件流：`POST /agent/runs/background` 返回 queued run 并写入 Redis 队列，`scripts/run_agent_worker.py` 独立消费执行，`GET /agent/runs/{run_id}/events/stream` 持续输出 graph/node/step/interrupt 进度。
   - 支持用户取消 run、stale run 检测、业务幂等键、投递审批审计、Redis run lock 和 Profile 级 active/rate limit。
-  - Redis worker 支持 dead-letter queue、queued run recovery scanner 和更细粒度 heartbeat stage；控制台可查看队列长度、DLQ 预览并手动恢复 queued run。
-  - JD、PDF 简历、RAG evidence 和导入面经进入 LLM 前会经过 PromptInjectionGuard 检测，风险写入结构化 metadata，高风险投递动作仍必须人工确认。
+  - Redis worker 支持 dead-letter queue、queued run recovery scanner 和更细粒度 heartbeat stage；控制台可查看队列长度、DLQ 预览，并人工选择重放或丢弃异常 payload。
+  - 高风险动作统一绑定 approval table：`browser_apply`、`email_draft`、`email_send` 必须先有 approved 审批记录，工具执行网关才会放行。
+  - JD、PDF 简历、RAG evidence 和导入面经进入 LLM 前会经过 PromptInjectionGuard 检测，风险写入结构化 metadata；prompt injection 评测按 release gate 校验最低召回率和最高误报率。
   - PromptInjectionGuard 有 adversarial 评测集，覆盖 JD/PDF/RAG/面经四类来源，输出 recall、false positive rate、severity accuracy 和分桶指标。
   - 首页一键流程现在只创建一个后台 `full_career_flow` run；前端通过 SSE 推进阶段进度，不再在浏览器里拼接多个小 run。
   - 显式注册 Tool、Skill 和 SubAgent，计划产物会展示当前任务使用的能力边界。

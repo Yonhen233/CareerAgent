@@ -240,7 +240,8 @@ JD、PDF 简历、RAG chunk 和导入面经都被视为 untrusted content。`Pro
 - 每个后台 run 执行前会获取 Redis run lock；节点开始前检查 SQLite 状态和 Redis cancel flag。
 - 简历版本、投递包、面试包写库节点都有业务幂等键，checkpoint 重放或重复 resume 会复用已有产物。
 - 投递包 interrupt 前会创建 `agent_approvals` 审批记录，resume 确认/拒绝/取消都有审计状态。
-- `agent_approvals` 的动作类型已经扩展到 `application_packet`、`browser_apply`、`email_draft`、`email_send`，用于承接后续浏览器和邮件等更高风险工具。
+- `agent_approvals` 的动作类型已经扩展到 `application_packet`、`browser_apply`、`email_draft`、`email_send`；浏览器辅助填写、邮件草稿和邮件发送必须通过高风险工具网关检查 approved approval 后才放行。
+- `ops_audit_events` 记录 DLQ 重放/丢弃和高风险工具放行等跨 run 运维审计事件。
 - `GET /agent/runs/{run_id}/events/stream` 支持 LangGraph SSE 事件流，`TraceService` 写 SQLite event 后也会发布 Redis pub/sub 通知。
 - 首页一键流程已经改成单个后台 `full_career_flow` run，通过 SSE 推进阶段状态。
 
@@ -252,5 +253,4 @@ JD、PDF 简历、RAG chunk 和导入面经都被视为 untrusted content。`Pro
 
 后续增强：
 
-- 后续接入浏览器辅助填写、邮件发送等更高风险工具时，继续复用当前 approval table，并可增加 `action_type=browser_apply/email_send`。
-- 当浏览器、邮箱、日历等工具 MCP 化后，把对应节点改为跨进程工具调用。
+- 当浏览器、邮箱、日历等工具 MCP 化后，把对应节点改为跨进程工具调用，但入口仍必须走当前高风险工具网关。

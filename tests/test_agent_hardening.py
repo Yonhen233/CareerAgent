@@ -5,13 +5,14 @@ from uuid import uuid4
 
 from app.agents.orchestrator import AgentOrchestrator
 from app.core.config import get_settings
-from app.models.entities import AgentApproval, AgentEvent, AgentRun, Application, InterviewPrep, Job, MatchResult, Profile, ResumeVersion
+from app.models.entities import AgentApproval, AgentEvent, AgentRun, Application, InterviewPrep, Job, MatchResult, OpsAuditEvent, Profile, ResumeVersion
 from app.models.schemas import AgentRunRequest
 from app.services.prompt_injection_guard import PromptInjectionGuard
 from app.services.stale_runs import StaleRunService
 from app.services.task_runner import RedisTaskRunner, consume_redis_queue_once
 from app.services.evaluation_service import EvaluationService
 from app.services.approval_service import ApprovalService
+from app.services.high_risk_action_tools import ApprovalRequiredError, HighRiskActionToolService
 
 
 class FakeRedis:
@@ -46,6 +47,18 @@ class FakeRedis:
         if end == -1:
             end = len(values) - 1
         return values[start : end + 1]
+
+    def lrem(self, name, count, value):
+        values = self.lists.get(name) or []
+        removed = 0
+        next_values = []
+        for item in values:
+            if item == value and (count == 0 or removed < abs(count)):
+                removed += 1
+                continue
+            next_values.append(item)
+        self.lists[name] = next_values
+        return removed
 
     def set(self, name, value, nx=False, ex=None):
         if nx and name in self.values:
@@ -191,6 +204,41 @@ def test_redis_worker_dead_letters_invalid_payload():
     status = RedisTaskRunner(redis_client=fake, settings=settings).queue_status()
     assert status["dead_letter_count"] == 1
     assert status["dead_letter_preview"][0]["kind"] == "invalid_payload"
+    assert status["dead_letter_preview"][0]["dlq_index"] == 0
+
+
+def test_dead_letter_replay_and_discard_write_audit_events(db_session):
+    fake = FakeRedis()
+    settings = get_settings()
+    run = AgentRun(task_type="find_jobs_for_profile", status="failed", input_json={})
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+
+    runner = RedisTaskRunner(redis_client=fake, settings=settings)
+    assert runner.requeue_or_dead_letter(
+        {"kind": "agent_run", "run_id": run.id, "attempts": settings.redis_worker_max_attempts - 1},
+        error="boom",
+        worker_id="test-worker",
+    ) == "dead_lettered"
+    replayed = runner.replay_dead_letter(db_session, dlq_index=0, actor="pytest")
+    assert replayed["status"] == "replayed"
+    assert fake.llen(settings.redis_dead_letter_queue_name) == 0
+    assert fake.llen(settings.redis_queue_name) == 1
+
+    assert runner.requeue_or_dead_letter(
+        {"kind": "agent_run", "run_id": run.id, "attempts": settings.redis_worker_max_attempts - 1},
+        error="still broken",
+        worker_id="test-worker",
+    ) == "dead_lettered"
+    discarded = runner.discard_dead_letter(db_session, dlq_index=0, actor="pytest")
+    assert discarded["status"] == "discarded"
+    event_types = [row.event_type for row in db_session.query(OpsAuditEvent).order_by(OpsAuditEvent.id).all()]
+    assert "dlq_payload_replayed" in event_types
+    assert "dlq_payload_discarded" in event_types
+    trace_types = [row.event_type for row in db_session.query(AgentEvent).filter(AgentEvent.run_id == run.id).all()]
+    assert "dlq_payload_replayed" in trace_types
+    assert "dlq_payload_discarded" in trace_types
 
 
 def test_queued_run_recovery_scanner_requeues_old_runs(db_session):
@@ -227,6 +275,33 @@ def test_approval_service_supports_browser_and_email_actions(db_session):
         assert approval.status == "pending"
         decided = service.decide(db_session, approval=approval, approved=True, note="test")
         assert decided.status == "approved"
+
+
+def test_high_risk_action_tool_requires_approved_approval(db_session):
+    run = AgentRun(task_type="quick_apply", status="waiting_for_confirmation", input_json={})
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+
+    service = HighRiskActionToolService()
+    approval = service.request_approval(
+        db_session,
+        run_id=run.id,
+        action_type="email_send",
+        payload_summary={"to": "hr@example.com", "subject": "Agent 开发实习申请"},
+    )
+    try:
+        service.execute_after_approval(db_session, approval_id=approval.id, actor="pytest")
+        assert False, "email_send should require approved approval before execution"
+    except ApprovalRequiredError:
+        pass
+
+    ApprovalService().decide(db_session, approval=approval, approved=True, note="pytest approved")
+    result = service.execute_after_approval(db_session, approval_id=approval.id, actor="pytest")
+    assert result["status"] == "ready_for_tool_execution"
+    assert result["action_type"] == "email_send"
+    audit = db_session.query(OpsAuditEvent).filter(OpsAuditEvent.event_type == "email_send_tool_execution_released").one()
+    assert audit.target_id == str(approval.id)
 
 
 def test_quick_apply_interrupt_creates_approval_and_cancel_blocks_resume(db_session, monkeypatch):
@@ -377,7 +452,8 @@ def test_prompt_injection_evaluation_quantifies_recall_and_false_positive_rate(d
     run = EvaluationService().run_prompt_injection_evaluation(db_session)
     summary = run.summary_json
     assert summary["evaluation_type"] == "prompt_injection_guard"
-    assert summary["case_count"] >= 30
-    assert summary["detection_recall"] >= 0.9
-    assert summary["false_positive_rate"] <= 0.1
+    assert summary["case_count"] >= 60
+    assert summary["detection_recall"] >= summary["release_gate"]["policy"]["min_detection_recall"]
+    assert summary["false_positive_rate"] <= summary["release_gate"]["policy"]["max_false_positive_rate"]
+    assert summary["release_gate"]["passed"] is True
     assert "rag_chunk" in summary["source_breakdown"]

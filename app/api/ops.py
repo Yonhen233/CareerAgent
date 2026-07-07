@@ -8,14 +8,17 @@ from app.core.database import engine, get_db
 from app.core.redis_client import RedisUnavailableError, get_redis_client
 from app.core.security import require_admin
 from app.core.telemetry import telemetry
-from app.models.entities import AgentApproval, AgentRun, EvaluationRun, LLMCallLog, TaskRun
+from app.models.entities import AgentApproval, AgentRun, EvaluationRun, LLMCallLog, OpsAuditEvent, TaskRun
 from app.models.schemas import (
     AgentApprovalCreateRequest,
     AgentApprovalDecisionRequest,
     AgentApprovalResponse,
     AgentRunResponse,
+    HighRiskActionRequest,
+    OpsAuditEventResponse,
 )
 from app.services.approval_service import ApprovalService
+from app.services.high_risk_action_tools import ApprovalRequiredError, HighRiskActionToolService
 from app.services.stale_runs import StaleRunService
 from app.services.task_runner import RedisTaskRunner
 
@@ -143,6 +146,42 @@ def recover_queued_runs(
     return {"recovered_count": len(recovered), "recovered_runs": recovered}
 
 
+@router.post("/queue/dead-letter/{dlq_index}/replay")
+def replay_dead_letter_payload(
+    dlq_index: int,
+    actor: str | None = Query(default="admin"),
+    db: Session = Depends(get_db),
+    _: None = Depends(require_admin),
+) -> dict:
+    settings = get_settings()
+    if not settings.redis_enabled:
+        raise HTTPException(status_code=503, detail="Redis is disabled.")
+    try:
+        return RedisTaskRunner().replay_dead_letter(db, dlq_index=dlq_index, actor=actor)
+    except RedisUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/queue/dead-letter/{dlq_index}/discard")
+def discard_dead_letter_payload(
+    dlq_index: int,
+    actor: str | None = Query(default="admin"),
+    db: Session = Depends(get_db),
+    _: None = Depends(require_admin),
+) -> dict:
+    settings = get_settings()
+    if not settings.redis_enabled:
+        raise HTTPException(status_code=503, detail="Redis is disabled.")
+    try:
+        return RedisTaskRunner().discard_dead_letter(db, dlq_index=dlq_index, actor=actor)
+    except RedisUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.get("/agent-runs/stale")
 def stale_agent_runs(
     threshold_minutes: int | None = None,
@@ -217,3 +256,50 @@ def decide_approval(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return AgentApprovalResponse.model_validate(approval)
+
+
+@router.post("/high-risk-actions/request", response_model=AgentApprovalResponse, status_code=status.HTTP_201_CREATED)
+def request_high_risk_action(
+    payload: HighRiskActionRequest,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_admin),
+) -> AgentApprovalResponse:
+    try:
+        approval = HighRiskActionToolService().request_approval(
+            db,
+            run_id=payload.run_id,
+            action_type=payload.action_type,
+            payload_summary=payload.payload_summary_json,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return AgentApprovalResponse.model_validate(approval)
+
+
+@router.post("/high-risk-actions/{approval_id}/execute")
+def execute_high_risk_action(
+    approval_id: int,
+    actor: str | None = Query(default="admin"),
+    db: Session = Depends(get_db),
+    _: None = Depends(require_admin),
+) -> dict:
+    try:
+        return HighRiskActionToolService().execute_after_approval(db, approval_id=approval_id, actor=actor)
+    except ApprovalRequiredError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/audit-events", response_model=list[OpsAuditEventResponse])
+def list_audit_events(
+    limit: int = Query(default=50, ge=1, le=200),
+    event_type: str | None = None,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_admin),
+) -> list[OpsAuditEventResponse]:
+    query = db.query(OpsAuditEvent)
+    if event_type:
+        query = query.filter(OpsAuditEvent.event_type == event_type)
+    rows = query.order_by(OpsAuditEvent.created_at.desc()).limit(limit).all()
+    return [OpsAuditEventResponse.model_validate(row) for row in rows]

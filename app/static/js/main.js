@@ -803,6 +803,7 @@ function renderOpsConfig(config) {
 }
 
 function renderQueueStatus(queue) {
+  const deadLetters = queue.dead_letter_preview || [];
   return `
     <article class="item">
       <div class="validation-grid">
@@ -811,11 +812,26 @@ function renderQueueStatus(queue) {
         ${metricCell("DLQ", queue.dead_letter_count ?? "-")}
         ${metricCell("最大重试", queue.worker_max_attempts ?? "-")}
       </div>
-      ${(queue.dead_letter_preview || []).length ? `
-        <details class="details-block">
-          <summary>Dead-letter 预览</summary>
-          <pre>${escapeHtml(safeJson(queue.dead_letter_preview))}</pre>
-        </details>
+      ${deadLetters.length ? `
+        <div class="result-list compact-list">
+          ${deadLetters.map((item) => `
+            <article class="item validation-risk">
+              <div class="item-title">
+                <span>DLQ #${item.dlq_index ?? "-"} ${escapeHtml(item.kind || "unknown")}</span>
+                <span class="status-pill risk">${escapeHtml(String(item.attempts ?? "-"))} 次</span>
+              </div>
+              <div class="meta">run=${escapeHtml(String(item.run_id || "-"))} / error=${escapeHtml(String(item.last_error || item.raw_payload || "-")).slice(0, 180)}</div>
+              <details class="details-block">
+                <summary>Payload</summary>
+                <pre>${escapeHtml(safeJson(item))}</pre>
+              </details>
+              <div class="flow-result-actions">
+                <button class="button primary" data-dlq-replay="${item.dlq_index}" type="button"><i data-lucide="rotate-ccw"></i> 重放</button>
+                <button class="button ghost" data-dlq-discard="${item.dlq_index}" type="button"><i data-lucide="trash-2"></i> 丢弃</button>
+              </div>
+            </article>
+          `).join("")}
+        </div>
       ` : `<p class="meta">Dead-letter queue 暂无异常 payload。</p>`}
     </article>
   `;
@@ -872,6 +888,23 @@ function renderStaleRuns(payload) {
         <span class="status-pill risk">stale</span>
       </div>
       <div class="meta">最后阶段：${escapeHtml(row.last_stage || row.last_event_type || "-")} / ${escapeHtml(row.last_event_at || "")}</div>
+    </article>
+  `).join("");
+}
+
+function renderOpsAuditEvents(rows) {
+  if (!rows || !rows.length) return `<div class="item meta">暂无运维审计事件</div>`;
+  return rows.slice(0, 20).map((row) => `
+    <article class="item">
+      <div class="item-title">
+        <span>#${row.id} ${escapeHtml(row.event_type)}</span>
+        <span class="status-pill neutral">${escapeHtml(row.target_type || "-")}</span>
+      </div>
+      <div class="meta">actor=${escapeHtml(row.actor || "-")} / target=${escapeHtml(row.target_id || "-")} / ${escapeHtml(row.created_at || "")}</div>
+      <details class="details-block">
+        <summary>审计 payload</summary>
+        <pre>${escapeHtml(safeJson(row.payload_json || {}))}</pre>
+      </details>
     </article>
   `).join("");
 }
@@ -933,8 +966,9 @@ async function loadOpsPage() {
     api("/agent/runs"),
     api("/ops/approvals?limit=20"),
     api("/ops/agent-runs/stale"),
+    api("/ops/audit-events?limit=20"),
   ]);
-  const [readiness, metrics, config, tasks, logs, queue, runs, approvals, staleRuns] = results;
+  const [readiness, metrics, config, tasks, logs, queue, runs, approvals, staleRuns, auditEvents] = results;
   $("#ops-readiness").innerHTML = readiness.status === "fulfilled"
     ? renderOpsReadiness(readiness.value)
     : `<div class="item validation-risk">${escapeHtml(readiness.reason.message)}</div>`;
@@ -969,6 +1003,11 @@ async function loadOpsPage() {
     $("#ops-stale-runs").innerHTML = staleRuns.status === "fulfilled"
       ? renderStaleRuns(staleRuns.value)
       : `<div class="item validation-risk">${escapeHtml(staleRuns.reason.message)}</div>`;
+  }
+  if ($("#ops-audit-events")) {
+    $("#ops-audit-events").innerHTML = auditEvents.status === "fulfilled"
+      ? renderOpsAuditEvents(auditEvents.value)
+      : `<div class="item validation-risk">${escapeHtml(auditEvents.reason.message)}</div>`;
   }
   if (window.lucide) window.lucide.createIcons();
 }
@@ -2244,6 +2283,26 @@ function bindForms() {
       })
         .then(() => {
           toast(`审批 #${approvalId} 已${approved ? "通过" : "拒绝"}`);
+          return loadOpsPage();
+        })
+        .catch((error) => toast(error.message));
+    }
+    const dlqReplayButton = event.target.closest("[data-dlq-replay]");
+    if (dlqReplayButton) {
+      const index = dlqReplayButton.dataset.dlqReplay;
+      api(`/ops/queue/dead-letter/${index}/replay?actor=ops_console`, { method: "POST" })
+        .then(() => {
+          toast(`DLQ #${index} 已重放`);
+          return loadOpsPage();
+        })
+        .catch((error) => toast(error.message));
+    }
+    const dlqDiscardButton = event.target.closest("[data-dlq-discard]");
+    if (dlqDiscardButton) {
+      const index = dlqDiscardButton.dataset.dlqDiscard;
+      api(`/ops/queue/dead-letter/${index}/discard?actor=ops_console`, { method: "POST" })
+        .then(() => {
+          toast(`DLQ #${index} 已丢弃`);
           return loadOpsPage();
         })
         .catch((error) => toast(error.message));

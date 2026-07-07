@@ -1,5 +1,39 @@
 # 开发日志
 
+## 2026-07-07 11:46:15 +08:00：DLQ 人工处置、高风险工具审批网关与 Prompt Injection Release Gate
+### 这次做了什么
+- 为 Redis DLQ 增加人工选择重放/丢弃能力：`/ops/queue/dead-letter/{dlq_index}/replay` 会移除 DLQ payload、重置 attempts 并重新入主队列，`discard` 会移除并停止重放。
+- 新增 `ops_audit_events` 运维审计表和 `OpsAuditService`，DLQ 重放/丢弃、高风险工具放行都会留下 actor、target、payload 和时间。
+- 为浏览器辅助填写、邮件草稿、邮件发送增加 `HighRiskActionToolService` 网关：必须先创建/复用 approval，且 approval 状态为 `approved` 后才允许工具执行阶段放行。
+- 新增 `/ops/high-risk-actions/request`、`/ops/high-risk-actions/{approval_id}/execute` 和 `/ops/audit-events`。
+- 扩展 `/ui/ops` 控制台：DLQ 预览现在可以逐条重放/丢弃，并新增运维审计事件列表。
+- 将 prompt injection 评测集从 36 条扩展到 64 条，增加真实形态中文 JD、PDF OCR 噪声、RAG chunk、面经网页片段和 benign 安全工程表述。
+- 新增 `evals/prompt_injection_release_policy.json`，按 release gate 校验样本量、最低 detection recall、最高 false positive rate、category recall 和 severity accuracy。
+- 更新 README、API、Agent 设计、Redis + SQLite 架构说明和 Hardening Notes。
+### 发现的问题
+- 仅展示 DLQ 预览不够，排障时必须能人工决定某个 payload 是可重放还是应丢弃，否则异常消息会长期堆在 Redis 中。
+- `agent_approvals` 虽然覆盖了动作类型，但如果真实浏览器/邮件工具绕过 service 直接执行，审批表就只是记录而不是强约束。
+- Prompt injection 评测如果只有少量规则命中样本，容易高估效果；需要加入更接近真实 JD/PDF/OCR/网页片段的噪声和 benign 技术描述。
+### 怎么修复
+- 在 `RedisTaskRunner` 内实现 `_dead_letter_items()`、`replay_dead_letter()` 和 `discard_dead_letter()`，并为新进入 DLQ 的 payload 写入 `dlq_id/dead_lettered_at`。
+- 用 `lrem` 移除人工选择的 DLQ 原始 payload，避免只按队列长度或模糊条件操作。
+- 新增独立 `ops_audit_events`，同时在 payload 有合法 `run_id` 时写入 `agent_events`，兼顾跨 run 运维审计和单 run trace。
+- 用 `HighRiskActionToolService.execute_after_approval()` 在工具执行前检查 approval 状态，未 approved 直接抛 `ApprovalRequiredError`。
+- 在 `EvaluationService` 汇总 prompt injection 指标时加载 release policy，并输出 `release_gate.passed` 和 failed checks。
+### 验证结果
+- `python -m py_compile app\services\task_runner.py app\api\ops.py app\services\high_risk_action_tools.py app\services\evaluation_service.py app\models\entities.py app\models\schemas.py` 通过。
+- `python -m pytest tests\test_agent_hardening.py tests\test_frontend_pages.py -q` 通过，22 个测试全部通过。
+- `node --check app\static\js\main.js` 通过。
+- `python -m pytest -q` 通过，111 个测试全部通过。
+### 未修复的问题
+- 浏览器真实填写、邮件草稿和邮件发送的外部工具本体还没有接入；本轮完成的是强制审批网关，后续接真实工具时必须从该网关进入。
+- DLQ replay 目前是人工重放到同一主队列，没有多队列路由和优先级；原因是当前 Redis worker 仍保持轻量队列模型。
+- Prompt injection guard 仍是规则版；本轮通过更强评测集和 release gate 固定质量底线，后续可接分类器或 LLM-as-judge 做二阶段判定。
+### 下一步
+- 将真实 browser_apply、email_draft、email_send 工具接入 `HighRiskActionToolService`，并把工具结果写回 run artifact。
+- 为 Redis worker 增加多 worker 并发配置、队列优先级和 supervisor 启动文档。
+- 在 prompt injection release gate 中加入按来源/类别的最低召回阈值，继续补充真实失败样本。
+
 ## 2026-07-07 11:35:42 +08:00：Redis Worker DLQ、审批扩展、Prompt Injection 评测与控制台运维
 ### 这次做了什么
 - 为 Redis worker 增加 dead-letter queue：payload 解析失败、未知 kind、worker 级异常会按 attempts 重试，超过 `REDIS_WORKER_MAX_ATTEMPTS` 后写入 `REDIS_DEAD_LETTER_QUEUE_NAME`。

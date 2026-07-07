@@ -15,6 +15,7 @@ from app.core.config import Settings, get_settings
 from app.core.database import SessionLocal
 from app.core.redis_client import RedisLike, get_redis_client, redis_key
 from app.models.entities import AgentRun
+from app.services.ops_audit import OpsAuditService
 from app.services.task_queue import TaskQueueService
 from app.services.trace_service import TraceService
 
@@ -63,6 +64,18 @@ class RedisTaskRunner:
     def enqueue_payload(self, payload: dict) -> None:
         payload = {**payload, "enqueued_at": datetime.now(timezone.utc).isoformat()}
         self.redis.lpush(self.settings.redis_queue_name, json.dumps(payload, ensure_ascii=False, default=str))
+
+    def _dead_letter_items(self, *, limit: int = 5) -> list[tuple[int, str, dict]]:
+        raw_items = self.redis.lrange(self.settings.redis_dead_letter_queue_name, 0, max(limit - 1, 0)) or []
+        items: list[tuple[int, str, dict]] = []
+        for index, raw in enumerate(raw_items):
+            text = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+            decoded = _safe_decode_queue_item(text)
+            decoded["dlq_index"] = index
+            if "dlq_id" not in decoded:
+                decoded["dlq_id"] = f"legacy-index-{index}"
+            items.append((index, text, decoded))
+        return items
 
     def heartbeat(
         self,
@@ -118,6 +131,8 @@ class RedisTaskRunner:
             "worker_id": worker_id,
         }
         if attempts >= self.settings.redis_worker_max_attempts:
+            failed_payload["dlq_id"] = failed_payload.get("dlq_id") or uuid4().hex
+            failed_payload["dead_lettered_at"] = datetime.now(timezone.utc).isoformat()
             self.redis.lpush(
                 self.settings.redis_dead_letter_queue_name,
                 json.dumps(failed_payload, ensure_ascii=False, default=str),
@@ -133,13 +148,80 @@ class RedisTaskRunner:
             "dead_letter_queue_name": self.settings.redis_dead_letter_queue_name,
             "queued_count": int(self.redis.llen(self.settings.redis_queue_name)),
             "dead_letter_count": int(self.redis.llen(self.settings.redis_dead_letter_queue_name)),
-            "dead_letter_preview": [
-                _safe_decode_queue_item(item)
-                for item in (self.redis.lrange(self.settings.redis_dead_letter_queue_name, 0, 4) or [])
-            ],
+            "dead_letter_preview": [decoded for _, _, decoded in self._dead_letter_items(limit=5)],
             "worker_max_attempts": self.settings.redis_worker_max_attempts,
             "queued_recovery_after_minutes": self.settings.redis_queued_recovery_after_minutes,
         }
+
+    def replay_dead_letter(self, db: Session, *, dlq_index: int, actor: str | None = None) -> dict:
+        index, raw, decoded = self._get_dead_letter_item(dlq_index)
+        removed = int(self.redis.lrem(self.settings.redis_dead_letter_queue_name, 1, raw) or 0)
+        if removed < 1:
+            raise ValueError(f"Dead-letter payload at index {index} was already changed or removed.")
+        replay_payload = {
+            key: value
+            for key, value in decoded.items()
+            if key
+            not in {
+                "dlq_index",
+                "last_error",
+                "last_failed_at",
+                "dead_lettered_at",
+                "worker_id",
+            }
+        }
+        replay_payload["attempts"] = 0
+        replay_payload["replayed_from_dlq_id"] = decoded.get("dlq_id")
+        replay_payload["manual_replay_at"] = datetime.now(timezone.utc).isoformat()
+        self.enqueue_payload(replay_payload)
+        audit_payload = {"dlq_index": index, "payload": decoded, "replay_payload": replay_payload}
+        OpsAuditService().record(
+            db,
+            event_type="dlq_payload_replayed",
+            target_type="redis_dead_letter_queue",
+            target_id=decoded.get("dlq_id"),
+            actor=actor,
+            payload=audit_payload,
+        )
+        self._trace_dlq_event(db, decoded, event_type="dlq_payload_replayed", event_payload=audit_payload)
+        return {"status": "replayed", "dlq_index": index, "payload": decoded, "queued_payload": replay_payload}
+
+    def discard_dead_letter(self, db: Session, *, dlq_index: int, actor: str | None = None) -> dict:
+        index, raw, decoded = self._get_dead_letter_item(dlq_index)
+        removed = int(self.redis.lrem(self.settings.redis_dead_letter_queue_name, 1, raw) or 0)
+        if removed < 1:
+            raise ValueError(f"Dead-letter payload at index {index} was already changed or removed.")
+        audit_payload = {"dlq_index": index, "payload": decoded}
+        OpsAuditService().record(
+            db,
+            event_type="dlq_payload_discarded",
+            target_type="redis_dead_letter_queue",
+            target_id=decoded.get("dlq_id"),
+            actor=actor,
+            payload=audit_payload,
+        )
+        self._trace_dlq_event(db, decoded, event_type="dlq_payload_discarded", event_payload=audit_payload)
+        return {"status": "discarded", "dlq_index": index, "payload": decoded}
+
+    def _get_dead_letter_item(self, dlq_index: int) -> tuple[int, str, dict]:
+        if dlq_index < 0:
+            raise ValueError("Dead-letter index must be non-negative.")
+        items = self._dead_letter_items(limit=dlq_index + 1)
+        if dlq_index >= len(items):
+            raise ValueError(f"Dead-letter payload at index {dlq_index} was not found.")
+        return items[dlq_index]
+
+    def _trace_dlq_event(self, db: Session, original_payload: dict, *, event_type: str, event_payload: dict) -> None:
+        run_id = original_payload.get("run_id")
+        if not run_id:
+            return
+        try:
+            parsed_run_id = int(run_id)
+        except (TypeError, ValueError):
+            return
+        if db.query(AgentRun).filter(AgentRun.id == parsed_run_id).first() is None:
+            return
+        TraceService().add_event(db, run_id=parsed_run_id, event_type=event_type, payload=event_payload)
 
     def recover_queued_agent_runs(self, db: Session, *, older_than_minutes: int | None = None) -> list[dict]:
         threshold_minutes = (

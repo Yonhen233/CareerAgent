@@ -35,14 +35,20 @@ def test_ops_console_exposes_queue_approvals_cancel_and_stale_controls():
     assert "ops-agent-runs" in response.text
     assert "ops-approvals" in response.text
     assert "ops-stale-runs" in response.text
+    assert "ops-audit-events" in response.text
     assert "recover-queued-runs" in response.text
     assert "mark-stale-runs" in response.text
     assert "/ops/queue/status" in main_js
     assert "/ops/queue/recover-queued" in main_js
+    assert "/ops/queue/dead-letter/${index}/replay" in main_js
+    assert "/ops/queue/dead-letter/${index}/discard" in main_js
     assert "/ops/approvals?limit=20" in main_js
+    assert "/ops/audit-events?limit=20" in main_js
     assert "/ops/agent-runs/stale" in main_js
     assert "/cancel" in main_js
     assert "data-approval-decision" in main_js
+    assert "data-dlq-replay" in main_js
+    assert "data-dlq-discard" in main_js
 
 
 def test_evaluations_page_exposes_interview_source_smoke_controls():

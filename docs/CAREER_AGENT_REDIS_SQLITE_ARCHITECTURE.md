@@ -15,7 +15,7 @@ CareerAgent 现在采用 Redis + SQLite 混合架构：SQLite 是 source of trut
 
 Redis 不可用时，后台 run 入队会直接返回 503，避免“接口成功但任务没有真实进入队列”的假成功。
 
-Worker 主循环会定期运行 queued recovery scanner：扫描 SQLite 中超过阈值仍处于 `queued` 的 Agent run，并重新入队。控制台也可以手动调用 `/ops/queue/recover-queued`。worker 级异常会按 `REDIS_WORKER_MAX_ATTEMPTS` 重试，超过次数写入 DLQ，便于保留失败 payload 和错误原因。
+Worker 主循环会定期运行 queued recovery scanner：扫描 SQLite 中超过阈值仍处于 `queued` 的 Agent run，并重新入队。控制台也可以手动调用 `/ops/queue/recover-queued`。worker 级异常会按 `REDIS_WORKER_MAX_ATTEMPTS` 重试，超过次数写入 DLQ，保留失败 payload、错误原因、`dlq_id` 和失败时间；控制台可按 `dlq_index` 人工选择重放或丢弃，并写入运维审计。
 
 ## SQLite 负责什么
 
@@ -24,6 +24,7 @@ Worker 主循环会定期运行 queued recovery scanner：扫描 SQLite 中超�
 - `resume_versions`、`applications`、`interview_preps`
 - `agent_runs`、`agent_steps`、`agent_artifacts`、`agent_events`
 - `agent_approvals`
+- `ops_audit_events`
 - `llm_call_logs`、`evaluation_runs`
 - LangGraph SQLite checkpoint
 
@@ -58,6 +59,25 @@ Worker 主循环会定期运行 queued recovery scanner：扫描 SQLite 中超�
 
 用户确认后状态变为 `approved`，拒绝后变为 `rejected`，取消 run 后 pending approval 变为 `cancelled`。审批动作类型已覆盖 `application_packet`、`browser_apply`、`email_draft`、`email_send`，后续接浏览器投递、邮件发送或日历操作时可以复用同一张审批表。
 
+浏览器辅助填写、邮件草稿和邮件发送不直接暴露裸工具入口，而是通过 `HighRiskActionToolService`：
+
+1. `request_approval()` 创建或复用 `agent_approvals` pending 记录。
+2. 人工在控制台审批。
+3. `execute_after_approval()` 检查 approval 是否为 `approved`，未通过则直接报错。
+4. 放行时写 `ops_audit_events` 和对应 run trace。
+
+## 运维审计
+
+`ops_audit_events` 保存不一定绑定某个 run 的运维动作，例如：
+
+- `dlq_payload_replayed`
+- `dlq_payload_discarded`
+- `browser_apply_tool_execution_released`
+- `email_draft_tool_execution_released`
+- `email_send_tool_execution_released`
+
+这张表和 `agent_events` 分工不同：`agent_events` 是单个 Agent run 的业务 trace，`ops_audit_events` 是跨队列、跨工具的运维审计。
+
 ## 取消与 Stale Run
 
 `POST /agent/runs/{run_id}/cancel` 支持取消 `queued/running/waiting_for_confirmation` run：SQLite 状态改为 `cancelled`，写 `run_cancel_requested/run_cancelled`，写 Redis cancel flag，pending approval 标记 cancelled。后续节点开始前检查状态和 cancel flag，阻止继续写投递包或面试包。
@@ -66,7 +86,9 @@ Worker 主循环会定期运行 queued recovery scanner：扫描 SQLite 中超�
 
 ## Prompt Injection 防护
 
-外部 JD、PDF 简历、RAG evidence 和导入面经都被视为不可信内容。`PromptInjectionGuard` 会识别覆盖系统指令、越权调用工具、数据外泄请求和 RAG 污染指令。检测结果写入结构化字段或 credibility metadata；进入 LLM context 前会过滤命中的恶意指令行。高风险投递动作仍必须经过 LangGraph interrupt 和审批审计。
+外部 JD、PDF 简历、RAG evidence 和导入面经都被视为不可信内容。`PromptInjectionGuard` 会识别覆盖系统指令、越权调用工具、数据外泄请求和 RAG 污染指令。检测结果写入结构化字段或 credibility metadata；进入 LLM context 前会过滤命中的恶意指令行。高风险动作仍必须经过 LangGraph interrupt、approval table 或高风险工具网关。
+
+`evals/prompt_injection_cases.json` 覆盖真实形态的中文 JD、PDF OCR 噪声、RAG chunk、面经网页片段和 benign 安全工程表述。`evals/prompt_injection_release_policy.json` 定义 release gate：样本量、最低 detection recall、最高 false positive rate、最低 category recall 和 severity accuracy，评测 summary 会输出 `release_gate.passed` 与失败项。
 
 ## 启动方式
 
