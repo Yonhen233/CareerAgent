@@ -1,5 +1,43 @@
 # 开发日志
 
+## 2026-07-07 16:56:55 +08:00：Session RBAC、外发 Smoke 与 Worker Supervisor 健康/Drain
+### 这次做了什么
+- 新增 session 登录能力：`/auth/login`、`/auth/logout`、`/auth/me`，登录成功后签发 HttpOnly session cookie。
+- 新增 `SessionAuthService`，支持 PBKDF2 密码哈希、签名 session token、启动时按 `SESSION_BOOTSTRAP_ADMIN_EMAIL/PASSWORD` 创建默认管理员。
+- 将 RBAC 从可信 header 扩展为 session + header + admin token 三种入口；`require_admin` 和全局写操作保护都能识别 session。
+- 将 `tenant_id` 下沉到 `profiles`、`jobs`、`agent_runs`，并在简历、岗位、Agent run 的核心创建/列表/读取路径逐步按当前租户过滤。
+- 新增 `/ui/outbound-smoke` 和 `/ui/outbound-smoke/target`，用于本地验证 `browser_apply`、`email_draft`、`email_send` 的端到端 payload。
+- 新增 `docker-compose.smtp.yml`，用 Mailpit 提供本地 SMTP 测试容器。
+- Worker supervisor 增加结构化 JSON 日志、health 文件和 drain 文件；检测到 drain 文件后停止重启子进程并统一终止 worker。
+- 更新 API、Redis + SQLite 架构文档。
+### 发现的问题
+- 可信 header 只能表达“网关已经认证过”，不能覆盖本地单机部署、开发调试和没有 OIDC 的场景。
+- 多租户如果只停留在 `tenants/app_users`，核心业务数据仍会混在一起；至少要先让简历、岗位和 run 带租户归属。
+- 真实外发工具如果没有本地 smoke target，每次验证都依赖外部招聘站或真实邮箱，调试成本高且不可控。
+- Supervisor 只有重启能力还不够，生产排障需要健康文件，发布/维护时需要 drain 入口。
+### 怎么修复
+- 用 PBKDF2 + HMAC 签名 cookie 实现 session 登录，不引入额外外部认证服务，后续可以替换为 OIDC 签发。
+- `parse_auth_context()` 优先解析 session，再兼容 admin token 和可信 header；审计 actor 使用 session/header 用户。
+- SQLite 迁移自动为 `profiles/jobs/agent_runs/app_users` 补齐 `tenant_id/password_hash`。
+- 外发 smoke 页面给出浏览器 target selector 和邮件 payload，本地 SMTP 使用 Mailpit。
+- Supervisor 定期写 `SUPERVISOR_HEALTH_FILE`，看到 `SUPERVISOR_DRAIN_FILE` 后进入停止流程，并输出结构化事件。
+### 验证结果
+- `python -m py_compile app\services\session_auth.py app\api\auth.py app\core\security.py app\main.py app\api\profiles.py app\api\jobs.py app\api\agent_runs.py app\frontend\routes.py scripts\run_agent_worker_supervisor.py app\models\entities.py app\models\schemas.py app\core\database.py` 通过。
+- `node --check app\static\js\main.js` 通过。
+- `python -m pytest tests\test_agent_hardening.py tests\test_frontend_pages.py -q` 通过，30 个测试全部通过。
+- `python -m pytest -q` 通过，119 个测试全部通过。
+- 发现默认 `data/runtime/langgraph_checkpoints.sqlite` 较大后，为测试环境设置 `.tmp_test/pytest_langgraph_checkpoints.sqlite`，避免全量测试被历史 checkpoint 拖慢。
+### 未修复的问题
+- session 登录仍是项目内账号体系，不是企业 OIDC/SSO；原因是当前先补可运行的 session 和 RBAC enforcement，后续可接入 OIDC provider。
+- `tenant_id` 还没有覆盖所有业务表和所有深层查询；本轮先覆盖简历、岗位、Agent run 三个核心入口，后续继续下沉到 match/resume/application/interview prep 等产物表。
+- `browser_apply` smoke target 是本地页面，真实招聘站仍需要按站点维护 selector。
+- Supervisor drain 当前是终止 worker 进程，不是节点级“完成当前 run 后退出”；后续需要 worker 主循环识别 drain flag 并在任务边界退出。
+### 下一步
+- 增加 OIDC code flow 或企业 SSO provider 配置，保留 session 作为登录结果。
+- 将 tenant_id 下沉到 MatchResult、ResumeVersion、Application、InterviewPrep、AgentArtifact/AgentEvent 查询。
+- 给 worker 增加任务级 graceful drain：不接新任务，当前任务完成后退出。
+- 为 browser_apply 增加 smoke e2e 自动化测试，连接本地 FastAPI target 页面和 Playwright。
+
 ## 2026-07-07 12:13:57 +08:00：真实外发工具、Worker Supervisor、Redis HA、RBAC 与分类器版 Injection Detector
 ### 这次做了什么
 - 将 `HighRiskActionToolService` 从“审批后放行”升级为真实工具网关：`email_draft` 生成 RFC822 `.eml` 草稿，`email_send` 通过 SMTP 发送，`browser_apply` 通过 Playwright 打开页面并按 selector 填写/提交。

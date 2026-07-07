@@ -62,3 +62,13 @@ def evaluations_alias(request: Request):
 @router.get("/ui/ops", response_class=HTMLResponse)
 def ops(request: Request):
     return templates.TemplateResponse(request, "ops.html", {"page": "ops"})
+
+
+@router.get("/ui/outbound-smoke", response_class=HTMLResponse)
+def outbound_smoke(request: Request):
+    return templates.TemplateResponse(request, "outbound_smoke.html", {"page": "outbound_smoke"})
+
+
+@router.get("/ui/outbound-smoke/target", response_class=HTMLResponse)
+def outbound_smoke_target(request: Request):
+    return templates.TemplateResponse(request, "outbound_smoke_target.html", {"page": "outbound_smoke"})

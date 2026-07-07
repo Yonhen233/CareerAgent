@@ -10,6 +10,7 @@ from app.api.agent_skills import router as agent_skills_router
 from app.api.agent_tools import router as agent_tools_router
 from app.api.applications import router as applications_router
 from app.api.assistant import router as assistant_router
+from app.api.auth import router as auth_router
 from app.api.evaluations import router as evaluations_router
 from app.api.health import router as health_router
 from app.api.interview_prep import router as interview_prep_router
@@ -24,6 +25,7 @@ from app.core.config import get_settings
 from app.core.database import init_db
 from app.core.security import request_has_mutation_access
 from app.core.telemetry import telemetry
+from app.services.session_auth import SessionAuthService
 from app.frontend.routes import router as frontend_router
 
 settings = get_settings()
@@ -34,7 +36,16 @@ async def lifespan(_: FastAPI):
     settings.upload_path.mkdir(parents=True, exist_ok=True)
     settings.export_path.mkdir(parents=True, exist_ok=True)
     settings.chroma_path.mkdir(parents=True, exist_ok=True)
+    settings.outbound_email_draft_path.mkdir(parents=True, exist_ok=True)
+    settings.supervisor_health_path.parent.mkdir(parents=True, exist_ok=True)
     init_db()
+    from app.core.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        SessionAuthService(settings=settings).ensure_bootstrap_admin(db)
+    finally:
+        db.close()
     yield
 
 
@@ -58,7 +69,7 @@ async def record_request_metrics(request, call_next):
     if (
         settings.require_admin_for_mutations
         and request.method in {"POST", "PUT", "PATCH", "DELETE"}
-        and not request_has_mutation_access(request.headers)
+        and not request_has_mutation_access(request.headers, request.cookies)
     ):
         response = JSONResponse(
             status_code=401,
@@ -80,6 +91,7 @@ async def record_request_metrics(request, call_next):
 
 app.include_router(frontend_router)
 app.include_router(health_router)
+app.include_router(auth_router)
 app.include_router(ops_router)
 app.include_router(profiles_router)
 app.include_router(jobs_router)

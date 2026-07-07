@@ -19,6 +19,8 @@ def test_frontend_pages_render():
         "/ui/evaluations",
         "/ui/quality",
         "/ui/ops",
+        "/ui/outbound-smoke",
+        "/ui/outbound-smoke/target",
     ]:
         response = client.get(path)
         assert response.status_code == 200
@@ -36,6 +38,7 @@ def test_ops_console_exposes_queue_approvals_cancel_and_stale_controls():
     assert "ops-approvals" in response.text
     assert "ops-stale-runs" in response.text
     assert "ops-audit-events" in response.text
+    assert "/ui/outbound-smoke" in response.text
     assert "recover-queued-runs" in response.text
     assert "mark-stale-runs" in response.text
     assert "/ops/queue/status" in main_js
@@ -49,6 +52,22 @@ def test_ops_console_exposes_queue_approvals_cancel_and_stale_controls():
     assert "data-approval-decision" in main_js
     assert "data-dlq-replay" in main_js
     assert "data-dlq-discard" in main_js
+
+
+def test_outbound_smoke_pages_expose_browser_and_smtp_payloads():
+    client = TestClient(app)
+    smoke = client.get("/ui/outbound-smoke")
+    target = client.get("/ui/outbound-smoke/target")
+
+    assert smoke.status_code == 200
+    assert "browser_apply" in smoke.text
+    assert "email_draft" in smoke.text
+    assert "email_send" in smoke.text
+    assert "#full_name" in smoke.text
+    assert target.status_code == 200
+    assert 'id="full_name"' in target.text
+    assert 'id="email"' in target.text
+    assert 'id="message"' in target.text
 
 
 def test_evaluations_page_exposes_interview_source_smoke_controls():

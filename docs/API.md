@@ -729,6 +729,23 @@ POST /ops/high-risk-actions/{approval_id}/execute
 
 查询历史评测：
 
+### 登录与会话
+
+```http
+POST /auth/login
+POST /auth/logout
+GET /auth/me
+```
+
+`POST /auth/login` 使用 `tenant_id/email/password` 登录，成功后写入 HttpOnly session cookie。配置 `SESSION_BOOTSTRAP_ADMIN_EMAIL` 和 `SESSION_BOOTSTRAP_ADMIN_PASSWORD` 后，应用启动会自动创建默认租户管理员。`RBAC_ENABLED=true` 时，session 用户的 `owner/admin/ops` 角色可访问运维接口。
+
+### 外发 Smoke 页面
+
+- `/ui/outbound-smoke`：展示 `browser_apply`、`email_draft`、`email_send` 的本地 smoke payload。
+- `/ui/outbound-smoke/target`：本地浏览器填写目标页，适合 Playwright smoke，不依赖外部招聘站。
+
+本地 SMTP 可用 `docker-compose.smtp.yml` 启动 Mailpit：SMTP `127.0.0.1:1025`，Web UI `127.0.0.1:8025`。
+
 ```http
 GET /evaluations/results
 ```

@@ -355,6 +355,20 @@ class HighRiskActionExecuteRequest(BaseModel):
     tool_payload_json: dict[str, Any] = Field(default_factory=dict)
 
 
+class LoginRequest(BaseModel):
+    tenant_id: str = "default"
+    email: str
+    password: str
+
+
+class AuthSessionResponse(BaseModel):
+    tenant_id: str
+    user_id: str
+    email: str | None = None
+    roles: list[str]
+    auth_type: str = "session"
+
+
 class AgentStepResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

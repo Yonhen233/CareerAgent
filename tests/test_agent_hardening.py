@@ -6,7 +6,7 @@ from uuid import uuid4
 from app.agents.orchestrator import AgentOrchestrator
 from app.core.config import get_settings
 from app.core.config import Settings
-from app.models.entities import AgentApproval, AgentArtifact, AgentEvent, AgentRun, Application, InterviewPrep, Job, MatchResult, OpsAuditEvent, Profile, ResumeVersion
+from app.models.entities import AgentApproval, AgentArtifact, AgentEvent, AgentRun, AppUser, Application, InterviewPrep, Job, MatchResult, OpsAuditEvent, Profile, ResumeVersion, Tenant
 from app.models.schemas import AgentRunRequest
 from app.services.prompt_injection_guard import PromptInjectionGuard
 from app.services.stale_runs import StaleRunService
@@ -14,7 +14,9 @@ from app.services.task_runner import RedisTaskRunner, consume_redis_queue_once
 from app.services.evaluation_service import EvaluationService
 from app.services.approval_service import ApprovalService
 from app.services.high_risk_action_tools import ApprovalRequiredError, HighRiskActionToolService
-from app.core.security import parse_auth_context, has_admin_access
+from app.services.session_auth import SessionAuthService
+from app.core.security import AuthContext, parse_auth_context, has_admin_access
+from app.api.profiles import list_profiles
 
 
 class FakeRedis:
@@ -346,6 +348,64 @@ def test_rbac_header_context_grants_admin_role():
     assert has_admin_access(context) is True
 
 
+def test_session_login_token_decodes_to_auth_context(db_session):
+    service = SessionAuthService()
+    tenant = Tenant(slug="tenant-a", name="Tenant A")
+    db_session.add(tenant)
+    db_session.commit()
+    db_session.refresh(tenant)
+    user = AppUser(
+        tenant_id=tenant.id,
+        external_user_id="user-1",
+        email="ops@example.com",
+        password_hash=service.hash_password("secret"),
+        roles_json=["ops"],
+    )
+    db_session.add(user)
+    db_session.commit()
+
+    token, logged_in, logged_tenant = service.login(
+        db_session,
+        tenant_slug="tenant-a",
+        email="ops@example.com",
+        password="secret",
+    )
+    context = parse_auth_context(session_token=token)
+    assert logged_in.external_user_id == "user-1"
+    assert logged_tenant.slug == "tenant-a"
+    assert context.tenant_id == "tenant-a"
+    assert context.user_id == "user-1"
+    assert has_admin_access(context) is True
+
+
+def test_profile_listing_filters_by_tenant_when_rbac_enabled(db_session, monkeypatch):
+    monkeypatch.setenv("RBAC_ENABLED", "true")
+    get_settings.cache_clear()
+    db_session.add_all(
+        [
+            Profile(
+                tenant_id="tenant-a",
+                name="A",
+                source_type="guided",
+                raw_resume_text="A",
+                structured_profile_json={},
+            ),
+            Profile(
+                tenant_id="tenant-b",
+                name="B",
+                source_type="guided",
+                raw_resume_text="B",
+                structured_profile_json={},
+            ),
+        ]
+    )
+    db_session.commit()
+    rows = list_profiles(db_session, AuthContext("tenant-a", "user-a", {"ops"}, "session"))
+    assert [row.name for row in rows] == ["A"]
+    monkeypatch.delenv("RBAC_ENABLED", raising=False)
+    get_settings.cache_clear()
+
+
 def test_settings_parse_redis_sentinel_and_priority_queues():
     settings = Settings(
         redis_sentinel_urls="redis://redis-a:26379,redis-b:26380",
@@ -355,6 +415,29 @@ def test_settings_parse_redis_sentinel_and_priority_queues():
     )
     assert settings.redis_sentinel_endpoints == [("redis-a", 26379), ("redis-b", 26380)]
     assert settings.redis_priority_queue_names == ["high-q", "normal-q", "low-q"]
+
+
+def test_worker_supervisor_health_file(monkeypatch):
+    from scripts.run_agent_worker_supervisor import _write_health
+
+    class DummyProcess:
+        name = "worker-0"
+        pid = 123
+        exitcode = None
+
+        def is_alive(self):
+            return True
+
+    health_file = Path(".tmp_test") / f"supervisor_health_{uuid4().hex}.json"
+    health_file.parent.mkdir(exist_ok=True)
+    monkeypatch.setenv("SUPERVISOR_HEALTH_FILE", str(health_file))
+    get_settings.cache_clear()
+    _write_health([DummyProcess()], state="running")
+    assert health_file.exists()
+    assert '"alive_count": 1' in health_file.read_text(encoding="utf-8")
+    health_file.unlink(missing_ok=True)
+    monkeypatch.delenv("SUPERVISOR_HEALTH_FILE", raising=False)
+    get_settings.cache_clear()
 
 
 def test_quick_apply_interrupt_creates_approval_and_cancel_blocks_resume(db_session, monkeypatch):

@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.config import get_settings
+from app.core.security import AuthContext, optional_auth_context
 from app.core.llm import format_exception
 from app.models.entities import Job, JobChunk
 from app.models.schemas import JobChunkResponse, JobCreateRequest, JobResponse, JobSearchRequest, JobSearchResponse
@@ -16,7 +18,11 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
 @router.post("", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
-async def create_job(payload: JobCreateRequest, db: Session = Depends(get_db)) -> JobResponse:
+async def create_job(
+    payload: JobCreateRequest,
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(optional_auth_context),
+) -> JobResponse:
     try:
         structured = await JDParserService().parse_jd(
             payload.jd_text,
@@ -27,8 +33,12 @@ async def create_job(payload: JobCreateRequest, db: Session = Depends(get_db)) -
         )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"JD parsing LLM generation failed: {format_exception(exc)}") from exc
-    external_id = f"manual:{hashlib.sha1(payload.jd_text.encode('utf-8')).hexdigest()}"
-    existing = db.query(Job).filter(Job.source == "manual", Job.external_id == external_id).first()
+    digest = hashlib.sha1(payload.jd_text.encode("utf-8")).hexdigest()
+    external_id = f"{auth.tenant_id}:manual:{digest}" if get_settings().rbac_enabled else f"manual:{digest}"
+    existing_query = db.query(Job).filter(Job.source == "manual", Job.external_id == external_id)
+    if get_settings().rbac_enabled:
+        existing_query = existing_query.filter(Job.tenant_id == auth.tenant_id)
+    existing = existing_query.first()
     if existing:
         existing.title = payload.title or structured.get("title") or existing.title
         existing.company = payload.company or structured.get("company")
@@ -53,6 +63,7 @@ async def create_job(payload: JobCreateRequest, db: Session = Depends(get_db)) -
         raw_jd_text=payload.jd_text,
         structured_jd_json=structured,
         source_payload_json={"created_by": "manual"},
+        tenant_id=auth.tenant_id if get_settings().rbac_enabled else None,
     )
     db.add(job)
     db.commit()
@@ -62,7 +73,11 @@ async def create_job(payload: JobCreateRequest, db: Session = Depends(get_db)) -
 
 
 @router.post("/search", response_model=JobSearchResponse)
-async def search_jobs(payload: JobSearchRequest, db: Session = Depends(get_db)) -> JobSearchResponse:
+async def search_jobs(
+    payload: JobSearchRequest,
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(optional_auth_context),
+) -> JobSearchResponse:
     try:
         jobs, source_errors = await JobSearchService().search(
             db,
@@ -74,6 +89,11 @@ async def search_jobs(payload: JobSearchRequest, db: Session = Depends(get_db)) 
             store_results=payload.store_results,
         )
         persisted = [job for job in jobs if getattr(job, "id", None)]
+        if get_settings().rbac_enabled:
+            for job in persisted:
+                job.tenant_id = auth.tenant_id
+                db.add(job)
+            db.commit()
         return JobSearchResponse(
             jobs=[JobResponse.model_validate(job) for job in persisted],
             source_errors=source_errors,
@@ -83,14 +103,20 @@ async def search_jobs(payload: JobSearchRequest, db: Session = Depends(get_db)) 
 
 
 @router.get("", response_model=list[JobResponse])
-def list_jobs(db: Session = Depends(get_db)) -> list[JobResponse]:
-    rows = db.query(Job).order_by(Job.discovered_at.desc()).limit(200).all()
+def list_jobs(db: Session = Depends(get_db), auth: AuthContext = Depends(optional_auth_context)) -> list[JobResponse]:
+    query = db.query(Job)
+    if get_settings().rbac_enabled:
+        query = query.filter(Job.tenant_id == auth.tenant_id)
+    rows = query.order_by(Job.discovered_at.desc()).limit(200).all()
     return [JobResponse.model_validate(row) for row in rows]
 
 
 @router.get("/{job_id}", response_model=JobResponse)
-def get_job(job_id: int, db: Session = Depends(get_db)) -> JobResponse:
-    job = db.query(Job).filter(Job.id == job_id).first()
+def get_job(job_id: int, db: Session = Depends(get_db), auth: AuthContext = Depends(optional_auth_context)) -> JobResponse:
+    query = db.query(Job).filter(Job.id == job_id)
+    if get_settings().rbac_enabled:
+        query = query.filter(Job.tenant_id == auth.tenant_id)
+    job = query.first()
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
     return JobResponse.model_validate(job)

@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel">
+  <div class="panel-heading">
+    <div>
+      <p class="eyebrow">Browser apply target</p>
+      <h1>本地辅助填写目标页</h1>
+    </div>
+  </div>
+  <form class="form-grid" id="smoke-application-form">
+    <label>姓名<input id="full_name" name="full_name" autocomplete="name"></label>
+    <label>邮箱<input id="email" name="email" type="email" autocomplete="email"></label>
+    <label class="wide">申请说明<textarea id="message" name="message" rows="6"></textarea></label>
+    <button class="primary" type="button" id="smoke-submit"><i data-lucide="check-circle-2"></i> 本地确认</button>
+  </form>
+  <div id="smoke-submit-result" class="notice" hidden>已本地确认。</div>
+</section>
+<script>
+  document.getElementById("smoke-submit")?.addEventListener("click", () => {
+    const target = document.getElementById("smoke-submit-result");
+    if (target) target.hidden = false;
+  });
+</script>
+{% endblock %}

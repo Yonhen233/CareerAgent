@@ -84,13 +84,21 @@ Worker 主循环会定期运行 queued recovery scanner：扫描 SQLite 中超�
 
 ## 多租户 RBAC
 
-项目新增 `tenants/app_users` 表承接租户和用户角色。当前开发部署使用可信 header 模式：
+项目新增 `tenants/app_users` 表承接租户和用户角色，并提供 session 登录接口：
+
+- `POST /auth/login`
+- `POST /auth/logout`
+- `GET /auth/me`
+
+配置 `SESSION_BOOTSTRAP_ADMIN_EMAIL` 和 `SESSION_BOOTSTRAP_ADMIN_PASSWORD` 后，应用启动会在默认租户下创建 owner/admin/ops 用户。登录成功后服务端签发 HttpOnly session cookie，运维接口会同时识别 session、`X-Admin-Token` 和可信 header。
+
+当前开发部署仍支持可信 header 模式：
 
 - `X-Tenant-Id`
 - `X-User-Id`
 - `X-User-Roles`
 
-`RBAC_ENABLED=true` 后，运维接口既支持原有 `X-Admin-Token`，也支持带 `owner/admin/ops` 角色的用户上下文。审计事件中的 actor 优先使用 `X-User-Id`，否则使用 admin token 身份。
+`RBAC_ENABLED=true` 后，`profiles`、`jobs`、`agent_runs` 会写入/查询 `tenant_id`，运维接口既支持原有 `X-Admin-Token`，也支持 session 或带 `owner/admin/ops` 角色的用户上下文。审计事件中的 actor 优先使用 session/header 用户 ID，否则使用 admin token 身份。
 
 ## 运维审计
 
@@ -140,5 +148,17 @@ $env:REDIS_ENABLED='true'
 $env:REDIS_WORKER_CONCURRENCY='4'
 python scripts/run_agent_worker_supervisor.py
 ```
+
+本地 SMTP smoke：
+
+```powershell
+docker compose -f docker-compose.smtp.yml up -d
+$env:SMTP_HOST='127.0.0.1'
+$env:SMTP_PORT='1025'
+$env:SMTP_USE_TLS='false'
+$env:SMTP_FROM_EMAIL='careeragent@example.local'
+```
+
+Mailpit Web UI 默认在 `http://127.0.0.1:8025`。浏览器辅助填写 smoke 页面在 `/ui/outbound-smoke`，本地 target 在 `/ui/outbound-smoke/target`。
 
 当前项目保留 SQLite，是因为它足够承载单机可上线演示和可审计 trace；真正多租户、高并发、在线迁移、托管备份、复杂审计或 pgvector 需求出现后，再把业务库迁到 PostgreSQL 更合理。

@@ -32,6 +32,7 @@ class AppUser(Base):
     tenant_id: Mapped[int] = mapped_column(ForeignKey("tenants.id"), nullable=False, index=True)
     external_user_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    password_hash: Mapped[str | None] = mapped_column(String(512), nullable=True)
     roles_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
@@ -43,6 +44,7 @@ class Profile(Base):
     __tablename__ = "profiles"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(80), nullable=True)
@@ -90,6 +92,7 @@ class Job(Base):
     __table_args__ = (UniqueConstraint("source", "external_id", name="uq_job_source_external_id"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     source: Mapped[str] = mapped_column(String(64), nullable=False, default="manual", index=True)
     external_id: Mapped[str] = mapped_column(String(255), nullable=False, default="", index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -275,6 +278,7 @@ class AgentRun(Base):
     __tablename__ = "agent_runs"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     task_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     profile_id: Mapped[int | None] = mapped_column(ForeignKey("profiles.id"), nullable=True, index=True)
     job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.id"), nullable=True, index=True)

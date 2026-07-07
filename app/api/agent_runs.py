@@ -10,6 +10,7 @@ from app.agents.orchestrator import AgentOrchestrator
 from app.core.config import get_settings
 from app.core.database import SessionLocal, get_db
 from app.core.redis_client import RedisUnavailableError, get_redis_client, redis_key
+from app.core.security import AuthContext, optional_auth_context
 from app.models.entities import AgentApproval, AgentEvent, AgentRun, AgentStep
 from app.models.schemas import (
     AgentApprovalResponse,
@@ -26,19 +27,40 @@ router = APIRouter(prefix="/agent/runs", tags=["agent-runs"])
 
 
 @router.post("", response_model=AgentRunResponse, status_code=status.HTTP_201_CREATED)
-async def create_agent_run(payload: AgentRunRequest, db: Session = Depends(get_db)) -> AgentRunResponse:
+def _tenant_query(query, auth: AuthContext):
+    if get_settings().rbac_enabled:
+        return query.filter(AgentRun.tenant_id == auth.tenant_id)
+    return query
+
+
+def _set_run_tenant(run: AgentRun, auth: AuthContext, db: Session) -> AgentRun:
+    if get_settings().rbac_enabled:
+        run.tenant_id = auth.tenant_id
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+    return run
+
+
+async def create_agent_run(
+    payload: AgentRunRequest,
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(optional_auth_context),
+) -> AgentRunResponse:
     _enforce_active_run_limit(db, payload)
     run = await AgentOrchestrator().run(db, payload)
-    return AgentRunResponse.model_validate(run)
+    return AgentRunResponse.model_validate(_set_run_tenant(run, auth, db))
 
 
 @router.post("/background", response_model=AgentRunResponse, status_code=status.HTTP_202_ACCEPTED)
 async def create_background_agent_run(
     payload: AgentRunRequest,
     db: Session = Depends(get_db),
+    auth: AuthContext = Depends(optional_auth_context),
 ) -> AgentRunResponse:
     _enforce_active_run_limit(db, payload)
     run = AgentOrchestrator().queue_run(db, payload)
+    _set_run_tenant(run, auth, db)
     try:
         get_task_runner().enqueue_agent_run(run.id)
     except Exception as exc:  # noqa: BLE001
@@ -56,7 +78,10 @@ async def resume_agent_run(
     run_id: int,
     payload: AgentRunResumeRequest,
     db: Session = Depends(get_db),
+    auth: AuthContext = Depends(optional_auth_context),
 ) -> AgentRunResponse:
+    if _tenant_query(db.query(AgentRun), auth).filter(AgentRun.id == run_id).first() is None:
+        raise HTTPException(status_code=404, detail="Agent run not found.")
     resume_payload = {**payload.resume_json, "confirmed": payload.confirmed, "note": payload.note}
     try:
         run = await AgentOrchestrator().resume(db, run_id, resume_payload)
@@ -72,7 +97,10 @@ async def cancel_agent_run(
     run_id: int,
     payload: AgentRunCancelRequest | None = None,
     db: Session = Depends(get_db),
+    auth: AuthContext = Depends(optional_auth_context),
 ) -> AgentRunResponse:
+    if _tenant_query(db.query(AgentRun), auth).filter(AgentRun.id == run_id).first() is None:
+        raise HTTPException(status_code=404, detail="Agent run not found.")
     try:
         run = AgentOrchestrator().cancel(db, run_id, reason=(payload.reason if payload else None))
     except ValueError as exc:
@@ -83,14 +111,14 @@ async def cancel_agent_run(
 
 
 @router.get("", response_model=list[AgentRunResponse])
-def list_agent_runs(db: Session = Depends(get_db)) -> list[AgentRunResponse]:
-    rows = db.query(AgentRun).order_by(AgentRun.created_at.desc()).limit(100).all()
+def list_agent_runs(db: Session = Depends(get_db), auth: AuthContext = Depends(optional_auth_context)) -> list[AgentRunResponse]:
+    rows = _tenant_query(db.query(AgentRun), auth).order_by(AgentRun.created_at.desc()).limit(100).all()
     return [AgentRunResponse.model_validate(row) for row in rows]
 
 
 @router.get("/{run_id}", response_model=AgentRunResponse)
-def get_agent_run(run_id: int, db: Session = Depends(get_db)) -> AgentRunResponse:
-    run = db.query(AgentRun).filter(AgentRun.id == run_id).first()
+def get_agent_run(run_id: int, db: Session = Depends(get_db), auth: AuthContext = Depends(optional_auth_context)) -> AgentRunResponse:
+    run = _tenant_query(db.query(AgentRun), auth).filter(AgentRun.id == run_id).first()
     if run is None:
         raise HTTPException(status_code=404, detail="Agent run not found.")
     return AgentRunResponse.model_validate(run)

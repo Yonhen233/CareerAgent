@@ -52,7 +52,8 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - 支持用户取消 run、stale run 检测、业务幂等键、投递审批审计、Redis run lock 和 Profile 级 active/rate limit。
   - Redis worker 支持 high/normal/low 优先级队列、Sentinel HA 连接、dead-letter queue、queued run recovery scanner 和更细粒度 heartbeat stage；控制台可查看队列长度、DLQ 预览，并人工选择重放或丢弃异常 payload。
   - 高风险动作统一绑定 approval table：`browser_apply`、`email_draft`、`email_send` 必须先有 approved 审批记录，工具执行网关才会执行 Playwright/SMTP/EML 工具，并把结果写回 artifact。
-  - 支持多租户 RBAC 基础：`tenants/app_users` 表、`X-Tenant-Id`、`X-User-Id`、`X-User-Roles` 可信 header 和 admin/ops/owner 角色保护运维接口。
+  - 支持多租户 RBAC 基础：`tenants/app_users` 表、session 登录、`X-Tenant-Id`、`X-User-Id`、`X-User-Roles` 可信 header 和 admin/ops/owner 角色保护运维接口；`profiles/jobs/agent_runs` 已写入并查询 `tenant_id`。
+  - 提供外发工具 smoke：`/ui/outbound-smoke`、`/ui/outbound-smoke/target` 和 `docker-compose.smtp.yml` 本地 Mailpit SMTP。
   - JD、PDF 简历、RAG evidence 和导入面经进入 LLM 前会经过 PromptInjectionGuard 检测，风险写入结构化 metadata；prompt injection 评测按 release gate 校验总体和分 source/category 的最低召回率与最高误报率。
   - PromptInjectionGuard 有 adversarial 评测集，覆盖 JD/PDF/RAG/面经四类来源，输出 recall、false positive rate、severity accuracy 和分桶指标。
   - 首页一键流程现在只创建一个后台 `full_career_flow` run；前端通过 SSE 推进阶段进度，不再在浏览器里拼接多个小 run。

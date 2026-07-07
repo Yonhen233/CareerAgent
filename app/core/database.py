@@ -47,6 +47,15 @@ def _ensure_sqlite_columns() -> None:
         llm_log_columns = {column["name"] for column in inspector.get_columns("llm_call_logs")}
         if "context_json" not in llm_log_columns:
             statements.append("ALTER TABLE llm_call_logs ADD COLUMN context_json JSON NOT NULL DEFAULT '{}'")
+    for table_name in ["profiles", "jobs", "agent_runs"]:
+        if table_name in tables:
+            columns = {column["name"] for column in inspector.get_columns(table_name)}
+            if "tenant_id" not in columns:
+                statements.append(f"ALTER TABLE {table_name} ADD COLUMN tenant_id VARCHAR(128)")
+    if "app_users" in tables:
+        app_user_columns = {column["name"] for column in inspector.get_columns("app_users")}
+        if "password_hash" not in app_user_columns:
+            statements.append("ALTER TABLE app_users ADD COLUMN password_hash VARCHAR(512)")
     for table_name in ["resume_versions", "applications", "interview_preps"]:
         if table_name in tables:
             columns = {column["name"] for column in inspector.get_columns(table_name)}

@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     rbac_trusted_header_auth: bool = True
     rbac_default_tenant_id: str = "default"
     rbac_admin_roles: str = "owner,admin,ops"
+    session_secret_key: str = "dev-change-me"
+    session_cookie_name: str = "careeragent_session"
+    session_ttl_seconds: int = 28800
+    session_bootstrap_admin_email: str | None = None
+    session_bootstrap_admin_password: str | None = None
+    session_password_iterations: int = 120000
     smtp_host: str | None = None
     smtp_port: int = 587
     smtp_username: str | None = None
@@ -70,6 +76,9 @@ class Settings(BaseSettings):
     outbound_email_draft_dir: str = "data/exports/email_drafts"
     browser_apply_headless: bool = True
     browser_apply_timeout_ms: int = 30000
+    supervisor_health_file: str = "data/runtime/worker_supervisor_health.json"
+    supervisor_drain_file: str = "data/runtime/worker_supervisor.drain"
+    supervisor_log_json: bool = True
     prompt_injection_classifier_enabled: bool = True
     prompt_injection_classifier_threshold: float = 0.72
     chunk_size: int = 900
@@ -189,6 +198,14 @@ class Settings(BaseSettings):
     @property
     def outbound_email_draft_path(self) -> Path:
         return self.base_path / self.outbound_email_draft_dir
+
+    @property
+    def supervisor_health_path(self) -> Path:
+        return self.base_path / self.supervisor_health_file
+
+    @property
+    def supervisor_drain_path(self) -> Path:
+        return self.base_path / self.supervisor_drain_file
 
 
 @lru_cache(maxsize=1)

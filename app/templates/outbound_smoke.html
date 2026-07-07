@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="workspace-grid">
+  <div class="panel span-7">
+    <div class="panel-heading">
+      <div>
+        <p class="eyebrow">Outbound smoke</p>
+        <h1>外发工具端到端 Smoke</h1>
+      </div>
+      <a class="button ghost" href="/ui/ops"><i data-lucide="settings-2"></i> 控制台</a>
+    </div>
+    <div class="result-list">
+      <article class="item">
+        <div class="item-title"><span>浏览器辅助填写 target</span><span class="status-pill neutral">local</span></div>
+        <p class="meta">用 browser_apply 填写本地页面，不依赖外部招聘站。</p>
+        <pre>{
+  "url": "http://127.0.0.1:8000/ui/outbound-smoke/target",
+  "fields": {
+    "#full_name": "李明",
+    "#email": "liming@example.com",
+    "#message": "申请 Agent 开发实习岗位"
+  }
+}</pre>
+        <a class="button primary" href="/ui/outbound-smoke/target" target="_blank"><i data-lucide="external-link"></i> 打开 target</a>
+      </article>
+      <article class="item">
+        <div class="item-title"><span>邮件草稿/发送 payload</span><span class="status-pill neutral">SMTP</span></div>
+        <pre>{
+  "to": "hr@example.com",
+  "subject": "Agent 开发实习申请",
+  "body": "您好，我想申请 Agent 开发实习岗位，附件为我的简历。"
+}</pre>
+        <p class="meta">`email_draft` 会输出 `.eml`；`email_send` 需要 SMTP_HOST 等环境变量，可配合本地 Mailpit 容器验证。</p>
+      </article>
+    </div>
+  </div>
+
+  <aside class="panel span-5">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">Runbook</p>
+        <h2>运行顺序</h2>
+      </div>
+    </div>
+    <ol class="check-list">
+      <li>创建一个 Agent run。</li>
+      <li>调用 `/ops/high-risk-actions/request` 创建 `browser_apply`、`email_draft` 或 `email_send` approval。</li>
+      <li>在控制台审批通过。</li>
+      <li>调用 `/ops/high-risk-actions/{approval_id}/execute`，观察 artifact 和审计事件。</li>
+    </ol>
+  </aside>
+</section>
+{% endblock %}
