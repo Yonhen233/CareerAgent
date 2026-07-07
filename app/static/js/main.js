@@ -802,6 +802,80 @@ function renderOpsConfig(config) {
   `;
 }
 
+function renderQueueStatus(queue) {
+  return `
+    <article class="item">
+      <div class="validation-grid">
+        ${metricCell("队列", queue.queue_name || "-")}
+        ${metricCell("queued", queue.queued_count ?? "-")}
+        ${metricCell("DLQ", queue.dead_letter_count ?? "-")}
+        ${metricCell("最大重试", queue.worker_max_attempts ?? "-")}
+      </div>
+      ${(queue.dead_letter_preview || []).length ? `
+        <details class="details-block">
+          <summary>Dead-letter 预览</summary>
+          <pre>${escapeHtml(safeJson(queue.dead_letter_preview))}</pre>
+        </details>
+      ` : `<p class="meta">Dead-letter queue 暂无异常 payload。</p>`}
+    </article>
+  `;
+}
+
+function renderOpsAgentRuns(runs) {
+  const active = (runs || []).filter((run) => ["queued", "running", "waiting_for_confirmation"].includes(run.status)).slice(0, 12);
+  if (!active.length) return `<div class="item meta">暂无进行中的 Agent run</div>`;
+  return active.map((run) => `
+    <article class="item">
+      <div class="item-title">
+        <span>#${run.id} ${escapeHtml(taskLabel(run.task_type))}</span>
+        <span class="status-pill ${statusClass(run.status)}">${escapeHtml(run.status)}</span>
+      </div>
+      <div class="meta">Profile ${run.profile_id || "-"} / Job ${run.job_id || "-"} / ${escapeHtml(run.created_at || "")}</div>
+      <div class="flow-result-actions">
+        <a class="button ghost" href="/ui/agent-runs"><i data-lucide="route"></i> 查看 trace</a>
+        <button class="button ghost" data-cancel-run="${run.id}" type="button"><i data-lucide="circle-x"></i> 取消</button>
+      </div>
+    </article>
+  `).join("");
+}
+
+function renderApprovalList(rows) {
+  if (!rows || !rows.length) return `<div class="item meta">暂无审批记录</div>`;
+  return rows.map((row) => `
+    <article class="item">
+      <div class="item-title">
+        <span>#${row.id} ${escapeHtml(row.action_type)}</span>
+        <span class="status-pill ${statusClass(row.status)}">${escapeHtml(row.status)}</span>
+      </div>
+      <div class="meta">Run #${row.run_id} / hash=${escapeHtml(String(row.payload_hash || "").slice(0, 12))} / ${escapeHtml(row.created_at || "")}</div>
+      <details class="details-block">
+        <summary>审批摘要</summary>
+        <pre>${escapeHtml(safeJson(row.payload_summary_json || {}))}</pre>
+      </details>
+      ${row.status === "pending" ? `
+        <div class="flow-result-actions">
+          <button class="button primary" data-approval-decision="${row.id}" data-approved="true" type="button"><i data-lucide="check-circle-2"></i> 通过</button>
+          <button class="button ghost" data-approval-decision="${row.id}" data-approved="false" type="button"><i data-lucide="x-circle"></i> 拒绝</button>
+        </div>
+      ` : row.note ? `<p class="meta">备注：${escapeHtml(row.note)}</p>` : ""}
+    </article>
+  `).join("");
+}
+
+function renderStaleRuns(payload) {
+  const rows = payload?.stale_runs || [];
+  if (!rows.length) return `<div class="item meta">暂无 stale running run</div>`;
+  return rows.map((row) => `
+    <article class="item validation-risk">
+      <div class="item-title">
+        <span>Run #${row.run_id} ${escapeHtml(row.task_type || "")}</span>
+        <span class="status-pill risk">stale</span>
+      </div>
+      <div class="meta">最后阶段：${escapeHtml(row.last_stage || row.last_event_type || "-")} / ${escapeHtml(row.last_event_at || "")}</div>
+    </article>
+  `).join("");
+}
+
 function renderOpsLogs(logs) {
   if (!logs || !logs.length) return `<div class="item meta">暂无 LLM 调用日志</div>`;
   return logs.slice(0, 12).map((row) => `
@@ -855,8 +929,12 @@ async function loadOpsPage() {
     api("/ops/config"),
     api("/tasks?limit=12"),
     api("/llm/debug/logs?limit=20"),
+    api("/ops/queue/status"),
+    api("/agent/runs"),
+    api("/ops/approvals?limit=20"),
+    api("/ops/agent-runs/stale"),
   ]);
-  const [readiness, metrics, config, tasks, logs] = results;
+  const [readiness, metrics, config, tasks, logs, queue, runs, approvals, staleRuns] = results;
   $("#ops-readiness").innerHTML = readiness.status === "fulfilled"
     ? renderOpsReadiness(readiness.value)
     : `<div class="item validation-risk">${escapeHtml(readiness.reason.message)}</div>`;
@@ -872,6 +950,26 @@ async function loadOpsPage() {
   $("#ops-llm-logs").innerHTML = logs.status === "fulfilled"
     ? renderOpsLogs(logs.value)
     : `<div class="item validation-risk">${escapeHtml(logs.reason.message)}</div>`;
+  if ($("#ops-queue")) {
+    $("#ops-queue").innerHTML = queue.status === "fulfilled"
+      ? renderQueueStatus(queue.value)
+      : `<div class="item validation-risk">${escapeHtml(queue.reason.message)}</div>`;
+  }
+  if ($("#ops-agent-runs")) {
+    $("#ops-agent-runs").innerHTML = runs.status === "fulfilled"
+      ? renderOpsAgentRuns(runs.value)
+      : `<div class="item validation-risk">${escapeHtml(runs.reason.message)}</div>`;
+  }
+  if ($("#ops-approvals")) {
+    $("#ops-approvals").innerHTML = approvals.status === "fulfilled"
+      ? renderApprovalList(approvals.value)
+      : `<div class="item validation-risk">${escapeHtml(approvals.reason.message)}</div>`;
+  }
+  if ($("#ops-stale-runs")) {
+    $("#ops-stale-runs").innerHTML = staleRuns.status === "fulfilled"
+      ? renderStaleRuns(staleRuns.value)
+      : `<div class="item validation-risk">${escapeHtml(staleRuns.reason.message)}</div>`;
+  }
   if (window.lucide) window.lucide.createIcons();
 }
 
@@ -2058,6 +2156,18 @@ function bindForms() {
     await loadTasks();
   });
 
+  $("#recover-queued-runs")?.addEventListener("click", async () => {
+    const result = await api("/ops/queue/recover-queued", { method: "POST" });
+    toast(`已恢复 queued run：${result.recovered_count || 0}`);
+    await loadOpsPage();
+  });
+
+  $("#mark-stale-runs")?.addEventListener("click", async () => {
+    const result = await api("/ops/agent-runs/mark-stale", { method: "POST" });
+    toast(`已标记 stale run：${result.length || 0}`);
+    await loadOpsPage();
+  });
+
   $("#interview-source-import-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const raw = formJson(event.currentTarget);
@@ -2107,6 +2217,37 @@ function bindForms() {
     if (importButton) prefillInterviewSourceImport(importButton);
     const qualityButton = event.target.closest("[data-quality-jump]");
     if (qualityButton) focusInterviewQuestion(qualityButton);
+    const cancelButton = event.target.closest("[data-cancel-run]");
+    if (cancelButton) {
+      const runId = cancelButton.dataset.cancelRun;
+      api(`/agent/runs/${runId}/cancel`, {
+        method: "POST",
+        body: JSON.stringify({ reason: "管理员在控制台取消运行" }),
+      })
+        .then(() => {
+          toast(`已取消 run #${runId}`);
+          return loadOpsPage();
+        })
+        .catch((error) => toast(error.message));
+    }
+    const approvalButton = event.target.closest("[data-approval-decision]");
+    if (approvalButton) {
+      const approvalId = approvalButton.dataset.approvalDecision;
+      const approved = approvalButton.dataset.approved === "true";
+      api(`/ops/approvals/${approvalId}/decision`, {
+        method: "POST",
+        body: JSON.stringify({
+          approved,
+          note: approved ? "管理员在控制台审批通过" : "管理员在控制台审批拒绝",
+          decided_by_user_id: "ops_console",
+        }),
+      })
+        .then(() => {
+          toast(`审批 #${approvalId} 已${approved ? "通过" : "拒绝"}`);
+          return loadOpsPage();
+        })
+        .catch((error) => toast(error.message));
+    }
   });
 }
 

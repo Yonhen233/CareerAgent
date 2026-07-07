@@ -321,6 +321,18 @@ class AgentApprovalResponse(BaseModel):
     decided_at: datetime | None
 
 
+class AgentApprovalCreateRequest(BaseModel):
+    run_id: int
+    action_type: Literal["application_packet", "browser_apply", "email_draft", "email_send"]
+    payload_summary_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentApprovalDecisionRequest(BaseModel):
+    approved: bool
+    note: str | None = None
+    decided_by_user_id: str | None = None
+
+
 class AgentStepResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

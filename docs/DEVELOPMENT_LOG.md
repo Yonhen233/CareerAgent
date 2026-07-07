@@ -1,5 +1,39 @@
 # 开发日志
 
+## 2026-07-07 11:35:42 +08:00：Redis Worker DLQ、审批扩展、Prompt Injection 评测与控制台运维
+### 这次做了什么
+- 为 Redis worker 增加 dead-letter queue：payload 解析失败、未知 kind、worker 级异常会按 attempts 重试，超过 `REDIS_WORKER_MAX_ATTEMPTS` 后写入 `REDIS_DEAD_LETTER_QUEUE_NAME`。
+- 为 worker 增加更细粒度 heartbeat stage：`run_lock_acquired`、`sqlite_run_loaded`、`langgraph_starting`、`langgraph_finished:*`，task run 也会写 task heartbeat。
+- 增加 queued run recovery scanner：worker 主循环每 60 秒扫描 SQLite 中超时的 queued run 并重新入队，控制台也可手动触发 `/ops/queue/recover-queued`。
+- 将审批动作类型扩展到 `browser_apply`、`email_draft`、`email_send`，新增 `/ops/approvals`、`/ops/approvals/{approval_id}/decision` 等控制台审批接口。
+- 新增 `evals/prompt_injection_cases.json`，覆盖 JD、PDF 简历、RAG chunk、导入面经四类来源的 adversarial/benign 样本。
+- 新增 `POST /evaluations/prompt-injection`，量化 PromptInjectionGuard 的 detection recall、false positive rate、true negative rate、category recall、severity accuracy 和 source/category breakdown。
+- 优化 `/ui/ops` 控制台：展示 Redis 队列/DLQ、active Agent run 取消按钮、approval 审批列表、stale run 列表和 queued recovery/mark stale 操作。
+- 更新 README、API、Agent 设计、Redis + SQLite 架构说明、Hardening Notes 和面试 Q&A。
+### 发现的问题
+- 只有 Redis queue 和 lock 还不足以回答“worker 消费坏消息怎么办、queued run 丢在队列里怎么办”；需要 DLQ 和 recovery scanner 才能解释排障闭环。
+- `agent_approvals` 虽然已经存在，但如果只支持 `application_packet`，后续接浏览器投递、邮件草稿和邮件发送时还要再改审批模型。
+- Prompt injection 只有单元检测不够，无法量化误报率；需要负例样本覆盖正常安全工程描述、审批设计和工具调用技术词。
+- 控制台此前能看 readiness/metrics/logs，但不能直接处理 pending approval、active run、stale run 和队列恢复，运维闭环不完整。
+### 怎么修复
+- 在 `RedisTaskRunner` 中增加 `requeue_or_dead_letter()`、`queue_status()` 和 `recover_queued_agent_runs()`，并让 worker 主循环定期执行 recovery。
+- 将 Redis payload 统一成带 `kind/attempts/enqueued_at` 的 JSON，Agent run 和 LLM workflow task 共用同一队列。
+- 在 `ApprovalService` 中显式声明支持的高风险动作类型，并通过 ops API 暴露创建/决策能力。
+- 在 `EvaluationService` 中新增 prompt injection guard evaluation，按 source 和 category 分桶统计质量。
+- 在前端控制台新增队列、运行控制、审批、stale run 四块 UI，并通过已有 admin token 机制调用写操作。
+### 验证结果
+- `python -m pytest tests\test_agent_hardening.py tests\test_frontend_pages.py -q` 通过，20 个测试全部通过。
+- `python -m py_compile app\services\task_runner.py app\api\ops.py app\api\evaluations.py app\services\evaluation_service.py app\models\schemas.py app\services\approval_service.py app\core\redis_client.py app\core\config.py` 通过。
+- `node --check app\static\js\main.js` 通过。
+### 未修复的问题
+- DLQ 目前只支持预览和保留 payload，还没有“从 DLQ 选择性重放”接口；原因是重放需要更明确的人工确认和去重策略，避免把已知坏 payload 反复打回主队列。
+- Worker 仍是轻量单脚本，没有 supervisor、优先级队列、多队列路由和并发 worker pool 配置；原因是当前先补齐简历项目可解释的生产化最小闭环。
+- Prompt injection guard 仍是规则版；虽然已有 adversarial 量化评测，但还没有训练分类器或接入 LLM-as-judge。
+### 下一步
+- 为 DLQ 增加人工选择重放/丢弃接口和审计事件。
+- 在真实浏览器辅助填写、邮件草稿和邮件发送工具接入时，把对应动作强制绑定 approval table。
+- 扩展 prompt injection 评测集到更多真实 JD/PDF 样本，并按 release 设置最低 recall 和最高 false positive rate 阈值。
+
 ## 2026-07-07 11:09:45 +08:00：Redis 队列、取消幂等、审批审计与 Prompt Injection 硬化
 ### 这次做了什么
 - 将 Agent 后台 run 从 FastAPI 进程内任务升级为 RedisTaskRunner：`POST /agent/runs/background` 只创建 queued run 并入 Redis 队列，`scripts/run_agent_worker.py` 独立消费执行 LangGraph。

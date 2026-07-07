@@ -50,7 +50,9 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - `quick_apply` 和 `full_career_flow` 在生成投递包前会触发 LangGraph interrupt，返回 `waiting_for_confirmation`；用户或前端通过 `/agent/runs/{run_id}/resume` 确认后继续执行。
   - 支持后台启动和 LangGraph SSE 事件流：`POST /agent/runs/background` 返回 queued run 并写入 Redis 队列，`scripts/run_agent_worker.py` 独立消费执行，`GET /agent/runs/{run_id}/events/stream` 持续输出 graph/node/step/interrupt 进度。
   - 支持用户取消 run、stale run 检测、业务幂等键、投递审批审计、Redis run lock 和 Profile 级 active/rate limit。
+  - Redis worker 支持 dead-letter queue、queued run recovery scanner 和更细粒度 heartbeat stage；控制台可查看队列长度、DLQ 预览并手动恢复 queued run。
   - JD、PDF 简历、RAG evidence 和导入面经进入 LLM 前会经过 PromptInjectionGuard 检测，风险写入结构化 metadata，高风险投递动作仍必须人工确认。
+  - PromptInjectionGuard 有 adversarial 评测集，覆盖 JD/PDF/RAG/面经四类来源，输出 recall、false positive rate、severity accuracy 和分桶指标。
   - 首页一键流程现在只创建一个后台 `full_career_flow` run；前端通过 SSE 推进阶段进度，不再在浏览器里拼接多个小 run。
   - 显式注册 Tool、Skill 和 SubAgent，计划产物会展示当前任务使用的能力边界。
   - 简历定制带 1 轮 ReAct repair loop：Guardrail 高风险时读取 issues 和压缩上下文，修复后再次验证，并记录 `react_repair` 元数据。
@@ -229,6 +231,7 @@ python scripts/run_user_flow_smoke.py --pdf demo_resumes/agent_intern_strong_res
 - `POST /evaluations/jd-parser`
 - `POST /evaluations/job-relevance`
 - `POST /evaluations/application-packet`
+- `POST /evaluations/prompt-injection`
 - `POST /evaluations/interview-prep`
 - `POST /evaluations/interview-source-smoke`
 - `POST /evaluations/real-job-source-smoke`
@@ -239,6 +242,11 @@ python scripts/run_user_flow_smoke.py --pdf demo_resumes/agent_intern_strong_res
 - `GET /ops/readiness`
 - `GET /ops/metrics`
 - `GET /ops/config`
+- `GET /ops/queue/status`
+- `POST /ops/queue/recover-queued`
+- `GET /ops/approvals`
+- `POST /ops/approvals`
+- `POST /ops/approvals/{approval_id}/decision`
 - `GET /ops/agent-runs/stale`
 - `POST /ops/agent-runs/mark-stale`
 - `GET /evaluations/results`

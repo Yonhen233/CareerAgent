@@ -39,10 +39,13 @@ class Settings(BaseSettings):
     redis_enabled: bool = False
     redis_url: str = "redis://localhost:6379/0"
     redis_queue_name: str = "career_agent:runs"
+    redis_dead_letter_queue_name: str = "career_agent:runs:dead_letter"
     redis_run_lock_ttl_seconds: int = 1800
     redis_heartbeat_ttl_seconds: int = 300
     redis_rate_limit_window_seconds: int = 60
     redis_rate_limit_max_runs: int = 10
+    redis_worker_max_attempts: int = 3
+    redis_queued_recovery_after_minutes: int = 5
     agent_run_stale_after_minutes: int = 30
     agent_active_run_limit_per_profile: int = 3
     chunk_size: int = 900

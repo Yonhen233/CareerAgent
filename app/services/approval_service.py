@@ -10,6 +10,9 @@ from sqlalchemy.orm import Session
 from app.models.entities import AgentApproval
 
 
+APPROVAL_ACTION_TYPES = {"application_packet", "browser_apply", "email_draft", "email_send"}
+
+
 class ApprovalService:
     def payload_hash(self, payload: dict[str, Any]) -> str:
         raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
@@ -23,6 +26,8 @@ class ApprovalService:
         action_type: str,
         payload_summary: dict[str, Any],
     ) -> AgentApproval:
+        if action_type not in APPROVAL_ACTION_TYPES:
+            raise ValueError(f"Unsupported approval action_type: {action_type}.")
         digest = self.payload_hash(payload_summary)
         existing = (
             db.query(AgentApproval)

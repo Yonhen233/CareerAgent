@@ -630,6 +630,14 @@ POST /evaluations/application-packet
 
 该评测使用 `evals/application_packet_cases.json`，不访问外部招聘站，也不调用 LLM，只验证投递包质量校验。返回的 `summary_json` 包含 `high_risk_recall`、`false_block_count`、`missed_high_risk_count`、`issue_code_hit_rate`、`risk_level_counts`、`difficulty_breakdown` 和 `noise_breakdown`。`case_results_json` 会保留每个 case 的 `actual_issue_codes`、`warning_codes` 和完整 validation 结果。
 
+运行 Prompt Injection Guard 对抗评测：
+
+```http
+POST /evaluations/prompt-injection
+```
+
+该评测使用 `evals/prompt_injection_cases.json`，覆盖 JD、PDF 简历、RAG chunk 和导入面经四类不可信来源，包含中英文指令覆盖、工具越权、数据外泄、RAG 污染和良性安全工程描述。返回的 `summary_json` 包含 `detection_recall`、`false_positive_rate`、`true_negative_rate`、`category_recall`、`severity_accuracy`、`source_breakdown` 和 `category_breakdown`。
+
 运行面试准备包评测：
 
 ```http
@@ -700,6 +708,10 @@ GET /ops/config
 - `/ops/readiness` 返回数据库、LLM、embedding 和 reranker 的健康状态。
 - `/ops/metrics` 返回请求计数、平均延迟、状态码分布、Agent run/task/LLM call 状态分布和最近评测摘要。
 - `/ops/config` 只返回脱敏配置摘要，不返回 API key。
+- `/ops/queue/status` 返回 Redis queue、dead-letter queue、DLQ 预览、最大重试次数和 queued recovery 配置。
+- `/ops/queue/recover-queued` 扫描 SQLite 中长时间 `queued` 的 Agent run，并重新写入 Redis 队列。
+- `/ops/approvals` 查询投递包、浏览器投递、邮件草稿和邮件发送等高风险动作审批记录。
+- `/ops/approvals/{approval_id}/decision` 用于控制台审批通过或拒绝 pending approval。
 - `/ops/agent-runs/stale` 返回长时间无事件进展的 running run。
 - `/ops/agent-runs/mark-stale` 将 stale running run 标记为 failed，并写 `run_marked_stale` 事件。
 - `/ui/ops` 是对应的前端运维面板，会展示 readiness、metrics、脱敏配置、后台任务和最近 LLM 调用日志，并支持在本机浏览器保存 `X-Admin-Token`。

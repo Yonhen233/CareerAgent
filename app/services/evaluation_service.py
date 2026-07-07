@@ -30,6 +30,7 @@ from app.services.job_relevance import (
     source_posting_haystack,
 )
 from app.services.job_search import JobSearchService
+from app.services.prompt_injection_guard import PromptInjectionGuard
 from app.services.job_sources import JobPosting, JobSourceRegistry
 from app.services.resume_tailor import ResumeTailorService
 from app.core.llm import LLMClient, LLMConfigurationError, format_exception, llm_trace_context
@@ -146,6 +147,7 @@ class EvaluationService:
         self.jd_parser = JDParserService()
         self.job_search_service = JobSearchService()
         self.vector_index = SQLiteVectorIndex()
+        self.prompt_injection_guard = PromptInjectionGuard()
 
     async def run_sample_evaluation(self, db: Session, *, dataset_path: Path | None = None) -> EvaluationRun:
         path = dataset_path or self.settings.base_path / "evals" / "sample_cases.json"
@@ -156,6 +158,59 @@ class EvaluationService:
         summary = self._summarize(case_results)
         run = EvaluationRun(
             name=path.name,
+            summary_json=summary,
+            case_results_json=case_results,
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        return run
+
+    def run_prompt_injection_evaluation(self, db: Session, *, dataset_path: Path | None = None) -> EvaluationRun:
+        path = dataset_path or self.settings.base_path / "evals" / "prompt_injection_cases.json"
+        cases = json.loads(path.read_text(encoding="utf-8"))
+        case_results = []
+        for case in cases:
+            result = self.prompt_injection_guard.detect(case["text"], source=case.get("source") or "unknown")
+            sanitized, _ = self.prompt_injection_guard.sanitize_for_llm(
+                case["text"], source=case.get("source") or "unknown"
+            )
+            expected_detected = bool(case.get("expected_detected"))
+            expected_categories = set(case.get("expected_categories") or [])
+            actual_categories = set(result.categories)
+            category_hits = sorted(expected_categories & actual_categories)
+            sanitized_absent = [
+                token
+                for token in case.get("expected_sanitized_absent", [])
+                if str(token).lower() not in sanitized.lower()
+            ]
+            passed = result.detected == expected_detected
+            if expected_detected:
+                passed = (
+                    passed
+                    and result.severity == case.get("expected_severity")
+                    and expected_categories <= actual_categories
+                    and len(sanitized_absent) == len(case.get("expected_sanitized_absent", []))
+                )
+            case_results.append(
+                {
+                    "case_name": case.get("name"),
+                    "source": case.get("source"),
+                    "expected_detected": expected_detected,
+                    "actual_detected": result.detected,
+                    "expected_severity": case.get("expected_severity"),
+                    "actual_severity": result.severity,
+                    "expected_categories": sorted(expected_categories),
+                    "actual_categories": result.categories,
+                    "category_hits": category_hits,
+                    "matched_patterns": result.matched_patterns,
+                    "sanitized_removed_expected_tokens": sanitized_absent,
+                    "passed": passed,
+                }
+            )
+        summary = self._summarize_prompt_injection(case_results, dataset_name=path.name)
+        run = EvaluationRun(
+            name="prompt_injection_guard_evaluation",
             summary_json=summary,
             case_results_json=case_results,
         )
@@ -3114,6 +3169,78 @@ class EvaluationService:
             ),
             "avg_evidence_hit_rate": round(sum(item["evidence_hit_rate"] for item in case_results) / count, 4),
         }
+
+    def _summarize_prompt_injection(self, case_results: list[dict[str, Any]], *, dataset_name: str) -> dict[str, Any]:
+        count = max(len(case_results), 1)
+        positives = [item for item in case_results if item["expected_detected"]]
+        negatives = [item for item in case_results if not item["expected_detected"]]
+        true_positive = sum(1 for item in positives if item["actual_detected"])
+        false_negative = len(positives) - true_positive
+        false_positive = sum(1 for item in negatives if item["actual_detected"])
+        true_negative = len(negatives) - false_positive
+        expected_category_total = sum(len(item["expected_categories"]) for item in positives)
+        category_hit_total = sum(len(item["category_hits"]) for item in positives)
+        severity_rows = [item for item in positives if item["actual_detected"]]
+        return {
+            "evaluation_type": "prompt_injection_guard",
+            "dataset": dataset_name,
+            "case_count": len(case_results),
+            "positive_case_count": len(positives),
+            "negative_case_count": len(negatives),
+            "pass_rate": round(sum(1 for item in case_results if item["passed"]) / count, 4),
+            "detection_recall": round(true_positive / max(len(positives), 1), 4),
+            "false_positive_rate": round(false_positive / max(len(negatives), 1), 4),
+            "true_negative_rate": round(true_negative / max(len(negatives), 1), 4),
+            "false_negative_count": false_negative,
+            "false_positive_count": false_positive,
+            "category_recall": round(category_hit_total / max(expected_category_total, 1), 4),
+            "severity_accuracy": round(
+                sum(1 for item in severity_rows if item["actual_severity"] == item["expected_severity"])
+                / max(len(severity_rows), 1),
+                4,
+            ),
+            "source_breakdown": self._prompt_injection_breakdown(case_results, "source"),
+            "category_breakdown": self._prompt_injection_category_breakdown(case_results),
+        }
+
+    def _prompt_injection_breakdown(self, rows: list[dict[str, Any]], key: str) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for value in sorted({str(row.get(key) or "unknown") for row in rows}):
+            group = [row for row in rows if str(row.get(key) or "unknown") == value]
+            positives = [row for row in group if row["expected_detected"]]
+            negatives = [row for row in group if not row["expected_detected"]]
+            result[value] = {
+                "case_count": len(group),
+                "pass_rate": round(sum(1 for row in group if row["passed"]) / max(len(group), 1), 4),
+                "detection_recall": round(
+                    sum(1 for row in positives if row["actual_detected"]) / max(len(positives), 1),
+                    4,
+                )
+                if positives
+                else None,
+                "false_positive_rate": round(
+                    sum(1 for row in negatives if row["actual_detected"]) / max(len(negatives), 1),
+                    4,
+                )
+                if negatives
+                else None,
+            }
+        return result
+
+    def _prompt_injection_category_breakdown(self, rows: list[dict[str, Any]]) -> dict[str, Any]:
+        categories = sorted({category for row in rows for category in row["expected_categories"]})
+        output: dict[str, Any] = {}
+        for category in categories:
+            expected_rows = [row for row in rows if category in row["expected_categories"]]
+            output[category] = {
+                "expected_count": len(expected_rows),
+                "recall": round(
+                    sum(1 for row in expected_rows if category in row["actual_categories"])
+                    / max(len(expected_rows), 1),
+                    4,
+                ),
+            }
+        return output
 
     def _precision(self, predicted: set[str], expected: set[str]) -> float:
         if not predicted:

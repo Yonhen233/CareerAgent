@@ -1,16 +1,23 @@
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.core.config import get_settings
 from app.core.database import engine, get_db
 from app.core.redis_client import RedisUnavailableError, get_redis_client
 from app.core.security import require_admin
 from app.core.telemetry import telemetry
-from app.models.entities import AgentRun, EvaluationRun, LLMCallLog, TaskRun
-from app.models.schemas import AgentRunResponse
+from app.models.entities import AgentApproval, AgentRun, EvaluationRun, LLMCallLog, TaskRun
+from app.models.schemas import (
+    AgentApprovalCreateRequest,
+    AgentApprovalDecisionRequest,
+    AgentApprovalResponse,
+    AgentRunResponse,
+)
+from app.services.approval_service import ApprovalService
 from app.services.stale_runs import StaleRunService
+from app.services.task_runner import RedisTaskRunner
 
 router = APIRouter(prefix="/ops", tags=["ops"])
 
@@ -109,6 +116,33 @@ def config_summary(_: None = Depends(require_admin)) -> dict:
     }
 
 
+@router.get("/queue/status")
+def queue_status(_: None = Depends(require_admin)) -> dict:
+    settings = get_settings()
+    if not settings.redis_enabled:
+        raise HTTPException(status_code=503, detail="Redis is disabled.")
+    try:
+        return RedisTaskRunner().queue_status()
+    except RedisUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.post("/queue/recover-queued")
+def recover_queued_runs(
+    older_than_minutes: int | None = Query(default=None, ge=0),
+    db: Session = Depends(get_db),
+    _: None = Depends(require_admin),
+) -> dict:
+    settings = get_settings()
+    if not settings.redis_enabled:
+        raise HTTPException(status_code=503, detail="Redis is disabled.")
+    try:
+        recovered = RedisTaskRunner().recover_queued_agent_runs(db, older_than_minutes=older_than_minutes)
+    except RedisUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"recovered_count": len(recovered), "recovered_runs": recovered}
+
+
 @router.get("/agent-runs/stale")
 def stale_agent_runs(
     threshold_minutes: int | None = None,
@@ -126,3 +160,60 @@ def mark_stale_agent_runs(
 ) -> list[AgentRunResponse]:
     runs = StaleRunService().mark_stale(db, threshold_minutes=threshold_minutes)
     return [AgentRunResponse.model_validate(run) for run in runs]
+
+
+@router.get("/approvals", response_model=list[AgentApprovalResponse])
+def list_approvals(
+    status_filter: str | None = Query(default=None, alias="status"),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    _: None = Depends(require_admin),
+) -> list[AgentApprovalResponse]:
+    query = db.query(AgentApproval)
+    if status_filter:
+        query = query.filter(AgentApproval.status == status_filter)
+    rows = query.order_by(AgentApproval.created_at.desc()).limit(limit).all()
+    return [AgentApprovalResponse.model_validate(row) for row in rows]
+
+
+@router.post("/approvals", response_model=AgentApprovalResponse, status_code=status.HTTP_201_CREATED)
+def create_approval(
+    payload: AgentApprovalCreateRequest,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_admin),
+) -> AgentApprovalResponse:
+    if db.query(AgentRun).filter(AgentRun.id == payload.run_id).first() is None:
+        raise HTTPException(status_code=404, detail="Agent run not found.")
+    try:
+        approval = ApprovalService().get_or_create_pending(
+            db,
+            run_id=payload.run_id,
+            action_type=payload.action_type,
+            payload_summary=payload.payload_summary_json,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return AgentApprovalResponse.model_validate(approval)
+
+
+@router.post("/approvals/{approval_id}/decision", response_model=AgentApprovalResponse)
+def decide_approval(
+    approval_id: int,
+    payload: AgentApprovalDecisionRequest,
+    db: Session = Depends(get_db),
+    _: None = Depends(require_admin),
+) -> AgentApprovalResponse:
+    approval = db.query(AgentApproval).filter(AgentApproval.id == approval_id).first()
+    if approval is None:
+        raise HTTPException(status_code=404, detail="Approval not found.")
+    try:
+        approval = ApprovalService().decide(
+            db,
+            approval=approval,
+            approved=payload.approved,
+            note=payload.note,
+            decided_by_user_id=payload.decided_by_user_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return AgentApprovalResponse.model_validate(approval)

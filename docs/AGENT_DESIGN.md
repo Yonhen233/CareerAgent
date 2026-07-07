@@ -155,6 +155,10 @@ RAG 证据不再只按向量分和关键词分排序，`MatcherService.retrieve_
 - 投递包必须保留 `manual_confirm_required` 和 `user_confirmed_only`，系统只准备材料和链接，不自动提交最终申请。
 - 缺少投递链接、外联文案过短等问题记录为 warning；编造事实或越过人工确认边界记录为 high-risk issue 并阻断投递包创建。
 
+## Prompt Injection Guard
+
+JD、PDF 简历、RAG chunk 和导入面经都被视为 untrusted content。`PromptInjectionGuard` 会检测覆盖系统指令、工具越权、数据外泄和 RAG 污染指令；进入 LLM context 前会过滤命中的恶意行，并把风险写入结构化 metadata。项目新增 `POST /evaluations/prompt-injection` 和 `evals/prompt_injection_cases.json`，用 adversarial/benign case 量化 detection recall、false positive rate、severity accuracy 和 source/category breakdown。
+
 ## 面试准备包
 
 `prepare_interview_for_job` 补齐投递后的面试准备阶段。它读取结构化 JD、`match_result`、Top evidence 和缺口技能，生成：
@@ -236,6 +240,7 @@ RAG 证据不再只按向量分和关键词分排序，`MatcherService.retrieve_
 - 每个后台 run 执行前会获取 Redis run lock；节点开始前检查 SQLite 状态和 Redis cancel flag。
 - 简历版本、投递包、面试包写库节点都有业务幂等键，checkpoint 重放或重复 resume 会复用已有产物。
 - 投递包 interrupt 前会创建 `agent_approvals` 审批记录，resume 确认/拒绝/取消都有审计状态。
+- `agent_approvals` 的动作类型已经扩展到 `application_packet`、`browser_apply`、`email_draft`、`email_send`，用于承接后续浏览器和邮件等更高风险工具。
 - `GET /agent/runs/{run_id}/events/stream` 支持 LangGraph SSE 事件流，`TraceService` 写 SQLite event 后也会发布 Redis pub/sub 通知。
 - 首页一键流程已经改成单个后台 `full_career_flow` run，通过 SSE 推进阶段状态。
 

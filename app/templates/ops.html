@@ -75,4 +75,50 @@
     <div id="ops-llm-logs" class="result-list"></div>
   </div>
 </section>
+
+<section class="workspace-grid">
+  <div class="panel span-6">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">Redis runtime</p>
+        <h2>队列与恢复</h2>
+      </div>
+      <button class="ghost" type="button" id="recover-queued-runs"><i data-lucide="rotate-ccw"></i> 扫描 queued</button>
+    </div>
+    <div id="ops-queue" class="result-list"></div>
+  </div>
+
+  <div class="panel span-6">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">Agent control</p>
+        <h2>运行控制</h2>
+      </div>
+    </div>
+    <div id="ops-agent-runs" class="result-list"></div>
+  </div>
+</section>
+
+<section class="workspace-grid">
+  <div class="panel span-6">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">Human approval</p>
+        <h2>审批审计</h2>
+      </div>
+    </div>
+    <div id="ops-approvals" class="result-list"></div>
+  </div>
+
+  <div class="panel span-6">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">Stale runs</p>
+        <h2>卡住的运行</h2>
+      </div>
+      <button class="ghost" type="button" id="mark-stale-runs"><i data-lucide="alert-triangle"></i> 标记 stale</button>
+    </div>
+    <div id="ops-stale-runs" class="result-list"></div>
+  </div>
+</section>
 {% endblock %}

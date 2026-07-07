@@ -25,6 +25,26 @@ def test_frontend_pages_render():
         assert "CareerAgent" in response.text
 
 
+def test_ops_console_exposes_queue_approvals_cancel_and_stale_controls():
+    client = TestClient(app)
+    response = client.get("/ui/ops")
+    main_js = Path("app/static/js/main.js").read_text(encoding="utf-8")
+
+    assert response.status_code == 200
+    assert "ops-queue" in response.text
+    assert "ops-agent-runs" in response.text
+    assert "ops-approvals" in response.text
+    assert "ops-stale-runs" in response.text
+    assert "recover-queued-runs" in response.text
+    assert "mark-stale-runs" in response.text
+    assert "/ops/queue/status" in main_js
+    assert "/ops/queue/recover-queued" in main_js
+    assert "/ops/approvals?limit=20" in main_js
+    assert "/ops/agent-runs/stale" in main_js
+    assert "/cancel" in main_js
+    assert "data-approval-decision" in main_js
+
+
 def test_evaluations_page_exposes_interview_source_smoke_controls():
     client = TestClient(app)
     response = client.get("/ui/evaluations")

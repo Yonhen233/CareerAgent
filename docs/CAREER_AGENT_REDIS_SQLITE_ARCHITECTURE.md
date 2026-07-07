@@ -15,6 +15,8 @@ CareerAgent 现在采用 Redis + SQLite 混合架构：SQLite 是 source of trut
 
 Redis 不可用时，后台 run 入队会直接返回 503，避免“接口成功但任务没有真实进入队列”的假成功。
 
+Worker 主循环会定期运行 queued recovery scanner：扫描 SQLite 中超过阈值仍处于 `queued` 的 Agent run，并重新入队。控制台也可以手动调用 `/ops/queue/recover-queued`。worker 级异常会按 `REDIS_WORKER_MAX_ATTEMPTS` 重试，超过次数写入 DLQ，便于保留失败 payload 和错误原因。
+
 ## SQLite 负责什么
 
 - `profiles`、`jobs`、`resume_chunks`、`job_chunks`
@@ -28,6 +30,7 @@ Redis 不可用时，后台 run 入队会直接返回 503，避免“接口成�
 ## Redis 负责什么
 
 - `REDIS_QUEUE_NAME`：后台 Agent run 队列。
+- `REDIS_DEAD_LETTER_QUEUE_NAME`：worker 级异常超过最大重试次数后的 dead-letter queue。
 - `career_agent:runs:lock:{run_id}`：避免多个 worker 同时执行同一个 run。
 - `career_agent:runs:cancel:{run_id}`：用户取消 flag，节点开始前会检查。
 - `career_agent:runs:heartbeat:{run_id}`：worker 执行心跳。
@@ -53,7 +56,7 @@ Redis 不可用时，后台 run 入队会直接返回 503，避免“接口成�
 - `payload_hash`
 - `payload_summary_json`
 
-用户确认后状态变为 `approved`，拒绝后变为 `rejected`，取消 run 后 pending approval 变为 `cancelled`。后续接浏览器投递、邮件发送或日历操作时可以复用同一张审批表。
+用户确认后状态变为 `approved`，拒绝后变为 `rejected`，取消 run 后 pending approval 变为 `cancelled`。审批动作类型已覆盖 `application_packet`、`browser_apply`、`email_draft`、`email_send`，后续接浏览器投递、邮件发送或日历操作时可以复用同一张审批表。
 
 ## 取消与 Stale Run
 

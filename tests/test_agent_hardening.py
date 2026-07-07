@@ -9,7 +9,9 @@ from app.models.entities import AgentApproval, AgentEvent, AgentRun, Application
 from app.models.schemas import AgentRunRequest
 from app.services.prompt_injection_guard import PromptInjectionGuard
 from app.services.stale_runs import StaleRunService
-from app.services.task_runner import RedisTaskRunner
+from app.services.task_runner import RedisTaskRunner, consume_redis_queue_once
+from app.services.evaluation_service import EvaluationService
+from app.services.approval_service import ApprovalService
 
 
 class FakeRedis:
@@ -25,12 +27,25 @@ class FakeRedis:
         self.lists.setdefault(name, []).insert(0, value)
         return len(self.lists[name])
 
+    def rpush(self, name, value):
+        self.lists.setdefault(name, []).append(value)
+        return len(self.lists[name])
+
     def brpop(self, keys, timeout=0):
         name = keys[0] if isinstance(keys, list) else keys
         values = self.lists.get(name) or []
         if not values:
             return None
         return name, values.pop()
+
+    def llen(self, name):
+        return len(self.lists.get(name) or [])
+
+    def lrange(self, name, start, end):
+        values = self.lists.get(name) or []
+        if end == -1:
+            end = len(values) - 1
+        return values[start : end + 1]
 
     def set(self, name, value, nx=False, ex=None):
         if nx and name in self.values:
@@ -165,6 +180,53 @@ def test_redis_task_runner_enqueue_and_lock():
     assert second.acquire() is False
     assert second.release() is False
     assert first.release() is True
+
+
+def test_redis_worker_dead_letters_invalid_payload():
+    fake = FakeRedis()
+    settings = get_settings()
+    fake.lpush(settings.redis_queue_name, "{not-json")
+    result = asyncio.run(consume_redis_queue_once(redis_client=fake, settings=settings, timeout_seconds=0))
+    assert result is None
+    status = RedisTaskRunner(redis_client=fake, settings=settings).queue_status()
+    assert status["dead_letter_count"] == 1
+    assert status["dead_letter_preview"][0]["kind"] == "invalid_payload"
+
+
+def test_queued_run_recovery_scanner_requeues_old_runs(db_session):
+    fake = FakeRedis()
+    settings = get_settings()
+    run = AgentRun(task_type="find_jobs_for_profile", status="queued", input_json={})
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+
+    recovered = RedisTaskRunner(redis_client=fake, settings=settings).recover_queued_agent_runs(
+        db_session,
+        older_than_minutes=0,
+    )
+    assert recovered[0]["run_id"] == run.id
+    assert fake.llen(settings.redis_queue_name) == 1
+    event_types = [row.event_type for row in db_session.query(AgentEvent).filter(AgentEvent.run_id == run.id).all()]
+    assert "queued_run_recovered" in event_types
+
+
+def test_approval_service_supports_browser_and_email_actions(db_session):
+    run = AgentRun(task_type="quick_apply", status="waiting_for_confirmation", input_json={})
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+    service = ApprovalService()
+    for action_type in ["browser_apply", "email_draft", "email_send"]:
+        approval = service.get_or_create_pending(
+            db_session,
+            run_id=run.id,
+            action_type=action_type,
+            payload_summary={"target": action_type, "risk": "high"},
+        )
+        assert approval.status == "pending"
+        decided = service.decide(db_session, approval=approval, approved=True, note="test")
+        assert decided.status == "approved"
 
 
 def test_quick_apply_interrupt_creates_approval_and_cancel_blocks_resume(db_session, monkeypatch):
@@ -309,3 +371,13 @@ def test_stale_running_run_is_detected_and_marked(db_session):
     marked = service.mark_stale(db_session, threshold_minutes=30)
     assert marked[0].status == "failed"
     assert marked[0].output_json["error_type"] == "stale_run_timeout"
+
+
+def test_prompt_injection_evaluation_quantifies_recall_and_false_positive_rate(db_session):
+    run = EvaluationService().run_prompt_injection_evaluation(db_session)
+    summary = run.summary_json
+    assert summary["evaluation_type"] == "prompt_injection_guard"
+    assert summary["case_count"] >= 30
+    assert summary["detection_recall"] >= 0.9
+    assert summary["false_positive_rate"] <= 0.1
+    assert "rag_chunk" in summary["source_breakdown"]
