@@ -374,12 +374,13 @@ async function loadRuns(target = "#runs-list") {
 function renderRunOutcomeLinks(row) {
   const output = row.output_json || {};
   const links = [];
+  const packageId = row.id;
   const resumeId = output.resume_version_id || output.tailor?.resume_version_id;
   const applicationId = output.application_id || output.application?.application_id;
   const prepId = output.interview_prep_id || output.interview_prep?.interview_prep_id;
-  if (resumeId) links.push(`<a class="button ghost" href="/ui/resumes"><i data-lucide="file-check-2"></i> 简历 #${resumeId}</a>`);
-  if (applicationId) links.push(`<a class="button ghost" href="/ui/applications"><i data-lucide="send"></i> 投递包 #${applicationId}</a>`);
-  if (prepId) links.push(`<a class="button ghost" href="/ui/prep"><i data-lucide="messages-square"></i> 面试包 #${prepId}</a>`);
+  if (resumeId) links.push(packageAction("/ui/resumes", "file-check-2", "定制简历", packageId));
+  if (applicationId) links.push(packageAction("/ui/applications", "send", "投递材料", packageId));
+  if (prepId) links.push(packageAction("/ui/prep", "messages-square", "面试准备", packageId));
   if (output.matches?.length) links.push(`<a class="button ghost" href="/ui/jobs"><i data-lucide="briefcase-business"></i> 推荐岗位 ${output.matches.length} 个</a>`);
   if (output.requires_confirmation) links.push(`<button class="button primary" data-resume-run-id="${row.id}" type="button"><i data-lucide="check-circle-2"></i> 确认继续</button>`);
   return links.length ? `<div class="flow-result-actions">${links.join("")}</div>` : "";
@@ -553,16 +554,19 @@ async function loadResumes() {
 
 async function loadApplications() {
   const rows = await api("/applications");
-  renderItems("#applications-list", rows, (row) => `
-    <article class="item">
-      <div class="item-title"><span>#${row.id} 岗位 ${row.job_id}</span><span class="status-pill ${row.status === "ready" ? "ok" : ""}">${row.status === "ready" ? "准备好了" : escapeHtml(row.status)}</span></div>
-      <div class="meta">定制简历 ${row.resume_version_id || "-"}</div>
+  renderItems("#applications-list", rows, (row) => {
+    const packageId = userPackageId(row);
+    return `
+    <article class="item application-card">
+      <div class="item-title"><span>${escapeHtml(packageLabel(packageId))} · 岗位 ${escapeHtml(row.job_id)}</span><span class="status-pill ${row.status === "ready" ? "ok" : ""}">${row.status === "ready" ? "准备好了" : escapeHtml(row.status)}</span></div>
+      <div class="meta">投递材料 · 定制简历 ${row.resume_version_id || "-"}</div>
       ${row.apply_url ? `<p><a class="button ghost" href="${escapeHtml(row.apply_url)}" target="_blank"><i data-lucide="external-link"></i> 打开投递页</a></p>` : ""}
       ${applicationValidation(row)}
       ${row.outreach_message ? `<p class="message-preview">${escapeHtml(row.outreach_message)}</p>` : ""}
-      <pre>${escapeHtml(row.cover_letter || "")}</pre>
+      <pre class="application-letter">${escapeHtml(row.cover_letter || "")}</pre>
     </article>
-  `);
+  `;
+  });
 }
 
 async function loadInterviewPreps() {
@@ -1054,6 +1058,26 @@ function focusInterviewQuestion(button) {
 
 const CAREER_FLOW_STAGES = ["profile", "search", "match", "tailor", "apply", "interview"];
 
+function userPackageId(value) {
+  const key = value?.idempotency_key || value?.output_json?.idempotency_key || "";
+  const match = String(key).match(/^agent_run:(\d+):/);
+  return match ? match[1] : value?.package_id || value?.run_id || value?.id || "";
+}
+
+function packageLabel(packageId) {
+  return packageId ? `求职包 #${packageId}` : "本次求职包";
+}
+
+function packageAction(href, icon, label, packageId) {
+  return `<a class="button ghost" href="${escapeHtml(href)}"><i data-lucide="${escapeHtml(icon)}"></i> ${escapeHtml(label)}${packageId ? ` · ${escapeHtml(packageLabel(packageId))}` : ""}</a>`;
+}
+
+function pushUniqueAction(actions, seen, key, html) {
+  if (!key || seen.has(key)) return;
+  seen.add(key);
+  actions.push(html);
+}
+
 function setCareerStage(stage, status, detail = "") {
   const item = document.querySelector(`#career-flow-steps [data-stage="${stage}"]`);
   if (!item) return;
@@ -1087,23 +1111,20 @@ function renderCareerFlowResult(state) {
   const tailor = state.tailorRun?.output_json || {};
   const apply = state.applyRun?.output_json || {};
   const interview = state.interviewRun?.output_json || {};
+  const packageId = state.packageId || state.fullRun?.id || state.runId || "";
   result.innerHTML = `
     <article class="item flow-result-card">
       <div class="item-title">
-        <span>${escapeHtml(selected.title || "已完成")}</span>
+        <span>${escapeHtml(packageLabel(packageId))}</span>
         <span class="status-pill ok">${escapeHtml(selected.overall_score ?? "ready")}</span>
       </div>
-      <div class="meta">${escapeHtml(selected.company || "")} / Profile ${escapeHtml(state.profile?.id || "-")} / Job ${escapeHtml(selected.job_id || "-")}</div>
+      <div class="meta">${escapeHtml(selected.title || "已完成")} · ${escapeHtml(selected.company || "")} · Profile ${escapeHtml(state.profile?.id || "-")} · Job ${escapeHtml(selected.job_id || "-")}</div>
       ${tags(selected.matched_skills || [])}
       <div class="flow-result-actions">
-        ${tailor.resume_version_id ? `<a class="button ghost" href="/ui/resumes"><i data-lucide="file-check-2"></i> 简历版本 #${tailor.resume_version_id}</a>` : ""}
-        ${apply.application_id ? `<a class="button ghost" href="/ui/applications"><i data-lucide="send"></i> 投递包 #${apply.application_id}</a>` : ""}
-        ${interview.interview_prep_id ? `<a class="button ghost" href="/ui/prep?job_id=${escapeHtml(selected.job_id || "")}"><i data-lucide="messages-square"></i> 面试包 #${interview.interview_prep_id}</a>` : ""}
-        ${careerFlowRunLink(state.fullRun, "完整流程")}
-        ${careerFlowRunLink(state.searchRun, "找岗")}
-        ${careerFlowRunLink(state.tailorRun, "定制")}
-        ${careerFlowRunLink(state.applyRun, "投递")}
-        ${careerFlowRunLink(state.interviewRun, "面试")}
+        ${tailor.resume_version_id ? packageAction("/ui/resumes", "file-check-2", "定制简历", packageId) : ""}
+        ${apply.application_id ? packageAction("/ui/applications", "send", "投递材料", packageId) : ""}
+        ${interview.interview_prep_id ? packageAction(`/ui/prep?job_id=${escapeHtml(selected.job_id || "")}`, "messages-square", "面试准备", packageId) : ""}
+        ${state.fullRun?.id ? packageAction("/ui/agent-runs", "route", "查看流程", packageId) : ""}
       </div>
     </article>
   `;
@@ -1420,11 +1441,12 @@ async function runCareerStartFlow(form) {
     state.tailorRun = { id: state.fullRun.id, output_json: output.tailor || {} };
     state.applyRun = { id: state.fullRun.id, output_json: output.application || {} };
     state.interviewRun = { id: state.fullRun.id, output_json: output.interview_prep || {} };
+    state.packageId = state.fullRun.id;
     setCareerStage("search", "done", state.selectedJob?.job_id ? `Job #${state.selectedJob.job_id}` : `Run #${state.fullRun.id}`);
     setCareerStage("match", "done", `${state.selectedJob?.company || ""} ${state.selectedJob?.overall_score || ""}`);
-    setCareerStage("tailor", "done", `版本 #${state.tailorRun.output_json?.resume_version_id || "-"}`);
-    setCareerStage("apply", "done", `投递包 #${state.applyRun.output_json?.application_id || "-"}`);
-    setCareerStage("interview", "done", `面试包 #${state.interviewRun.output_json?.interview_prep_id || "-"}`);
+    setCareerStage("tailor", "done", packageLabel(state.packageId));
+    setCareerStage("apply", "done", packageLabel(state.packageId));
+    setCareerStage("interview", "done", packageLabel(state.packageId));
     renderCareerFlowResult(state);
     toast("完整求职流程已完成");
   } catch (error) {
@@ -1439,6 +1461,9 @@ async function runCareerStartFlow(form) {
 
 function fillCareerDemo(form) {
   if (!form) return;
+  if (form.instruction) {
+    form.instruction.value = "我想找 Agent 开发实习岗位。请根据下面 JD 帮我生成或更新简历档案，并针对这个岗位改简历、生成投递材料和面试准备问题。";
+  }
   form.profile_id.value = "";
   form.name.value = "李明";
   form.email.value = "liming@example.com";
@@ -1465,36 +1490,88 @@ function fillCareerDemo(form) {
   toast("已填入演示信息");
 }
 
+function updateCareerFlowFromNaturalResult(body) {
+  const data = body.result_json || {};
+  const failed = body.status === "failed";
+  if (data.profile?.id) setCareerStage("profile", failed ? "failed" : "done", failed ? "失败" : packageLabel(body.run_id));
+  if (data.job?.id || data.matches?.length) setCareerStage("search", failed ? "failed" : "done", failed ? "失败" : packageLabel(body.run_id));
+  if (data.job?.id || data.matches?.length || data.tailor || data.application || data.interview_prep) {
+    setCareerStage("match", failed ? "failed" : "done", failed ? "失败" : packageLabel(body.run_id));
+  }
+  if (data.tailor?.resume_version_id) setCareerStage("tailor", failed ? "failed" : "done", failed ? "失败" : packageLabel(body.run_id));
+  if (data.application?.application_id || data.requires_confirmation) setCareerStage("apply", failed ? "failed" : "done", failed ? "失败" : packageLabel(body.run_id));
+  if (data.interview_prep?.interview_prep_id) setCareerStage("interview", failed ? "failed" : "done", failed ? "失败" : packageLabel(body.run_id));
+}
+
 function renderNaturalLanguageResult(body) {
-  const result = $("#natural-language-result");
+  const result = $("#career-flow-result") || $("#natural-language-result");
   if (!result) return;
   const data = body.result_json || {};
   const runs = data.agent_runs || [];
   const failed = body.status === "failed";
+  const packageId = body.run_id;
   const links = [];
-  if (body.run_id) links.push(`<a class="button ghost" href="/ui/agent-runs"><i data-lucide="route"></i> 查看流程 #${body.run_id}</a>`);
-  if (data.profile?.id) links.push(`<a class="button ghost" href="/ui/profiles"><i data-lucide="file-user"></i> 简历 #${data.profile.id}</a>`);
-  if (data.job?.id) links.push(`<a class="button ghost" href="/ui/jobs"><i data-lucide="briefcase-business"></i> 岗位 #${data.job.id}</a>`);
-  if (data.tailor?.resume_version_id) links.push(`<a class="button ghost" href="/ui/resumes"><i data-lucide="file-check-2"></i> 定制简历 #${data.tailor.resume_version_id}</a>`);
-  if (data.application?.application_id) links.push(`<a class="button ghost" href="/ui/applications"><i data-lucide="send"></i> 投递包 #${data.application.application_id}</a>`);
-  if (data.interview_prep?.interview_prep_id) links.push(`<a class="button ghost" href="/ui/prep"><i data-lucide="messages-square"></i> 面试包 #${data.interview_prep.interview_prep_id}</a>`);
-  if (data.matches?.length) links.push(`<a class="button ghost" href="/ui/jobs"><i data-lucide="search"></i> 推荐岗位 ${data.matches.length} 个</a>`);
-  runs.forEach((run) => links.push(`<a class="button ghost" href="/ui/agent-runs"><i data-lucide="route"></i> ${escapeHtml(taskLabel(run.task_type))} #${run.id}</a>`));
+  const seenLinks = new Set();
+  if (body.run_id) pushUniqueAction(links, seenLinks, "agent-runs", packageAction("/ui/agent-runs", "route", "查看流程", packageId));
+  if (data.profile?.id) pushUniqueAction(links, seenLinks, "profiles", packageAction("/ui/profiles", "file-user", "简历档案", packageId));
+  if (data.job?.id) pushUniqueAction(links, seenLinks, "jobs", packageAction("/ui/jobs", "briefcase-business", "目标岗位", packageId));
+  if (data.tailor?.resume_version_id) pushUniqueAction(links, seenLinks, "resumes", packageAction("/ui/resumes", "file-check-2", "定制简历", packageId));
+  if (data.application?.application_id) pushUniqueAction(links, seenLinks, "applications", packageAction("/ui/applications", "send", "投递材料", packageId));
+  if (data.interview_prep?.interview_prep_id) pushUniqueAction(links, seenLinks, "prep", packageAction("/ui/prep", "messages-square", "面试准备", packageId));
+  if (data.matches?.length) {
+    pushUniqueAction(
+      links,
+      seenLinks,
+      "matched-jobs",
+      `<a class="button ghost" href="/ui/jobs"><i data-lucide="search"></i> 推荐岗位 ${data.matches.length} 个 · ${escapeHtml(packageLabel(packageId))}</a>`
+    );
+  }
+  const runActionKeys = {
+    find_jobs_for_profile: "jobs",
+    tailor_resume_for_job: "resumes",
+    quick_apply: "applications",
+    prepare_interview_for_job: "prep",
+    full_career_flow: "agent-runs",
+    natural_language_request: "agent-runs",
+  };
+  runs.forEach((run) => pushUniqueAction(
+    links,
+    seenLinks,
+    runActionKeys[run.task_type] || run.task_type || "agent-runs",
+    `<a class="button ghost" href="/ui/agent-runs"><i data-lucide="route"></i> ${escapeHtml(taskLabel(run.task_type))} · ${escapeHtml(packageLabel(packageId))}</a>`
+  ));
   result.innerHTML = `
     <article class="item flow-result-card">
       <div class="item-title">
-        <span>${escapeHtml(body.user_message || (failed ? "处理失败" : "处理完成"))}</span>
+        <span>${escapeHtml(packageLabel(packageId))}</span>
         <span class="status-pill ${failed ? "risk" : "ok"}">${failed ? "需处理" : "已完成"}</span>
       </div>
-      <div class="meta">需求 Run #${escapeHtml(body.run_id)}${body.repair_attempts?.length ? ` · 自动修复 ${body.repair_attempts.length} 次` : ""}</div>
+      <div class="meta">${escapeHtml(naturalResultSummary(body))}${body.repair_attempts?.length ? ` · 自动修复 ${body.repair_attempts.length} 次` : ""}</div>
       <div class="flow-result-actions">${links.join("")}</div>
     </article>
   `;
+  updateCareerFlowFromNaturalResult(body);
   if (window.lucide) window.lucide.createIcons();
 }
 
+function naturalResultSummary(body) {
+  const data = body.result_json || {};
+  if (body.status === "failed") return body.user_message || "处理失败";
+  const parts = [];
+  if (data.profile?.id) parts.push("简历档案");
+  if (data.job?.id) parts.push("目标岗位");
+  if (data.matches?.length) parts.push(`${data.matches.length} 个推荐岗位`);
+  if (data.tailor?.resume_version_id) parts.push("定制简历");
+  if (data.application?.application_id) parts.push("投递材料");
+  if (data.interview_prep?.interview_prep_id) parts.push("面试准备");
+  if (data.requires_confirmation) parts.push("待确认事项");
+  return parts.length ? `已生成：${parts.join("、")}` : "处理完成";
+}
+
 async function runNaturalLanguageRequest(form) {
-  const result = $("#natural-language-result");
+  resetCareerFlow();
+  setCareerStage("profile", "running", "理解需求");
+  const result = $("#career-flow-result") || $("#natural-language-result");
   const submitButton = form.querySelector("button[type='submit']");
   if (submitButton) submitButton.disabled = true;
   if (result) result.innerHTML = `<article class="item meta">Agent 正在理解需求并执行，复杂任务可能需要几十秒...</article>`;
@@ -1530,20 +1607,6 @@ async function runNaturalLanguageRequest(form) {
   } finally {
     if (submitButton) submitButton.disabled = false;
   }
-}
-
-function fillNaturalDemo(form) {
-  if (!form) return;
-  form.instruction.value = "我想找 Agent 开发实习岗位。请根据下面 JD 帮我生成一份简历档案，并针对这个岗位改简历、生成投递包和面试准备问题。我的项目是 CareerAgent：用 Python、FastAPI、SQLite、RAG、LLM API、Plan-Execute、ReAct repair、Guardrails 和前端页面做了一个真实可用的求职助手。";
-  form.profile_id.value = "";
-  form.job_id.value = "";
-  form.location.value = "深圳";
-  form.jd_text.value = [
-    "岗位：Agent 开发实习生",
-    "职责：参与 Agent workflow、RAG 检索、工具调用、LLM 调用记录、简历定制、投递包和面试准备链路开发。",
-    "要求：熟悉 Python、FastAPI、SQLite、RAG、LLM API、Evaluation、Guardrails、Plan-Execute 和 ReAct repair。"
-  ].join("\n");
-  toast("已填入自然语言示例");
 }
 
 async function loadInterviewExperiences() {
@@ -1937,18 +2000,15 @@ function bindForms() {
     await loadOpsPage();
   });
 
-  $("#natural-language-form")?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    await runNaturalLanguageRequest(event.currentTarget);
-  });
-
-  $("#natural-demo-fill")?.addEventListener("click", () => {
-    fillNaturalDemo($("#natural-language-form"));
-  });
-
   $("#career-start-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    await runCareerStartFlow(event.currentTarget);
+    const form = event.currentTarget;
+    const raw = formJson(form);
+    if (String(raw.instruction || "").trim()) {
+      await runNaturalLanguageRequest(form);
+    } else {
+      await runCareerStartFlow(form);
+    }
   });
 
   $("#career-demo-fill")?.addEventListener("click", () => {

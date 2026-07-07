@@ -572,6 +572,12 @@ button svg,
   flex-wrap: wrap;
   gap: 9px;
   margin-top: 12px;
+  max-width: 100%;
+}
+
+.flow-result-actions .button {
+  max-width: 100%;
+  white-space: normal;
 }
 
 .summary-strip {
@@ -606,9 +612,11 @@ button svg,
   display: grid;
   gap: 12px;
   margin-top: 16px;
+  min-width: 0;
 }
 
 .item {
+  min-width: 0;
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -617,10 +625,16 @@ button svg,
 
 .item-title {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 8px;
   font-weight: 760;
+}
+
+.item-title > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .meta {
@@ -752,6 +766,29 @@ button svg,
   border-left: 3px solid var(--blue);
   background: var(--surface-2);
   color: var(--text);
+}
+
+.application-card {
+  overflow: hidden;
+}
+
+.application-card p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.application-letter,
+.application-card pre {
+  width: 100%;
+  max-width: 100%;
+  max-height: 360px;
+  overflow: auto;
+  padding: 12px;
+  border-radius: 8px;
+  background: #101828;
+  color: #f7f8fb;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .details-block {

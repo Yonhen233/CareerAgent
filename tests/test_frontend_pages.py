@@ -92,20 +92,27 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")
 
     assert response.status_code == 200
-    assert "natural-language-form" in response.text
-    assert "natural-language-result" in response.text
-    assert "让 Agent 自动处理" in response.text
+    assert "告诉 CareerAgent 你的求职目标" in response.text
+    assert "你想让 Agent 做什么" in response.text
+    assert "需求入口" not in response.text
+    assert "一键开始" not in response.text
     assert "career-start-form" in response.text
     assert "career-flow-steps" in response.text
     assert "career-flow-result" in response.text
     assert "name=\"job_id\"" in response.text
     assert "name=\"jd_text\"" in response.text
-    assert "一键运行" in response.text
+    assert "开始处理" in response.text
     assert "控制台" in response.text
     assert ">运维<" not in response.text
     assert "dashboard-ops-summary" not in response.text
     assert "runCareerStartFlow" in main_js
     assert "runNaturalLanguageRequest" in main_js
+    assert "updateCareerFlowFromNaturalResult" in main_js
+    assert "packageLabel" in main_js
+    assert "pushUniqueAction" in main_js
+    assert "runActionKeys" in main_js
+    assert "tailor_resume_for_job: \"resumes\"" in main_js
+    assert "prepare_interview_for_job: \"prep\"" in main_js
     assert "/assistant/natural-language" in main_js
     assert "renderNaturalLanguageResult" in main_js
     assert "createProfileForCareerFlow" in main_js
@@ -122,6 +129,23 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "task_type: \"find_jobs_for_profile\"" in main_js
     assert "flow-stepper" in style_css
     assert "console-entry" in style_css
+
+
+def test_applications_page_uses_package_number_and_constrained_layout():
+    client = TestClient(app)
+    response = client.get("/ui/applications")
+    main_js = Path("app/static/js/main.js").read_text(encoding="utf-8")
+    style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")
+
+    assert response.status_code == 200
+    assert "我的投递材料" in response.text
+    assert "userPackageId(row)" in main_js
+    assert "求职包" in main_js
+    assert "application-card" in main_js
+    assert "application-letter" in main_js
+    assert ".application-card" in style_css
+    assert ".application-letter" in style_css
+    assert "overflow-wrap: anywhere" in style_css
 
 
 def test_resume_pages_expose_html_preview_controls():

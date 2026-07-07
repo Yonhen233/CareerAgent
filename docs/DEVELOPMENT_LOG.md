@@ -1,5 +1,35 @@
 # 开发日志
 
+## 2026-07-07 19:38:43 +08:00：首页入口整合、求职包编号统一与投递页溢出修复
+### 这次做了什么
+- 将首页原本分离的“需求入口”和“一键开始”整合为一个“开始”模块，用户先描述需求，再按需补充简历、岗位、JD 和城市信息。
+- 合并后的首页表单会根据是否填写自然语言需求自动选择自然语言 Agent 或完整求职流程，并统一驱动右侧运行进度。
+- 前端用户侧结果改为使用 `求职包 #run_id` 作为统一编号；简历、岗位、定制简历、投递材料、面试准备都作为同一求职包下的材料入口展示。
+- 投递材料列表改为 `application-card`，长投递信、长链接和按钮都限制在卡片宽度内换行/滚动，避免横向撑出页面。
+- 真实浏览器验证中发现自然语言结果会把主材料入口和子 run 入口重复展示，补充 `pushUniqueAction()` 与子 run 类型映射，用户侧只保留一组材料入口。
+### 发现的问题
+- 首页两个入口的语义重叠，用户不容易判断应该点“让 Agent 自动处理”还是“一键运行”，而且自然语言结果和运行进度没有统一关联。
+- 自然语言/完整流程结果页会同时展示定制简历、投递包、面试包各自的内部 ID，用户视角上像是多个无关联材料。
+- 投递材料页直接渲染长 `cover_letter` 到 `<pre>`，缺少页面级宽度约束，长文本或长 URL 会造成横向溢出。
+- 首次浏览器验证 run #180 时，统一编号已生效，但“定制简历”和“面试准备”按钮各出现两次；根因是 `agent_runs` 子流程链接与主材料链接同时渲染。
+### 怎么修复
+- `app/templates/index.html` 删除独立自然语言模块，把需求描述合入 `career-start-form`，结果统一输出到 `career-flow-result`。
+- `app/static/js/main.js` 增加 `packageLabel()` / `packageAction()` / `updateCareerFlowFromNaturalResult()`，自然语言和完整流程都用 run id 生成统一求职包编号。
+- `renderNaturalLanguageResult()` 增加链接去重：`tailor_resume_for_job` 映射到定制简历入口，`prepare_interview_for_job` 映射到面试准备入口，避免同类材料重复按钮。
+- `loadApplications()` 使用 `userPackageId(row)` 从 idempotency key 中解析流程编号；无法解析时保留材料自身可追踪编号。
+- `app/static/css/style.css` 为 `.result-list`、`.item`、`.item-title`、`.flow-result-actions`、`.application-card` 和 `.application-letter` 增加 `min-width:0`、换行与滚动约束。
+### 验证结果
+- `node --check app\static\js\main.js` 通过。
+- `python -m pytest tests\test_frontend_pages.py -q` 通过，12 个测试全部通过。
+- `python -m pytest -q` 通过，123 个测试全部通过。
+- 内置浏览器打开 `http://127.0.0.1:8045/`，首页只保留一个“开始”模块，旧“需求入口”和“一键开始”文案均未出现，页面横向溢出为 0。
+- 内置浏览器从合并后的首页提交真实自然语言请求，run #183 完成并展示 `求职包 #183`；进度阶段 profile/search/match/tailor/interview 均使用同一编号，未触发投递阶段，结果区无旧内部材料编号，按钮无重复。
+- 内置浏览器打开 `http://127.0.0.1:8045/ui/applications`，22 张投递材料卡片均以 `求职包 #...` 展示，`docOverflow=0`，未发现横向撑出页面的元素。
+### 未修复的问题
+- 后端历史 `user_message` 仍保留旧的内部材料编号；本次在用户侧展示层统一为求职包编号，暂不回写历史 trace。
+### 下一步
+- 后续可继续把历史 trace 的用户摘要做只读展示层脱敏，但不回写历史运行证据。
+
 ## 2026-07-07 19:16:38 +08:00：真实浏览器复测与自然语言产物 ID 补齐
 ### 这次做了什么
 - 保持 Redis、FastAPI 和 worker 真实运行，使用 Codex 内置浏览器打开 `http://127.0.0.1:8042/`，从首页自然语言入口提交真实 LLM 流程。
