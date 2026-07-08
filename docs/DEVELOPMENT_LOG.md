@@ -1,5 +1,42 @@
 # 开发日志
 
+## 2026-07-08 09:39:45 +08:00：首页输入合并、PDF 回填与显式生成项
+### 这次做了什么
+- 首页新增“信息会自动合并”提示，明确 prompt、PDF、已有 Profile ID 和表单字段会共同作为 Agent 输入。
+- 首页新增“生成内容”勾选区，支持用户显式选择简历档案、岗位搜索、定制简历、投递材料和面试准备；不勾选时仍由 Agent 按 prompt 自动判断。
+- PDF 简历选择后会立即调用 `/profiles/upload` 解析，并把解析出的 Profile ID、邮箱、目标岗位、技能和项目经历回填到首页表单。
+- 自然语言请求新增 `profile_context` 和 `selected_actions`，允许“prompt 写一部分、表单填一部分”的混合输入进入后端执行。
+- 自然语言 Agent 收到显式 `selected_actions` 时会优先按用户勾选动作执行；如果用户勾选了岗位搜索和后续材料生成，且没有指定 Job/JD，会先搜索岗位并选择 Top1 继续定制或面试准备。
+- 调整自然语言执行顺序：当同时需要面试包和投递材料时，先生成面试准备，再进入投递确认，避免投递 interrupt 阻塞面试包。
+- 保留安全优先级：如果 prompt 明确“不要投递/不要申请”，即使用户误勾投递材料，后端也会移除 `quick_apply/full_flow` 并改走定制简历或面试准备。
+### 发现的问题
+- 旧首页让用户误以为 prompt 会自动填充下方表单；实际旧逻辑只把 PDF/Profile ID 交给流程，不会把解析结果展示给用户。
+- 旧自然语言请求只传 `instruction/profile_id/job_id/jd_text/query/location`，表单里的姓名、技能、项目等结构化补充不会进入自然语言 Agent。
+- 多选 checkbox 经过 `FormData` 后旧 `formJson()` 只保留最后一个同名字段，无法可靠传递多个生成目标。
+- 使用演示 PDF `demo_resumes/agent_intern_strong_resume.pdf` 真实上传验证时，接口返回 Profile #158，邮箱和目标岗位解析成功，但姓名为 `null`，说明 PDF 解析质量仍受版式/文本抽取影响。
+### 怎么修复
+- `app/templates/index.html` 增加输入合并提示、生成内容勾选区和 PDF 解析状态提示。
+- `app/static/js/main.js` 增加 `parseResumeFileIntoStartForm()`、`populateStartFormFromProfile()`、`profileContextFromStartForm()` 和 `selectedStartActions()`，并让 PDF change 事件即时解析回填。
+- `formJson()` 支持同名字段数组，确保多个 `selected_actions` 能完整提交。
+- `app/models/schemas.py` 为 `NaturalLanguageAgentRequest` 增加 `profile_context` 和 `selected_actions`。
+- `app/agents/natural_language.py` 把表单 profile context 纳入 plan 上下文，并用显式 actions 覆盖 LLM 推断；同时支持“先搜索岗位，再按勾选项继续处理”的组合路径。
+- `app/agents/natural_language.py` 在显式 actions 之后再次应用“不投递”约束，避免勾选项绕过自然语言里的安全边界。
+- `app/templates/base.html` 更新静态资源版本，避免浏览器继续加载旧 JS/CSS。
+### 验证结果
+- `node --check app\static\js\main.js` 通过。
+- `python -m py_compile app\agents\natural_language.py app\models\schemas.py tests\test_natural_language_agent.py tests\test_frontend_pages.py` 通过。
+- `python -m pytest tests\test_frontend_pages.py tests\test_natural_language_agent.py -q` 通过，17 个测试全部通过。
+- `python -m pytest -q` 通过，124 个测试全部通过；补充安全修正后再次全量回归仍为 124 个测试全部通过。
+- 内置浏览器打开 `http://127.0.0.1:8046/`，确认首页有输入合并提示、5 个生成内容勾选项、PDF 自动解析提示、最新静态资源版本，页面横向溢出为 0。
+- 内置浏览器真实点击“定制简历”和“面试准备”勾选项后，提示更新为“将按勾选生成：定制简历、面试准备”，无页面错误，横向溢出为 0。
+- 通过 8046 服务真实上传 `demo_resumes\agent_intern_strong_resume.pdf` 到 `/profiles/upload`，接口创建 Profile #158，证明 PDF 解析链路可用；前端已接入同一接口做回填。
+### 未修复的问题
+- PDF 示例中姓名字段仍可能解析为 `null`；本次先把解析结果透明回填和展示，未继续优化 PDF parser 的姓名抽取规则。
+- 如果用户上传 PDF 后又大幅修改表单，当前仍以解析出的 Profile ID 为主；后续可以增加“保存为新的简历档案”按钮，显式把编辑后的回填表单另存为新版 Profile。
+### 下一步
+- 优化 PDF parser 的中文姓名/联系方式抽取规则，并在回填卡片上标记低置信字段，提示用户检查。
+- 在等待投递确认时，把进度条状态改成“等待确认”，并展示确认后将继续生成哪些材料。
+
 ## 2026-07-07 19:38:43 +08:00：首页入口整合、求职包编号统一与投递页溢出修复
 ### 这次做了什么
 - 将首页原本分离的“需求入口”和“一键开始”整合为一个“开始”模块，用户先描述需求，再按需补充简历、岗位、JD 和城市信息。

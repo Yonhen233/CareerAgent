@@ -164,7 +164,11 @@ function formJson(form) {
   for (const [key, value] of data.entries()) {
     if (typeof File !== "undefined" && value instanceof File) continue;
     if (value === "") continue;
-    obj[key] = value;
+    if (Object.prototype.hasOwnProperty.call(obj, key)) {
+      obj[key] = Array.isArray(obj[key]) ? [...obj[key], value] : [obj[key], value];
+    } else {
+      obj[key] = value;
+    }
   }
   return obj;
 }
@@ -178,6 +182,15 @@ function splitList(value) {
 
 function hasAnyValue(...values) {
   return values.some((value) => String(value || "").trim());
+}
+
+function compactObject(value) {
+  return Object.fromEntries(
+    Object.entries(value || {}).filter(([, item]) => {
+      if (Array.isArray(item)) return item.length > 0;
+      return item !== undefined && item !== null && String(item).trim() !== "";
+    })
+  );
 }
 
 function valueIn(container, name) {
@@ -1233,7 +1246,7 @@ async function createProfileForCareerFlow(form, raw) {
   }
   const file = form.elements.resume_file?.files?.[0];
   if (file) {
-    return await uploadProfileFile(file);
+    return await parseResumeFileIntoStartForm(form, file);
   }
   if (!raw.name) {
     throw new Error("请上传 PDF、填写核心简历信息或输入已有 Profile ID。");
@@ -1247,6 +1260,124 @@ async function uploadProfileFile(file) {
   const response = await fetch("/profiles/upload", { method: "POST", body: data, headers: authHeaders() });
   if (!response.ok) throw new Error(await response.text());
   return response.json();
+}
+
+function selectedStartActions(form) {
+  return Array.from(form?.querySelectorAll('input[name="selected_actions"]:checked') || []).map((input) => input.value);
+}
+
+function startActionLabel(action) {
+  const labels = {
+    create_profile: "简历档案",
+    search_jobs: "岗位搜索",
+    tailor_resume: "定制简历",
+    quick_apply: "投递材料",
+    interview_prep: "面试准备",
+  };
+  return labels[action] || action;
+}
+
+function profileContextFromStartForm(raw) {
+  const targetRoles = splitList(raw.target_roles);
+  const skills = splitList(raw.skills);
+  const projectText = String(raw.project || "").trim();
+  const projectName = projectText.split(/[:：\n]/)[0]?.trim() || "项目经历";
+  return compactObject({
+    name: raw.name,
+    email: raw.email,
+    location: raw.location,
+    headline: targetRoles[0] ? `${targetRoles[0]}候选人` : undefined,
+    target_roles: targetRoles,
+    skills,
+    projects: projectText ? [{
+      name: projectName,
+      description: projectText,
+      tech_stack: skills,
+      impact: "",
+    }] : [],
+  });
+}
+
+function hasProfileContext(context) {
+  return Object.entries(context || {}).some(([key, value]) => {
+    if (key === "projects") return Array.isArray(value) && value.some((item) => hasAnyValue(item.name, item.description));
+    if (Array.isArray(value)) return value.length > 0;
+    return hasAnyValue(value);
+  });
+}
+
+function buildNaturalInstruction(raw, actions) {
+  const text = String(raw.instruction || "").trim();
+  if (text) return text;
+  if (actions.length) {
+    return `请根据我提供的简历和岗位信息完成这些内容：${actions.map(startActionLabel).join("、")}。`;
+  }
+  return "请根据我提供的简历和岗位信息，完成适合当前求职目标的求职流程。";
+}
+
+function projectTextFromProfile(structured) {
+  const projects = structured?.projects || [];
+  return projects.map((project) => {
+    const tech = (project.tech_stack || []).length ? `\n技术栈：${project.tech_stack.join("、")}` : "";
+    const impact = project.impact ? `\n结果：${project.impact}` : "";
+    return `${project.name || "项目"}：${project.description || ""}${tech}${impact}`.trim();
+  }).filter(Boolean).join("\n\n");
+}
+
+function populateStartFormFromProfile(form, profile) {
+  if (!form || !profile) return;
+  const structured = profile.structured_profile_json || {};
+  if (form.profile_id) form.profile_id.value = profile.id || "";
+  if (form.name) form.name.value = profile.name || structured.name || "";
+  if (form.email) form.email.value = profile.email || structured.email || "";
+  if (form.target_roles) form.target_roles.value = (profile.target_roles_json || structured.target_roles || []).join(", ");
+  if (form.skills) form.skills.value = (structured.skills || []).join(", ");
+  if (form.project) form.project.value = projectTextFromProfile(structured);
+  if (form.location && structured.location) form.location.value = structured.location;
+  if (form.query && !form.query.value.trim()) {
+    const roles = profile.target_roles_json || structured.target_roles || [];
+    form.query.value = roles[0] || "Agent 开发实习生";
+  }
+}
+
+function setPdfParseStatus(form, message, kind = "") {
+  const status = form?.querySelector("#pdf-parse-status");
+  if (!status) return;
+  status.textContent = message;
+  status.className = `field-hint ${kind}`.trim();
+}
+
+async function parseResumeFileIntoStartForm(form, file) {
+  if (!file) return null;
+  const signature = `${file.name}:${file.size}:${file.lastModified}`;
+  if (form.dataset.parsedResumeSignature === signature && form.dataset.parsedProfileId) {
+    return api(`/profiles/${form.dataset.parsedProfileId}`);
+  }
+  setPdfParseStatus(form, "正在解析 PDF，并回填表单...", "running");
+  const profile = await uploadProfileFile(file);
+  form.dataset.parsedResumeSignature = signature;
+  form.dataset.parsedProfileId = String(profile.id || "");
+  populateStartFormFromProfile(form, profile);
+  updateStartInputGuidance(form);
+  setPdfParseStatus(form, `PDF 已解析为 Profile #${profile.id}，已回填核心字段。`, "ok");
+  toast(`PDF 已解析为 Profile #${profile.id}`);
+  return profile;
+}
+
+function updateStartInputGuidance(form) {
+  const card = $("#input-guidance");
+  if (!card || !form) return;
+  const raw = formJson(form);
+  const actions = selectedStartActions(form);
+  const context = profileContextFromStartForm(raw);
+  const sources = [];
+  if (String(raw.instruction || "").trim()) sources.push("prompt");
+  if (raw.profile_id) sources.push(`Profile #${raw.profile_id}`);
+  if (form.elements.resume_file?.files?.[0]) sources.push("PDF");
+  if (hasProfileContext(context)) sources.push("表单");
+  const sourceText = sources.length ? `当前会合并：${sources.join("、")}。` : "可以只写 prompt，也可以上传 PDF 或填写表单。";
+  const actionText = actions.length ? `将按勾选生成：${actions.map(startActionLabel).join("、")}。` : "未勾选生成内容时，Agent 会按 prompt 自动判断。";
+  card.innerHTML = `<strong>信息会自动合并</strong><span>${escapeHtml(sourceText)}${escapeHtml(actionText)}PDF 解析后会先回填表单，提交时使用最新字段。</span>`;
 }
 
 function topMatchedJob(run) {
@@ -1576,23 +1707,28 @@ async function runNaturalLanguageRequest(form) {
   if (submitButton) submitButton.disabled = true;
   if (result) result.innerHTML = `<article class="item meta">Agent 正在理解需求并执行，复杂任务可能需要几十秒...</article>`;
   try {
-    const raw = formJson(form);
     const file = form.elements.resume_file?.files?.[0];
+    let raw = formJson(form);
     let profileId = raw.profile_id ? Number(raw.profile_id) : null;
-    if (file) {
-      const profile = await uploadProfileFile(file);
+    if (file && !profileId) {
+      const profile = await parseResumeFileIntoStartForm(form, file);
       profileId = profile.id;
+      raw = formJson(form);
     }
+    const actions = selectedStartActions(form);
+    const profileContext = profileContextFromStartForm(raw);
     const body = await api("/assistant/natural-language", {
       method: "POST",
       body: JSON.stringify({
-        instruction: raw.instruction,
+        instruction: buildNaturalInstruction(raw, actions),
         profile_id: profileId,
         job_id: raw.job_id ? Number(raw.job_id) : null,
+        profile_context: hasProfileContext(profileContext) ? profileContext : null,
+        selected_actions: actions,
         jd_text: raw.jd_text || null,
         location: raw.location || null,
         query: raw.query || "Agent 开发实习生",
-        limit: 8,
+        limit: raw.limit ? Number(raw.limit) : 8,
       }),
     });
     renderNaturalLanguageResult(body);
@@ -2004,7 +2140,7 @@ function bindForms() {
     event.preventDefault();
     const form = event.currentTarget;
     const raw = formJson(form);
-    if (String(raw.instruction || "").trim()) {
+    if (String(raw.instruction || "").trim() || selectedStartActions(form).length) {
       await runNaturalLanguageRequest(form);
     } else {
       await runCareerStartFlow(form);
@@ -2012,8 +2148,32 @@ function bindForms() {
   });
 
   $("#career-demo-fill")?.addEventListener("click", () => {
-    fillCareerDemo($("#career-start-form"));
+    const form = $("#career-start-form");
+    fillCareerDemo(form);
+    updateStartInputGuidance(form);
   });
+
+  const careerStartForm = $("#career-start-form");
+  if (careerStartForm) {
+    updateStartInputGuidance(careerStartForm);
+    careerStartForm.addEventListener("input", () => updateStartInputGuidance(careerStartForm));
+    careerStartForm.addEventListener("change", async (event) => {
+      updateStartInputGuidance(careerStartForm);
+      if (event.target?.name === "resume_file") {
+        const file = event.target.files?.[0];
+        if (!file) {
+          setPdfParseStatus(careerStartForm, "选择 PDF 后会自动解析并回填表单。");
+          return;
+        }
+        try {
+          await parseResumeFileIntoStartForm(careerStartForm, file);
+        } catch (error) {
+          setPdfParseStatus(careerStartForm, `PDF 解析失败：${error.message}`, "risk");
+          toast(error.message);
+        }
+      }
+    });
+  }
 
   const guidedProfileForm = $("#guided-profile-form");
   if (guidedProfileForm) {

@@ -400,6 +400,8 @@ class NaturalLanguageAgentRequest(BaseModel):
     profile_id: int | None = None
     job_id: int | None = None
     resume_version_id: int | None = None
+    profile_context: dict[str, Any] | None = None
+    selected_actions: list[str] = Field(default_factory=list)
     jd_text: str | None = None
     query: str | None = "Agent 开发实习生"
     location: str | None = None

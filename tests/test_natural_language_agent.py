@@ -154,6 +154,103 @@ def test_natural_language_agent_fails_empty_job_search_after_repair(db_session, 
     assert "岗位搜索没有返回可推荐岗位" in run.error_message
 
 
+def test_natural_language_agent_respects_selected_actions_and_profile_context(db_session, monkeypatch):
+    job = Job(
+        source="manual",
+        external_id="selected-actions-job",
+        title="Agent 开发实习生",
+        company="DemoAI",
+        raw_jd_text="负责 Agent workflow、RAG、FastAPI。",
+        structured_jd_json={"required_skills": ["Python", "FastAPI", "RAG"]},
+    )
+    db_session.add(job)
+    db_session.commit()
+    db_session.refresh(job)
+
+    service = NaturalLanguageAgentService()
+    called_tasks = []
+
+    async def fake_plan(db, request):
+        return service._normalize_plan(
+            {
+                "intent": "create_profile",
+                "query": "Agent 开发实习生",
+                "profile": None,
+                "job": None,
+                "needs_profile": False,
+                "needs_job": False,
+                "actions": [],
+                "reason": "LLM 没有推断出后续动作。",
+            },
+            request,
+        )
+
+    async def fake_run(db, request):
+        called_tasks.append(request.task_type)
+        if request.task_type == "find_jobs_for_profile":
+            return SimpleNamespace(
+                id=901,
+                task_type=request.task_type,
+                status="completed",
+                output_json={
+                    "profile_id": request.profile_id,
+                    "query": request.query,
+                    "matches": [{"job_id": job.id, "title": job.title, "company": job.company, "overall_score": 88}],
+                },
+                error_message=None,
+            )
+        if request.task_type == "tailor_resume_for_job":
+            return SimpleNamespace(
+                id=902,
+                task_type=request.task_type,
+                status="completed",
+                output_json={"resume_version_id": 321, "profile_id": request.profile_id, "job_id": request.job_id},
+                error_message=None,
+            )
+        if request.task_type == "prepare_interview_for_job":
+            return SimpleNamespace(
+                id=903,
+                task_type=request.task_type,
+                status="completed",
+                output_json={"interview_prep_id": 654, "profile_id": request.profile_id, "job_id": request.job_id},
+                error_message=None,
+            )
+        raise AssertionError(request.task_type)
+
+    monkeypatch.setattr(service, "_build_plan", fake_plan)
+    monkeypatch.setattr(service.orchestrator, "run", fake_run)
+
+    run = asyncio.run(
+        service.run(
+            db_session,
+            NaturalLanguageAgentRequest(
+                instruction="按我勾选的内容处理。",
+                profile_context={
+                    "name": "李明",
+                    "email": "liming@example.com",
+                    "target_roles": ["Agent 开发实习生"],
+                    "skills": ["Python", "FastAPI", "RAG"],
+                    "projects": [{"name": "CareerAgent", "description": "求职助手 Agent"}],
+                },
+                selected_actions=["create_profile", "search_jobs", "tailor_resume", "interview_prep"],
+                query="Agent 开发实习生",
+            ),
+        )
+    )
+
+    assert run.status == "completed"
+    assert called_tasks == ["find_jobs_for_profile", "tailor_resume_for_job", "prepare_interview_for_job"]
+    assert run.output_json["plan_json"]["actions"] == [
+        "create_profile",
+        "search_jobs",
+        "tailor_resume",
+        "interview_prep",
+    ]
+    assert run.output_json["result_json"]["profile"]["name"] == "李明"
+    assert run.output_json["result_json"]["tailor"]["resume_version_id"] == 321
+    assert run.output_json["result_json"]["interview_prep"]["interview_prep_id"] == 654
+
+
 def test_natural_language_agent_recovers_child_artifact_ids(db_session, monkeypatch):
     profile = Profile(
         name="浏览器回归同学",

@@ -567,6 +567,78 @@ button svg,
   margin-top: 14px;
 }
 
+.guidance-card {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid #c8d8ee;
+  border-radius: 8px;
+  background: #f6f9ff;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.guidance-card strong {
+  color: var(--text);
+}
+
+.generation-picker {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.generation-picker strong {
+  font-size: 13px;
+}
+
+.generation-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.generation-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  font-size: 13px;
+  font-weight: 680;
+}
+
+.generation-options label:has(input:checked) {
+  border-color: #a9d7bc;
+  background: #eefaf3;
+  color: #0f7a4b;
+}
+
+.field-hint {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.field-hint.running {
+  color: var(--blue);
+}
+
+.field-hint.ok {
+  color: var(--green);
+}
+
+.field-hint.risk {
+  color: var(--red);
+}
+
 .flow-result-actions {
   display: flex;
   flex-wrap: wrap;

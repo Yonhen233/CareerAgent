@@ -94,6 +94,11 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert response.status_code == 200
     assert "告诉 CareerAgent 你的求职目标" in response.text
     assert "你想让 Agent 做什么" in response.text
+    assert "信息会自动合并" in response.text
+    assert "生成内容" in response.text
+    assert "选择 PDF 后会自动解析并回填表单" in response.text
+    for action in ["create_profile", "search_jobs", "tailor_resume", "quick_apply", "interview_prep"]:
+        assert f'value="{action}"' in response.text
     assert "需求入口" not in response.text
     assert "一键开始" not in response.text
     assert "career-start-form" in response.text
@@ -109,6 +114,11 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "runNaturalLanguageRequest" in main_js
     assert "updateCareerFlowFromNaturalResult" in main_js
     assert "packageLabel" in main_js
+    assert "parseResumeFileIntoStartForm" in main_js
+    assert "populateStartFormFromProfile" in main_js
+    assert "profileContextFromStartForm" in main_js
+    assert "selected_actions: actions" in main_js
+    assert "profile_context: hasProfileContext(profileContext)" in main_js
     assert "pushUniqueAction" in main_js
     assert "runActionKeys" in main_js
     assert "tailor_resume_for_job: \"resumes\"" in main_js
@@ -128,6 +138,8 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "/matches" in main_js
     assert "task_type: \"find_jobs_for_profile\"" in main_js
     assert "flow-stepper" in style_css
+    assert "generation-picker" in style_css
+    assert "guidance-card" in style_css
     assert "console-entry" in style_css
 
 

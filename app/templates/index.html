@@ -13,8 +13,25 @@
     <form id="career-start-form" class="stack">
       <label class="wide">
         你想让 Agent 做什么
-        <textarea name="instruction" rows="4" placeholder="例如：我想找 Agent 开发实习，把这份简历改得更贴合 JD，并生成投递材料和面试准备。也可以留空，直接用下方信息跑完整流程。"></textarea>
+        <textarea name="instruction" rows="4" placeholder="例如：我想找 Agent 开发实习，把这份简历改得更贴合 JD，并生成投递材料和面试准备。可以只写需求，也可以和下方结构化信息一起使用。"></textarea>
       </label>
+      <div id="input-guidance" class="guidance-card">
+        <strong>信息会自动合并</strong>
+        <span>Prompt 用来表达目标和补充缺失信息；PDF 或表单会作为结构化简历来源。PDF 解析后会先回填表单，方便你检查。</span>
+      </div>
+      <div class="generation-picker" aria-label="选择生成内容">
+        <div>
+          <p class="eyebrow">生成内容</p>
+          <strong>不勾选时由 Agent 按 prompt 判断；勾选后按你的选择执行。</strong>
+        </div>
+        <div class="generation-options">
+          <label><input type="checkbox" name="selected_actions" value="create_profile"> 简历档案</label>
+          <label><input type="checkbox" name="selected_actions" value="search_jobs"> 岗位搜索</label>
+          <label><input type="checkbox" name="selected_actions" value="tailor_resume"> 定制简历</label>
+          <label><input type="checkbox" name="selected_actions" value="quick_apply"> 投递材料</label>
+          <label><input type="checkbox" name="selected_actions" value="interview_prep"> 面试准备</label>
+        </div>
+      </div>
       <div class="form-grid">
         <label>
           已有 Profile ID
@@ -23,6 +40,7 @@
         <label>
           PDF 简历
           <input name="resume_file" type="file" accept="application/pdf">
+          <small id="pdf-parse-status" class="field-hint">选择 PDF 后会自动解析并回填表单。</small>
         </label>
         <label>
           姓名

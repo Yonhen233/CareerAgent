@@ -33,6 +33,15 @@ INTENTS = {
     "full_flow",
 }
 
+ACTIONS = {
+    "create_profile",
+    "search_jobs",
+    "tailor_resume",
+    "quick_apply",
+    "interview_prep",
+    "full_flow",
+}
+
 
 class NaturalLanguageGraphState(TypedDict, total=False):
     request: dict[str, Any]
@@ -405,6 +414,8 @@ resume_version_id={request.resume_version_id}
 query={request.query}
 location={request.location}
 jd_text={request.jd_text or ""}
+selected_actions={request.selected_actions}
+profile_context={json.dumps(request.profile_context or {}, ensure_ascii=False)}
 
 用户需求:
 {request.instruction}
@@ -470,9 +481,9 @@ query={request.query}
         intent = plan["intent"]
         profile = self._resolve_profile(db, request.profile_id)
         if intent == "update_profile":
-            profile = self._create_profile_from_plan(db, plan, base_profile=profile)
-        elif profile is None and plan.get("profile"):
-            profile = self._create_profile_from_plan(db, plan, base_profile=None)
+            profile = self._create_profile_from_plan(db, plan, request=request, base_profile=profile)
+        elif profile is None and (plan.get("profile") or request.profile_context):
+            profile = self._create_profile_from_plan(db, plan, request=request, base_profile=None)
 
         job = self._resolve_job(db, request.job_id)
         if job is None and (request.jd_text or (plan.get("job") or {}).get("jd_text")):
@@ -506,6 +517,32 @@ query={request.query}
             result["matches"] = (run.output_json or {}).get("matches", [])
             self._assert_search_has_matches(run)
             return result
+
+        selected_actions = {self._canonical_action(action) for action in (plan.get("actions") or [])}
+        selected_actions.discard("")
+        downstream_actions = {"tailor_resume", "quick_apply", "interview_prep"}
+        if (
+            "search_jobs" in selected_actions
+            and selected_actions.intersection(downstream_actions)
+            and job is None
+        ):
+            profile = self._require_profile(profile)
+            search_run = await self.orchestrator.run(
+                db,
+                AgentRunRequest(
+                    task_type="find_jobs_for_profile",
+                    profile_id=profile.id,
+                    query=plan.get("query") or request.query,
+                    location=request.location,
+                    limit=request.limit,
+                ),
+            )
+            self._assert_run_completed(search_run, "岗位搜索")
+            result["agent_runs"].append(self._run_payload(search_run))
+            result["matches"] = (search_run.output_json or {}).get("matches", [])
+            self._assert_search_has_matches(search_run)
+            job = self._resolve_job(db, int(result["matches"][0]["job_id"]))
+            result["job"] = self._job_payload(job)
 
         if intent == "full_flow":
             profile = self._require_profile(profile)
@@ -553,7 +590,20 @@ query={request.query}
                 required_key="resume_version_id",
             )
             result["agent_runs"].append(self._run_payload(tailor_run))
-        if intent == "quick_apply":
+        if wants_interview:
+            interview_run = await self.orchestrator.run(
+                db,
+                AgentRunRequest(task_type="prepare_interview_for_job", profile_id=profile.id, job_id=job.id),
+            )
+            self._assert_run_completed(interview_run, "面试准备")
+            result["interview_prep"] = self._completed_run_output(
+                db,
+                interview_run,
+                artifact_type="interview_prep",
+                required_key="interview_prep_id",
+            )
+            result["agent_runs"].append(self._run_payload(interview_run))
+        if intent == "quick_apply" or "quick_apply" in selected_actions:
             apply_run = await self.orchestrator.run(
                 db,
                 AgentRunRequest(
@@ -570,19 +620,6 @@ query={request.query}
                 return result
             self._assert_run_completed(apply_run, "投递包")
             result["application"] = apply_run.output_json
-        if wants_interview:
-            interview_run = await self.orchestrator.run(
-                db,
-                AgentRunRequest(task_type="prepare_interview_for_job", profile_id=profile.id, job_id=job.id),
-            )
-            self._assert_run_completed(interview_run, "面试准备")
-            result["interview_prep"] = self._completed_run_output(
-                db,
-                interview_run,
-                artifact_type="interview_prep",
-                required_key="interview_prep_id",
-            )
-            result["agent_runs"].append(self._run_payload(interview_run))
         return result
 
     def _normalize_plan(self, plan: dict[str, Any], request: NaturalLanguageAgentRequest) -> dict[str, Any]:
@@ -591,6 +628,8 @@ query={request.query}
             intent = self._heuristic_intent(request.instruction)
         if self._forbids_application(request.instruction) and intent in {"quick_apply", "full_flow"}:
             intent = "interview_prep" if self._text_wants_interview(request.instruction) else "tailor_resume"
+        selected_actions = [self._canonical_action(action) for action in request.selected_actions]
+        selected_actions = [action for action in selected_actions if action]
         normalized = {
             "intent": intent,
             "query": plan.get("query") or request.query or "Agent 开发实习生",
@@ -598,15 +637,38 @@ query={request.query}
             "job": plan.get("job") if isinstance(plan.get("job"), dict) else None,
             "needs_profile": bool(plan.get("needs_profile", intent != "create_profile")),
             "needs_job": bool(plan.get("needs_job", intent in {"tailor_resume", "quick_apply", "interview_prep"})),
-            "actions": [str(item) for item in plan.get("actions", []) if str(item).strip()],
+            "actions": [self._canonical_action(item) for item in plan.get("actions", []) if str(item).strip()],
             "reason": str(plan.get("reason") or ""),
         }
+        normalized["actions"] = [action for action in normalized["actions"] if action]
+        if selected_actions:
+            normalized["actions"] = list(dict.fromkeys(selected_actions))
+            normalized["reason"] = (normalized["reason"] + " 显式生成项来自用户勾选。").strip()
+            if "quick_apply" in selected_actions:
+                intent = "quick_apply"
+            elif "interview_prep" in selected_actions:
+                intent = "interview_prep"
+            elif "tailor_resume" in selected_actions:
+                intent = "tailor_resume"
+            elif "search_jobs" in selected_actions:
+                intent = "search_jobs"
+            else:
+                intent = "create_profile"
+            normalized["intent"] = intent
+            normalized["needs_profile"] = any(
+                action in selected_actions for action in ["search_jobs", "tailor_resume", "quick_apply", "interview_prep"]
+            ) or "create_profile" in selected_actions
+            normalized["needs_job"] = any(
+                action in selected_actions for action in ["tailor_resume", "quick_apply", "interview_prep"]
+            )
         if self._forbids_application(request.instruction):
             normalized["actions"] = [
                 action
                 for action in normalized["actions"]
                 if action not in {"quick_apply", "full_flow", "application_packet", "apply", "submit_application"}
             ]
+            if normalized["intent"] in {"quick_apply", "full_flow"}:
+                normalized["intent"] = "interview_prep" if self._text_wants_interview(request.instruction) else "tailor_resume"
             if self._text_wants_tailor(request.instruction) and "tailor_resume" not in normalized["actions"]:
                 normalized["actions"].append("tailor_resume")
             if self._text_wants_interview(request.instruction) and "interview_prep" not in normalized["actions"]:
@@ -614,6 +676,27 @@ query={request.query}
         if request.jd_text:
             normalized["job"] = {**(normalized["job"] or {}), "jd_text": request.jd_text}
         return normalized
+
+    def _canonical_action(self, action: Any) -> str:
+        value = str(action or "").strip()
+        mapping = {
+            "create_profile": "create_profile",
+            "profile": "create_profile",
+            "resume_profile": "create_profile",
+            "search_jobs": "search_jobs",
+            "search_jobs_by_profile": "search_jobs",
+            "find_jobs": "search_jobs",
+            "tailor_resume": "tailor_resume",
+            "resume_tailor": "tailor_resume",
+            "quick_apply": "quick_apply",
+            "application_packet": "quick_apply",
+            "apply": "quick_apply",
+            "interview_prep": "interview_prep",
+            "prepare_interview": "interview_prep",
+            "generate_interview_prep": "interview_prep",
+            "full_flow": "full_flow",
+        }
+        return mapping.get(value, value if value in ACTIONS else "")
 
     def _heuristic_intent(self, instruction: str) -> str:
         text = instruction.lower()
@@ -675,9 +758,12 @@ query={request.query}
         db: Session,
         plan: dict[str, Any],
         *,
+        request: NaturalLanguageAgentRequest | None = None,
         base_profile: Profile | None,
     ) -> Profile:
         profile_data = dict(base_profile.structured_profile_json or {}) if base_profile else {}
+        if request and request.profile_context:
+            profile_data.update(request.profile_context)
         profile_data.update(plan.get("profile") or {})
         if not profile_data.get("name"):
             profile_data["name"] = base_profile.name if base_profile else "候选人"
