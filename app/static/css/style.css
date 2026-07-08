@@ -567,6 +567,12 @@ button svg,
   margin-top: 14px;
 }
 
+.side-stack {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
 .guidance-card {
   display: grid;
   gap: 6px;
@@ -641,6 +647,100 @@ button svg,
 
 .start-profile-link .button {
   width: 100%;
+}
+
+.start-resume-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.selected-profile-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.selected-profile-card > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.selected-profile-card strong,
+.selected-profile-card small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.field-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.resume-upload-inline {
+  min-width: 0;
+}
+
+.start-profile-create {
+  grid-column: 1 / -1;
+}
+
+.profile-picker-dialog {
+  width: min(860px, calc(100vw - 32px));
+  max-height: min(760px, calc(100vh - 32px));
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+}
+
+.profile-picker-dialog::backdrop {
+  background: rgba(15, 23, 42, 0.34);
+}
+
+.dialog-shell {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.18);
+}
+
+.profile-picker-list {
+  display: grid;
+  gap: 10px;
+  max-height: 480px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.profile-picker-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 14px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.profile-picker-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .generation-options label {
@@ -840,6 +940,21 @@ button svg,
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .start-resume-picker,
+  .profile-picker-item {
+    grid-template-columns: 1fr;
+  }
+
+  .selected-profile-card,
+  .profile-picker-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .profile-picker-actions .button {
+    width: 100%;
+  }
+
   .score-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -876,6 +991,10 @@ button svg,
 
 .process-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.process-panel .process-grid {
+  grid-template-columns: 1fr;
 }
 
 .result-list {

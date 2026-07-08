@@ -36,17 +36,22 @@
         </div>
       </div>
       <div class="form-grid">
-        <label>
-          已有简历档案 ID
-          <input name="profile_id" type="number" min="1" placeholder="选择已有 Profile">
-        </label>
-        <label>
-          上传 PDF 自动建档
-          <input name="resume_file" type="file" accept="application/pdf">
-          <small id="pdf-parse-status" class="field-hint">选择 PDF 后会自动解析并建立简历档案。</small>
-        </label>
-        <div class="start-profile-link">
-          <a class="button ghost" href="/ui/profiles"><i data-lucide="file-pen-line"></i> 去简历页手动填写/自然语言建档</a>
+        <div class="start-resume-picker wide">
+          <input name="profile_id" type="hidden">
+          <div class="selected-profile-card" id="selected-profile-card">
+            <div>
+              <span class="field-label">简历档案</span>
+              <strong id="selected-profile-title">尚未选择简历档案</strong>
+              <small id="selected-profile-summary">请选择已有档案，或上传 PDF 自动建档。</small>
+            </div>
+            <button class="button ghost" type="button" id="open-profile-picker"><i data-lucide="folder-search"></i> 选择已有档案</button>
+          </div>
+          <label class="resume-upload-inline">
+            上传 PDF 自动建档
+            <input name="resume_file" type="file" accept="application/pdf">
+            <small id="pdf-parse-status" class="field-hint">选择 PDF 后会自动解析并建立简历档案。</small>
+          </label>
+          <a class="button ghost start-profile-create" href="/ui/profiles"><i data-lucide="file-pen-line"></i> 去简历页手动填写/自然语言建档</a>
         </div>
         <label class="wide">
           岗位搜索词
@@ -81,38 +86,56 @@
     <div id="career-flow-result" class="result-list"></div>
   </div>
 
-  <aside class="panel span-5 flow-panel">
-    <div class="panel-heading compact">
-      <div>
-        <p class="eyebrow">进度</p>
-        <h2>运行进度</h2>
+  <aside class="span-5 side-stack">
+    <section class="panel flow-panel">
+      <div class="panel-heading compact">
+        <div>
+          <p class="eyebrow">进度</p>
+          <h2>运行进度</h2>
+        </div>
       </div>
-    </div>
-    <ol id="career-flow-steps" class="flow-stepper">
-      <li class="flow-step" data-stage="profile"><span>1</span><strong>简历建档</strong><small>等待开始</small></li>
-      <li class="flow-step" data-stage="search"><span>2</span><strong>岗位搜索</strong><small>等待开始</small></li>
-      <li class="flow-step" data-stage="match"><span>3</span><strong>匹配排序</strong><small>等待开始</small></li>
-      <li class="flow-step" data-stage="tailor"><span>4</span><strong>定制简历</strong><small>等待开始</small></li>
-      <li class="flow-step" data-stage="apply"><span>5</span><strong>投递包</strong><small>等待开始</small></li>
-      <li class="flow-step" data-stage="interview"><span>6</span><strong>面试包</strong><small>等待开始</small></li>
-    </ol>
+      <ol id="career-flow-steps" class="flow-stepper">
+        <li class="flow-step" data-stage="profile"><span>1</span><strong>简历建档</strong><small>等待开始</small></li>
+        <li class="flow-step" data-stage="search"><span>2</span><strong>岗位搜索</strong><small>等待开始</small></li>
+        <li class="flow-step" data-stage="match"><span>3</span><strong>匹配排序</strong><small>等待开始</small></li>
+        <li class="flow-step" data-stage="tailor"><span>4</span><strong>定制简历</strong><small>等待开始</small></li>
+        <li class="flow-step" data-stage="apply"><span>5</span><strong>投递包</strong><small>等待开始</small></li>
+        <li class="flow-step" data-stage="interview"><span>6</span><strong>面试包</strong><small>等待开始</small></li>
+      </ol>
+    </section>
+    <section class="panel process-panel">
+      <div class="panel-heading compact">
+        <div>
+          <p class="eyebrow">分步处理</p>
+          <h2>过程页面</h2>
+        </div>
+      </div>
+      <div class="quick-actions process-grid">
+        <a class="action-row" href="/ui/profiles"><i data-lucide="file-up"></i><span>简历建档</span></a>
+        <a class="action-row" href="/ui/jobs"><i data-lucide="search"></i><span>岗位池</span></a>
+        <a class="action-row" href="/ui/agent-runs"><i data-lucide="route"></i><span>流程记录</span></a>
+        <a class="action-row" href="/ui/resumes"><i data-lucide="file-check-2"></i><span>定制简历</span></a>
+        <a class="action-row" href="/ui/applications"><i data-lucide="send"></i><span>投递包</span></a>
+        <a class="action-row" href="/ui/prep"><i data-lucide="messages-square"></i><span>面试包</span></a>
+      </div>
+    </section>
   </aside>
 </section>
 
-<section class="panel">
-  <div class="panel-heading compact">
-    <div>
-      <p class="eyebrow">分步处理</p>
-      <h2>过程页面</h2>
+<dialog id="profile-picker-dialog" class="profile-picker-dialog">
+  <div class="dialog-shell">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">选择简历档案</p>
+        <h2>从已有档案中选择</h2>
+      </div>
+      <button class="ghost compact-button" type="button" data-close-profile-picker><i data-lucide="x"></i> 关闭</button>
     </div>
+    <label class="wide">
+      搜索 ID 或姓名
+      <input id="profile-picker-search" placeholder="例如：159 / 李明 / liming">
+    </label>
+    <div id="profile-picker-list" class="profile-picker-list"></div>
   </div>
-  <div class="quick-actions process-grid">
-    <a class="action-row" href="/ui/profiles"><i data-lucide="file-up"></i><span>简历建档</span></a>
-    <a class="action-row" href="/ui/jobs"><i data-lucide="search"></i><span>岗位池</span></a>
-    <a class="action-row" href="/ui/agent-runs"><i data-lucide="route"></i><span>流程记录</span></a>
-    <a class="action-row" href="/ui/resumes"><i data-lucide="file-check-2"></i><span>定制简历</span></a>
-    <a class="action-row" href="/ui/applications"><i data-lucide="send"></i><span>投递包</span></a>
-    <a class="action-row" href="/ui/prep"><i data-lucide="messages-square"></i><span>面试包</span></a>
-  </div>
-</section>
+</dialog>
 {% endblock %}

@@ -124,6 +124,12 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "流程内容" in response.text
     assert "固定步骤" in response.text
     assert "选择 PDF 后会自动解析并建立简历档案" in response.text
+    assert "profile-picker-dialog" in response.text
+    assert "profile-picker-search" in response.text
+    assert "open-profile-picker" in response.text
+    assert "selected-profile-card" in response.text
+    assert "side-stack" in response.text
+    assert "process-panel" in response.text
     assert "信息会自动合并" not in response.text
     assert 'value="create_profile"' not in response.text
     assert 'value="search_jobs"' not in response.text
@@ -150,9 +156,15 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "packageLabel" in main_js
     assert "parseResumeFileIntoStartForm" in main_js
     assert "populateStartFormFromProfile" in main_js
+    assert "openProfilePicker" in main_js
+    assert "renderProfilePickerList" in main_js
+    assert "selectProfileFromPicker" in main_js
+    assert "profileSummaryText" in main_js
+    assert "data-select-profile" in main_js
     assert "profileContextFromStartForm" in main_js
     assert 'const required = ["create_profile", "search_jobs"]' in main_js
     assert "固定完成简历档案、岗位搜索和匹配排序" in main_js
+    assert "optionalStartActions(form).length" in main_js
     assert "selected_actions: actions" in main_js
     assert "profile_context: null" in main_js
     assert "pushUniqueAction" in main_js
@@ -177,6 +189,9 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "generation-picker" in style_css
     assert "guidance-card" in style_css
     assert "fixed-flow-steps" in style_css
+    assert "start-resume-picker" in style_css
+    assert "profile-picker-dialog" in style_css
+    assert ".process-panel .process-grid" in style_css
     assert "grid-template-columns: repeat(3" in style_css
     assert "accent-color: var(--green)" in style_css
     assert "white-space: nowrap" in style_css

@@ -1,6 +1,7 @@
 const $ = (selector) => document.querySelector(selector);
 const ADMIN_TOKEN_KEY = "careeragent.admin_token";
 let activeRunEventSource = null;
+let profilePickerRows = [];
 
 function toast(message) {
   const el = $("#toast");
@@ -342,6 +343,112 @@ async function loadProfiles() {
       <div id="profile-review-${row.id}" class="resume-review-slot"></div>
     </article>
   `);
+}
+
+function profileSummaryText(profile) {
+  const structured = profile?.structured_profile_json || {};
+  const roles = profile?.target_roles_json || structured.target_roles || [];
+  const roleText = roles.length ? roles.slice(0, 2).join("、") : profile?.headline || structured.headline || "未填写求职意向";
+  const skillCount = (structured.skills || []).length;
+  return `${roleText}${skillCount ? ` · ${skillCount} 个技能` : ""}`;
+}
+
+function updateSelectedProfileCard(profile) {
+  const title = $("#selected-profile-title");
+  const summary = $("#selected-profile-summary");
+  const form = $("#career-start-form");
+  if (!title || !summary || !form) return;
+  if (!profile) {
+    title.textContent = "尚未选择简历档案";
+    summary.textContent = "请选择已有档案，或上传 PDF 自动建档。";
+    if (form.profile_id) form.profile_id.value = "";
+    updateStartInputGuidance(form);
+    return;
+  }
+  const structured = profile.structured_profile_json || {};
+  title.textContent = `#${profile.id} ${profile.name || structured.name || "未命名简历"}`;
+  summary.textContent = profileSummaryText(profile);
+  if (form.profile_id) form.profile_id.value = profile.id || "";
+  if (form.query && !form.query.value.trim()) {
+    const roles = profile.target_roles_json || structured.target_roles || [];
+    form.query.value = roles[0] || "Agent 开发实习生";
+  }
+  if (form.location && structured.location && !form.location.value.trim()) {
+    form.location.value = structured.location;
+  }
+  updateStartInputGuidance(form);
+}
+
+async function openProfilePicker() {
+  const dialog = $("#profile-picker-dialog");
+  if (!dialog) return;
+  if (!profilePickerRows.length) {
+    profilePickerRows = await api("/profiles");
+  }
+  renderProfilePickerList();
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "open");
+  $("#profile-picker-search")?.focus();
+}
+
+function closeProfilePicker() {
+  const dialog = $("#profile-picker-dialog");
+  if (!dialog) return;
+  if (typeof dialog.close === "function") dialog.close();
+  else dialog.removeAttribute("open");
+}
+
+function renderProfilePickerList() {
+  const el = $("#profile-picker-list");
+  if (!el) return;
+  const keyword = String($("#profile-picker-search")?.value || "").trim().toLowerCase();
+  const rows = profilePickerRows.filter((profile) => {
+    const structured = profile.structured_profile_json || {};
+    const haystack = [
+      profile.id,
+      profile.name,
+      structured.name,
+      profile.email,
+      structured.email,
+      profile.headline,
+      structured.headline,
+      ...(profile.target_roles_json || structured.target_roles || []),
+    ].join(" ").toLowerCase();
+    return !keyword || haystack.includes(keyword);
+  });
+  if (!rows.length) {
+    el.innerHTML = `<article class="item meta">没有匹配的简历档案</article>`;
+    return;
+  }
+  el.innerHTML = rows.slice(0, 60).map((profile) => {
+    const structured = profile.structured_profile_json || {};
+    const skills = (structured.skills || []).slice(0, 6);
+    return `
+      <article class="profile-picker-item">
+        <div>
+          <div class="item-title">
+            <span>#${profile.id} ${escapeHtml(profile.name || structured.name || "未命名简历")}</span>
+            <span class="meta">${profile.source_type === "pdf" ? "PDF 上传" : "手动/自然语言"}</span>
+          </div>
+          <div class="meta">${escapeHtml(profileSummaryText(profile))}</div>
+          ${skills.length ? tags(skills) : ""}
+        </div>
+        <div class="profile-picker-actions">
+          <button class="button primary" type="button" data-select-profile="${profile.id}"><i data-lucide="check"></i> 选择</button>
+          <a class="button ghost" href="/profiles/${profile.id}/html" target="_blank"><i data-lucide="eye"></i> 详情</a>
+        </div>
+      </article>
+    `;
+  }).join("");
+  if (window.lucide) window.lucide.createIcons();
+}
+
+function selectProfileFromPicker(profileId) {
+  const profile = profilePickerRows.find((item) => Number(item.id) === Number(profileId));
+  if (!profile) return;
+  updateSelectedProfileCard(profile);
+  closeProfilePicker();
+  toast(`已选择简历档案 #${profile.id}`);
 }
 
 async function reviewProfile(profileId) {
@@ -1448,6 +1555,7 @@ function populateStartFormFromProfile(form, profile) {
     const roles = profile.target_roles_json || structured.target_roles || [];
     form.query.value = roles[0] || "Agent 开发实习生";
   }
+  updateSelectedProfileCard(profile);
 }
 
 function setPdfParseStatus(form, message, kind = "") {
@@ -1467,6 +1575,7 @@ async function parseResumeFileIntoStartForm(form, file) {
   const profile = await uploadProfileFile(file);
   form.dataset.parsedResumeSignature = signature;
   form.dataset.parsedProfileId = String(profile.id || "");
+  profilePickerRows = [profile, ...profilePickerRows.filter((item) => Number(item.id) !== Number(profile.id))];
   populateStartFormFromProfile(form, profile);
   updateStartInputGuidance(form);
   setPdfParseStatus(form, `PDF 已解析为 Profile #${profile.id}，后续流程会使用该档案。`, "ok");
@@ -2245,7 +2354,7 @@ function bindForms() {
     event.preventDefault();
     const form = event.currentTarget;
     const raw = formJson(form);
-    if (String(raw.instruction || "").trim() || selectedStartActions(form).length) {
+    if (String(raw.instruction || "").trim() || optionalStartActions(form).length) {
       await runNaturalLanguageRequest(form);
     } else {
       await runCareerStartFlow(form);
@@ -2255,12 +2364,14 @@ function bindForms() {
   $("#career-demo-fill")?.addEventListener("click", () => {
     const form = $("#career-start-form");
     fillCareerDemo(form);
+    updateSelectedProfileCard(null);
     updateStartInputGuidance(form);
   });
 
   const careerStartForm = $("#career-start-form");
   if (careerStartForm) {
     updateStartInputGuidance(careerStartForm);
+    updateSelectedProfileCard(null);
     careerStartForm.addEventListener("input", () => updateStartInputGuidance(careerStartForm));
     careerStartForm.addEventListener("change", async (event) => {
       updateStartInputGuidance(careerStartForm);
@@ -2279,6 +2390,14 @@ function bindForms() {
       }
     });
   }
+
+  $("#open-profile-picker")?.addEventListener("click", () => {
+    openProfilePicker().catch((error) => toast(error.message));
+  });
+  $("#profile-picker-search")?.addEventListener("input", renderProfilePickerList);
+  document.querySelectorAll("[data-close-profile-picker]").forEach((button) => {
+    button.addEventListener("click", closeProfilePicker);
+  });
 
   $("#natural-profile-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -2642,6 +2761,10 @@ function bindForms() {
         .finally(() => {
           reviewButton.disabled = false;
         });
+    }
+    const selectProfileButton = event.target.closest("[data-select-profile]");
+    if (selectProfileButton) {
+      selectProfileFromPicker(selectProfileButton.dataset.selectProfile);
     }
     const qualityButton = event.target.closest("[data-quality-jump]");
     if (qualityButton) focusInterviewQuestion(qualityButton);
