@@ -5,14 +5,61 @@
       <div>
       <p class="eyebrow">简历定制</p>
       <h1>为目标岗位改简历</h1>
+      <p class="meta">先选择简历档案和目标岗位；系统会先做岗位针对性评分，再生成定制简历。评分、问题和修改建议只显示在页面上，不写入简历正文。</p>
       </div>
     <button class="ghost" data-refresh="resumes"><i data-lucide="refresh-cw"></i> 刷新</button>
   </div>
-  <form id="tailor-form" class="form-grid">
-    <label>简历档案 ID<input name="profile_id" type="number" min="1" required></label>
-    <label>岗位 ID<input name="job_id" type="number" min="1" required></label>
+  <form id="tailor-form" class="tailor-picker-grid">
+    <input name="profile_id" type="hidden" required>
+    <input name="job_id" type="hidden" required>
+    <div class="tailor-select-card" id="tailor-profile-card">
+      <div>
+        <p class="eyebrow">简历档案</p>
+        <strong id="tailor-profile-title">尚未选择简历</strong>
+        <small id="tailor-profile-summary">选择用于定制的简历档案。</small>
+      </div>
+      <button class="button ghost" type="button" id="open-tailor-profile-picker"><i data-lucide="folder-search"></i> 选择简历</button>
+    </div>
+    <div class="tailor-select-card" id="tailor-job-card">
+      <div>
+        <p class="eyebrow">目标岗位</p>
+        <strong id="tailor-job-title">尚未选择岗位</strong>
+        <small id="tailor-job-summary">选择岗位池中的 JD，用于评分和定制。</small>
+      </div>
+      <button class="button ghost" type="button" id="open-tailor-job-picker"><i data-lucide="briefcase-business"></i> 选择岗位</button>
+    </div>
     <button class="primary" type="submit"><i data-lucide="file-pen-line"></i> 生成定制简历</button>
   </form>
+  <div id="tailor-review-result" class="result-list compact-result"></div>
+  <div id="tailor-submit-result" class="result-list compact-result"></div>
 </section>
 <section id="resumes-list" class="resume-grid"></section>
+
+<dialog id="tailor-profile-picker-dialog" class="profile-picker-dialog">
+  <div class="dialog-shell">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">选择简历</p>
+        <h2>选择用于定制的简历档案</h2>
+      </div>
+      <button class="ghost" type="button" data-close-tailor-profile-picker><i data-lucide="x"></i> 关闭</button>
+    </div>
+    <input id="tailor-profile-picker-search" placeholder="按 ID、姓名、目标岗位搜索">
+    <div id="tailor-profile-picker-list" class="profile-picker-list"></div>
+  </div>
+</dialog>
+
+<dialog id="tailor-job-picker-dialog" class="profile-picker-dialog">
+  <div class="dialog-shell">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">选择岗位</p>
+        <h2>选择目标 JD</h2>
+      </div>
+      <button class="ghost" type="button" data-close-tailor-job-picker><i data-lucide="x"></i> 关闭</button>
+    </div>
+    <input id="tailor-job-picker-search" placeholder="按 ID、标题、公司、技能搜索">
+    <div id="tailor-job-picker-list" class="profile-picker-list"></div>
+  </div>
+</dialog>
 {% endblock %}

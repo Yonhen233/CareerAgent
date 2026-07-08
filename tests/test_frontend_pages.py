@@ -234,6 +234,7 @@ def test_profiles_entry_panels_are_user_facing_and_aligned():
 def test_jobs_page_entry_panels_are_aligned():
     client = TestClient(app)
     response = client.get("/ui/jobs")
+    main_js = Path("app/static/js/main.js").read_text(encoding="utf-8")
     style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")
 
     assert response.status_code == 200
@@ -244,6 +245,8 @@ def test_jobs_page_entry_panels_are_aligned():
     assert "job-entry-grid" in style_css
     assert "job-entry-panel" in style_css
     assert "job-entry-form button" in style_css
+    assert "/jobs/${row.id}/html" in main_js
+    assert "预览 JD" in main_js
     assert ".notice:empty" in style_css
     assert "margin-top: auto" in style_css
 
@@ -266,16 +269,32 @@ def test_applications_page_uses_package_number_and_constrained_layout():
 
 
 def test_resume_pages_expose_html_preview_controls():
+    client = TestClient(app)
+    response = client.get("/ui/resumes")
     main_js = Path("app/static/js/main.js").read_text(encoding="utf-8")
     style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")
 
+    assert response.status_code == 200
+    assert "tailor-picker-grid" in response.text
+    assert "tailor-profile-picker-dialog" in response.text
+    assert "tailor-job-picker-dialog" in response.text
+    assert "tailor-review-result" in response.text
+    assert "评分、问题和修改建议只显示在页面上，不写入简历正文" in response.text
     assert "/profiles/${row.id}/html" in main_js
     assert "预览简历" in main_js
     assert "/resumes/${row.id}/html" in main_js
     assert "resume-preview-frame" in main_js
     assert "打开 HTML 预览" in main_js
     assert "下载 Markdown" in main_js
+    assert "openTailorProfilePicker" in main_js
+    assert "openTailorJobPicker" in main_js
+    assert "renderTailoredResumeDiagnostics" in main_js
+    assert "tailor-review-result" in main_js
+    assert "/profiles/${profileId}/review" in main_js
     assert "resume-preview-frame" in style_css
+    assert "tailor-picker-grid" in style_css
+    assert "tailor-select-card" in style_css
+    assert "tailor-diagnostics" in style_css
 
 
 def test_agent_runs_page_exposes_langgraph_event_timeline():
@@ -292,8 +311,12 @@ def test_agent_runs_page_exposes_langgraph_event_timeline():
     assert "run-history-grid" in style_css
     assert "我的求职流程" not in response.text
     assert "agent-run-form" not in response.text
+    assert "run-confirmation" in response.text
     assert "run-events" in response.text
     assert "事件流" in response.text
+    assert "renderRunConfirmation" in main_js
+    assert "await loadRunSteps(rows[0].id)" in main_js
+    assert "高风险动作的确认点" in main_js
     assert "loadRunEvents" in main_js
     assert "subscribeAgentRunEvents" in main_js
     assert "event-timeline" in style_css

@@ -2,6 +2,7 @@ const $ = (selector) => document.querySelector(selector);
 const ADMIN_TOKEN_KEY = "careeragent.admin_token";
 let activeRunEventSource = null;
 let profilePickerRows = [];
+let jobPickerRows = [];
 
 function toast(message) {
   const el = $("#toast");
@@ -592,15 +593,161 @@ async function loadJobs() {
       <div class="item-title"><span>#${row.id} ${escapeHtml(row.title)}</span><span class="meta">${escapeHtml(row.company || "未知公司")}</span></div>
       <div class="meta">${escapeHtml(row.company || "")} ${escapeHtml(row.location || "")}</div>
       ${tags(row.structured_jd_json.required_skills || row.structured_jd_json.keywords || [])}
-      ${row.apply_url ? `<p><a class="button ghost" href="${escapeHtml(row.apply_url)}" target="_blank"><i data-lucide="external-link"></i> 打开投递页</a></p>` : ""}
+      <div class="flow-result-actions">
+        <a class="button ghost" href="/jobs/${row.id}/html" target="_blank"><i data-lucide="eye"></i> 预览 JD</a>
+        ${row.apply_url ? `<a class="button ghost" href="${escapeHtml(row.apply_url)}" target="_blank"><i data-lucide="external-link"></i> 打开投递页</a>` : ""}
+      </div>
     </article>
   `);
+}
+
+function jobSummaryText(job) {
+  const structured = job?.structured_jd_json || {};
+  const skills = structured.required_skills || structured.keywords || [];
+  const location = job?.location ? ` · ${job.location}` : "";
+  return `${job?.company || "未知公司"}${location}${skills.length ? ` · ${skills.slice(0, 3).join("、")}` : ""}`;
+}
+
+function updateTailorProfileCard(profile) {
+  const form = $("#tailor-form");
+  const title = $("#tailor-profile-title");
+  const summary = $("#tailor-profile-summary");
+  const card = $("#tailor-profile-card");
+  if (!form || !title || !summary || !card) return;
+  if (!profile) {
+    form.profile_id.value = "";
+    title.textContent = "尚未选择简历";
+    summary.textContent = "选择用于定制的简历档案。";
+    card.classList.remove("is-selected");
+    return;
+  }
+  const structured = profile.structured_profile_json || {};
+  form.profile_id.value = profile.id || "";
+  title.textContent = `#${profile.id} ${profile.name || structured.name || "未命名简历"}`;
+  summary.textContent = profileSummaryText(profile);
+  card.classList.add("is-selected");
+}
+
+function updateTailorJobCard(job) {
+  const form = $("#tailor-form");
+  const title = $("#tailor-job-title");
+  const summary = $("#tailor-job-summary");
+  const card = $("#tailor-job-card");
+  if (!form || !title || !summary || !card) return;
+  if (!job) {
+    form.job_id.value = "";
+    title.textContent = "尚未选择岗位";
+    summary.textContent = "选择岗位池中的 JD，用于评分和定制。";
+    card.classList.remove("is-selected");
+    return;
+  }
+  form.job_id.value = job.id || "";
+  title.textContent = `#${job.id} ${job.title || "未命名岗位"}`;
+  summary.textContent = jobSummaryText(job);
+  card.classList.add("is-selected");
+}
+
+function closeDialog(selector) {
+  const dialog = $(selector);
+  if (!dialog) return;
+  if (typeof dialog.close === "function") dialog.close();
+  else dialog.removeAttribute("open");
+}
+
+function openDialog(selector) {
+  const dialog = $(selector);
+  if (!dialog) return;
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "open");
+}
+
+async function openTailorProfilePicker() {
+  if (!profilePickerRows.length) profilePickerRows = await api("/profiles");
+  renderTailorProfilePickerList();
+  openDialog("#tailor-profile-picker-dialog");
+  $("#tailor-profile-picker-search")?.focus();
+}
+
+async function openTailorJobPicker() {
+  if (!jobPickerRows.length) jobPickerRows = await api("/jobs");
+  renderTailorJobPickerList();
+  openDialog("#tailor-job-picker-dialog");
+  $("#tailor-job-picker-search")?.focus();
+}
+
+function renderTailorProfilePickerList() {
+  const el = $("#tailor-profile-picker-list");
+  if (!el) return;
+  const keyword = String($("#tailor-profile-picker-search")?.value || "").trim().toLowerCase();
+  const rows = profilePickerRows.filter((profile) => {
+    const structured = profile.structured_profile_json || {};
+    const haystack = [profile.id, profile.name, structured.name, profile.email, structured.email, profile.headline, ...(profile.target_roles_json || structured.target_roles || [])]
+      .join(" ")
+      .toLowerCase();
+    return !keyword || haystack.includes(keyword);
+  });
+  if (!rows.length) {
+    el.innerHTML = `<article class="item meta">没有匹配的简历档案</article>`;
+    return;
+  }
+  el.innerHTML = rows.slice(0, 60).map((profile) => {
+    const structured = profile.structured_profile_json || {};
+    const skills = (structured.skills || []).slice(0, 6);
+    return `
+      <article class="profile-picker-item">
+        <div>
+          <div class="item-title"><span>#${profile.id} ${escapeHtml(profile.name || structured.name || "未命名简历")}</span><span class="meta">${profile.source_type === "pdf" ? "PDF 上传" : "手动/自然语言"}</span></div>
+          <div class="meta">${escapeHtml(profileSummaryText(profile))}</div>
+          ${skills.length ? tags(skills) : ""}
+        </div>
+        <div class="profile-picker-actions">
+          <button class="button primary" type="button" data-select-tailor-profile="${profile.id}"><i data-lucide="check"></i> 选择</button>
+          <a class="button ghost" href="/profiles/${profile.id}/html" target="_blank"><i data-lucide="eye"></i> 预览</a>
+        </div>
+      </article>
+    `;
+  }).join("");
+  if (window.lucide) window.lucide.createIcons();
+}
+
+function renderTailorJobPickerList() {
+  const el = $("#tailor-job-picker-list");
+  if (!el) return;
+  const keyword = String($("#tailor-job-picker-search")?.value || "").trim().toLowerCase();
+  const rows = jobPickerRows.filter((job) => {
+    const structured = job.structured_jd_json || {};
+    const haystack = [job.id, job.title, job.company, job.location, ...(structured.required_skills || []), ...(structured.keywords || [])]
+      .join(" ")
+      .toLowerCase();
+    return !keyword || haystack.includes(keyword);
+  });
+  if (!rows.length) {
+    el.innerHTML = `<article class="item meta">没有匹配的岗位</article>`;
+    return;
+  }
+  el.innerHTML = rows.slice(0, 80).map((job) => {
+    const structured = job.structured_jd_json || {};
+    return `
+      <article class="profile-picker-item">
+        <div>
+          <div class="item-title"><span>#${job.id} ${escapeHtml(job.title || "未命名岗位")}</span><span class="meta">${escapeHtml(job.company || "未知公司")}</span></div>
+          <div class="meta">${escapeHtml(jobSummaryText(job))}</div>
+          ${tags(structured.required_skills || structured.keywords || [])}
+        </div>
+        <div class="profile-picker-actions">
+          <button class="button primary" type="button" data-select-tailor-job="${job.id}"><i data-lucide="check"></i> 选择</button>
+          <a class="button ghost" href="/jobs/${job.id}/html" target="_blank"><i data-lucide="eye"></i> 预览 JD</a>
+        </div>
+      </article>
+    `;
+  }).join("");
+  if (window.lucide) window.lucide.createIcons();
 }
 
 async function loadRuns(target = "#runs-list") {
   const rows = await api("/agent/runs");
   renderItems(target, rows, (row) => `
-    <article class="item">
+    <article class="item" data-run-card="${row.id}">
       <div class="item-title">
         <button class="ghost" data-run-id="${row.id}">#${row.id} ${escapeHtml(taskLabel(row.task_type))}</button>
         <span class="status-pill ${row.status === "completed" ? "ok" : row.status === "failed" ? "risk" : ""}">${row.status === "completed" ? "已完成" : row.status === "failed" ? "失败" : escapeHtml(row.status)}</span>
@@ -612,19 +759,9 @@ async function loadRuns(target = "#runs-list") {
   document.querySelectorAll("[data-run-id]").forEach((button) => {
     button.addEventListener("click", () => loadRunSteps(button.dataset.runId));
   });
-  document.querySelectorAll("[data-resume-run-id]").forEach((button) => {
-    button.addEventListener("click", async () => {
-      const runId = button.dataset.resumeRunId;
-      const resumed = await resumeAgentRun(runId, {
-        confirmed: true,
-        note: "用户在历史记录页面确认继续生成投递包。",
-        resume_json: { source: "agent_runs_page" },
-      });
-      toast(resumed.status === "completed" ? "已确认并继续完成" : `当前状态：${resumed.status}`);
-      loadRuns(target);
-      loadRunSteps(runId);
-    });
-  });
+  if (target === "#runs-list" && rows.length) {
+    await loadRunSteps(rows[0].id);
+  }
 }
 
 function renderRunOutcomeLinks(row) {
@@ -643,6 +780,11 @@ function renderRunOutcomeLinks(row) {
 }
 
 async function loadRunSteps(runId) {
+  const run = await api(`/agent/runs/${runId}`);
+  document.querySelectorAll("[data-run-card]").forEach((card) => {
+    card.classList.toggle("is-selected", Number(card.dataset.runCard) === Number(runId));
+  });
+  renderRunConfirmation(run);
   const rows = await api(`/agent/runs/${runId}/steps`);
   renderItems("#run-steps", rows, (row) => `
     <article class="item">
@@ -652,6 +794,35 @@ async function loadRunSteps(runId) {
   `);
   await loadRunEvents(runId);
   subscribeAgentRunEvents(runId);
+}
+
+function renderRunConfirmation(run) {
+  const el = $("#run-confirmation");
+  if (!el) return;
+  const output = run.output_json || {};
+  const needsConfirmation = run.status === "waiting_for_confirmation" || output.requires_confirmation;
+  if (!needsConfirmation) {
+    el.innerHTML = `
+      <article class="item meta">
+        <strong>无待确认事项</strong>
+        <p>当前运行不需要人工确认。只有投递包、浏览器填写、邮件草稿/发送等高风险动作，才会在这里要求你确认。</p>
+      </article>
+    `;
+    return;
+  }
+  el.innerHTML = `
+    <article class="item validation-risk">
+      <div class="item-title">
+        <span>待确认事项</span>
+        <span class="status-pill risk">人工确认</span>
+      </div>
+      <p class="meta">这是高风险动作的确认点，不是普通历史操作。当前 run 准备生成或继续投递相关材料，需要你确认后才会继续执行。</p>
+      <div class="flow-result-actions">
+        <button class="button primary" data-resume-run-id="${run.id}" type="button"><i data-lucide="check-circle-2"></i> 确认继续</button>
+      </div>
+    </article>
+  `;
+  if (window.lucide) window.lucide.createIcons();
 }
 
 function eventLabel(eventType, nodeName = "") {
@@ -803,9 +974,29 @@ async function loadResumes() {
         <a class="button ghost" href="/resumes/${row.id}/html" target="_blank"><i data-lucide="eye"></i> 打开 HTML 预览</a>
         <a class="button ghost" href="/resumes/${row.id}/markdown"><i data-lucide="download"></i> 下载 Markdown</a>
       </div>
+      ${renderTailoredResumeDiagnostics(row)}
     </article>
   `).join("");
   if (window.lucide) window.lucide.createIcons();
+}
+
+function renderTailoredResumeDiagnostics(row) {
+  const changes = row.change_summary_json || [];
+  const keywords = row.keyword_alignment_json || {};
+  const evidence = row.source_evidence_json || [];
+  const verification = row.verification_json || {};
+  return `
+    <details class="tailor-diagnostics">
+      <summary>查看检查、修改说明和证据</summary>
+      <div class="review-block">
+        <h3>事实检查</h3>
+        <p>${verification.passed ? "事实边界检查通过。" : "存在需要人工检查的风险。"}${verification.risk_level ? ` 风险：${escapeHtml(verification.risk_level)}` : ""}</p>
+      </div>
+      ${changes.length ? `<div class="review-block"><h3>修改说明</h3><ul>${changes.map((item) => `<li><strong>${escapeHtml(item.section || "简历")}</strong>：${escapeHtml(item.change || item.reason || JSON.stringify(item))}</li>`).join("")}</ul></div>` : ""}
+      ${Object.keys(keywords).length ? `<div class="review-block"><h3>关键词对齐</h3><pre>${escapeHtml(JSON.stringify(keywords, null, 2))}</pre></div>` : ""}
+      ${evidence.length ? `<div class="review-block"><h3>证据来源</h3><ul>${evidence.slice(0, 8).map((item) => `<li>${escapeHtml(item.text || item.snippet || JSON.stringify(item))}</li>`).join("")}</ul></div>` : ""}
+    </details>
+  `;
 }
 
 async function loadApplications() {
@@ -2572,13 +2763,59 @@ function bindForms() {
 
   $("#tailor-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const raw = formJson(event.currentTarget);
-    await api("/resumes/tailor", {
+    const form = event.currentTarget;
+    const raw = formJson(form);
+    const profileId = Number(raw.profile_id || 0);
+    const jobId = Number(raw.job_id || 0);
+    if (!profileId || !jobId) {
+      throw new Error("请先选择简历档案和目标岗位。");
+    }
+    const reviewSlot = $("#tailor-review-result");
+    const submitSlot = $("#tailor-submit-result");
+    if (reviewSlot) reviewSlot.innerHTML = `<article class="item meta">正在做岗位针对性评分，评分和修改建议会单独显示，不会写入简历正文...</article>`;
+    const review = await api(`/profiles/${profileId}/review`, {
       method: "POST",
-      body: JSON.stringify({ profile_id: Number(raw.profile_id), job_id: Number(raw.job_id) }),
+      body: JSON.stringify({ job_id: jobId, include_llm: true }),
     });
-    toast("Resume tailored");
+    if (reviewSlot) {
+      reviewSlot.innerHTML = renderResumeReview(review);
+      if (window.lucide) window.lucide.createIcons();
+    }
+    if (submitSlot) submitSlot.innerHTML = `<article class="item meta">评分完成，正在生成定制简历...</article>`;
+    const version = await api("/resumes/tailor", {
+      method: "POST",
+      body: JSON.stringify({ profile_id: profileId, job_id: jobId }),
+    });
+    if (submitSlot) {
+      submitSlot.innerHTML = `
+        <article class="item validation-ok">
+          <div class="item-title"><span>定制简历 #${version.id}</span><span class="status-pill ${version.verification_json?.passed ? "ok" : "risk"}">${version.verification_json?.passed ? "事实检查通过" : "需检查"}</span></div>
+          <p class="meta">评分、主要问题和修改建议已在上方单独展示；简历预览只包含可投递正文。</p>
+          <div class="flow-result-actions">
+            <a class="button ghost" href="/resumes/${version.id}/html" target="_blank"><i data-lucide="eye"></i> 打开 HTML 预览</a>
+            <a class="button ghost" href="/resumes/${version.id}/markdown"><i data-lucide="download"></i> 下载 Markdown</a>
+          </div>
+        </article>
+      `;
+      if (window.lucide) window.lucide.createIcons();
+    }
+    toast("定制简历已生成");
     loadResumes();
+  });
+
+  $("#open-tailor-profile-picker")?.addEventListener("click", () => {
+    openTailorProfilePicker().catch((error) => toast(error.message));
+  });
+  $("#open-tailor-job-picker")?.addEventListener("click", () => {
+    openTailorJobPicker().catch((error) => toast(error.message));
+  });
+  $("#tailor-profile-picker-search")?.addEventListener("input", renderTailorProfilePickerList);
+  $("#tailor-job-picker-search")?.addEventListener("input", renderTailorJobPickerList);
+  document.querySelectorAll("[data-close-tailor-profile-picker]").forEach((button) => {
+    button.addEventListener("click", () => closeDialog("#tailor-profile-picker-dialog"));
+  });
+  document.querySelectorAll("[data-close-tailor-job-picker]").forEach((button) => {
+    button.addEventListener("click", () => closeDialog("#tailor-job-picker-dialog"));
   });
 
   $("#quick-apply-form")?.addEventListener("submit", async (event) => {
@@ -2772,6 +3009,38 @@ function bindForms() {
     const selectProfileButton = event.target.closest("[data-select-profile]");
     if (selectProfileButton) {
       selectProfileFromPicker(selectProfileButton.dataset.selectProfile);
+    }
+    const tailorProfileButton = event.target.closest("[data-select-tailor-profile]");
+    if (tailorProfileButton) {
+      const profile = profilePickerRows.find((item) => Number(item.id) === Number(tailorProfileButton.dataset.selectTailorProfile));
+      updateTailorProfileCard(profile);
+      closeDialog("#tailor-profile-picker-dialog");
+      toast(`已选择简历 #${tailorProfileButton.dataset.selectTailorProfile}`);
+    }
+    const tailorJobButton = event.target.closest("[data-select-tailor-job]");
+    if (tailorJobButton) {
+      const job = jobPickerRows.find((item) => Number(item.id) === Number(tailorJobButton.dataset.selectTailorJob));
+      updateTailorJobCard(job);
+      closeDialog("#tailor-job-picker-dialog");
+      toast(`已选择岗位 #${tailorJobButton.dataset.selectTailorJob}`);
+    }
+    const resumeRunButton = event.target.closest("[data-resume-run-id]");
+    if (resumeRunButton) {
+      const runId = resumeRunButton.dataset.resumeRunId;
+      resumeRunButton.disabled = true;
+      resumeAgentRun(runId, {
+        confirmed: true,
+        note: "用户在历史记录详情中确认继续生成投递包。",
+        resume_json: { source: "agent_runs_detail" },
+      })
+        .then((resumed) => {
+          toast(resumed.status === "completed" ? "已确认并继续完成" : `当前状态：${resumed.status}`);
+          return loadRuns();
+        })
+        .catch((error) => toast(error.message))
+        .finally(() => {
+          resumeRunButton.disabled = false;
+        });
     }
     const qualityButton = event.target.closest("[data-quality-jump]");
     if (qualityButton) focusInterviewQuestion(qualityButton);

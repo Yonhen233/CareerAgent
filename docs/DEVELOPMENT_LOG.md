@@ -1,5 +1,46 @@
 # 开发日志
 
+## 2026-07-08 15:48:26 +08:00：岗位 JD 预览、定制简历选择器与历史记录详情
+### 这次做了什么
+- 为岗位池增加 JD HTML 预览能力：岗位卡片新增“预览 JD”，后端新增 `/jobs/{job_id}/html`。
+- 将定制简历页从裸 ID 输入改为“选择简历档案”和“选择目标岗位”两张选择卡片。
+- 定制简历页新增二级弹窗：支持搜索并选择简历档案，也支持搜索并选择岗位池中的 JD。
+- 定制简历提交前先调用岗位针对性简历评分，评分、问题、修改建议和 RAG 证据单独显示在页面上，不写入简历正文。
+- 定制简历历史卡片增加“检查、修改说明和证据”折叠面板，用于展示事实检查、修改说明、关键词对齐和证据来源。
+- 历史记录页打开后自动选中最近一次运行，并加载右侧阶段进度和 LangGraph 事件流。
+- 历史记录页新增待确认说明区：解释确认是投递包、浏览器填写、邮件等高风险动作的人审点，而不是普通历史记录操作。
+### 发现的问题
+- 岗位池只有摘要和投递链接，用户无法查看完整 JD，导致后续定制简历时难以确认岗位内容。
+- 定制简历页要求用户手填 Profile ID 和 Job ID，不符合已有开始页的二级选择交互，也容易填错。
+- 简历评分和定制简历之间没有联动；用户看不到为什么这样改、哪些问题需要注意。
+- 如果把评分/检查/修改说明写进简历正文，会污染最终可投递材料；这些内容应该作为前端诊断信息单独展示。
+- 历史记录页右侧阶段进度和事件流需要用户先点击某条 run 才会加载，用户容易误以为功能坏了。
+- 等待确认的按钮原先出现在历史列表里，缺少解释，用户不知道为什么历史记录页会要求确认。
+### 怎么修复
+- `app/api/jobs.py` 新增 `/jobs/{job_id}/html`，以 HTML 页面展示岗位标题、公司、地点、投递链接、结构化字段和原始 JD。
+- `app/static/js/main.js` 的岗位列表渲染增加“预览 JD”按钮，直接打开 HTML 预览页。
+- `app/templates/resumes.html` 将定制表单改为隐藏 ID + 两张选择卡 + 两个弹窗，并增加 `tailor-review-result` 与 `tailor-submit-result`。
+- `app/static/js/main.js` 增加 `openTailorProfilePicker()`、`openTailorJobPicker()`、`renderTailorProfilePickerList()`、`renderTailorJobPickerList()` 等选择器逻辑。
+- `app/static/js/main.js` 修改定制提交流程：先调用 `/profiles/{profile_id}/review` 做 targeted review，再调用 `/resumes/tailor` 生成定制简历。
+- `app/static/js/main.js` 增加 `renderTailoredResumeDiagnostics()`，将事实检查、修改说明、关键词和证据折叠展示。
+- `app/static/js/main.js` 修改 `loadRuns()`，列表加载后自动 `loadRunSteps(rows[0].id)`；新增 `renderRunConfirmation()` 展示待确认原因和确认按钮。
+- `app/static/css/style.css` 增加定制选择卡、选中态和诊断折叠面板样式。
+- `tests/test_frontend_pages.py` 增加岗位 JD 预览、定制页二级选择器、定制评分联动、历史记录自动详情和待确认说明断言。
+### 验证结果
+- `node --check app\static\js\main.js` 通过。
+- `python -m pytest tests\test_frontend_pages.py -q` 通过，15 个测试全部通过。
+- `python -m pytest -q` 通过，131 个测试全部通过。
+- `Invoke-WebRequest http://127.0.0.1:8055/jobs/198/html` 返回 200，HTML 中包含 `Agent 开发实习生`。
+- 内置浏览器打开 `http://127.0.0.1:8055/ui/jobs`，岗位池展示多个“预览 JD”按钮，页面无横向溢出。
+- 内置浏览器打开 `http://127.0.0.1:8055/ui/resumes`，简历选择弹窗打开并加载 60 条档案，岗位选择弹窗打开并加载 80 条岗位；选择 Profile #159 和 Job #198 后，隐藏字段正确写入并显示选中态。
+- 内置浏览器打开 `http://127.0.0.1:8055/ui/agent-runs`，自动选中最近运行，右侧阶段进度和事件流不再为空，并显示待确认事项解释。
+### 未修复的问题
+- 定制页提交会真实调用 LLM 做评分和定制，耗时取决于外部模型；后续可以把这一流程也接入后台任务和进度条。
+- 岗位 HTML 预览当前是轻量模板，尚未提供 PDF 导出或打印样式优化。
+### 下一步
+- 将定制简历页的“评分 → 定制 → 预览”改为后台 run，接入和首页一致的阶段进度。
+- 给岗位池增加按 ID、公司、技能和是否有投递链接的前端筛选，减少岗位很多时的查找成本。
+
 ## 2026-07-08 11:16:16 +08:00：首页顺序、入口表单对齐与流程页改名
 ### 这次做了什么
 - 调整开始页信息顺序为“你想让 Agent 做什么” → “流程内容” → “三选一提供简历档案，再开始找岗位”。
