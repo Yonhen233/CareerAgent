@@ -1,5 +1,40 @@
 # 开发日志
 
+## 2026-07-08 16:34:52 +08:00：运行进度跨页恢复补强与全局 LLM 状态提示
+### 这次做了什么
+- 修复后台队列不可用时前端拿不到 run_id 的问题：`/agent/runs/background` 现在会返回一个 `failed` run，而不是直接 503。
+- 为队列入队失败的 run 写入 `queue_enqueue_failed` 和 `run_finished` 事件，历史记录页可以看到 trace，不再只有最终错误。
+- 将 active run 恢复从“只依赖 localStorage”升级为“双通道恢复”：先读本地关注列表；本地为空时从 `/agent/runs` 恢复最近 24 小时内的运行中、待确认、失败或完成 run。
+- 右下角运行卡片现在会保留最近完成/失败的 run，用户手动关闭后才不再显示。
+- 增加全局 LLM 未接入提示，覆盖首页、简历页、定制简历页、面试页和评测页。
+- 开始页 LLM 状态徽标修正为未配置时显示风险态，不再误用绿色 ready 样式。
+### 发现的问题
+- 原先 run 一进入 `completed` 或 `failed` 就被 `untrackActiveRun()` 清除，失败很快时用户看不到右下角卡片。
+- Redis 队列未启动时，后端虽然创建了失败 run，但接口抛出 503，前端无法获得 run_id，也就无法恢复进度或跳转历史记录。
+- 只靠 localStorage 不够稳：刷新、浏览器会话变化或脚本异常时，本地关注列表可能丢失。
+- 独立页面依赖 LLM，但只有首页有局部提示，用户在简历页、定制简历页、面试页等页面操作前不知道 LLM 未配置。
+### 怎么修复
+- 修改 `app/api/agent_runs.py`：队列入队失败时保存失败状态、输出错误、写入事件，并返回 `AgentRunResponse`。
+- 修改 `app/static/js/main.js`：新增 `DISMISSED_RUN_KEY`、`recentRunsFromServer()`、`updateTrackedRun()` 和终态 run 保留策略。
+- 修改 `app/static/js/main.js`：`createBackgroundAgentRun()`、`createAgentRun()` 和 `waitForAgentRun()` 都会记录并更新 terminal run，而不是立即删除。
+- 修改 `app/static/js/main.js`：增加 `loadGlobalLLMWarning()`，在 LLM 依赖页面统一展示配置缺失提示。
+- 修改 `app/templates/base.html` 和 `app/static/css/style.css`：增加全局 LLM 提示容器、运行卡片关闭按钮和对应样式。
+- 新增 `tests/test_agent_runs_api.py`，覆盖队列不可用时仍返回失败 run 且事件可追踪。
+- 更新 `tests/test_frontend_pages.py`，覆盖全局 LLM 提示、服务端最近 run 恢复和手动关闭逻辑入口。
+### 验证结果
+- `node --check app\static\js\main.js` 通过。
+- `python -m pytest tests\test_agent_runs_api.py tests\test_frontend_pages.py -q` 通过，16 个测试全部通过。
+- `python -m pytest -q` 通过，132 个测试全部通过。
+- `Invoke-WebRequest http://127.0.0.1:8059/agent/runs/background` 在 Redis 未启动时返回 `failed` run #191，而不是 503。
+- 本地浏览器自动化打开 `http://127.0.0.1:8059/ui/profiles`，在无本地 active run 的独立页面仍从服务端恢复右下角运行卡片，`monitorHidden=False`，并显示 run #191 的队列失败原因。
+- 同一页面显示全局 LLM 未接入提示。
+### 未修复的问题
+- 右下角卡片的“关闭”状态仍保存在浏览器本地；多设备一致的关闭状态需要登录用户级偏好表。
+- 当前只恢复最近 24 小时内的 run；更长时间的历史仍通过“历史记录”页面查看。
+### 下一步
+- 给右下角运行卡片增加“只显示运行中/失败/待确认”的筛选或折叠，避免最近失败 run 较多时占用空间。
+- 在控制台健康检查里把 Redis、LLM 和 worker 状态联动到用户页顶部提示，形成更完整的上线前自检。
+
 ## 2026-07-08 16:00:56 +08:00：简历正文去诊断化与运行任务刷新恢复
 ### 这次做了什么
 - 将定制简历 HTML 预览改为只展示可投递简历正文，不再把事实检查、改动摘要、关键词缺口写入正文页面。

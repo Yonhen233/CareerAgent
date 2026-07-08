@@ -21,6 +21,7 @@ from app.models.schemas import (
     AgentRunResumeRequest,
     AgentStepResponse,
 )
+from app.services.trace_service import TraceService
 from app.services.task_runner import get_task_runner
 
 router = APIRouter(prefix="/agent/runs", tags=["agent-runs"])
@@ -69,7 +70,21 @@ async def create_background_agent_run(
         run.output_json = {"error_type": "queue_unavailable", "error": str(exc)}
         db.add(run)
         db.commit()
-        raise HTTPException(status_code=503, detail=f"Agent queue unavailable: {exc}") from exc
+        db.refresh(run)
+        trace = TraceService()
+        trace.add_event(
+            db,
+            run_id=run.id,
+            event_type="queue_enqueue_failed",
+            node_name="queue",
+            payload={"error_type": "queue_unavailable", "error": str(exc)},
+        )
+        trace.add_event(
+            db,
+            run_id=run.id,
+            event_type="run_finished",
+            payload={"status": "failed", "error_message": run.error_message, "output_json": run.output_json},
+        )
     return AgentRunResponse.model_validate(run)
 
 

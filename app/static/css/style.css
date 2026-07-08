@@ -90,6 +90,29 @@ a {
   min-width: 0;
 }
 
+.llm-global-warning {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(1240px, calc(100% - 32px));
+  margin: 16px auto 0;
+  padding: 12px 14px;
+  border: 1px solid #f1c779;
+  border-radius: 8px;
+  color: #684300;
+  background: #fff8e8;
+}
+
+.llm-global-warning strong {
+  flex: 0 0 auto;
+  color: #523300;
+}
+
+.llm-global-warning span {
+  min-width: 0;
+  font-size: 14px;
+}
+
 .console-entry {
   display: inline-flex;
   align-items: center;
@@ -1557,8 +1580,33 @@ button svg,
   border-top: 1px solid var(--line);
 }
 
+.active-run-row > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .active-run-row small {
   color: var(--muted);
+}
+
+.icon-button {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: #fff;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  color: var(--text);
+  background: var(--surface-2);
 }
 
 .toast {

@@ -1,7 +1,10 @@
 const $ = (selector) => document.querySelector(selector);
 const ADMIN_TOKEN_KEY = "careeragent.admin_token";
 const ACTIVE_RUN_KEY = "careeragent.active_runs";
+const DISMISSED_RUN_KEY = "careeragent.dismissed_runs";
 const ACTIVE_RUN_TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "canceled"]);
+const ACTIVE_RUN_RECENT_TTL_MS = 24 * 60 * 60 * 1000;
+const LLM_DEPENDENT_PAGES = new Set(["dashboard", "profiles", "resumes", "interview_prep", "evaluations"]);
 let activeRunEventSource = null;
 let activeRunMonitorTimer = null;
 let profilePickerRows = [];
@@ -330,7 +333,36 @@ async function loadHealth() {
   if (!pill) return;
   const body = await api("/health");
   pill.textContent = body.llm_configured ? "LLM Ready" : "Offline Mode";
-  pill.classList.add("ok");
+  pill.classList.toggle("ok", Boolean(body.llm_configured));
+  pill.classList.toggle("risk", !body.llm_configured);
+}
+
+function pageNeedsLLMWarning() {
+  return LLM_DEPENDENT_PAGES.has(document.body.dataset.page || "");
+}
+
+async function loadGlobalLLMWarning() {
+  const el = $("#llm-global-warning");
+  if (!el || !pageNeedsLLMWarning()) return;
+  try {
+    const body = await api("/health");
+    if (body.llm_configured) {
+      el.hidden = true;
+      el.innerHTML = "";
+      return;
+    }
+    el.hidden = false;
+    el.innerHTML = `
+      <strong>LLM 尚未接入</strong>
+      <span>自然语言建档、简历评分、定制简历、面试准备和 LLM 评测需要配置 API Key 后才能正常运行。当前页面仍可浏览已有数据，提交相关任务会失败并返回可追踪错误。</span>
+    `;
+  } catch (error) {
+    el.hidden = false;
+    el.innerHTML = `
+      <strong>无法确认 LLM 状态</strong>
+      <span>${escapeHtml(error.message)}。依赖 LLM 的操作可能无法执行。</span>
+    `;
+  }
 }
 
 async function loadProfiles() {
@@ -847,6 +879,7 @@ function eventLabel(eventType, nodeName = "") {
     step_completed: "步骤完成",
     step_failed: "步骤失败",
     artifact_created: "产物生成",
+    queue_enqueue_failed: "队列入队失败",
     heartbeat: "保持连接",
   };
   const base = labels[eventType] || eventType;
@@ -922,6 +955,7 @@ function subscribeAgentRunEvents(runId, callbacks = {}) {
     "step_completed",
     "step_failed",
     "artifact_created",
+    "queue_enqueue_failed",
     "heartbeat",
   ].forEach((type) => {
     source.addEventListener(type, (message) => {
@@ -1539,13 +1573,48 @@ function readActiveRuns() {
   }
 }
 
+function readDismissedRunIds() {
+  try {
+    const rows = JSON.parse(window.localStorage?.getItem(DISMISSED_RUN_KEY) || "[]");
+    return new Set(Array.isArray(rows) ? rows.map((id) => Number(id)).filter(Boolean) : []);
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function rememberDismissedRun(runId) {
+  const ids = Array.from(readDismissedRunIds()).filter((id) => id !== Number(runId));
+  ids.push(Number(runId));
+  window.localStorage?.setItem(DISMISSED_RUN_KEY, JSON.stringify(ids.slice(-50)));
+}
+
 function writeActiveRuns(rows) {
-  const cleanRows = (rows || []).filter((row) => Number(row.run_id || row.id) > 0);
+  const now = Date.now();
+  const dismissed = readDismissedRunIds();
+  const cleanRows = (rows || []).filter((row) => {
+    const runId = Number(row.run_id || row.id);
+    if (runId <= 0 || dismissed.has(runId)) return false;
+    if (row.dismissed_at) return false;
+    if (ACTIVE_RUN_TERMINAL_STATUSES.has(row.status || "") && row.finished_at) {
+      return now - Date.parse(row.finished_at) < ACTIVE_RUN_RECENT_TTL_MS;
+    }
+    return true;
+  });
   if (!cleanRows.length) {
     window.localStorage?.removeItem(ACTIVE_RUN_KEY);
     return;
   }
-  window.localStorage?.setItem(ACTIVE_RUN_KEY, JSON.stringify(cleanRows.slice(-6)));
+  const compactRows = cleanRows.slice(-6).map((row) => ({
+    run_id: Number(row.run_id || row.id),
+    task_type: row.task_type || "full_career_flow",
+    label: row.label || taskLabel(row.task_type),
+    package_id: row.package_id || row.run_id || row.id,
+    created_at: row.created_at || null,
+    status: row.status || "unknown",
+    finished_at: row.finished_at || null,
+    error: row.error || null,
+  }));
+  window.localStorage?.setItem(ACTIVE_RUN_KEY, JSON.stringify(compactRows));
 }
 
 function trackActiveRun(record) {
@@ -1558,12 +1627,37 @@ function trackActiveRun(record) {
     label: record.label || taskLabel(record.task_type || record.run?.task_type),
     package_id: record.package_id || runId,
     created_at: record.created_at || new Date().toISOString(),
+    status: record.status || "queued",
+    finished_at: record.finished_at || null,
+    error: record.error || null,
   });
   writeActiveRuns(rows);
   void restoreActiveRuns();
 }
 
-function untrackActiveRun(runId) {
+function updateTrackedRun(run) {
+  const runId = Number(run?.id || run?.run_id || 0);
+  if (!runId) return;
+  const rows = readActiveRuns();
+  const existing = rows.find((row) => Number(row.run_id || row.id) === runId) || {};
+  const status = run.status || existing.status || "unknown";
+  const merged = {
+    ...existing,
+    run_id: runId,
+    task_type: run.task_type || existing.task_type,
+    label: existing.label || taskLabel(run.task_type),
+    package_id: existing.package_id || userPackageId(run) || runId,
+    created_at: existing.created_at || run.created_at || new Date().toISOString(),
+    status,
+    finished_at: ACTIVE_RUN_TERMINAL_STATUSES.has(status) ? (existing.finished_at || new Date().toISOString()) : null,
+    error: run.error_message || run.output_json?.error || existing.error || null,
+  };
+  writeActiveRuns([...rows.filter((row) => Number(row.run_id || row.id) !== runId), merged]);
+  void restoreActiveRuns();
+}
+
+function dismissActiveRun(runId) {
+  rememberDismissedRun(runId);
   writeActiveRuns(readActiveRuns().filter((row) => Number(row.run_id || row.id) !== Number(runId)));
   void restoreActiveRuns();
 }
@@ -1591,14 +1685,21 @@ function renderActiveRunMonitor(rows) {
     return;
   }
   el.hidden = false;
+  const primary = rows[0] || {};
+  const hasRunning = rows.some((row) => !ACTIVE_RUN_TERMINAL_STATUSES.has(row.status || ""));
+  const hasFailed = rows.some((row) => row.status === "failed");
+  const hasWaiting = rows.some((row) => row.status === "waiting_for_confirmation");
   el.innerHTML = `
     <div class="active-run-title">
-      <span>正在处理的求职流程</span>
-      <span class="status-pill ${rows.some((row) => row.status === "waiting_for_confirmation") ? "risk" : "ok"}">${escapeHtml(activeRunStatusLabel(rows[0].status))}</span>
+      <span>${hasRunning ? "正在处理的求职流程" : "最近的求职流程"}</span>
+      <span class="status-pill ${hasWaiting || hasFailed ? "risk" : "ok"}">${escapeHtml(activeRunStatusLabel(primary.status))}</span>
     </div>
     ${rows.slice(0, 3).map((row) => `
       <div class="active-run-row">
-        <strong>${escapeHtml(row.label || taskLabel(row.task_type))} · ${escapeHtml(packageLabel(row.package_id || row.run_id))}</strong>
+        <div>
+          <strong>${escapeHtml(row.label || taskLabel(row.task_type))} · ${escapeHtml(packageLabel(row.package_id || row.run_id))}</strong>
+          <button class="icon-button" type="button" title="不再显示这个流程" data-dismiss-active-run="${escapeHtml(row.run_id)}"><i data-lucide="x"></i></button>
+        </div>
         <small>${escapeHtml(activeRunStatusLabel(row.status))}${row.error ? ` · ${escapeHtml(row.error)}` : ""}</small>
       </div>
     `).join("")}
@@ -1671,7 +1772,10 @@ async function restoreCareerFlowFromRun(run) {
 }
 
 async function restoreActiveRuns() {
-  const stored = readActiveRuns();
+  let stored = readActiveRuns();
+  if (!stored.length) {
+    stored = await recentRunsFromServer();
+  }
   if (!stored.length) {
     renderActiveRunMonitor([]);
     if (activeRunMonitorTimer) clearTimeout(activeRunMonitorTimer);
@@ -1693,16 +1797,24 @@ async function restoreActiveRuns() {
     const runId = Number(item.record.run_id || item.record.id);
     if (item.run) {
       const status = item.run.status || "unknown";
-      if (!ACTIVE_RUN_TERMINAL_STATUSES.has(status)) {
-        const merged = {
-          ...item.record,
-          run_id: runId,
-          package_id: item.record.package_id || runId,
-          task_type: item.run.task_type || item.record.task_type,
-          label: item.record.label || taskLabel(item.run.task_type),
-          status,
-          run: item.run,
-        };
+      const finishedAt = ACTIVE_RUN_TERMINAL_STATUSES.has(status)
+        ? (item.record.finished_at || item.run.updated_at || item.run.completed_at || new Date().toISOString())
+        : null;
+      const merged = {
+        ...item.record,
+        run_id: runId,
+        package_id: item.record.package_id || runId,
+        task_type: item.run.task_type || item.record.task_type,
+        label: item.record.label || taskLabel(item.run.task_type),
+        status,
+        finished_at: finishedAt,
+        error: item.run.error_message || item.run.output_json?.error || item.record.error || null,
+        run: item.run,
+      };
+      const recentTerminal = ACTIVE_RUN_TERMINAL_STATUSES.has(status)
+        && finishedAt
+        && Date.now() - Date.parse(finishedAt) < ACTIVE_RUN_RECENT_TTL_MS;
+      if (!ACTIVE_RUN_TERMINAL_STATUSES.has(status) || recentTerminal) {
         keep.push(merged);
         visible.push(merged);
       }
@@ -1722,9 +1834,38 @@ async function restoreActiveRuns() {
   const dashboardRun = visible.find((row) => row.run)?.run;
   if (dashboardRun) await restoreCareerFlowFromRun(dashboardRun);
   if (activeRunMonitorTimer) clearTimeout(activeRunMonitorTimer);
-  activeRunMonitorTimer = keep.length ? setTimeout(() => {
+  activeRunMonitorTimer = keep.some((row) => !ACTIVE_RUN_TERMINAL_STATUSES.has(row.status || "")) ? setTimeout(() => {
     void restoreActiveRuns();
   }, 4000) : null;
+}
+
+async function recentRunsFromServer() {
+  try {
+    const dismissed = readDismissedRunIds();
+    const rows = await api("/agent/runs");
+    const now = Date.now();
+    return (rows || [])
+      .filter((run) => {
+        const runId = Number(run.id);
+        if (!runId || dismissed.has(runId)) return false;
+        if (!ACTIVE_RUN_TERMINAL_STATUSES.has(run.status || "")) return true;
+        const timeText = run.updated_at || run.created_at;
+        return timeText && now - Date.parse(timeText) < ACTIVE_RUN_RECENT_TTL_MS;
+      })
+      .slice(0, 3)
+      .map((run) => ({
+        run_id: run.id,
+        task_type: run.task_type,
+        label: taskLabel(run.task_type),
+        package_id: userPackageId(run),
+        created_at: run.created_at,
+        status: run.status,
+        finished_at: ACTIVE_RUN_TERMINAL_STATUSES.has(run.status || "") ? (run.updated_at || run.created_at || new Date().toISOString()) : null,
+        error: run.error_message || run.output_json?.error || null,
+      }));
+  } catch (_) {
+    return [];
+  }
 }
 
 function setCareerStage(stage, status, detail = "") {
@@ -2018,14 +2159,17 @@ async function resumeAgentRun(runId, payload) {
 
 async function createAgentRun(payload, label, options = {}) {
   const run = await api("/agent/runs", { method: "POST", body: JSON.stringify(payload) });
-  if (!ACTIVE_RUN_TERMINAL_STATUSES.has(run.status)) {
+  if (run.id) {
     trackActiveRun({
       run_id: run.id,
       task_type: payload.task_type,
       label,
       package_id: userPackageId(run),
       created_at: run.created_at,
+      status: run.status,
+      error: run.error_message || run.output_json?.error || null,
     });
+    updateTrackedRun(run);
   }
   if (run.status === "waiting_for_confirmation" && options.autoConfirmApplication) {
     toast("投递包生成前需要确认，已按一键流程继续。");
@@ -2034,7 +2178,7 @@ async function createAgentRun(payload, label, options = {}) {
       note: options.confirmationNote || "用户在一键流程中确认生成投递包。",
       resume_json: { source: "frontend_auto_confirm" },
     });
-    if (resumed.status === "completed") untrackActiveRun(run.id);
+    updateTrackedRun(resumed);
     if (resumed.status !== "completed") {
       const message = resumed.error_message || resumed.output_json?.error || JSON.stringify(resumed.output_json || {});
       throw new Error(`${label}确认后失败：${message}`);
@@ -2056,7 +2200,10 @@ async function createBackgroundAgentRun(payload) {
     label: taskLabel(payload.task_type),
     package_id: run.id,
     created_at: run.created_at,
+    status: run.status,
+    error: run.error_message || run.output_json?.error || null,
   });
+  updateTrackedRun(run);
   return run;
 }
 
@@ -2090,7 +2237,7 @@ function waitForAgentRun(runId, options = {}) {
           });
         }
         if (run.status === "completed") {
-          untrackActiveRun(run.id);
+          updateTrackedRun(run);
           resolve(run);
         } else {
           if (run.status === "waiting_for_confirmation") {
@@ -2102,7 +2249,7 @@ function waitForAgentRun(runId, options = {}) {
               created_at: run.created_at,
             });
           } else if (run.status === "failed") {
-            untrackActiveRun(run.id);
+            updateTrackedRun(run);
           }
           reject(new Error(run.error_message || run.output_json?.error || `流程状态：${run.status}`));
         }
@@ -3219,6 +3366,11 @@ function bindForms() {
 
   document.addEventListener("click", (event) => {
     if (!(event.target instanceof Element)) return;
+    const dismissRunButton = event.target.closest("[data-dismiss-active-run]");
+    if (dismissRunButton) {
+      dismissActiveRun(dismissRunButton.dataset.dismissActiveRun);
+      return;
+    }
     const importButton = event.target.closest("[data-import-interview-candidate]");
     if (importButton) prefillInterviewSourceImport(importButton);
     const reviewButton = event.target.closest("[data-review-profile]");
@@ -3326,6 +3478,7 @@ async function bootstrap() {
   bindForms();
   const page = document.body.dataset.page;
   try {
+    await loadGlobalLLMWarning();
     if (page === "dashboard") {
       await loadHealth();
     }

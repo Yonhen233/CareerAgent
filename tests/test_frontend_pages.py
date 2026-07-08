@@ -153,6 +153,7 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "career-flow-steps" in response.text
     assert "career-flow-result" in response.text
     assert "active-run-monitor" in response.text
+    assert "llm-global-warning" in response.text
     assert "name=\"job_id\"" in response.text
     assert "name=\"jd_text\"" in response.text
     assert "开始处理" in response.text
@@ -195,6 +196,18 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "restoreActiveRuns" in main_js
     assert "renderActiveRunMonitor" in main_js
     assert "restoreCareerFlowFromRun" in main_js
+    assert "ACTIVE_RUN_RECENT_TTL_MS" in main_js
+    assert "DISMISSED_RUN_KEY" in main_js
+    assert "updateTrackedRun" in main_js
+    assert "dismissActiveRun" in main_js
+    assert "recentRunsFromServer" in main_js
+    assert "await api(\"/agent/runs\")" in main_js
+    assert "data-dismiss-active-run" in main_js
+    assert "最近的求职流程" in main_js
+    assert "LLM 尚未接入" in main_js
+    assert "loadGlobalLLMWarning" in main_js
+    assert "LLM_DEPENDENT_PAGES" in main_js
+    assert "llm-global-warning" in style_css
     assert "/agent/runs/${runId}" in main_js
     assert "/agent/runs/${run.id}/steps" in main_js
     assert "刷新或切换页面不会丢失进度" in main_js
