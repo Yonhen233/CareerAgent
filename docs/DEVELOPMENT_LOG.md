@@ -1,5 +1,39 @@
 # 开发日志
 
+## 2026-07-08 09:51:03 +08:00：首页提示文案、生成项控件与 PDF parser 修复
+### 这次做了什么
+- 将首页“信息会自动合并”改成面向普通用户的说明：“可以只写需求，也可以补充表单”，并明确上方需求、下方表单和 PDF 上传之间的关系。
+- 将“生成内容”勾选区从窄小的默认 checkbox 改为卡片式选择控件，保留 checkbox 语义，同时让用户更清楚地点击选择要生成的材料。
+- 优化首页动态提示：会根据 prompt、表单、PDF、Profile ID 和勾选项显示“将使用哪些信息”和“将生成哪些内容”。
+- 修复 PDF parser 对标题行姓名的抽取问题，例如 `Li Ming - Agent Development Intern Candidate` 会正确识别姓名为 `Li Ming`。
+- 修复 LLM 结构化解析返回 `null` 时覆盖启发式解析结果的问题，姓名、邮箱、电话、标题、技能、项目等关键字段会保留可信启发式结果。
+### 发现的问题
+- 原提示“信息会自动合并”过于抽象，普通用户很难理解 prompt、表单和 PDF 的优先级，也容易误以为系统会静默替用户改表单。
+- 旧 checkbox 在截图中的中文文本被挤压成竖排，视觉上像后台控件，不适合作为首页主流程的用户选择入口。
+- 演示 PDF 的第一行是“姓名 + 候选方向”的标题，旧逻辑只接受长度不超过 40 的第一行作为姓名，导致姓名为 `null`。
+- 当 LLM 返回可解析 JSON 但部分字段为 `null` 时，旧的 `{**heuristic, **parsed}` 合并方式会把启发式抽到的姓名覆盖掉。
+### 怎么修复
+- `app/templates/index.html` 重写首页合并提示和生成内容说明，并给每个生成项增加稳定文本容器。
+- `app/static/css/style.css` 为生成项增加五列卡片布局、hover 状态、选中状态、移动端两列布局和 `accent-color`，避免中文文本挤压。
+- `app/static/js/main.js` 重写 `updateStartInputGuidance()`，让提示语随用户输入和勾选项实时变化。
+- `app/services/resume_parser.py` 增加 `_guess_name()`、`_name_candidate_from_line()` 和 `_merge_parsed_with_heuristic()`，支持从标题行抽姓名，并避免 LLM 空值覆盖启发式结果。
+- `tests/test_resume_parser.py` 增加标题行姓名抽取和 LLM 空值不覆盖的回归测试；`tests/test_frontend_pages.py` 增加新文案、旧文案移除和控件样式断言。
+### 验证结果
+- `node --check app\static\js\main.js` 通过。
+- `python -m py_compile app\services\resume_parser.py tests\test_resume_parser.py tests\test_frontend_pages.py` 通过。
+- `python -m pytest tests\test_resume_parser.py tests\test_frontend_pages.py -q` 通过，17 个测试全部通过。
+- `python -m pytest -q` 通过，126 个测试全部通过。
+- 直接解析 `demo_resumes\agent_intern_strong_resume.pdf`，姓名返回 `Li Ming`，邮箱返回 `liming@example.com`，电话返回 `13800000000`。
+- 通过 `8047` 服务真实上传同一 PDF 到 `/profiles/upload`，接口创建 Profile #159，`structured_profile_json.skills` 抽到 11 个技能，姓名和邮箱正确。
+- 内置浏览器打开 `http://127.0.0.1:8047/`，确认最新静态资源版本加载成功，新提示存在、旧提示不存在，5 个生成项宽高稳定，页面横向溢出为 0。
+- 内置浏览器勾选“定制简历”和“面试准备”后，提示更新为“将生成：定制简历、面试准备”，页面无错误且横向溢出为 0。
+### 未修复的问题
+- PDF parser 仍是“启发式 + LLM”的组合方案，对极端复杂版式、扫描件 OCR、姓名和求职标题混排的中文简历还需要继续积累样本。
+- 上传 PDF 后如果用户编辑了回填表单，当前仍需要后续“保存为新的简历档案”能力才能把编辑后的内容固化成新版 Profile。
+### 下一步
+- 为 PDF 回填字段增加置信度和“请检查”标记，尤其是姓名、电话、教育经历和项目边界。
+- 在首页补充“保存为新的简历档案”交互，让用户上传解析后可以先编辑确认，再作为后续流程输入。
+
 ## 2026-07-08 09:39:45 +08:00：首页输入合并、PDF 回填与显式生成项
 ### 这次做了什么
 - 首页新增“信息会自动合并”提示，明确 prompt、PDF、已有 Profile ID 和表单字段会共同作为 Agent 输入。

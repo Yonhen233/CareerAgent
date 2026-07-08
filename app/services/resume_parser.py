@@ -174,7 +174,7 @@ Resume:
             )
             parsed["raw_text"] = raw_text
             parsed["prompt_injection"] = injection.model_dump()
-            return ProfileStructured.model_validate({**heuristic, **parsed}).model_dump()
+            return ProfileStructured.model_validate(self._merge_parsed_with_heuristic(heuristic, parsed)).model_dump()
         except Exception:
             if not self.settings.llm_fallback_enabled:
                 raise
@@ -263,14 +263,13 @@ Resume:
 
     def _heuristic_parse(self, raw_text: str) -> dict:
         lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
-        first_line = lines[0] if lines else None
         email = EMAIL_RE.search(raw_text)
         phone = PHONE_RE.search(raw_text)
         skills = self._extract_skills(raw_text)
         sections = self._section_lines(lines)
 
         return ProfileStructured(
-            name=first_line if first_line and len(first_line) <= 40 else None,
+            name=self._guess_name(lines),
             email=email.group(0) if email else None,
             phone=phone.group(0).strip() if phone else None,
             photo_data_url=None,
@@ -292,6 +291,39 @@ Resume:
             prompt_injection=self.injection_guard.detect(raw_text, source="resume").model_dump(),
             raw_text=raw_text,
         ).model_dump()
+
+    def _merge_parsed_with_heuristic(self, heuristic: dict, parsed: dict) -> dict:
+        merged = {**heuristic, **parsed}
+        for key in ["name", "email", "phone", "headline"]:
+            if not merged.get(key) and heuristic.get(key):
+                merged[key] = heuristic[key]
+        for key in ["target_roles", "skills", "projects", "work_experience", "education"]:
+            if not merged.get(key) and heuristic.get(key):
+                merged[key] = heuristic[key]
+        return merged
+
+    def _guess_name(self, lines: list[str]) -> str | None:
+        for line in lines[:8]:
+            candidate = self._name_candidate_from_line(line)
+            if candidate:
+                return candidate
+        return None
+
+    def _name_candidate_from_line(self, line: str) -> str | None:
+        text = re.sub(r"\s+", " ", line).strip()
+        if not text or EMAIL_RE.search(text) or PHONE_RE.search(text):
+            return None
+        if any(token.lower() in text.lower() for token in ["email", "phone", "skills", "project", "education", "target roles"]):
+            return None
+        candidate = re.split(r"\s[-–—|｜]\s|[，,；;]", text, maxsplit=1)[0].strip()
+        candidate = re.sub(r"^(姓名|Name)\s*[:：]\s*", "", candidate, flags=re.IGNORECASE).strip()
+        if not candidate:
+            return None
+        if re.fullmatch(r"[\u4e00-\u9fff]{2,5}", candidate):
+            return candidate
+        if re.fullmatch(r"[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3}", candidate):
+            return candidate
+        return None
 
     def _extract_skills(self, text: str) -> list[str]:
         lowered = text.lower()

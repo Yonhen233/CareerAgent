@@ -20,6 +20,64 @@ CareerAgent: Built a FastAPI RAG workflow with SQLite, tool calling, and evaluat
     assert "SQLite" in parsed["skills"]
 
 
+def test_heuristic_resume_parser_extracts_name_from_title_line():
+    text = """
+Li Ming - Agent Development Intern Candidate
+Email: liming@example.com | Phone: 13800000000 | Location: Shenzhen
+Target Roles: Agent Development Intern
+Project: CareerAgent
+Built a FastAPI RAG workflow with SQLite and evaluation.
+"""
+    parsed = asyncio.run(ResumeParserService().parse_structured_resume(text))
+
+    assert parsed["name"] == "Li Ming"
+    assert parsed["email"] == "liming@example.com"
+    assert parsed["phone"]
+
+
+def test_resume_parser_keeps_heuristic_name_when_llm_returns_null(monkeypatch):
+    monkeypatch.setenv("LLM_FALLBACK_ENABLED", "false")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+
+    class FakeLLM:
+        available = True
+
+        async def generate_text(self, **kwargs):
+            return json.dumps(
+                {
+                    "name": None,
+                    "email": "liming@example.com",
+                    "phone": None,
+                    "headline": "Agent Development Intern Candidate",
+                    "target_roles": ["Agent Development Intern"],
+                    "education": [],
+                    "skills": ["Python", "FastAPI", "RAG"],
+                    "projects": [],
+                    "work_experience": [],
+                    "campus_experience": [],
+                    "certifications": [],
+                    "awards": [],
+                    "languages": [],
+                    "portfolio_links": [],
+                },
+                ensure_ascii=False,
+            )
+
+    service = ResumeParserService()
+    service.llm = FakeLLM()
+    parsed = asyncio.run(
+        service.parse_structured_resume(
+            "Li Ming - Agent Development Intern Candidate\nEmail: liming@example.com\nProject: CareerAgent"
+        )
+    )
+
+    assert parsed["name"] == "Li Ming"
+    assert parsed["headline"] == "Agent Development Intern Candidate"
+    get_settings.cache_clear()
+
+
 def test_resume_parser_retries_transient_llm_error(monkeypatch):
     monkeypatch.setenv("LLM_FALLBACK_ENABLED", "false")
     from app.core.config import get_settings

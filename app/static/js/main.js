@@ -1375,9 +1375,13 @@ function updateStartInputGuidance(form) {
   if (raw.profile_id) sources.push(`Profile #${raw.profile_id}`);
   if (form.elements.resume_file?.files?.[0]) sources.push("PDF");
   if (hasProfileContext(context)) sources.push("表单");
-  const sourceText = sources.length ? `当前会合并：${sources.join("、")}。` : "可以只写 prompt，也可以上传 PDF 或填写表单。";
-  const actionText = actions.length ? `将按勾选生成：${actions.map(startActionLabel).join("、")}。` : "未勾选生成内容时，Agent 会按 prompt 自动判断。";
-  card.innerHTML = `<strong>信息会自动合并</strong><span>${escapeHtml(sourceText)}${escapeHtml(actionText)}PDF 解析后会先回填表单，提交时使用最新字段。</span>`;
+  const sourceText = sources.length
+    ? `将使用这些信息：${sources.join("、")}。`
+    : "你可以只写上面的需求，也可以上传 PDF 或填写下面的简历信息。";
+  const actionText = actions.length
+    ? `将生成：${actions.map(startActionLabel).join("、")}。`
+    : "没有选择生成内容时，系统会根据你的需求判断。";
+  card.innerHTML = `<strong>可以只写需求，也可以补充表单</strong><span>${escapeHtml(sourceText)}${escapeHtml(actionText)}上传 PDF 后会先填入表单，提交前可以继续修改。</span>`;
 }
 
 function topMatchedJob(run) {

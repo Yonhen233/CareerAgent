@@ -16,20 +16,20 @@
         <textarea name="instruction" rows="4" placeholder="例如：我想找 Agent 开发实习，把这份简历改得更贴合 JD，并生成投递材料和面试准备。可以只写需求，也可以和下方结构化信息一起使用。"></textarea>
       </label>
       <div id="input-guidance" class="guidance-card">
-        <strong>信息会自动合并</strong>
-        <span>Prompt 用来表达目标和补充缺失信息；PDF 或表单会作为结构化简历来源。PDF 解析后会先回填表单，方便你检查。</span>
+        <strong>可以只写需求，也可以补充表单</strong>
+        <span>上面写你想做什么；下面用来补简历、岗位和城市。上传 PDF 后会先把识别出的内容填到表单里，你可以改完再开始。</span>
       </div>
       <div class="generation-picker" aria-label="选择生成内容">
         <div>
           <p class="eyebrow">生成内容</p>
-          <strong>不勾选时由 Agent 按 prompt 判断；勾选后按你的选择执行。</strong>
+          <strong>想让 Agent 生成什么？不选时由系统根据你的需求判断。</strong>
         </div>
         <div class="generation-options">
-          <label><input type="checkbox" name="selected_actions" value="create_profile"> 简历档案</label>
-          <label><input type="checkbox" name="selected_actions" value="search_jobs"> 岗位搜索</label>
-          <label><input type="checkbox" name="selected_actions" value="tailor_resume"> 定制简历</label>
-          <label><input type="checkbox" name="selected_actions" value="quick_apply"> 投递材料</label>
-          <label><input type="checkbox" name="selected_actions" value="interview_prep"> 面试准备</label>
+          <label><input type="checkbox" name="selected_actions" value="create_profile"><span>简历档案</span></label>
+          <label><input type="checkbox" name="selected_actions" value="search_jobs"><span>岗位搜索</span></label>
+          <label><input type="checkbox" name="selected_actions" value="tailor_resume"><span>定制简历</span></label>
+          <label><input type="checkbox" name="selected_actions" value="quick_apply"><span>投递材料</span></label>
+          <label><input type="checkbox" name="selected_actions" value="interview_prep"><span>面试准备</span></label>
         </div>
       </div>
       <div class="form-grid">
