@@ -103,6 +103,10 @@ a {
   background: #fff8e8;
 }
 
+.llm-global-warning[hidden] {
+  display: none;
+}
+
 .llm-global-warning strong {
   flex: 0 0 auto;
   color: #523300;

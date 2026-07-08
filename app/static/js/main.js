@@ -4,7 +4,15 @@ const ACTIVE_RUN_KEY = "careeragent.active_runs";
 const DISMISSED_RUN_KEY = "careeragent.dismissed_runs";
 const ACTIVE_RUN_TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "canceled"]);
 const ACTIVE_RUN_RECENT_TTL_MS = 24 * 60 * 60 * 1000;
-const LLM_DEPENDENT_PAGES = new Set(["dashboard", "profiles", "resumes", "interview_prep", "evaluations"]);
+const LLM_DEPENDENT_PAGES = new Set([
+  "dashboard",
+  "profiles",
+  "jobs",
+  "resumes",
+  "applications",
+  "interview_prep",
+  "evaluations",
+]);
 let activeRunEventSource = null;
 let activeRunMonitorTimer = null;
 let profilePickerRows = [];

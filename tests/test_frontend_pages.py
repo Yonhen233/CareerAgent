@@ -207,7 +207,10 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "LLM 尚未接入" in main_js
     assert "loadGlobalLLMWarning" in main_js
     assert "LLM_DEPENDENT_PAGES" in main_js
+    assert '"jobs"' in main_js
+    assert '"applications"' in main_js
     assert "llm-global-warning" in style_css
+    assert ".llm-global-warning[hidden]" in style_css
     assert "/agent/runs/${runId}" in main_js
     assert "/agent/runs/${run.id}/steps" in main_js
     assert "刷新或切换页面不会丢失进度" in main_js

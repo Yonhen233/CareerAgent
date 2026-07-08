@@ -1,5 +1,27 @@
 # 开发日志
 
+## 2026-07-08 16:54:20 +08:00：修复 LLM 全局提示空黄色条
+### 这次做了什么
+- 修复部分页面顶部出现空黄色提示条的问题。
+- 将岗位页和投递页纳入 LLM 全局提示范围，避免这些页面只有提示框边框却没有文案。
+- 为 `.llm-global-warning[hidden]` 增加显式隐藏样式，防止 `display: flex` 覆盖 `hidden` 状态。
+### 发现的问题
+- `base.html` 中的 LLM 提示容器默认带 `hidden`，但 CSS `.llm-global-warning { display: flex; }` 会让空容器在部分页面露出来。
+- 原 `LLM_DEPENDENT_PAGES` 没包含 `jobs` 和 `applications`，这些页面不会触发 JS 填充文案。
+### 怎么修复
+- 修改 `app/static/js/main.js`，将 `jobs` 和 `applications` 加入 `LLM_DEPENDENT_PAGES`。
+- 修改 `app/static/css/style.css`，增加 `.llm-global-warning[hidden] { display: none; }`。
+- 修改 `tests/test_frontend_pages.py`，增加岗位/投递页提示覆盖和 hidden 样式断言。
+### 验证结果
+- `node --check app\static\js\main.js` 通过。
+- `python -m pytest tests\test_frontend_pages.py -q` 通过，15 个测试全部通过。
+- `python -m pytest -q` 通过，132 个测试全部通过。
+- 本地浏览器自动化打开 `http://127.0.0.1:8060/ui/jobs` 和 `http://127.0.0.1:8060/ui/applications`，提示条不再为空，`hidden=False` 且文本非空。
+### 未修复的问题
+- PowerShell 默认编码下浏览器自动化输出的中文会显示乱码，但 DOM 文本存在且页面实际显示正常。
+### 下一步
+- 后续如果继续增加用户页面，需要同步判断是否属于 LLM 依赖页，避免提示策略遗漏。
+
 ## 2026-07-08 16:34:52 +08:00：运行进度跨页恢复补强与全局 LLM 状态提示
 ### 这次做了什么
 - 修复后台队列不可用时前端拿不到 run_id 的问题：`/agent/runs/background` 现在会返回一个 `failed` run，而不是直接 503。
