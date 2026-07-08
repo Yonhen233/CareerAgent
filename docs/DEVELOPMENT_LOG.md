@@ -1,5 +1,40 @@
 # 开发日志
 
+## 2026-07-08 10:22:17 +08:00：简历评分、RAG 针对性建议与首页勾选项收紧
+### 这次做了什么
+- 新增简历评分能力：支持通用简历体检，也支持传入岗位 ID 后做 JD 针对性评分。
+- 新增 `ResumeReviewService`，评分维度包括完整度、证据强度、量化结果、关键词清晰度、可读性、事实边界；有岗位时额外加入岗位匹配维度。
+- 岗位针对性评分复用现有 `MatcherService`、简历 chunks、SQLite/Chroma 向量检索和 reranker，返回 RAG 证据、缺失技能、匹配技能和针对性修改建议。
+- 新增 `/profiles/{profile_id}/review` API，前端“我的简历档案”卡片增加“简历评分”按钮，并支持填写可选岗位 ID。
+- 前端评分结果展示总分、等级、维度分、优势、主要问题、修改建议和 RAG 证据摘要。
+- 收紧开始页“生成内容”勾选项高度，解决 checkbox 被全局输入框样式撑高的问题。
+### 发现的问题
+- 简历打分如果完全依赖 LLM，分数不可解释，也难以稳定回归；更适合让规则和匹配服务产出可追溯分数，再让 LLM 做建议表达增强。
+- 针对岗位的修改意见如果不接 RAG，容易变成泛泛建议；接入简历 chunks 后可以指出哪段经历最相关、哪些 JD 技能缺少证据。
+- 首页生成项虽然设置了较小 `min-height`，但全局 `input { min-height: 42px }` 会把 checkbox 撑高，导致实际高度仍偏大。
+### 怎么修复
+- `app/services/resume_review.py` 实现通用评分、岗位评分、RAG 证据压缩、问题归因和建议生成。
+- `app/api/profiles.py` 增加简历评分接口，并在缺少岗位或简历时返回明确错误。
+- `app/models/schemas.py` 增加 `ResumeReviewRequest` 和 `ResumeReviewResponse`，前后端使用结构化合同。
+- `app/templates/profiles.html` 增加可选岗位 ID 输入；`app/static/js/main.js` 增加 `reviewProfile()` 和 `renderResumeReview()`。
+- `app/static/css/style.css` 增加评分卡片样式，并覆盖 `.generation-options input` 的 `min-height/padding/flex`，让 checkbox 不再被全局输入框样式撑高。
+- `tests/test_resume_review.py` 增加通用评分和岗位 RAG 评分测试；`tests/test_frontend_pages.py` 增加评分入口、JS 渲染和 CSS 控件高度断言。
+### 验证结果
+- `node --check app\static\js\main.js` 通过。
+- `python -m py_compile app\services\resume_review.py app\api\profiles.py app\models\schemas.py tests\test_resume_review.py tests\test_frontend_pages.py` 通过。
+- `python -m pytest tests\test_resume_review.py tests\test_frontend_pages.py -q` 通过，15 个测试全部通过。
+- `python -m pytest -q` 通过，129 个测试全部通过。
+- 通过 `8048` 服务真实调用 `/profiles/159/review`，通用评分返回 200，总分 78.92。
+- 通过 `8048` 服务真实调用 `/profiles/159/review` 并传入 `job_id=198`，岗位针对性评分返回 200，总分 74.35，RAG 证据 6 条。
+- 内置浏览器打开 `http://127.0.0.1:8048/`，确认开始页生成项实际高度为 36px，checkbox 高度为 16px，页面横向溢出为 0。
+- 内置浏览器打开 `http://127.0.0.1:8048/ui/profiles`，填写岗位 #198 并点击 Profile #159 的“简历评分”，页面正确展示岗位针对性评分、维度分、修改建议和 RAG 证据，无错误、无横向溢出。
+### 未修复的问题
+- 当前评分结果按请求即时计算，暂未持久化历史评分记录；如果后续要做评分趋势或对比多个版本，需要增加独立评分表。
+- LLM 建议增强会在配置 LLM 时启用，但本次主要验证了规则分数和 RAG 证据链路；后续可以把 LLM 建议纳入长流程 trace 和质量评测。
+### 下一步
+- 增加“保存评分报告/对比修改前后分数”的能力，方便用户看到优化效果。
+- 将简历评分接入定制简历前后，对比 JD 针对性修改是否真的提升岗位匹配分和证据强度。
+
 ## 2026-07-08 09:51:03 +08:00：首页提示文案、生成项控件与 PDF parser 修复
 ### 这次做了什么
 - 将首页“信息会自动合并”改成面向普通用户的说明：“可以只写需求，也可以补充表单”，并明确上方需求、下方表单和 PDF 上传之间的关系。

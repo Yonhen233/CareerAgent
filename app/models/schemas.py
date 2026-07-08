@@ -147,6 +147,26 @@ class ProfileResponse(BaseModel):
     created_at: datetime
 
 
+class ResumeReviewRequest(BaseModel):
+    job_id: int | None = None
+    include_llm: bool = True
+
+
+class ResumeReviewResponse(BaseModel):
+    profile_id: int
+    job_id: int | None = None
+    review_type: Literal["general", "targeted"]
+    overall_score: float
+    grade: str
+    dimension_scores: dict[str, float]
+    strengths: list[str] = Field(default_factory=list)
+    issues: list[dict[str, Any]] = Field(default_factory=list)
+    suggestions: list[dict[str, Any]] = Field(default_factory=list)
+    target_alignment: dict[str, Any] = Field(default_factory=dict)
+    rag_evidence: list[dict[str, Any]] = Field(default_factory=list)
+    trace: dict[str, Any] = Field(default_factory=dict)
+
+
 class JDStructured(BaseModel):
     title: str | None = None
     company: str | None = None

@@ -5,9 +5,11 @@ from app.core.database import get_db
 from app.core.config import get_settings
 from app.core.security import AuthContext, optional_auth_context
 from app.models.entities import Profile
-from app.models.schemas import GuidedProfileRequest, ProfileResponse
+from app.models.entities import Job
+from app.models.schemas import GuidedProfileRequest, ProfileResponse, ResumeReviewRequest, ResumeReviewResponse
 from app.services.resume_delivery import ResumeHTMLRenderer
 from app.services.resume_parser import ResumeParserService
+from app.services.resume_review import ResumeReviewService
 
 router = APIRouter(prefix="/profiles", tags=["profiles"])
 
@@ -74,6 +76,35 @@ def get_profile(
     if profile is None:
         raise HTTPException(status_code=404, detail="Profile not found.")
     return ProfileResponse.model_validate(profile)
+
+
+@router.post("/{profile_id}/review", response_model=ResumeReviewResponse)
+async def review_profile(
+    profile_id: int,
+    payload: ResumeReviewRequest | None = None,
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(optional_auth_context),
+) -> ResumeReviewResponse:
+    payload = payload or ResumeReviewRequest()
+    profile = _apply_tenant(db.query(Profile), auth).filter(Profile.id == profile_id).first()
+    if profile is None:
+        raise HTTPException(status_code=404, detail="Profile not found.")
+    job = None
+    if payload.job_id is not None:
+        job = db.query(Job).filter(Job.id == payload.job_id).first()
+        if job is None:
+            raise HTTPException(status_code=404, detail="Job not found.")
+    try:
+        review = await ResumeReviewService().review_profile(
+            db,
+            profile=profile,
+            job=job,
+            include_llm=payload.include_llm,
+        )
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Resume review failed: {exc}") from exc
+    return ResumeReviewResponse.model_validate(review)
 
 
 @router.get("/{profile_id}/html")

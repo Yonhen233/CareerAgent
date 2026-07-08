@@ -612,8 +612,8 @@ button svg,
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 48px;
-  padding: 10px 12px;
+  min-height: 38px;
+  padding: 7px 10px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: linear-gradient(180deg, #ffffff 0%, #f6f9fc 100%);
@@ -631,8 +631,11 @@ button svg,
 }
 
 .generation-options input {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  padding: 0;
+  flex: 0 0 auto;
   margin: 0;
   accent-color: var(--green);
 }
@@ -659,6 +662,121 @@ button svg,
   color: var(--blue);
 }
 
+.inline-field {
+  display: inline-grid;
+  gap: 4px;
+  min-width: 210px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.inline-field input {
+  height: 34px;
+  padding: 6px 10px;
+}
+
+.resume-review-slot {
+  margin-top: 12px;
+}
+
+.resume-review-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #d7e4f2;
+  border-radius: 8px;
+  background: #f9fbfe;
+}
+
+.resume-review-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.resume-review-head strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 20px;
+}
+
+.score-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.score-cell {
+  display: grid;
+  gap: 2px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.score-cell span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.score-cell strong {
+  font-size: 17px;
+}
+
+.review-block {
+  display: grid;
+  gap: 6px;
+}
+
+.review-block h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.review-block ul,
+.review-block ol {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.review-block p {
+  margin: 4px 0;
+}
+
+.review-block blockquote {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-left: 3px solid #9eb9d8;
+  border-radius: 6px;
+  background: #fff;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.review-evidence {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.review-evidence article {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.review-evidence p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
 .field-hint.ok {
   color: var(--green);
 }
@@ -683,6 +801,15 @@ button svg,
 @media (max-width: 900px) {
   .generation-options {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .score-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .resume-review-head {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 

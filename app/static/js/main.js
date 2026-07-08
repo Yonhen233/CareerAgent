@@ -337,9 +337,116 @@ async function loadProfiles() {
       ${tags(row.structured_profile_json.skills || [])}
       <div class="flow-result-actions">
         <a class="button ghost" href="/profiles/${row.id}/html" target="_blank"><i data-lucide="eye"></i> 预览简历</a>
+        <button class="button ghost" type="button" data-review-profile="${row.id}"><i data-lucide="gauge"></i> 简历评分</button>
       </div>
+      <div id="profile-review-${row.id}" class="resume-review-slot"></div>
     </article>
   `);
+}
+
+async function reviewProfile(profileId) {
+  const slot = $(`#profile-review-${profileId}`);
+  const jobId = Number($("#resume-review-job-id")?.value || 0);
+  if (slot) {
+    slot.innerHTML = `<div class="item meta">正在评分，${jobId ? "会结合目标岗位和 RAG 证据" : "将先做通用简历体检"}...</div>`;
+  }
+  const review = await api(`/profiles/${profileId}/review`, {
+    method: "POST",
+    body: JSON.stringify({
+      job_id: jobId > 0 ? jobId : null,
+      include_llm: true,
+    }),
+  });
+  if (slot) {
+    slot.innerHTML = renderResumeReview(review);
+    if (window.lucide) window.lucide.createIcons();
+  }
+  toast(`${jobId ? "岗位针对性" : "通用"}简历评分完成：${review.overall_score} 分`);
+}
+
+function renderResumeReview(review) {
+  const dimensions = review.dimension_scores || {};
+  const issues = review.issues || [];
+  const suggestions = review.suggestions || [];
+  const evidence = review.rag_evidence || [];
+  const alignment = review.target_alignment || {};
+  return `
+    <section class="resume-review-card">
+      <div class="resume-review-head">
+        <div>
+          <p class="eyebrow">${review.review_type === "targeted" ? "岗位针对性评分" : "通用简历评分"}</p>
+          <strong>${escapeHtml(review.overall_score)} 分 · ${escapeHtml(review.grade || "-")}</strong>
+        </div>
+        <span class="status-pill ${review.overall_score >= 75 ? "ok" : review.overall_score < 60 ? "risk" : ""}">
+          ${review.trace?.rag_used ? "RAG 已接入" : "通用体检"}
+        </span>
+      </div>
+      ${alignment.match_score !== undefined ? `
+        <div class="meta">目标岗位：${escapeHtml(alignment.company || "")} ${escapeHtml(alignment.job_title || "")} · 匹配 ${escapeHtml(alignment.match_score)}</div>
+      ` : ""}
+      <div class="score-grid">
+        ${Object.entries(dimensions).map(([key, value]) => `
+          <div class="score-cell">
+            <span>${escapeHtml(resumeReviewDimensionLabel(key))}</span>
+            <strong>${escapeHtml(value)}</strong>
+          </div>
+        `).join("")}
+      </div>
+      ${review.strengths?.length ? `
+        <div class="review-block">
+          <h3>优势</h3>
+          <ul>${review.strengths.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+        </div>
+      ` : ""}
+      ${issues.length ? `
+        <div class="review-block">
+          <h3>主要问题</h3>
+          <ul>${issues.map((item) => `<li><strong>${escapeHtml(item.section || "简历")}</strong>：${escapeHtml(item.problem || "")}</li>`).join("")}</ul>
+        </div>
+      ` : ""}
+      ${suggestions.length ? `
+        <div class="review-block">
+          <h3>修改建议</h3>
+          <ol>${suggestions.map((item) => `
+            <li>
+              <strong>${escapeHtml(resumeReviewPriorityLabel(item.priority))} · ${escapeHtml(item.section || "简历")}</strong>
+              <p>${escapeHtml(item.advice || "")}</p>
+              ${item.example_rewrite ? `<blockquote>${escapeHtml(item.example_rewrite)}</blockquote>` : ""}
+            </li>
+          `).join("")}</ol>
+        </div>
+      ` : ""}
+      ${evidence.length ? `
+        <details class="review-evidence">
+          <summary>查看 RAG 证据（${evidence.length} 条）</summary>
+          ${evidence.map((item) => `
+            <article>
+              <strong>${escapeHtml(item.chunk_type || "chunk")} · ${escapeHtml(item.score ?? "-")}</strong>
+              <p>${escapeHtml(item.text || "")}</p>
+            </article>
+          `).join("")}
+        </details>
+      ` : ""}
+    </section>
+  `;
+}
+
+function resumeReviewDimensionLabel(key) {
+  const labels = {
+    profile_completeness: "完整度",
+    evidence_strength: "证据强度",
+    metric_density: "量化结果",
+    keyword_clarity: "关键词",
+    readability: "可读性",
+    risk_control: "事实边界",
+    target_alignment: "岗位匹配",
+  };
+  return labels[key] || key;
+}
+
+function resumeReviewPriorityLabel(priority) {
+  const labels = { high: "高优先级", medium: "中优先级", low: "低优先级" };
+  return labels[priority] || "中优先级";
 }
 
 async function loadJobs() {
@@ -2501,6 +2608,15 @@ function bindForms() {
     if (!(event.target instanceof Element)) return;
     const importButton = event.target.closest("[data-import-interview-candidate]");
     if (importButton) prefillInterviewSourceImport(importButton);
+    const reviewButton = event.target.closest("[data-review-profile]");
+    if (reviewButton) {
+      reviewButton.disabled = true;
+      reviewProfile(reviewButton.dataset.reviewProfile)
+        .catch((error) => toast(error.message))
+        .finally(() => {
+          reviewButton.disabled = false;
+        });
+    }
     const qualityButton = event.target.closest("[data-quality-jump]");
     if (qualityButton) focusInterviewQuestion(qualityButton);
     const cancelButton = event.target.closest("[data-cancel-run]");

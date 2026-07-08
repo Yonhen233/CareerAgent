@@ -70,6 +70,24 @@ def test_outbound_smoke_pages_expose_browser_and_smtp_payloads():
     assert 'id="message"' in target.text
 
 
+def test_profiles_page_exposes_resume_review_controls():
+    client = TestClient(app)
+    response = client.get("/ui/profiles")
+    main_js = Path("app/static/js/main.js").read_text(encoding="utf-8")
+    style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")
+
+    assert response.status_code == 200
+    assert "resume-review-job-id" in response.text
+    assert "针对岗位 ID（可选）" in response.text
+    assert "data-review-profile" in main_js
+    assert "reviewProfile" in main_js
+    assert "/profiles/${profileId}/review" in main_js
+    assert "renderResumeReview" in main_js
+    assert "RAG 已接入" in main_js
+    assert "resume-review-card" in style_css
+    assert "score-grid" in style_css
+
+
 def test_evaluations_page_exposes_interview_source_smoke_controls():
     client = TestClient(app)
     response = client.get("/ui/evaluations")
@@ -147,6 +165,7 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "grid-template-columns: repeat(5" in style_css
     assert "accent-color: var(--green)" in style_css
     assert "white-space: nowrap" in style_css
+    assert "min-height: 38px" in style_css
     assert "console-entry" in style_css
 
 
