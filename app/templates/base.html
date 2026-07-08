@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>CareerAgent</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=20260708-resume-source-cards">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260708-history-layout">
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body data-page="{{ page }}">
@@ -18,10 +18,10 @@
           <a href="/" class="{{ 'active' if page == 'dashboard' else '' }}">开始</a>
           <a href="/ui/profiles" class="{{ 'active' if page == 'profiles' else '' }}">简历</a>
           <a href="/ui/jobs" class="{{ 'active' if page == 'jobs' else '' }}">岗位</a>
-          <a href="/ui/agent-runs" class="{{ 'active' if page == 'agent_runs' else '' }}">流程</a>
           <a href="/ui/resumes" class="{{ 'active' if page == 'resumes' else '' }}">定制简历</a>
           <a href="/ui/applications" class="{{ 'active' if page == 'applications' else '' }}">投递</a>
           <a href="/ui/prep" class="{{ 'active' if page == 'interview_prep' else '' }}">面试</a>
+          <a href="/ui/agent-runs" class="{{ 'active' if page == 'agent_runs' else '' }}">历史记录</a>
         </nav>
         <a class="console-entry {{ 'active' if page in ['ops', 'evaluations'] else '' }}" href="/ui/ops">
           <i data-lucide="settings-2"></i>
@@ -33,6 +33,6 @@
       {% block content %}{% endblock %}
     </main>
     <div id="toast" class="toast" hidden></div>
-    <script src="/static/js/main.js?v=20260708-resume-source-cards"></script>
+    <script src="/static/js/main.js?v=20260708-history-layout"></script>
   </body>
 </html>

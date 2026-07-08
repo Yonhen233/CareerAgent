@@ -148,14 +148,32 @@ a {
   align-items: stretch;
 }
 
+.job-entry-grid {
+  align-items: stretch;
+}
+
+.run-history-grid {
+  align-items: start;
+}
+
 .profile-entry-panel {
   display: flex;
   flex-direction: column;
   min-height: 320px;
 }
 
+.job-entry-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 390px;
+}
+
 .profile-entry-panel .panel-heading {
   min-height: 112px;
+}
+
+.job-entry-panel .panel-heading {
+  min-height: 92px;
 }
 
 .profile-entry-form {
@@ -163,6 +181,26 @@ a {
   flex: 1;
   flex-direction: column;
   gap: 14px;
+}
+
+.job-entry-form {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.job-entry-form > .form-grid {
+  margin-bottom: 0;
+}
+
+.job-entry-form textarea {
+  min-height: 132px;
+}
+
+.job-entry-form button {
+  width: 100%;
+  margin-top: auto;
 }
 
 .profile-entry-form textarea {
@@ -186,6 +224,10 @@ a {
 }
 
 .profile-entry-panel .result-list:empty {
+  display: none;
+}
+
+.notice:empty {
   display: none;
 }
 
@@ -699,10 +741,22 @@ button svg,
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   align-items: stretch;
-  padding: 10px;
+  padding: 14px;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #f8fafc;
+}
+
+.resume-source-guidance {
+  grid-column: 1 / -1;
+  padding: 0 0 2px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.resume-source-guidance span {
+  max-width: 720px;
 }
 
 .resume-source-card {

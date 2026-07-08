@@ -15,10 +15,6 @@
         你想让 Agent 做什么
         <textarea name="instruction" rows="3" placeholder="例如：我想找 Agent 开发实习，优先深圳，帮我搜索岗位并准备定制简历和面试问题。"></textarea>
       </label>
-      <div id="input-guidance" class="guidance-card">
-        <strong>先选简历档案，再开始找岗位</strong>
-        <span>下面三种方式任选一种提供简历档案；再填写岗位目标，系统会继续完成岗位搜索和匹配排序。</span>
-      </div>
       <div class="generation-picker" aria-label="选择生成内容">
         <div>
           <p class="eyebrow">流程内容</p>
@@ -37,6 +33,10 @@
       </div>
       <div class="form-grid">
         <div class="start-resume-picker wide" aria-label="选择简历来源">
+          <div id="input-guidance" class="guidance-card resume-source-guidance">
+            <strong>三选一提供简历档案，再开始找岗位</strong>
+            <span>请先在三种方式中任选一种提供简历档案。固定完成简历档案、岗位搜索和匹配排序；不勾选则不生成后续材料。</span>
+          </div>
           <input name="profile_id" type="hidden">
           <div class="resume-source-card selected-profile-card" id="selected-profile-card">
             <div>
@@ -121,7 +121,7 @@
       <div class="quick-actions process-grid">
         <a class="action-row" href="/ui/profiles"><i data-lucide="file-up"></i><span>简历建档</span></a>
         <a class="action-row" href="/ui/jobs"><i data-lucide="search"></i><span>岗位池</span></a>
-        <a class="action-row" href="/ui/agent-runs"><i data-lucide="route"></i><span>流程记录</span></a>
+        <a class="action-row" href="/ui/agent-runs"><i data-lucide="history"></i><span>历史记录</span></a>
         <a class="action-row" href="/ui/resumes"><i data-lucide="file-check-2"></i><span>定制简历</span></a>
         <a class="action-row" href="/ui/applications"><i data-lucide="send"></i><span>投递包</span></a>
         <a class="action-row" href="/ui/prep"><i data-lucide="messages-square"></i><span>面试包</span></a>

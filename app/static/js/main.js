@@ -617,7 +617,7 @@ async function loadRuns(target = "#runs-list") {
       const runId = button.dataset.resumeRunId;
       const resumed = await resumeAgentRun(runId, {
         confirmed: true,
-        note: "用户在流程页面确认继续生成投递包。",
+        note: "用户在历史记录页面确认继续生成投递包。",
         resume_json: { source: "agent_runs_page" },
       });
       toast(resumed.status === "completed" ? "已确认并继续完成" : `当前状态：${resumed.status}`);
@@ -1862,7 +1862,7 @@ function renderNaturalLanguageResult(body) {
   const packageId = body.run_id;
   const links = [];
   const seenLinks = new Set();
-  if (body.run_id) pushUniqueAction(links, seenLinks, "agent-runs", packageAction("/ui/agent-runs", "route", "查看流程", packageId));
+  if (body.run_id) pushUniqueAction(links, seenLinks, "agent-runs", packageAction("/ui/agent-runs", "history", "查看历史记录", packageId));
   if (data.profile?.id) pushUniqueAction(links, seenLinks, "profiles", packageAction("/ui/profiles", "file-user", "简历档案", packageId));
   if (data.job?.id) pushUniqueAction(links, seenLinks, "jobs", packageAction("/ui/jobs", "briefcase-business", "目标岗位", packageId));
   if (data.tailor?.resume_version_id) pushUniqueAction(links, seenLinks, "resumes", packageAction("/ui/resumes", "file-check-2", "定制简历", packageId));

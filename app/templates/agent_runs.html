@@ -3,36 +3,19 @@
 <section class="panel">
   <div class="panel-heading compact">
     <div>
-        <p class="eyebrow">求职流程</p>
-      <h1>我的求职流程</h1>
+      <p class="eyebrow">历史记录</p>
+      <h1>求职历史记录</h1>
+      <p class="meta">这里用于查看一键流程和分步页面产生的运行记录、阶段进度、失败原因和需要确认的动作。</p>
     </div>
   </div>
-  <form id="agent-run-form" class="form-grid">
-    <label>
-      想做什么
-      <select name="task_type">
-        <option value="full_career_flow">找岗位并生成完整求职包</option>
-        <option value="find_jobs_for_profile">只找岗位</option>
-        <option value="tailor_resume_for_job">只改简历</option>
-        <option value="quick_apply">只生成投递包</option>
-        <option value="prepare_interview_for_job">只生成面试包</option>
-      </select>
-    </label>
-    <label>简历档案 ID<input name="profile_id" type="number" min="1" placeholder="可选"></label>
-    <label>岗位 ID<input name="job_id" type="number" min="1" placeholder="可选"></label>
-    <label>定制简历 ID<input name="resume_version_id" type="number" min="1" placeholder="可选"></label>
-    <label class="wide">岗位关键词<input name="query" value="Agent 开发实习生"></label>
-    <label>岗位数量<input name="limit" type="number" min="1" max="80" value="8"></label>
-    <button class="primary" type="submit"><i data-lucide="play"></i> 开始处理</button>
-  </form>
 </section>
 
-<section class="workspace-grid">
+<section class="workspace-grid run-history-grid">
   <div class="panel span-7">
     <div class="panel-heading compact">
       <div>
         <p class="eyebrow">历史记录</p>
-        <h2>最近流程</h2>
+        <h2>最近运行</h2>
       </div>
       <button class="ghost" data-refresh="runs"><i data-lucide="refresh-cw"></i> 刷新</button>
     </div>

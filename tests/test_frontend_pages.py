@@ -120,8 +120,9 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert response.status_code == 200
     assert "告诉 CareerAgent 你的求职目标" in response.text
     assert "你想让 Agent 做什么" in response.text
-    assert "先选简历档案，再开始找岗位" in response.text
-    assert "下面三种方式任选一种提供简历档案" in response.text
+    assert "三选一提供简历档案，再开始找岗位" in response.text
+    assert "请先在三种方式中任选一种提供简历档案" in response.text
+    assert response.text.index("你想让 Agent 做什么") < response.text.index("流程内容") < response.text.index("三选一提供简历档案")
     assert "方式一" in response.text
     assert "方式二" in response.text
     assert "方式三" in response.text
@@ -132,6 +133,7 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "profile-picker-search" in response.text
     assert "open-profile-picker" in response.text
     assert "resume-source-card" in response.text
+    assert "resume-source-guidance" in response.text
     assert "resume-upload-card" in response.text
     assert "selected-profile-card" in response.text
     assert "side-stack" in response.text
@@ -154,6 +156,8 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "name=\"jd_text\"" in response.text
     assert "开始处理" in response.text
     assert "控制台" in response.text
+    assert ">历史记录<" in response.text
+    assert ">流程<" not in response.text
     assert ">运维<" not in response.text
     assert "dashboard-ops-summary" not in response.text
     assert "runCareerStartFlow" in main_js
@@ -195,6 +199,7 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "flow-stepper" in style_css
     assert "generation-picker" in style_css
     assert "guidance-card" in style_css
+    assert "resume-source-guidance" in style_css
     assert "fixed-flow-steps" in style_css
     assert "start-resume-picker" in style_css
     assert "resume-source-card.is-selected" in style_css
@@ -217,12 +222,30 @@ def test_profiles_entry_panels_are_user_facing_and_aligned():
     assert "适合已经有成稿简历" in response.text
     assert "描述经历，让 Agent 生成简历档案" in response.text
     assert "适合还没有完整简历" in response.text
-    assert response.text.count("span-6 profile") >= 2
     assert "profile-entry-panel" in response.text
+    assert "span-5 profile-entry-panel" in response.text
+    assert "span-7 profile-guide-panel profile-entry-panel" in response.text
     assert "profile-entry-grid" in style_css
     assert "profile-entry-panel" in style_css
     assert "min-height: 320px" in style_css
     assert "profile-entry-form button" in style_css
+
+
+def test_jobs_page_entry_panels_are_aligned():
+    client = TestClient(app)
+    response = client.get("/ui/jobs")
+    style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")
+
+    assert response.status_code == 200
+    assert "job-entry-grid" in response.text
+    assert "span-5 job-entry-panel" in response.text
+    assert "span-7 job-entry-panel" in response.text
+    assert "job-entry-form" in response.text
+    assert "job-entry-grid" in style_css
+    assert "job-entry-panel" in style_css
+    assert "job-entry-form button" in style_css
+    assert ".notice:empty" in style_css
+    assert "margin-top: auto" in style_css
 
 
 def test_applications_page_uses_package_number_and_constrained_layout():
@@ -262,6 +285,13 @@ def test_agent_runs_page_exposes_langgraph_event_timeline():
     style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")
 
     assert response.status_code == 200
+    assert "求职历史记录" in response.text
+    assert "查看一键流程和分步页面产生的运行记录" in response.text
+    assert "最近运行" in response.text
+    assert "run-history-grid" in response.text
+    assert "run-history-grid" in style_css
+    assert "我的求职流程" not in response.text
+    assert "agent-run-form" not in response.text
     assert "run-events" in response.text
     assert "事件流" in response.text
     assert "loadRunEvents" in main_js
