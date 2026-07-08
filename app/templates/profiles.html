@@ -16,20 +16,18 @@
   <div class="panel span-7 profile-guide-panel">
     <div class="panel-heading compact">
       <div>
-        <p class="eyebrow">中文简历结构</p>
-        <h1>选择需要的栏目再填写</h1>
+        <p class="eyebrow">自然语言建档</p>
+        <h1>描述经历，让 Agent 生成简历档案</h1>
       </div>
     </div>
-    <div class="resume-section-map">
-      <span>基础信息</span>
-      <span>求职意向</span>
-      <span>教育经历</span>
-      <span>实习/工作经历</span>
-      <span>项目经历</span>
-      <span>校园/实践经历</span>
-      <span>技能证书</span>
-      <span>荣誉语言</span>
-    </div>
+    <form id="natural-profile-form" class="stack">
+      <label>
+        直接描述你的背景、目标岗位、教育、项目、实习和技能
+        <textarea name="instruction" rows="7" required placeholder="例如：我叫李明，邮箱 liming@example.com，想找 Agent 开发实习。我的项目 CareerAgent 使用 FastAPI、SQLite、RAG、LangGraph，实现简历解析、岗位匹配、定制简历和面试准备；请按中文简历格式生成档案。"></textarea>
+      </label>
+      <button class="primary" type="submit"><i data-lucide="sparkles"></i> 生成简历档案</button>
+    </form>
+    <div id="natural-profile-result" class="result-list compact-result"></div>
   </div>
 </section>
 

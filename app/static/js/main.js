@@ -431,6 +431,28 @@ function renderResumeReview(review) {
   `;
 }
 
+function renderNaturalProfileResult(body) {
+  const result = $("#natural-profile-result");
+  if (!result) return;
+  const data = body.result_json || {};
+  const profileId = data.profile?.id;
+  const failed = body.status === "failed" || !profileId;
+  result.innerHTML = `
+    <article class="item ${failed ? "validation-risk" : "validation-ok"}">
+      <div class="item-title">
+        <span>${failed ? "生成失败" : `简历档案 #${escapeHtml(profileId)}`}</span>
+        <span class="status-pill ${failed ? "risk" : "ok"}">${failed ? "需处理" : "已建立"}</span>
+      </div>
+      <div class="meta">${escapeHtml(body.user_message || naturalResultSummary(body))}</div>
+      ${profileId ? `<div class="flow-result-actions">
+        <a class="button ghost" href="/profiles/${profileId}/html" target="_blank"><i data-lucide="eye"></i> 预览简历</a>
+        <button class="button ghost" type="button" data-review-profile="${profileId}"><i data-lucide="gauge"></i> 简历评分</button>
+      </div>` : ""}
+    </article>
+  `;
+  if (window.lucide) window.lucide.createIcons();
+}
+
 function resumeReviewDimensionLabel(key) {
   const labels = {
     profile_completeness: "完整度",
@@ -1355,10 +1377,7 @@ async function createProfileForCareerFlow(form, raw) {
   if (file) {
     return await parseResumeFileIntoStartForm(form, file);
   }
-  if (!raw.name) {
-    throw new Error("请上传 PDF、填写核心简历信息或输入已有 Profile ID。");
-  }
-  return await api("/profiles/guided", { method: "POST", body: JSON.stringify(guidedProfilePayload(raw)) });
+  throw new Error("请先选择已有简历档案，或上传 PDF 自动建立档案；没有简历时请到“简历建档”页面手动填写或用自然语言生成。");
 }
 
 async function uploadProfileFile(file) {
@@ -1370,6 +1389,12 @@ async function uploadProfileFile(file) {
 }
 
 function selectedStartActions(form) {
+  const required = ["create_profile", "search_jobs"];
+  const optional = optionalStartActions(form);
+  return [...required, ...optional];
+}
+
+function optionalStartActions(form) {
   return Array.from(form?.querySelectorAll('input[name="selected_actions"]:checked') || []).map((input) => input.value);
 }
 
@@ -1385,24 +1410,7 @@ function startActionLabel(action) {
 }
 
 function profileContextFromStartForm(raw) {
-  const targetRoles = splitList(raw.target_roles);
-  const skills = splitList(raw.skills);
-  const projectText = String(raw.project || "").trim();
-  const projectName = projectText.split(/[:：\n]/)[0]?.trim() || "项目经历";
-  return compactObject({
-    name: raw.name,
-    email: raw.email,
-    location: raw.location,
-    headline: targetRoles[0] ? `${targetRoles[0]}候选人` : undefined,
-    target_roles: targetRoles,
-    skills,
-    projects: projectText ? [{
-      name: projectName,
-      description: projectText,
-      tech_stack: skills,
-      impact: "",
-    }] : [],
-  });
+  return {};
 }
 
 function hasProfileContext(context) {
@@ -1435,11 +1443,6 @@ function populateStartFormFromProfile(form, profile) {
   if (!form || !profile) return;
   const structured = profile.structured_profile_json || {};
   if (form.profile_id) form.profile_id.value = profile.id || "";
-  if (form.name) form.name.value = profile.name || structured.name || "";
-  if (form.email) form.email.value = profile.email || structured.email || "";
-  if (form.target_roles) form.target_roles.value = (profile.target_roles_json || structured.target_roles || []).join(", ");
-  if (form.skills) form.skills.value = (structured.skills || []).join(", ");
-  if (form.project) form.project.value = projectTextFromProfile(structured);
   if (form.location && structured.location) form.location.value = structured.location;
   if (form.query && !form.query.value.trim()) {
     const roles = profile.target_roles_json || structured.target_roles || [];
@@ -1460,13 +1463,13 @@ async function parseResumeFileIntoStartForm(form, file) {
   if (form.dataset.parsedResumeSignature === signature && form.dataset.parsedProfileId) {
     return api(`/profiles/${form.dataset.parsedProfileId}`);
   }
-  setPdfParseStatus(form, "正在解析 PDF，并回填表单...", "running");
+  setPdfParseStatus(form, "正在解析 PDF，并建立简历档案...", "running");
   const profile = await uploadProfileFile(file);
   form.dataset.parsedResumeSignature = signature;
   form.dataset.parsedProfileId = String(profile.id || "");
   populateStartFormFromProfile(form, profile);
   updateStartInputGuidance(form);
-  setPdfParseStatus(form, `PDF 已解析为 Profile #${profile.id}，已回填核心字段。`, "ok");
+  setPdfParseStatus(form, `PDF 已解析为 Profile #${profile.id}，后续流程会使用该档案。`, "ok");
   toast(`PDF 已解析为 Profile #${profile.id}`);
   return profile;
 }
@@ -1475,20 +1478,18 @@ function updateStartInputGuidance(form) {
   const card = $("#input-guidance");
   if (!card || !form) return;
   const raw = formJson(form);
-  const actions = selectedStartActions(form);
-  const context = profileContextFromStartForm(raw);
+  const actions = optionalStartActions(form);
   const sources = [];
   if (String(raw.instruction || "").trim()) sources.push("prompt");
   if (raw.profile_id) sources.push(`Profile #${raw.profile_id}`);
   if (form.elements.resume_file?.files?.[0]) sources.push("PDF");
-  if (hasProfileContext(context)) sources.push("表单");
   const sourceText = sources.length
     ? `将使用这些信息：${sources.join("、")}。`
-    : "你可以只写上面的需求，也可以上传 PDF 或填写下面的简历信息。";
+    : "请先选择已有简历档案，或上传 PDF 自动建立档案。";
   const actionText = actions.length
-    ? `将生成：${actions.map(startActionLabel).join("、")}。`
-    : "没有选择生成内容时，系统会根据你的需求判断。";
-  card.innerHTML = `<strong>可以只写需求，也可以补充表单</strong><span>${escapeHtml(sourceText)}${escapeHtml(actionText)}上传 PDF 后会先填入表单，提交前可以继续修改。</span>`;
+    ? `固定完成简历档案、岗位搜索和匹配排序，并额外生成：${actions.map(startActionLabel).join("、")}。`
+    : "固定完成简历档案、岗位搜索和匹配排序；不勾选则不生成后续材料。";
+  card.innerHTML = `<strong>先选简历档案，再开始找岗位</strong><span>${escapeHtml(sourceText)}${escapeHtml(actionText)}</span>`;
 }
 
 function topMatchedJob(run) {
@@ -1704,18 +1705,9 @@ async function runCareerStartFlow(form) {
 function fillCareerDemo(form) {
   if (!form) return;
   if (form.instruction) {
-    form.instruction.value = "我想找 Agent 开发实习岗位。请根据下面 JD 帮我生成或更新简历档案，并针对这个岗位改简历、生成投递材料和面试准备问题。";
+    form.instruction.value = "我想找 Agent 开发实习岗位，优先深圳。请先搜索并匹配岗位，再按我勾选的内容生成材料。";
   }
   form.profile_id.value = "";
-  form.name.value = "李明";
-  form.email.value = "liming@example.com";
-  form.target_roles.value = "Agent 开发实习生, AI 应用开发实习生";
-  form.skills.value = "Python, FastAPI, SQLite, RAG, LLM API, Agent workflow, Evaluation, Guardrails, 流程追踪, Playwright";
-  form.project.value = [
-    "CareerAgent：面向中文求职场景的 Agent 求职助手。",
-    "实现 PDF Chunk、SQLite RAG、岗位匹配、定制简历、投递包、面试准备和全链路过程记录。",
-    "使用 Python、FastAPI、SQLite、LLM API、Plan-Execute、ReAct repair、Guardrails、Playwright 和 pytest 支撑真实流程测试。"
-  ].join("\n");
   form.query.value = "Agent 开发实习生";
   form.location.value = "深圳";
   form.limit.value = "8";
@@ -1826,15 +1818,17 @@ async function runNaturalLanguageRequest(form) {
       profileId = profile.id;
       raw = formJson(form);
     }
+    if (!profileId) {
+      throw new Error("请先选择已有简历档案，或上传 PDF 自动建立档案；没有简历时请到“简历建档”页面创建。");
+    }
     const actions = selectedStartActions(form);
-    const profileContext = profileContextFromStartForm(raw);
     const body = await api("/assistant/natural-language", {
       method: "POST",
       body: JSON.stringify({
         instruction: buildNaturalInstruction(raw, actions),
         profile_id: profileId,
         job_id: raw.job_id ? Number(raw.job_id) : null,
-        profile_context: hasProfileContext(profileContext) ? profileContext : null,
+        profile_context: null,
         selected_actions: actions,
         jd_text: raw.jd_text || null,
         location: raw.location || null,
@@ -2273,7 +2267,7 @@ function bindForms() {
       if (event.target?.name === "resume_file") {
         const file = event.target.files?.[0];
         if (!file) {
-          setPdfParseStatus(careerStartForm, "选择 PDF 后会自动解析并回填表单。");
+          setPdfParseStatus(careerStartForm, "选择 PDF 后会自动解析并建立简历档案。");
           return;
         }
         try {
@@ -2285,6 +2279,38 @@ function bindForms() {
       }
     });
   }
+
+  $("#natural-profile-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const raw = formJson(form);
+    const result = $("#natural-profile-result");
+    const submitButton = form.querySelector("button[type='submit']");
+    if (submitButton) submitButton.disabled = true;
+    if (result) result.innerHTML = `<article class="item meta">Agent 正在根据描述生成简历档案...</article>`;
+    try {
+      const body = await api("/assistant/natural-language", {
+        method: "POST",
+        body: JSON.stringify({
+          instruction: raw.instruction,
+          selected_actions: ["create_profile"],
+          profile_context: null,
+        }),
+      });
+      renderNaturalProfileResult(body);
+      await loadProfiles();
+      toast("简历档案已生成");
+    } catch (error) {
+      if (error.body?.run_id) {
+        renderNaturalProfileResult(error.body);
+      } else if (result) {
+        result.innerHTML = `<article class="item validation-risk">${escapeHtml(error.message)}</article>`;
+      }
+      toast(error.message);
+    } finally {
+      if (submitButton) submitButton.disabled = false;
+    }
+  });
 
   const guidedProfileForm = $("#guided-profile-form");
   if (guidedProfileForm) {

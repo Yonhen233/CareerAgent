@@ -603,8 +603,44 @@ button svg,
 
 .generation-options {
   display: grid;
-  grid-template-columns: repeat(5, minmax(104px, 1fr));
+  grid-template-columns: repeat(3, minmax(104px, 1fr));
   gap: 8px;
+}
+
+.fixed-flow-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.fixed-flow-steps span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid #cfe2d8;
+  border-radius: 8px;
+  background: #f2fbf6;
+  color: #0d6f45;
+  font-size: 13px;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+.fixed-flow-steps svg {
+  width: 16px;
+  height: 16px;
+}
+
+.start-profile-link {
+  display: flex;
+  align-items: end;
+}
+
+.start-profile-link .button {
+  width: 100%;
 }
 
 .generation-options label {
@@ -799,7 +835,8 @@ button svg,
 }
 
 @media (max-width: 900px) {
-  .generation-options {
+  .generation-options,
+  .fixed-flow-steps {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

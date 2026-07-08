@@ -77,8 +77,16 @@ def test_profiles_page_exposes_resume_review_controls():
     style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")
 
     assert response.status_code == 200
+    assert "natural-profile-form" in response.text
+    assert "自然语言建档" in response.text
+    assert "生成简历档案" in response.text
+    assert "upload-profile-form" in response.text
+    assert "guided-profile-form" in response.text
     assert "resume-review-job-id" in response.text
     assert "针对岗位 ID（可选）" in response.text
+    assert "renderNaturalProfileResult" in main_js
+    assert 'selected_actions: ["create_profile"]' in main_js
+    assert "natural-profile-result" in main_js
     assert "data-review-profile" in main_js
     assert "reviewProfile" in main_js
     assert "/profiles/${profileId}/review" in main_js
@@ -112,13 +120,19 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert response.status_code == 200
     assert "告诉 CareerAgent 你的求职目标" in response.text
     assert "你想让 Agent 做什么" in response.text
-    assert "可以只写需求，也可以补充表单" in response.text
-    assert "上面写你想做什么" in response.text
-    assert "生成内容" in response.text
-    assert "选择 PDF 后会自动解析并回填表单" in response.text
+    assert "先选简历档案，再开始找岗位" in response.text
+    assert "流程内容" in response.text
+    assert "固定步骤" in response.text
+    assert "选择 PDF 后会自动解析并建立简历档案" in response.text
     assert "信息会自动合并" not in response.text
-    for action in ["create_profile", "search_jobs", "tailor_resume", "quick_apply", "interview_prep"]:
+    assert 'value="create_profile"' not in response.text
+    assert 'value="search_jobs"' not in response.text
+    for action in ["tailor_resume", "quick_apply", "interview_prep"]:
         assert f'value="{action}"' in response.text
+    assert 'name="name"' not in response.text
+    assert 'name="email"' not in response.text
+    assert 'name="skills"' not in response.text
+    assert 'name="project"' not in response.text
     assert "需求入口" not in response.text
     assert "一键开始" not in response.text
     assert "career-start-form" in response.text
@@ -137,10 +151,10 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "parseResumeFileIntoStartForm" in main_js
     assert "populateStartFormFromProfile" in main_js
     assert "profileContextFromStartForm" in main_js
-    assert "将使用这些信息" in main_js
-    assert "没有选择生成内容时" in main_js
+    assert 'const required = ["create_profile", "search_jobs"]' in main_js
+    assert "固定完成简历档案、岗位搜索和匹配排序" in main_js
     assert "selected_actions: actions" in main_js
-    assert "profile_context: hasProfileContext(profileContext)" in main_js
+    assert "profile_context: null" in main_js
     assert "pushUniqueAction" in main_js
     assert "runActionKeys" in main_js
     assert "tailor_resume_for_job: \"resumes\"" in main_js
@@ -162,7 +176,8 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "flow-stepper" in style_css
     assert "generation-picker" in style_css
     assert "guidance-card" in style_css
-    assert "grid-template-columns: repeat(5" in style_css
+    assert "fixed-flow-steps" in style_css
+    assert "grid-template-columns: repeat(3" in style_css
     assert "accent-color: var(--green)" in style_css
     assert "white-space: nowrap" in style_css
     assert "min-height: 38px" in style_css

@@ -13,20 +13,23 @@
     <form id="career-start-form" class="stack">
       <label class="wide">
         你想让 Agent 做什么
-        <textarea name="instruction" rows="4" placeholder="例如：我想找 Agent 开发实习，把这份简历改得更贴合 JD，并生成投递材料和面试准备。可以只写需求，也可以和下方结构化信息一起使用。"></textarea>
+        <textarea name="instruction" rows="3" placeholder="例如：我想找 Agent 开发实习，优先深圳，帮我搜索岗位并准备定制简历和面试问题。"></textarea>
       </label>
       <div id="input-guidance" class="guidance-card">
-        <strong>可以只写需求，也可以补充表单</strong>
-        <span>上面写你想做什么；下面用来补简历、岗位和城市。上传 PDF 后会先把识别出的内容填到表单里，你可以改完再开始。</span>
+        <strong>先选简历档案，再开始找岗位</strong>
+        <span>开始页只负责选择简历和岗位目标；如果还没有简历，可以上传 PDF 自动建档，或去“简历建档”页面手动填写/用自然语言生成。</span>
       </div>
       <div class="generation-picker" aria-label="选择生成内容">
         <div>
-          <p class="eyebrow">生成内容</p>
-          <strong>想让 Agent 生成什么？不选时由系统根据你的需求判断。</strong>
+          <p class="eyebrow">流程内容</p>
+          <strong>简历档案、岗位搜索和匹配排序是固定步骤；下面只选择还要额外生成的材料。</strong>
+        </div>
+        <div class="fixed-flow-steps" aria-label="固定步骤">
+          <span><i data-lucide="file-user"></i> 简历档案</span>
+          <span><i data-lucide="search"></i> 岗位搜索</span>
+          <span><i data-lucide="list-filter"></i> 匹配排序</span>
         </div>
         <div class="generation-options">
-          <label><input type="checkbox" name="selected_actions" value="create_profile"><span>简历档案</span></label>
-          <label><input type="checkbox" name="selected_actions" value="search_jobs"><span>岗位搜索</span></label>
           <label><input type="checkbox" name="selected_actions" value="tailor_resume"><span>定制简历</span></label>
           <label><input type="checkbox" name="selected_actions" value="quick_apply"><span>投递材料</span></label>
           <label><input type="checkbox" name="selected_actions" value="interview_prep"><span>面试准备</span></label>
@@ -34,35 +37,18 @@
       </div>
       <div class="form-grid">
         <label>
-          已有 Profile ID
-          <input name="profile_id" type="number" min="1" placeholder="可选">
+          已有简历档案 ID
+          <input name="profile_id" type="number" min="1" placeholder="选择已有 Profile">
         </label>
         <label>
-          PDF 简历
+          上传 PDF 自动建档
           <input name="resume_file" type="file" accept="application/pdf">
-          <small id="pdf-parse-status" class="field-hint">选择 PDF 后会自动解析并回填表单。</small>
+          <small id="pdf-parse-status" class="field-hint">选择 PDF 后会自动解析并建立简历档案。</small>
         </label>
-        <label>
-          姓名
-          <input name="name" placeholder="李明">
-        </label>
-        <label>
-          邮箱
-          <input name="email" type="email" placeholder="liming@example.com">
-        </label>
+        <div class="start-profile-link">
+          <a class="button ghost" href="/ui/profiles"><i data-lucide="file-pen-line"></i> 去简历页手动填写/自然语言建档</a>
+        </div>
         <label class="wide">
-          目标岗位
-          <input name="target_roles" value="Agent 开发实习生, AI 应用开发实习生">
-        </label>
-        <label class="wide">
-          技能关键词
-          <input name="skills" value="Python, FastAPI, RAG, SQLite, Agent, LLM, Evaluation">
-        </label>
-        <label class="wide">
-          项目经历
-          <textarea name="project" rows="5" placeholder="CareerAgent：实现 PDF Chunk、RAG 检索、岗位匹配、定制简历、投递包和面试准备，并记录全链路过程。"></textarea>
-        </label>
-        <label>
           岗位搜索词
           <input name="query" value="Agent 开发实习生" required>
         </label>
