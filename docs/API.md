@@ -256,7 +256,7 @@ HTML 预览：
 GET /resumes/{resume_version_id}/html
 ```
 
-返回 `text/html`，将历史 Markdown 内容渲染为简历排版页面，并在侧栏展示事实检查、改动摘要和关键词覆盖情况。
+返回 `text/html`，将历史 Markdown 内容渲染为可打印、可另存为 PDF 的简历排版页面。事实检查、改动摘要和关键词覆盖情况只在前端定制简历详情中单独展示，不写入可投递简历正文。
 
 下载 Markdown：
 

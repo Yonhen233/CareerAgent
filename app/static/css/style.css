@@ -1528,6 +1528,39 @@ button svg,
   background: #f7f9fc;
 }
 
+.active-run-monitor {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 45;
+  width: min(380px, calc(100vw - 40px));
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: var(--shadow);
+}
+
+.active-run-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  font-weight: 800;
+}
+
+.active-run-row {
+  display: grid;
+  gap: 3px;
+  padding: 9px 0;
+  border-top: 1px solid var(--line);
+}
+
+.active-run-row small {
+  color: var(--muted);
+}
+
 .toast {
   position: fixed;
   right: 20px;

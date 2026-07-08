@@ -106,4 +106,9 @@ def test_profile_and_resume_html_preview_routes(db_session):
     assert "text/html" in resume_response.headers["content-type"]
     assert "<h1>李明</h1>" in resume_response.text
     assert "<strong>CareerAgent</strong>" in resume_response.text
-    assert "待补关键词" in resume_response.text
+    assert "检查结果" not in resume_response.text
+    assert "改动摘要" not in resume_response.text
+    assert "突出 Agent 项目" not in resume_response.text
+    assert "待补关键词" not in resume_response.text
+    assert "Tool Calling" not in resume_response.text
+    assert "风险：" not in resume_response.text

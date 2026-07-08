@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>CareerAgent</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=20260708-tailor-job-preview">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260708-run-restore">
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body data-page="{{ page }}">
@@ -32,7 +32,8 @@
     <main class="shell">
       {% block content %}{% endblock %}
     </main>
+    <div id="active-run-monitor" class="active-run-monitor" hidden></div>
     <div id="toast" class="toast" hidden></div>
-    <script src="/static/js/main.js?v=20260708-tailor-job-preview"></script>
+    <script src="/static/js/main.js?v=20260708-run-restore"></script>
   </body>
 </html>

@@ -1,5 +1,37 @@
 # 开发日志
 
+## 2026-07-08 16:00:56 +08:00：简历正文去诊断化与运行任务刷新恢复
+### 这次做了什么
+- 将定制简历 HTML 预览改为只展示可投递简历正文，不再把事实检查、改动摘要、关键词缺口写入正文页面。
+- 保留定制简历列表/详情里的诊断展示，保证“修改依据”和“最终材料”分离。
+- 新增全局 active run 监控：后台 run 创建后写入浏览器 `localStorage`，刷新页面或切换页面后自动查询后端 run 状态并显示运行卡片。
+- 首页支持根据已保存 run 恢复阶段进度，用户可以继续跳转到历史记录查看 LangGraph trace。
+- 更新 `/resumes/{id}/html` API 文档，明确诊断信息不会写入可打印简历。
+### 发现的问题
+- 简历定制的检查结果和改动摘要原本由 `ResumeHTMLRenderer` 直接拼进 HTML 预览，用户打开或下载时会把内部诊断信息一起带出去。
+- 前端只用内存变量跟踪正在运行的任务，刷新页面、切换页面或回到首页后无法知道之前的 run 是否还在运行。
+- 历史记录虽然持久化了 run，但缺少面向用户的“当前还有任务在跑”的全局入口。
+### 怎么修复
+- 修改 `app/services/resume_delivery.py`，移除 `_resume_version_aside()` 及相关侧栏布局，`render_resume_version()` 只渲染简历 Markdown 正文。
+- 修改 `app/templates/base.html`，增加 `active-run-monitor` 全局运行状态容器，并更新静态资源版本。
+- 修改 `app/static/js/main.js`，新增 `ACTIVE_RUN_KEY`、`trackActiveRun()`、`restoreActiveRuns()`、`renderActiveRunMonitor()`、`restoreCareerFlowFromRun()` 等前端恢复逻辑。
+- 将 `createBackgroundAgentRun()`、`createAgentRun()` 和 `waitForAgentRun()` 接入 active run 跟踪，完成后自动清理，等待确认时保留入口。
+- 修改 `app/static/css/style.css`，增加全局运行卡片样式。
+- 修改 `tests/test_resume_html_preview.py`，断言可打印简历不包含检查结果、改动摘要、缺失关键词和风险提示。
+- 修改 `tests/test_frontend_pages.py`，断言首页包含 active run 容器和前端恢复逻辑。
+### 验证结果
+- `node --check app\static\js\main.js` 通过。
+- `python -m pytest tests\test_resume_html_preview.py tests\test_frontend_pages.py -q` 通过，16 个测试全部通过。
+- `python -m pytest -q` 通过，131 个测试全部通过。
+- 内置浏览器打开 `http://127.0.0.1:8056/resumes/97/html`，页面包含 `Li Ming` 简历正文，且不包含 `检查结果`、`改动摘要` 和 `风险：`。
+- 内置浏览器打开 `http://127.0.0.1:8056/`，确认首页存在 `active-run-monitor` 全局运行恢复容器，默认无 active run 时保持隐藏，页面加载新的 `run-restore` 静态资源版本。
+### 未修复的问题
+- 当前 active run 恢复是浏览器本地关注列表 + 后端 run 查询；跨浏览器设备同步需要登录态下的用户级 run 订阅表。
+- 运行完成后的结果提醒目前依赖页面内结果区或历史记录；后续可以增加“最近完成”通知中心。
+### 下一步
+- 将定制简历页的评分和定制流程也后台化，统一纳入 active run 监控和 LangGraph event streaming。
+- 给历史记录页增加按状态筛选和“只看待确认/运行中”快捷入口。
+
 ## 2026-07-08 15:48:26 +08:00：岗位 JD 预览、定制简历选择器与历史记录详情
 ### 这次做了什么
 - 为岗位池增加 JD HTML 预览能力：岗位卡片新增“预览 JD”，后端新增 `/jobs/{job_id}/html`。

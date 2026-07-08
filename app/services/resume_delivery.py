@@ -58,7 +58,6 @@ class ResumeHTMLRenderer:
     def render_resume_version(self, version: ResumeVersion) -> str:
         title = version.title or f"定制简历 #{version.id}"
         content = self.render_markdown_fragment(version.tailored_resume_markdown or "")
-        aside = self._resume_version_aside(version)
         return self._page(
             title=f"{title} - HTML 预览",
             body=f"""
@@ -71,7 +70,6 @@ class ResumeHTMLRenderer:
             </header>
             <main class="resume-layout">
               <article class="resume-content">{content}</article>
-              {aside}
             </main>
             """,
         )
@@ -107,32 +105,6 @@ class ResumeHTMLRenderer:
                 html.append(f"<p>{self._inline(line)}</p>")
         flush_list()
         return "\n".join(html) or self._empty_state("暂无可预览的简历内容。")
-
-    def _resume_version_aside(self, version: ResumeVersion) -> str:
-        verification = version.verification_json or {}
-        change_summary = version.change_summary_json or []
-        keyword_alignment = version.keyword_alignment_json or {}
-        summary_items = []
-        for item in change_summary[:5]:
-            if isinstance(item, dict):
-                text = item.get("change") or item.get("summary") or item.get("reason") or str(item)
-            else:
-                text = str(item)
-            summary_items.append(text)
-        covered = keyword_alignment.get("covered") or keyword_alignment.get("matched") or []
-        missing = keyword_alignment.get("missing") or []
-        return f"""
-        <aside class="resume-side">
-          <section>
-            <h2>检查结果</h2>
-            <p><strong>{escape("通过" if verification.get("passed") else "需检查")}</strong></p>
-            <p class="muted">风险：{escape(str(verification.get("risk_level") or "unknown"))}</p>
-          </section>
-          {self._list_section("改动摘要", summary_items)}
-          {self._chips_section("已覆盖关键词", covered)}
-          {self._chips_section("待补关键词", missing)}
-        </aside>
-        """
 
     def _projects_section(self, projects: list[dict[str, Any]]) -> str:
         cards = []
@@ -294,9 +266,7 @@ class ResumeHTMLRenderer:
       background: var(--soft);
     }}
     .resume-layout {{
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 260px;
-      gap: 30px;
+      display: block;
     }}
     .resume-section {{
       padding: 18px 0;
@@ -314,15 +284,6 @@ class ResumeHTMLRenderer:
       padding: 4px 10px;
       color: #26364a;
       font-size: 13px;
-    }}
-    .resume-side {{
-      border-left: 1px solid var(--line);
-      padding-left: 22px;
-    }}
-    .resume-side section {{
-      padding: 0 0 18px;
-      margin-bottom: 18px;
-      border-bottom: 1px solid var(--line);
     }}
     .empty-state {{
       padding: 28px;
@@ -349,7 +310,6 @@ class ResumeHTMLRenderer:
       .resume-header, .resume-layout {{ display: block; }}
       .header-side {{ justify-items: start; margin-top: 12px; }}
       .contact {{ text-align: left; margin-top: 12px; }}
-      .resume-side {{ border-left: 0; padding-left: 0; margin-top: 24px; }}
     }}
     @media print {{
       body {{ background: white; }}

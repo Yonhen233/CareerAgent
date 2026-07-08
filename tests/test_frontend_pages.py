@@ -152,6 +152,7 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "career-start-form" in response.text
     assert "career-flow-steps" in response.text
     assert "career-flow-result" in response.text
+    assert "active-run-monitor" in response.text
     assert "name=\"job_id\"" in response.text
     assert "name=\"jd_text\"" in response.text
     assert "开始处理" in response.text
@@ -188,6 +189,16 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "createAgentRun" in main_js
     assert "createBackgroundAgentRun" in main_js
     assert "waitForAgentRun" in main_js
+    assert "ACTIVE_RUN_KEY" in main_js
+    assert "careeragent.active_runs" in main_js
+    assert "trackActiveRun" in main_js
+    assert "restoreActiveRuns" in main_js
+    assert "renderActiveRunMonitor" in main_js
+    assert "restoreCareerFlowFromRun" in main_js
+    assert "/agent/runs/${runId}" in main_js
+    assert "/agent/runs/${run.id}/steps" in main_js
+    assert "刷新或切换页面不会丢失进度" in main_js
+    assert "查看历史记录" in main_js
     assert "EventSource" in main_js
     assert "/agent/runs/background" in main_js
     assert "/events/stream" in main_js

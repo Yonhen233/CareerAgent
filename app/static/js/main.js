@@ -1,6 +1,9 @@
 const $ = (selector) => document.querySelector(selector);
 const ADMIN_TOKEN_KEY = "careeragent.admin_token";
+const ACTIVE_RUN_KEY = "careeragent.active_runs";
+const ACTIVE_RUN_TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "canceled"]);
 let activeRunEventSource = null;
+let activeRunMonitorTimer = null;
 let profilePickerRows = [];
 let jobPickerRows = [];
 
@@ -1525,6 +1528,205 @@ function pushUniqueAction(actions, seen, key, html) {
   actions.push(html);
 }
 
+function readActiveRuns() {
+  try {
+    const rows = JSON.parse(window.localStorage?.getItem(ACTIVE_RUN_KEY) || "[]");
+    return Array.isArray(rows)
+      ? rows.filter((row) => Number(row.run_id || row.id) > 0)
+      : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function writeActiveRuns(rows) {
+  const cleanRows = (rows || []).filter((row) => Number(row.run_id || row.id) > 0);
+  if (!cleanRows.length) {
+    window.localStorage?.removeItem(ACTIVE_RUN_KEY);
+    return;
+  }
+  window.localStorage?.setItem(ACTIVE_RUN_KEY, JSON.stringify(cleanRows.slice(-6)));
+}
+
+function trackActiveRun(record) {
+  const runId = Number(record?.run_id || record?.id || 0);
+  if (!runId) return;
+  const rows = readActiveRuns().filter((row) => Number(row.run_id || row.id) !== runId);
+  rows.push({
+    run_id: runId,
+    task_type: record.task_type || record.run?.task_type || "full_career_flow",
+    label: record.label || taskLabel(record.task_type || record.run?.task_type),
+    package_id: record.package_id || runId,
+    created_at: record.created_at || new Date().toISOString(),
+  });
+  writeActiveRuns(rows);
+  void restoreActiveRuns();
+}
+
+function untrackActiveRun(runId) {
+  writeActiveRuns(readActiveRuns().filter((row) => Number(row.run_id || row.id) !== Number(runId)));
+  void restoreActiveRuns();
+}
+
+function activeRunStatusLabel(status) {
+  const labels = {
+    queued: "排队中",
+    running: "运行中",
+    waiting_for_confirmation: "等待确认",
+    completed: "已完成",
+    failed: "失败",
+    cancelled: "已取消",
+    canceled: "已取消",
+    unknown: "状态待同步",
+  };
+  return labels[status] || status || "状态待同步";
+}
+
+function renderActiveRunMonitor(rows) {
+  const el = $("#active-run-monitor");
+  if (!el) return;
+  if (!rows.length) {
+    el.hidden = true;
+    el.innerHTML = "";
+    return;
+  }
+  el.hidden = false;
+  el.innerHTML = `
+    <div class="active-run-title">
+      <span>正在处理的求职流程</span>
+      <span class="status-pill ${rows.some((row) => row.status === "waiting_for_confirmation") ? "risk" : "ok"}">${escapeHtml(activeRunStatusLabel(rows[0].status))}</span>
+    </div>
+    ${rows.slice(0, 3).map((row) => `
+      <div class="active-run-row">
+        <strong>${escapeHtml(row.label || taskLabel(row.task_type))} · ${escapeHtml(packageLabel(row.package_id || row.run_id))}</strong>
+        <small>${escapeHtml(activeRunStatusLabel(row.status))}${row.error ? ` · ${escapeHtml(row.error)}` : ""}</small>
+      </div>
+    `).join("")}
+    <div class="flow-result-actions">
+      <a class="button ghost" href="/ui/agent-runs"><i data-lucide="history"></i> 查看历史记录</a>
+      ${rows.some((row) => row.status === "waiting_for_confirmation") ? `<a class="button primary" href="/ui/agent-runs"><i data-lucide="check-circle-2"></i> 去确认</a>` : ""}
+    </div>
+  `;
+  if (window.lucide) window.lucide.createIcons();
+}
+
+function stageFromWorkflowName(name) {
+  const map = {
+    parse_user_request: "profile",
+    plan_task: "profile",
+    load_profile: "profile",
+    search_jobs: "search",
+    match_jobs: "match",
+    select_job: "match",
+    match_job: "match",
+    tailor_resume: "tailor",
+    tailor_resume_with_rag: "tailor",
+    create_missing_tailored_resume: "tailor",
+    fit_gate: "apply",
+    ensure_resume_version: "apply",
+    create_application_packet: "apply",
+    generate_interview_prep: "interview",
+  };
+  return map[name] || "";
+}
+
+function updateCareerFlowFromStep(row) {
+  const stage = stageFromWorkflowName(row.step_name || row.node_name || "");
+  if (!stage) return;
+  const status = row.status === "completed"
+    ? "done"
+    : row.status === "failed"
+      ? "failed"
+      : ["running", "started", "queued"].includes(row.status)
+        ? "running"
+        : "";
+  if (!status) return;
+  const detail = status === "done"
+    ? "已完成"
+    : status === "failed"
+      ? (row.error_message || "失败")
+      : stepLabel(row.step_name || row.node_name);
+  setCareerStage(stage, status, detail);
+}
+
+async function restoreCareerFlowFromRun(run) {
+  if (!$("#career-flow-steps") || !run?.id) return;
+  const statusText = activeRunStatusLabel(run.status);
+  renderCareerFlowMessage(
+    run.status === "failed" ? "error" : "info",
+    `${packageLabel(run.id)} ${statusText}。刷新或切换页面不会丢失进度，可在历史记录中查看完整 trace。`
+  );
+  try {
+    const steps = await api(`/agent/runs/${run.id}/steps`);
+    if (steps.length) {
+      steps.forEach(updateCareerFlowFromStep);
+    } else if (!ACTIVE_RUN_TERMINAL_STATUSES.has(run.status)) {
+      setCareerStage("match", "running", `${statusText} #${run.id}`);
+    }
+  } catch (_) {
+    if (!ACTIVE_RUN_TERMINAL_STATUSES.has(run.status)) {
+      setCareerStage("match", "running", `${statusText} #${run.id}`);
+    }
+  }
+}
+
+async function restoreActiveRuns() {
+  const stored = readActiveRuns();
+  if (!stored.length) {
+    renderActiveRunMonitor([]);
+    if (activeRunMonitorTimer) clearTimeout(activeRunMonitorTimer);
+    activeRunMonitorTimer = null;
+    return;
+  }
+  const results = await Promise.all(stored.map(async (record) => {
+    const runId = Number(record.run_id || record.id);
+    try {
+      const run = await api(`/agent/runs/${runId}`);
+      return { record, run };
+    } catch (error) {
+      return { record, error };
+    }
+  }));
+  const keep = [];
+  const visible = [];
+  for (const item of results) {
+    const runId = Number(item.record.run_id || item.record.id);
+    if (item.run) {
+      const status = item.run.status || "unknown";
+      if (!ACTIVE_RUN_TERMINAL_STATUSES.has(status)) {
+        const merged = {
+          ...item.record,
+          run_id: runId,
+          package_id: item.record.package_id || runId,
+          task_type: item.run.task_type || item.record.task_type,
+          label: item.record.label || taskLabel(item.run.task_type),
+          status,
+          run: item.run,
+        };
+        keep.push(merged);
+        visible.push(merged);
+      }
+    } else {
+      const merged = {
+        ...item.record,
+        run_id: runId,
+        status: "unknown",
+        error: item.error?.message || "暂时无法同步",
+      };
+      keep.push(merged);
+      visible.push(merged);
+    }
+  }
+  writeActiveRuns(keep);
+  renderActiveRunMonitor(visible);
+  const dashboardRun = visible.find((row) => row.run)?.run;
+  if (dashboardRun) await restoreCareerFlowFromRun(dashboardRun);
+  if (activeRunMonitorTimer) clearTimeout(activeRunMonitorTimer);
+  activeRunMonitorTimer = keep.length ? setTimeout(() => {
+    void restoreActiveRuns();
+  }, 4000) : null;
+}
+
 function setCareerStage(stage, status, detail = "") {
   const item = document.querySelector(`#career-flow-steps [data-stage="${stage}"]`);
   if (!item) return;
@@ -1816,6 +2018,15 @@ async function resumeAgentRun(runId, payload) {
 
 async function createAgentRun(payload, label, options = {}) {
   const run = await api("/agent/runs", { method: "POST", body: JSON.stringify(payload) });
+  if (!ACTIVE_RUN_TERMINAL_STATUSES.has(run.status)) {
+    trackActiveRun({
+      run_id: run.id,
+      task_type: payload.task_type,
+      label,
+      package_id: userPackageId(run),
+      created_at: run.created_at,
+    });
+  }
   if (run.status === "waiting_for_confirmation" && options.autoConfirmApplication) {
     toast("投递包生成前需要确认，已按一键流程继续。");
     const resumed = await resumeAgentRun(run.id, {
@@ -1823,6 +2034,7 @@ async function createAgentRun(payload, label, options = {}) {
       note: options.confirmationNote || "用户在一键流程中确认生成投递包。",
       resume_json: { source: "frontend_auto_confirm" },
     });
+    if (resumed.status === "completed") untrackActiveRun(run.id);
     if (resumed.status !== "completed") {
       const message = resumed.error_message || resumed.output_json?.error || JSON.stringify(resumed.output_json || {});
       throw new Error(`${label}确认后失败：${message}`);
@@ -1837,7 +2049,15 @@ async function createAgentRun(payload, label, options = {}) {
 }
 
 async function createBackgroundAgentRun(payload) {
-  return api("/agent/runs/background", { method: "POST", body: JSON.stringify(payload) });
+  const run = await api("/agent/runs/background", { method: "POST", body: JSON.stringify(payload) });
+  trackActiveRun({
+    run_id: run.id,
+    task_type: payload.task_type,
+    label: taskLabel(payload.task_type),
+    package_id: run.id,
+    created_at: run.created_at,
+  });
+  return run;
 }
 
 function updateCareerFlowFromEvent(event) {
@@ -1847,18 +2067,7 @@ function updateCareerFlowFromEvent(event) {
   const done = type.includes("completed");
   const status = running ? "running" : done ? "done" : "";
   if (!status) return;
-  const map = {
-    search_jobs: "search",
-    match_jobs: "match",
-    select_job: "match",
-    match_job: "match",
-    tailor_resume: "tailor",
-    fit_gate: "apply",
-    ensure_resume_version: "apply",
-    create_application_packet: "apply",
-    generate_interview_prep: "interview",
-  };
-  const stage = map[node];
+  const stage = stageFromWorkflowName(node);
   if (!stage) return;
   const detail = status === "running" ? eventLabel(type, node) : "已完成";
   setCareerStage(stage, status, detail);
@@ -1880,8 +2089,23 @@ function waitForAgentRun(runId, options = {}) {
             resume_json: { source: "frontend_auto_confirm" },
           });
         }
-        if (run.status === "completed") resolve(run);
-        else reject(new Error(run.error_message || run.output_json?.error || `流程状态：${run.status}`));
+        if (run.status === "completed") {
+          untrackActiveRun(run.id);
+          resolve(run);
+        } else {
+          if (run.status === "waiting_for_confirmation") {
+            trackActiveRun({
+              run_id: run.id,
+              task_type: run.task_type,
+              label: taskLabel(run.task_type),
+              package_id: run.id,
+              created_at: run.created_at,
+            });
+          } else if (run.status === "failed") {
+            untrackActiveRun(run.id);
+          }
+          reject(new Error(run.error_message || run.output_json?.error || `流程状态：${run.status}`));
+        }
       } catch (error) {
         reject(error);
       }
@@ -3118,6 +3342,7 @@ async function bootstrap() {
     if (page === "evaluations") await loadEvaluationRuns();
     if (page === "evaluations") await loadTasks();
     if (page === "ops") await loadOpsPage();
+    await restoreActiveRuns();
   } catch (error) {
     toast(error.message);
   }
