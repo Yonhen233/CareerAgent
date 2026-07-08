@@ -353,15 +353,21 @@ function profileSummaryText(profile) {
   return `${roleText}${skillCount ? ` · ${skillCount} 个技能` : ""}`;
 }
 
-function updateSelectedProfileCard(profile) {
+function updateResumeSourceSelection(source) {
+  $("#selected-profile-card")?.classList.toggle("is-selected", source === "existing");
+  $("#resume-upload-card")?.classList.toggle("is-selected", source === "pdf");
+}
+
+function updateSelectedProfileCard(profile, source = "existing") {
   const title = $("#selected-profile-title");
   const summary = $("#selected-profile-summary");
   const form = $("#career-start-form");
   if (!title || !summary || !form) return;
   if (!profile) {
     title.textContent = "尚未选择简历档案";
-    summary.textContent = "请选择已有档案，或上传 PDF 自动建档。";
+    summary.textContent = "从已经建好的档案中选择，适合再次投递或继续修改。";
     if (form.profile_id) form.profile_id.value = "";
+    updateResumeSourceSelection(null);
     updateStartInputGuidance(form);
     return;
   }
@@ -376,6 +382,7 @@ function updateSelectedProfileCard(profile) {
   if (form.location && structured.location && !form.location.value.trim()) {
     form.location.value = structured.location;
   }
+  updateResumeSourceSelection(source);
   updateStartInputGuidance(form);
 }
 
@@ -1546,7 +1553,7 @@ function projectTextFromProfile(structured) {
   }).filter(Boolean).join("\n\n");
 }
 
-function populateStartFormFromProfile(form, profile) {
+function populateStartFormFromProfile(form, profile, source = "existing") {
   if (!form || !profile) return;
   const structured = profile.structured_profile_json || {};
   if (form.profile_id) form.profile_id.value = profile.id || "";
@@ -1555,7 +1562,7 @@ function populateStartFormFromProfile(form, profile) {
     const roles = profile.target_roles_json || structured.target_roles || [];
     form.query.value = roles[0] || "Agent 开发实习生";
   }
-  updateSelectedProfileCard(profile);
+  updateSelectedProfileCard(profile, source);
 }
 
 function setPdfParseStatus(form, message, kind = "") {
@@ -1576,7 +1583,7 @@ async function parseResumeFileIntoStartForm(form, file) {
   form.dataset.parsedResumeSignature = signature;
   form.dataset.parsedProfileId = String(profile.id || "");
   profilePickerRows = [profile, ...profilePickerRows.filter((item) => Number(item.id) !== Number(profile.id))];
-  populateStartFormFromProfile(form, profile);
+  populateStartFormFromProfile(form, profile, "pdf");
   updateStartInputGuidance(form);
   setPdfParseStatus(form, `PDF 已解析为 Profile #${profile.id}，后续流程会使用该档案。`, "ok");
   toast(`PDF 已解析为 Profile #${profile.id}`);
@@ -1594,11 +1601,11 @@ function updateStartInputGuidance(form) {
   if (form.elements.resume_file?.files?.[0]) sources.push("PDF");
   const sourceText = sources.length
     ? `将使用这些信息：${sources.join("、")}。`
-    : "请先选择已有简历档案，或上传 PDF 自动建立档案。";
+    : "请先在三种方式中任选一种提供简历档案。";
   const actionText = actions.length
     ? `固定完成简历档案、岗位搜索和匹配排序，并额外生成：${actions.map(startActionLabel).join("、")}。`
     : "固定完成简历档案、岗位搜索和匹配排序；不勾选则不生成后续材料。";
-  card.innerHTML = `<strong>先选简历档案，再开始找岗位</strong><span>${escapeHtml(sourceText)}${escapeHtml(actionText)}</span>`;
+  card.innerHTML = `<strong>三选一提供简历档案，再开始找岗位</strong><span>${escapeHtml(sourceText)}${escapeHtml(actionText)}</span>`;
 }
 
 function topMatchedJob(run) {

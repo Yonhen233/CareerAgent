@@ -144,6 +144,51 @@ a {
   align-self: stretch;
 }
 
+.profile-entry-grid {
+  align-items: stretch;
+}
+
+.profile-entry-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 320px;
+}
+
+.profile-entry-panel .panel-heading {
+  min-height: 112px;
+}
+
+.profile-entry-form {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.profile-entry-form textarea {
+  flex: 1;
+  min-height: 134px;
+}
+
+.profile-entry-form label {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.profile-entry-form input[type="file"] {
+  margin-top: 8px;
+}
+
+.profile-entry-form button {
+  width: 100%;
+  margin-top: auto;
+}
+
+.profile-entry-panel .result-list:empty {
+  display: none;
+}
+
 .resume-section-map {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -651,34 +696,61 @@ button svg,
 
 .start-resume-picker {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   align-items: stretch;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f8fafc;
 }
 
-.selected-profile-card {
+.resume-source-card {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   justify-content: space-between;
   gap: 14px;
+  min-height: 154px;
   min-width: 0;
-  padding: 13px 14px;
+  padding: 14px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #fff;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
 }
 
-.selected-profile-card > div {
+.resume-source-card.is-selected {
+  border-color: var(--green);
+  background: #f2fbf6;
+  box-shadow: 0 0 0 3px rgba(13, 148, 100, 0.11);
+}
+
+.resume-source-card:hover {
+  border-color: #9eb4d4;
+}
+
+.resume-source-card > div {
   display: grid;
-  gap: 3px;
+  gap: 6px;
   min-width: 0;
+}
+
+.resume-source-card strong {
+  color: var(--text);
+  font-size: 17px;
+  line-height: 1.25;
+}
+
+.resume-source-card small {
+  color: var(--muted);
+  line-height: 1.4;
 }
 
 .selected-profile-card strong,
 .selected-profile-card small {
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .field-label {
@@ -689,10 +761,20 @@ button svg,
 
 .resume-upload-inline {
   min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
 }
 
+.resume-source-card input[type="file"] {
+  width: 100%;
+  margin-top: auto;
+}
+
+.resume-source-card .button,
 .start-profile-create {
-  grid-column: 1 / -1;
+  width: 100%;
+  margin-top: auto;
 }
 
 .profile-picker-dialog {

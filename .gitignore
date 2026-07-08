@@ -18,6 +18,7 @@ data/exports/
 data/chroma/
 data/models/
 data/runtime/
+logs/
 .tmp_logs/
 .tmp_test/
 

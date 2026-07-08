@@ -121,12 +121,18 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "告诉 CareerAgent 你的求职目标" in response.text
     assert "你想让 Agent 做什么" in response.text
     assert "先选简历档案，再开始找岗位" in response.text
+    assert "下面三种方式任选一种提供简历档案" in response.text
+    assert "方式一" in response.text
+    assert "方式二" in response.text
+    assert "方式三" in response.text
     assert "流程内容" in response.text
     assert "固定步骤" in response.text
-    assert "选择 PDF 后会自动解析并建立简历档案" in response.text
+    assert "选择 PDF 后会自动解析，并把解析结果作为本次流程的简历档案" in response.text
     assert "profile-picker-dialog" in response.text
     assert "profile-picker-search" in response.text
     assert "open-profile-picker" in response.text
+    assert "resume-source-card" in response.text
+    assert "resume-upload-card" in response.text
     assert "selected-profile-card" in response.text
     assert "side-stack" in response.text
     assert "process-panel" in response.text
@@ -160,6 +166,7 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "renderProfilePickerList" in main_js
     assert "selectProfileFromPicker" in main_js
     assert "profileSummaryText" in main_js
+    assert "updateResumeSourceSelection" in main_js
     assert "data-select-profile" in main_js
     assert "profileContextFromStartForm" in main_js
     assert 'const required = ["create_profile", "search_jobs"]' in main_js
@@ -190,6 +197,7 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "guidance-card" in style_css
     assert "fixed-flow-steps" in style_css
     assert "start-resume-picker" in style_css
+    assert "resume-source-card.is-selected" in style_css
     assert "profile-picker-dialog" in style_css
     assert ".process-panel .process-grid" in style_css
     assert "grid-template-columns: repeat(3" in style_css
@@ -197,6 +205,24 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "white-space: nowrap" in style_css
     assert "min-height: 38px" in style_css
     assert "console-entry" in style_css
+
+
+def test_profiles_entry_panels_are_user_facing_and_aligned():
+    client = TestClient(app)
+    response = client.get("/ui/profiles")
+    style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")
+
+    assert response.status_code == 200
+    assert "上传 PDF 简历" in response.text
+    assert "适合已经有成稿简历" in response.text
+    assert "描述经历，让 Agent 生成简历档案" in response.text
+    assert "适合还没有完整简历" in response.text
+    assert response.text.count("span-6 profile") >= 2
+    assert "profile-entry-panel" in response.text
+    assert "profile-entry-grid" in style_css
+    assert "profile-entry-panel" in style_css
+    assert "min-height: 320px" in style_css
+    assert "profile-entry-form button" in style_css
 
 
 def test_applications_page_uses_package_number_and_constrained_layout():

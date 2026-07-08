@@ -1,26 +1,31 @@
 {% extends "base.html" %}
 {% block content %}
 <section class="workspace-grid profile-entry-grid">
-  <div class="panel span-5">
+  <div class="panel span-6 profile-entry-panel">
     <div class="panel-heading compact">
       <div>
         <p class="eyebrow">简历上传</p>
         <h1>上传 PDF 简历</h1>
+        <p class="meta">适合已经有成稿简历，上传后会解析为可预览、可评分、可定制的档案。</p>
       </div>
     </div>
-    <form id="upload-profile-form" class="stack">
-      <input type="file" name="file" accept="application/pdf" required>
+    <form id="upload-profile-form" class="stack profile-entry-form">
+      <label>
+        选择 PDF 文件
+        <input type="file" name="file" accept="application/pdf" required>
+      </label>
       <button class="primary" type="submit"><i data-lucide="file-up"></i> 解析简历</button>
     </form>
   </div>
-  <div class="panel span-7 profile-guide-panel">
+  <div class="panel span-6 profile-guide-panel profile-entry-panel">
     <div class="panel-heading compact">
       <div>
         <p class="eyebrow">自然语言建档</p>
         <h1>描述经历，让 Agent 生成简历档案</h1>
+        <p class="meta">适合还没有完整简历，直接把教育、项目、实习、技能和目标岗位写成一段话。</p>
       </div>
     </div>
-    <form id="natural-profile-form" class="stack">
+    <form id="natural-profile-form" class="stack profile-entry-form">
       <label>
         直接描述你的背景、目标岗位、教育、项目、实习和技能
         <textarea name="instruction" rows="7" required placeholder="例如：我叫李明，邮箱 liming@example.com，想找 Agent 开发实习。我的项目 CareerAgent 使用 FastAPI、SQLite、RAG、LangGraph，实现简历解析、岗位匹配、定制简历和面试准备；请按中文简历格式生成档案。"></textarea>

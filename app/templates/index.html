@@ -17,7 +17,7 @@
       </label>
       <div id="input-guidance" class="guidance-card">
         <strong>先选简历档案，再开始找岗位</strong>
-        <span>开始页只负责选择简历和岗位目标；如果还没有简历，可以上传 PDF 自动建档，或去“简历建档”页面手动填写/用自然语言生成。</span>
+        <span>下面三种方式任选一种提供简历档案；再填写岗位目标，系统会继续完成岗位搜索和匹配排序。</span>
       </div>
       <div class="generation-picker" aria-label="选择生成内容">
         <div>
@@ -36,22 +36,30 @@
         </div>
       </div>
       <div class="form-grid">
-        <div class="start-resume-picker wide">
+        <div class="start-resume-picker wide" aria-label="选择简历来源">
           <input name="profile_id" type="hidden">
-          <div class="selected-profile-card" id="selected-profile-card">
+          <div class="resume-source-card selected-profile-card" id="selected-profile-card">
             <div>
-              <span class="field-label">简历档案</span>
+              <span class="field-label">方式一</span>
               <strong id="selected-profile-title">尚未选择简历档案</strong>
-              <small id="selected-profile-summary">请选择已有档案，或上传 PDF 自动建档。</small>
+              <small id="selected-profile-summary">从已经建好的档案中选择，适合再次投递或继续修改。</small>
             </div>
             <button class="button ghost" type="button" id="open-profile-picker"><i data-lucide="folder-search"></i> 选择已有档案</button>
           </div>
-          <label class="resume-upload-inline">
-            上传 PDF 自动建档
+          <label class="resume-source-card resume-upload-inline" id="resume-upload-card">
+            <span class="field-label">方式二</span>
+            <strong>上传 PDF 自动建档</strong>
+            <small id="pdf-parse-status" class="field-hint">选择 PDF 后会自动解析，并把解析结果作为本次流程的简历档案。</small>
             <input name="resume_file" type="file" accept="application/pdf">
-            <small id="pdf-parse-status" class="field-hint">选择 PDF 后会自动解析并建立简历档案。</small>
           </label>
-          <a class="button ghost start-profile-create" href="/ui/profiles"><i data-lucide="file-pen-line"></i> 去简历页手动填写/自然语言建档</a>
+          <div class="resume-source-card resume-create-card">
+            <div>
+              <span class="field-label">方式三</span>
+              <strong>去简历页建档</strong>
+              <small>没有现成简历时，先去简历页手动填写或用自然语言生成。</small>
+            </div>
+            <a class="button ghost start-profile-create" href="/ui/profiles"><i data-lucide="file-pen-line"></i> 开始建档</a>
+          </div>
         </div>
         <label class="wide">
           岗位搜索词
