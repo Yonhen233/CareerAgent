@@ -24,6 +24,7 @@ CareerAgent/
 │   │   ├── assistant.py                      # 自然语言 Agent 入口
 │   │   ├── profiles.py                       # 简历上传、结构化建档、查询和预览
 │   │   ├── jobs.py                           # 岗位搜索、JD 入库和预览
+│   │   ├── job_discovery.py                  # 可选简历的岗位发现会话、结果恢复
 │   │   ├── matches.py                        # 岗位匹配
 │   │   ├── resumes.py                        # 简历评分、定制和交付
 │   │   ├── applications.py                   # 投递材料、审批和高风险动作
@@ -43,7 +44,8 @@ CareerAgent/
 │   │   ├── resume_delivery.py                # HTML/Markdown 简历交付
 │   │   │
 │   │   ├── job_sources.py                    # 腾讯/百度/美团/字节/阿里岗位源适配器
-│   │   ├── job_search.py                     # 并发岗位搜索与入库
+│   │   ├── job_search.py                     # 真实招聘源并发搜索与入库
+│   │   ├── job_discovery.py                  # 可选简历的跨岗位检索、匹配和会话持久化
 │   │   ├── job_relevance.py                  # 中文岗位相关性排序
 │   │   ├── jd_parser.py                      # JD 结构化解析
 │   │   ├── matcher.py                        # 岗位匹配、缺口和证据汇总

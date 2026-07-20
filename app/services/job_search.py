@@ -140,7 +140,7 @@ class JobSearchService:
 
         async def _parse(posting: JobPosting) -> tuple[JobPosting, dict]:
             async with semaphore:
-                structured = await self.jd_parser.parse_jd(
+                structured = self.jd_parser.parse_jd_for_search(
                     posting.raw_jd_text,
                     title=posting.title,
                     company=posting.company,

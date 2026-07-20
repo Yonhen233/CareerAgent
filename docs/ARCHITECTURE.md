@@ -56,17 +56,30 @@ Plan 阶段只读取 Skill metadata 和当前任务所需的精简契约，不�
 
 Agent 主编排已经迁移到 LangGraph。`app/agents/orchestrator.py` 只保留兼容类名，实际实现位于 `app/agents/langgraph_orchestrator.py`。所有任务先进入 `plan_task` 节点，再由 LangGraph 条件边路由到具体流程。SQLite 中的 `agent_runs`、`agent_steps`、`agent_artifacts` 和 `agent_events` 是产品侧可观测数据源；LangGraph state 只保存 ID 和 JSON 产物，不保存 ORM 对象。LangGraph checkpoint 使用独立 SQLite 文件保存，默认位于 `data/runtime/langgraph_checkpoints.sqlite`。
 
-`agent_events` 保存两类进度：一类来自 `TraceService` 的 run/step/artifact 事件，另一类来自 LangGraph `astream_events` 的 graph/node/interrupt 事件。`/agent/runs/{run_id}/events/stream` 以 SSE 输出这些事件，前端流程页和首页一键流程都直接消费该事件流。
+`agent_events` 保存两类进度：一类来自 `TraceService` 的 run/step/artifact 事件，另一类来自 LangGraph `astream_events` 的 graph/node/interrupt 事件。`/agent/runs/{run_id}/events/stream` 以 SSE 输出这些事件，历史记录和长流程状态卡消费该事件流。普通岗位浏览使用独立搜索会话，不需要创建 AgentRun。
+
+### 岗位发现
+
+岗位发现是独立于长 Agent 工作流的用户业务域：
+
+1. `preference_text` 和 `profile_id` 均为可选；两者都为空时浏览 Agent 岗位库。
+2. 只提供简历时，从目标岗位、标题、技能和所在地构造查询；同时提供需求和简历时，用户显式需求位于查询首部且显式城市优先。
+3. `source_mode=hybrid/live` 时先并发刷新真实招聘源，来源异常写入 `source_errors_json`；`corpus` 模式只查询本地岗位库。列表阶段使用确定性 JD 结构化和 Prompt Injection 检测，不把逐岗位 LLM 延迟放在搜索按钮后。
+4. 先用元数据和词法相关性缩小岗位候选池，再对候选 `job_chunks` 做跨岗位真实向量召回，与岗位相关性规则融合，最后只在岗位级执行一次 reranker。
+5. 有简历时才调用 `MatcherService` 检索简历经历并计算匹配与缺口；没有简历时只展示需求相关度，不能伪装成简历匹配分。
+6. `job_search_sessions` 和 `job_search_results` 持久化输入模式、查询、来源状态、排序、匹配和理由，前端通过 `session_id` 恢复搜索结果。
+7. 历史 hash 或旧维度向量首次命中时批量重算并把 provider/model/dimensions 写回 SQLite，后续查询复用迁移后的真实 embedding。
+8. 用户打开站内岗位详情后，再选择或上传简历，并按需触发匹配分析和定制简历。
 
 ### `full_career_flow`
 
 完整求职流程是单个 LangGraph run，而不是前端串多个小任务：
 
-1. 已有 `job_id` 时直接加载目标岗位；没有 `job_id` 时先搜索岗位并选择最高匹配岗位。
-2. 运行匹配并生成 `selected_job`。
+1. 已有 `job_id` 时直接加载目标岗位；没有 `job_id` 时先搜索和匹配岗位，再触发 `job_selection` interrupt 等待用户选择。
+2. 用户选择必须来自当前候选岗位，恢复后写入 `selection_policy=human_selected` 的 `selected_job` artifact。
 3. 生成定制简历。
 4. 通过 `fit_gate` 后进入投递前 interrupt。
-5. 用户确认或一键流程自动确认后，从 checkpoint 恢复并生成投递包。
+5. 用户明确确认后，从 checkpoint 恢复并生成投递包；普通首页岗位搜索不会自动确认。
 6. 生成面试准备包。
 7. 输出 `selected_job`、`matches`、`tailor`、`application`、`interview_prep` 和 UI links。
 8. `RunBusinessSummaryService` 汇总路由、过程、结果和副作用四层信息，写入 `business_summary` artifact。

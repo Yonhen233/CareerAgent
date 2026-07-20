@@ -24,6 +24,11 @@ def jobs(request: Request):
     return templates.TemplateResponse(request, "jobs.html", {"page": "jobs"})
 
 
+@router.get("/ui/jobs/{job_id}", response_class=HTMLResponse)
+def job_detail(request: Request, job_id: int):
+    return templates.TemplateResponse(request, "job_detail.html", {"page": "jobs", "job_id": job_id})
+
+
 @router.get("/ui/agent-runs", response_class=HTMLResponse)
 def agent_runs(request: Request):
     return templates.TemplateResponse(request, "agent_runs.html", {"page": "agent_runs"})

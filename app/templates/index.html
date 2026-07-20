@@ -4,101 +4,93 @@
   <div class="panel span-7 start-panel">
     <div class="panel-heading">
       <div>
-        <p class="eyebrow">开始</p>
-        <h1>告诉 CareerAgent 你的求职目标</h1>
+        <p class="eyebrow">开始找岗位</p>
+        <h1>告诉 CareerAgent 你想找什么</h1>
+        <p class="meta">求职需求和简历任选一项即可。两项都提供时，会同时考虑你的明确偏好和真实经历。</p>
       </div>
       <span id="health-pill" class="status-pill">Checking</span>
     </div>
 
     <form id="career-start-form" class="stack">
-      <label class="wide">
-        你想让 Agent 做什么
-        <textarea name="instruction" rows="3" placeholder="例如：我想找 Agent 开发实习，优先深圳，帮我搜索岗位并准备定制简历和面试问题。"></textarea>
+      <label class="wide start-preference-field">
+        求职需求 <span class="optional-label">可选</span>
+        <textarea name="instruction" rows="4" placeholder="例如：想找深圳或远程的 Agent 开发实习，偏 RAG、工作流和后端工程，排除纯产品岗位。"></textarea>
+        <small>可以写岗位方向、城市、实习类型、偏好技术和不考虑的岗位。</small>
       </label>
-      <div class="golden-demo-picker" aria-label="可复现示例">
+
+      <div class="golden-demo-picker compact-demo-picker" aria-label="常见搜索">
         <div>
-          <p class="eyebrow">快速示例</p>
-          <strong>选择一个常见任务，系统会填好目标和所需产物，你仍可继续修改。</strong>
+          <p class="eyebrow">常见搜索</p>
+          <strong>点选后仍可继续修改</strong>
         </div>
         <div class="golden-demo-actions">
-          <button class="ghost" type="button" data-demo-scenario="match"><i data-lucide="scan-search"></i> 岗位匹配</button>
-          <button class="ghost" type="button" data-demo-scenario="tailor"><i data-lucide="file-check-2"></i> 证据约束定制</button>
-          <button class="ghost" type="button" data-demo-scenario="application"><i data-lucide="shield-check"></i> 审批式投递</button>
+          <button class="ghost" type="button" data-demo-scenario="match"><i data-lucide="bot"></i> Agent 开发实习</button>
+          <button class="ghost" type="button" data-demo-scenario="backend"><i data-lucide="server-cog"></i> LLM 应用后端</button>
+          <button class="ghost" type="button" data-demo-scenario="rag"><i data-lucide="search-code"></i> RAG 工程实习</button>
         </div>
       </div>
-      <div class="generation-picker" aria-label="选择生成内容">
-        <div>
-          <p class="eyebrow">流程内容</p>
-          <strong>简历档案、岗位搜索和匹配排序是固定步骤；下面只选择还要额外生成的材料。</strong>
+
+      <div class="start-resume-picker optional-resume-picker wide" aria-label="可选简历">
+        <div id="input-guidance" class="guidance-card resume-source-guidance">
+          <strong>简历不是搜索岗位的前置条件</strong>
+          <span>不提供简历时按求职需求检索；提供简历后还会为每个岗位计算匹配项和能力缺口。</span>
         </div>
-        <div class="fixed-flow-steps" aria-label="固定步骤">
-          <span><i data-lucide="file-user"></i> 简历档案</span>
-          <span><i data-lucide="search"></i> 岗位搜索</span>
-          <span><i data-lucide="list-filter"></i> 匹配排序</span>
-        </div>
-        <div class="generation-options">
-          <label><input type="checkbox" name="selected_actions" value="tailor_resume"><span>定制简历</span></label>
-          <label><input type="checkbox" name="selected_actions" value="quick_apply"><span>投递材料</span></label>
-          <label><input type="checkbox" name="selected_actions" value="interview_prep"><span>面试准备</span></label>
-        </div>
-      </div>
-      <div class="form-grid">
-        <div class="start-resume-picker wide" aria-label="选择简历来源">
-          <div id="input-guidance" class="guidance-card resume-source-guidance">
-            <strong>三选一提供简历档案，再开始找岗位</strong>
-            <span>请先在三种方式中任选一种提供简历档案。固定完成简历档案、岗位搜索和匹配排序；不勾选则不生成后续材料。</span>
+        <input name="profile_id" type="hidden">
+        <div class="resume-source-card selected-profile-card" id="selected-profile-card">
+          <div>
+            <span class="field-label">已有档案</span>
+            <strong id="selected-profile-title">本次不使用简历</strong>
+            <small id="selected-profile-summary">可以直接搜索，也可以选择档案获得匹配分析。</small>
           </div>
-          <input name="profile_id" type="hidden">
-          <div class="resume-source-card selected-profile-card" id="selected-profile-card">
-            <div>
-              <span class="field-label">方式一</span>
-              <strong id="selected-profile-title">尚未选择简历档案</strong>
-              <small id="selected-profile-summary">从已经建好的档案中选择，适合再次投递或继续修改。</small>
-            </div>
-            <button class="button ghost" type="button" id="open-profile-picker"><i data-lucide="folder-search"></i> 选择已有档案</button>
-          </div>
-          <label class="resume-source-card resume-upload-inline" id="resume-upload-card">
-            <span class="field-label">方式二</span>
-            <strong>上传 PDF 自动建档</strong>
-            <small id="pdf-parse-status" class="field-hint">选择 PDF 后会自动解析，并把解析结果作为本次流程的简历档案。</small>
-            <input name="resume_file" type="file" accept="application/pdf">
-          </label>
-          <div class="resume-source-card resume-create-card">
-            <div>
-              <span class="field-label">方式三</span>
-              <strong>去简历页建档</strong>
-              <small>没有现成简历时，先去简历页手动填写或用自然语言生成。</small>
-            </div>
-            <a class="button ghost start-profile-create" href="/ui/profiles"><i data-lucide="file-pen-line"></i> 开始建档</a>
-          </div>
+          <button class="button ghost" type="button" id="open-profile-picker"><i data-lucide="folder-search"></i> 选择已有档案</button>
         </div>
-        <label class="wide">
-          岗位搜索词
-          <input name="query" value="Agent 开发实习生" required>
+        <label class="resume-source-card resume-upload-inline" id="resume-upload-card">
+          <span class="field-label">PDF 简历</span>
+          <strong>上传后自动建立档案</strong>
+          <small id="pdf-parse-status" class="field-hint">解析成功后会用于本次岗位匹配。</small>
+          <input name="resume_file" type="file" accept="application/pdf">
         </label>
+        <div class="resume-source-card resume-create-card">
+          <div>
+            <span class="field-label">还没有简历</span>
+            <strong>稍后再建立也可以</strong>
+            <small>你可以先浏览岗位，看到感兴趣的 JD 后再补充简历。</small>
+          </div>
+          <a class="button ghost start-profile-create" href="/ui/profiles"><i data-lucide="file-pen-line"></i> 去简历页建档</a>
+        </div>
+      </div>
+
+      <div class="form-grid start-search-options">
         <label>
-          城市
+          城市 <span class="optional-label">可选</span>
           <input name="location" placeholder="深圳 / 上海 / 北京 / 远程">
         </label>
         <label>
-          岗位数量
-          <input name="limit" type="number" min="1" max="30" value="8">
+          结果数量
+          <input name="limit" type="number" min="1" max="50" value="20">
         </label>
         <label>
-          已有 Job ID
-          <input name="job_id" type="number" min="1" placeholder="可选">
+          岗位来源
+          <select name="source_mode">
+            <option value="hybrid" selected>真实来源 + 岗位库</option>
+            <option value="corpus">仅搜索岗位库</option>
+            <option value="live">刷新真实来源</option>
+          </select>
         </label>
-        <label>
-          岗位公司
-          <input name="company" placeholder="可选">
-        </label>
-        <label class="wide">
-          目标 JD
-          <textarea name="jd_text" rows="5" placeholder="可选：粘贴 JD 后会先创建目标岗位，并跳过外部岗位搜索。"></textarea>
+        <label class="checkline start-internship-check">
+          <input name="internship_only" type="checkbox" checked>
+          只看实习和校招岗位
         </label>
       </div>
-      <div class="button-row">
-        <button class="primary" type="submit"><i data-lucide="play"></i> 开始处理</button>
+      <div class="start-submit-row">
+        <div>
+          <strong id="start-submit-summary">将按求职需求搜索岗位</strong>
+          <small id="start-submit-detail">搜索结果会保存，刷新或切换页面后仍可继续浏览。</small>
+        </div>
+        <button class="primary" type="submit" id="career-start-submit">
+          <i data-lucide="search"></i>
+          <span>搜索岗位</span>
+        </button>
       </div>
     </form>
     <div id="career-flow-result" class="result-list"></div>
@@ -109,32 +101,28 @@
       <div class="panel-heading compact">
         <div>
           <p class="eyebrow">进度</p>
-          <h2>运行进度</h2>
+          <h2>岗位发现进度</h2>
         </div>
       </div>
-      <ol id="career-flow-steps" class="flow-stepper">
-        <li class="flow-step" data-stage="profile"><span>1</span><strong>简历建档</strong><small>等待开始</small></li>
-        <li class="flow-step" data-stage="search"><span>2</span><strong>岗位搜索</strong><small>等待开始</small></li>
-        <li class="flow-step" data-stage="match"><span>3</span><strong>匹配排序</strong><small>等待开始</small></li>
-        <li class="flow-step" data-stage="tailor"><span>4</span><strong>定制简历</strong><small>等待开始</small></li>
-        <li class="flow-step" data-stage="apply"><span>5</span><strong>投递包</strong><small>等待开始</small></li>
-        <li class="flow-step" data-stage="interview"><span>6</span><strong>面试包</strong><small>等待开始</small></li>
+      <ol id="career-flow-steps" class="flow-stepper discovery-stepper">
+        <li class="flow-step" data-stage="profile"><span>1</span><strong>准备搜索条件</strong><small>等待开始</small></li>
+        <li class="flow-step" data-stage="search"><span>2</span><strong>检索岗位</strong><small>等待开始</small></li>
+        <li class="flow-step" data-stage="match"><span>3</span><strong>匹配排序</strong><small>有简历时执行</small></li>
+        <li class="flow-step" data-stage="results"><span>4</span><strong>浏览结果</strong><small>等待开始</small></li>
       </ol>
     </section>
     <section class="panel process-panel">
       <div class="panel-heading compact">
         <div>
-          <p class="eyebrow">分步处理</p>
-          <h2>过程页面</h2>
+          <p class="eyebrow">继续处理</p>
+          <h2>常用页面</h2>
         </div>
       </div>
       <div class="quick-actions process-grid">
-        <a class="action-row" href="/ui/profiles"><i data-lucide="file-up"></i><span>简历建档</span></a>
-        <a class="action-row" href="/ui/jobs"><i data-lucide="search"></i><span>岗位池</span></a>
-        <a class="action-row" href="/ui/agent-runs"><i data-lucide="history"></i><span>历史记录</span></a>
+        <a class="action-row" href="/ui/jobs"><i data-lucide="search"></i><span>岗位搜索</span></a>
+        <a class="action-row" href="/ui/profiles"><i data-lucide="file-user"></i><span>简历档案</span></a>
         <a class="action-row" href="/ui/resumes"><i data-lucide="file-check-2"></i><span>定制简历</span></a>
-        <a class="action-row" href="/ui/applications"><i data-lucide="send"></i><span>投递包</span></a>
-        <a class="action-row" href="/ui/prep"><i data-lucide="messages-square"></i><span>面试包</span></a>
+        <a class="action-row" href="/ui/agent-runs"><i data-lucide="history"></i><span>历史记录</span></a>
       </div>
     </section>
   </aside>
@@ -145,7 +133,7 @@
     <div class="panel-heading compact">
       <div>
         <p class="eyebrow">选择简历档案</p>
-        <h2>从已有档案中选择</h2>
+        <h2>用于岗位匹配</h2>
       </div>
       <button class="ghost compact-button" type="button" data-close-profile-picker><i data-lucide="x"></i> 关闭</button>
     </div>

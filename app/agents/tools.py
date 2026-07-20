@@ -232,7 +232,7 @@ class AgentPlanner:
             steps = [
                 self._step("load_profile", "profile_repository.load_profile", "读取候选人 Profile。"),
                 self._step("search_jobs", "job_search.search_jobs", "搜索并入库中文真实岗位。"),
-                self._step("match_and_select_job", "matcher.match_job", "按匹配分数选择最高价值岗位。"),
+                self._step("match_and_select_job", "matcher.match_job", "完成匹配排序并等待用户选择目标岗位。"),
                 self._step("retrieve_resume_evidence", "vector_index.retrieve_resume_evidence", "检索 Top evidence 支撑定制。"),
                 self._step("tailor_resume", "resume_tailor.tailor_resume", "生成面向目标 JD 的定制简历。"),
                 self._step("verify_resume", "guardrail.verify_resume", "验证事实边界和关键词覆盖。"),

@@ -244,6 +244,52 @@ class JobSearchResponse(BaseModel):
     source_errors: dict[str, str] = Field(default_factory=dict)
 
 
+class JobDiscoveryRequest(BaseModel):
+    preference_text: str | None = None
+    profile_id: int | None = None
+    location: str | None = None
+    internship_only: bool = True
+    limit: int = Field(default=20, ge=1, le=50)
+    source_mode: Literal["corpus", "live", "hybrid"] = "hybrid"
+    sources: list[str] = Field(
+        default_factory=lambda: ["tencent", "baidu", "meituan", "bytedance", "alibaba"]
+    )
+
+
+class JobDiscoverySessionSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    profile_id: int | None
+    input_mode: str
+    preference_text: str | None
+    resolved_query: str
+    location: str | None
+    internship_only: bool
+    source_mode: str
+    status: str
+    source_errors_json: dict[str, str]
+    result_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class JobDiscoveryResultResponse(BaseModel):
+    id: int
+    rank: int
+    retrieval_score: float
+    match_score: float | None = None
+    final_score: float
+    match_result_id: int | None = None
+    reason: dict[str, Any] = Field(default_factory=dict)
+    job: JobResponse
+
+
+class JobDiscoverySessionResponse(BaseModel):
+    session: JobDiscoverySessionSummary
+    results: list[JobDiscoveryResultResponse] = Field(default_factory=list)
+
+
 class MatchCreateRequest(BaseModel):
     profile_id: int
     job_id: int

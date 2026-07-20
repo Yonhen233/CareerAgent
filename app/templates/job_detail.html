@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block content %}
+<div id="job-detail-page" data-job-id="{{ job_id }}">
+  <div class="job-detail-back-row">
+    <a class="button ghost" id="job-detail-back" href="/ui/jobs"><i data-lucide="arrow-left"></i> 返回搜索结果</a>
+    <span id="job-detail-source" class="status-pill">加载中</span>
+  </div>
+
+  <section class="workspace-grid job-detail-grid">
+    <article class="panel span-8 job-detail-main">
+      <div id="job-detail-header">
+        <p class="eyebrow">岗位详情</p>
+        <h1>正在加载 JD...</h1>
+      </div>
+      <div id="job-detail-tags"></div>
+      <nav class="job-detail-tabs" aria-label="岗位处理步骤">
+        <button class="active" type="button" data-job-tab="jd">岗位 JD</button>
+        <button type="button" data-job-tab="match">匹配与差距</button>
+        <button type="button" data-job-tab="tailor">定制简历</button>
+      </nav>
+      <section class="job-tab-panel active" data-job-panel="jd">
+        <div id="job-detail-structured"></div>
+        <details class="raw-jd-details">
+          <summary>查看原始 JD</summary>
+          <pre id="job-detail-raw-jd"></pre>
+        </details>
+      </section>
+      <section class="job-tab-panel" data-job-panel="match">
+        <div id="job-match-result" class="job-action-result">
+          <div class="empty-state">
+            <i data-lucide="scan-search"></i>
+            <strong>选择简历后分析匹配项和能力缺口</strong>
+            <span>分析会引用 JD 字段和简历中的真实经历，不会把推测当成已有能力。</span>
+          </div>
+        </div>
+      </section>
+      <section class="job-tab-panel" data-job-panel="tailor">
+        <div id="job-tailor-review" class="job-action-result"></div>
+        <div id="job-tailor-result" class="job-action-result">
+          <div class="empty-state">
+            <i data-lucide="file-check-2"></i>
+            <strong>先完成岗位匹配，再生成定制简历</strong>
+            <span>评分、修改建议和事实检查会单独展示，不会写进简历正文。</span>
+          </div>
+        </div>
+      </section>
+    </article>
+
+    <aside class="span-4 side-stack">
+      <section class="panel job-profile-panel">
+        <p class="eyebrow">我的简历</p>
+        <h2 id="job-detail-profile-title">尚未选择简历</h2>
+        <p id="job-detail-profile-summary" class="meta">你仍然可以只浏览 JD；需要分析或定制时再提供简历。</p>
+        <input id="job-detail-profile-id" type="hidden">
+        <div class="job-profile-actions">
+          <button class="button ghost" type="button" id="open-job-detail-profile-picker"><i data-lucide="folder-search"></i> 选择已有简历</button>
+          <label class="button ghost file-button"><i data-lucide="file-up"></i> 上传 PDF<input id="job-detail-profile-upload" type="file" accept="application/pdf"></label>
+          <a class="button ghost" id="job-detail-create-profile" href="/ui/profiles"><i data-lucide="file-pen-line"></i> 去建立档案</a>
+        </div>
+        <p id="job-detail-profile-status" class="field-hint"></p>
+      </section>
+
+      <section class="panel job-next-action-panel">
+        <p class="eyebrow">下一步</p>
+        <h2>根据这个岗位继续</h2>
+        <button class="primary" type="button" id="run-job-match" disabled><i data-lucide="scan-search"></i> 分析匹配与差距</button>
+        <button class="button ghost" type="button" id="run-job-tailor" disabled><i data-lucide="file-check-2"></i> 生成定制简历</button>
+        <a class="button ghost" id="job-apply-link" href="#" target="_blank" hidden><i data-lucide="external-link"></i> 打开官方投递页</a>
+        <small>生成简历不会自动投递。浏览器填写、邮件发送等外部操作仍需单独审批。</small>
+      </section>
+    </aside>
+  </section>
+</div>
+
+<dialog id="job-detail-profile-picker-dialog" class="profile-picker-dialog">
+  <div class="dialog-shell">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">选择简历档案</p>
+        <h2>用于当前岗位</h2>
+      </div>
+      <button class="ghost compact-button" type="button" data-close-job-detail-profile-picker><i data-lucide="x"></i> 关闭</button>
+    </div>
+    <label class="wide">
+      搜索 ID、姓名或目标岗位
+      <input id="job-detail-profile-picker-search" placeholder="例如：159 / 李明 / Agent">
+    </label>
+    <div id="job-detail-profile-picker-list" class="profile-picker-list"></div>
+  </div>
+</dialog>
+{% endblock %}

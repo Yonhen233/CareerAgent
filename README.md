@@ -54,6 +54,7 @@ PDF/结构化简历 + 中文目标岗位
 - JD 存储与检索：
   - 每个岗位的 JD 会入库为 `jobs`。
   - `JDParserService` 会抽取 required/preferred skills、responsibilities、qualifications、keywords 和 job_type。
+  - 真实来源的结果列表路径使用 `parse_jd_for_search` 做确定性结构化和 Prompt Injection 检测，不等待逐岗位 LLM；显式 JD 深度解析、简历评审和定制仍使用真实 LLM。
   - JD parser 支持 Agent/RAG/LLM、向量库、reranker、A/B Testing、Feature Store、MLflow、Airflow、Kafka、推荐排序、Prompt Security 等技能别名归一化。
   - parser 会区分 required 与 preferred，并过滤 `No prior X required`、`不要求 X` 这类负向语境，避免把“可选/不要求”误写成硬性技能。
   - JD 会切分为 `job_chunks`，包括 required skills、responsibilities、qualifications、raw JD 等。
@@ -70,6 +71,11 @@ PDF/结构化简历 + 中文目标岗位
   - Source 层有确定性的中文岗位相关性排序，会优先提升 Agent/LLM/RAG、开发/工程和实习/校招信号，降低产品、销售、商务等不匹配岗位。
   - `real-job-source-smoke` 会单独记录岗位源可达性、返回数量、JD 非空率、投递链接率、query relevance、Agent/AI relevance、relevance score 和 source errors，不让外部网络波动影响核心回归。
   - `real-job-ingest-smoke` 单独验证真实 JD 的 LLM 解析、SQLite upsert、JD chunk、embedding/reranker provider、检索 probe 和 parser quality probe。
+  - 用户岗位发现入口支持三种模式：只填求职需求、只提供简历、同时提供需求和简历；简历不是浏览岗位的前置条件。
+  - `JobDiscoveryService` 会把岗位需求与 Profile 目标岗位/技能构造成跨岗位查询，对 `job_chunks` 做向量召回，并结合岗位相关性规则和 reranker 生成持久化搜索结果。
+  - 跨岗位检索先用元数据和词法相关性缩小候选池，再做真实向量召回和岗位级二阶段重排；不会对 chunk 与岗位重复 rerank。
+  - 历史 hash/旧维度向量在首次命中时批量迁移并写回 SQLite，后续搜索直接复用真实 embedding，避免每次临时重算。
+  - `job_search_sessions/job_search_results` 保存搜索输入、来源错误、排序分数和可选的简历匹配结果；刷新或跨页后可以继续浏览同一批岗位。
 - 面经来源：
   - 用户可以导入牛客网、OfferShow、小红书等同岗面经正文，系统只从原文抽取问题、轮次、主题和可信度。
   - `interview-source-smoke` 独立探测牛客网、OfferShow、小红书公开搜索页的可达性、空结果、面经信号、query relevance 和内容可抽取性，不绕过登录或反爬，也不影响核心面试包回归。
@@ -84,7 +90,7 @@ PDF/结构化简历 + 中文目标岗位
   - `quick_apply` 前置 `fit_gate`：低匹配岗位直接阻断，并把缺口写入 Agent step trace。
   - 每次 run 先生成 Plan-Execute 执行计划，并写入 Trace artifact。
   - `execution_plan` 和 run 输入输出会标记 `orchestration_framework=langgraph`，并保留 `graph_thread_id`；当前使用 LangGraph SQLite checkpointer 持久化到 `data/runtime/langgraph_checkpoints.sqlite`。
-  - `quick_apply` 和 `full_career_flow` 在生成投递包前会触发 LangGraph interrupt，返回 `waiting_for_confirmation`；用户或前端通过 `/agent/runs/{run_id}/resume` 确认后继续执行。
+  - `full_career_flow` 未指定 `job_id` 时会先在岗位排序后触发岗位选择 interrupt；用户选中岗位后才进入定制简历。`quick_apply` 和完整流程在生成投递包前还会触发独立的高风险确认 interrupt。
   - 支持后台启动和 LangGraph SSE 事件流：`POST /agent/runs/background` 返回 queued run 并写入 Redis 优先级队列，`scripts/run_agent_worker.py` 或 `scripts/run_agent_worker_supervisor.py` 独立消费执行，`GET /agent/runs/{run_id}/events/stream` 持续输出 graph/node/step/interrupt 进度。
   - 支持用户取消 run、stale run 检测、业务幂等键、投递审批审计、Redis run lock 和 Profile 级 active/rate limit。
   - Redis worker 支持 high/normal/low 优先级队列、Sentinel HA 连接、dead-letter queue、queued run recovery scanner 和更细粒度 heartbeat stage；控制台可查看队列长度、DLQ 预览，并人工选择重放或丢弃异常 payload。
@@ -93,7 +99,7 @@ PDF/结构化简历 + 中文目标岗位
   - 提供外发工具 smoke：`/ui/outbound-smoke`、`/ui/outbound-smoke/target` 和 `docker-compose.smtp.yml` 本地 Mailpit SMTP。
   - JD、PDF 简历、RAG evidence 和导入面经进入 LLM 前会经过 PromptInjectionGuard 检测，风险写入结构化 metadata；prompt injection 评测按 release gate 校验总体和分 source/category 的最低召回率与最高误报率。
   - PromptInjectionGuard 有 adversarial 评测集，覆盖 JD/PDF/RAG/面经四类来源，输出 recall、false positive rate、severity accuracy 和分桶指标。
-  - 首页一键流程现在只创建一个后台 `full_career_flow` run；前端通过 SSE 推进阶段进度，不再在浏览器里拼接多个小 run。
+  - 首页只负责岗位发现，不会自动选择 Top1 或直接生成投递材料；用户先进入岗位结果页，在具体 JD 详情中按需进行匹配、差距分析和简历定制。
   - `skills/*/SKILL.md` 定义版本化 Skill 契约，包含触发条件、输入、允许调用的 Tool、上下文、输出契约、禁止行为、成功标准和失败策略。
   - Skill 采用渐进式披露：能力目录只返回 metadata，执行计划只携带任务所需契约，完整指令通过 Skill 详情接口按需读取。
   - Tool Policy 统一声明风险等级、审批要求、幂等策略、超时、重试、审计事件和 MCP 候选；Planner 会校验所有计划工具都被当前 Skill 明确授权。

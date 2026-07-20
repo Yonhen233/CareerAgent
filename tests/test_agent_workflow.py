@@ -283,14 +283,15 @@ def test_full_career_flow_orchestrator_runs_all_core_stages(db_session):
             db.refresh(prep)
             return prep
 
-    run = asyncio.run(
-        AgentOrchestrator(
-            job_search=FakeJobSearch(),
-            matcher=FakeMatcher(),
-            tailor=FakeTailor(),
-            application=FakeApplication(),
-            interview_prep=FakeInterviewPrep(),
-        ).run(
+    orchestrator = AgentOrchestrator(
+        job_search=FakeJobSearch(),
+        matcher=FakeMatcher(),
+        tailor=FakeTailor(),
+        application=FakeApplication(),
+        interview_prep=FakeInterviewPrep(),
+    )
+    first = asyncio.run(
+        orchestrator.run(
             db_session,
             AgentRunRequest(
                 task_type="full_career_flow",
@@ -299,6 +300,16 @@ def test_full_career_flow_orchestrator_runs_all_core_stages(db_session):
                 limit=3,
                 application_confirmed=True,
             ),
+        )
+    )
+    assert first.status == "waiting_for_confirmation"
+    assert first.output_json["confirmation_type"] == "job_selection"
+    job_id = first.output_json["interrupts"][0]["value"]["matches"][0]["job_id"]
+    run = asyncio.run(
+        orchestrator.resume(
+            db_session,
+            first.id,
+            {"confirmed": True, "job_id": job_id, "source": "test_job_selection"},
         )
     )
 

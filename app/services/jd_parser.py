@@ -107,6 +107,25 @@ JD:
             heuristic["prompt_injection"] = self.injection_guard.detect(raw_text, source="jd").model_dump()
             return heuristic
 
+    def parse_jd_for_search(
+        self,
+        raw_text: str,
+        *,
+        title: str | None = None,
+        company: str | None = None,
+        location: str | None = None,
+    ) -> dict:
+        """Build a safe searchable JD without putting LLM latency on the result-list path."""
+        safe_text, injection = self.injection_guard.sanitize_for_llm(raw_text, source="jd")
+        parsed = self.heuristic_parse(
+            safe_text or raw_text,
+            title=title,
+            company=company,
+            location=location,
+        )
+        parsed["prompt_injection"] = injection.model_dump()
+        return JDStructured.model_validate(parsed).model_dump()
+
     async def _generate_jd_json_with_retry(
         self,
         *,

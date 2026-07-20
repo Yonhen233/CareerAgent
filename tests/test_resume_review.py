@@ -89,3 +89,74 @@ def test_resume_review_uses_rag_for_targeted_job(db_session):
     assert review["trace"]["rag_used"] is True
     assert review["rag_evidence"]
     assert db_session.query(ResumeChunk).filter(ResumeChunk.profile_id == profile.id).count() > 0
+
+
+def test_resume_review_rejects_llm_suggestions_with_unsupported_numbers(db_session):
+    profile = _profile()
+    db_session.add(profile)
+    db_session.commit()
+    db_session.refresh(profile)
+    service = ResumeReviewService()
+
+    class FakeLLM:
+        available = True
+
+        async def generate_json(self, **_kwargs):
+            return {
+                "strengths": ["已有 120 条评测样本，可继续突出评测方法。"],
+                "suggestions": [
+                    {
+                        "priority": "high",
+                        "section": "项目经历",
+                        "problem": "指标不够具体",
+                        "advice": "改成在 500 份简历上达到 92% 召回率。",
+                        "example_rewrite": "处理 500 份简历，Top-5 召回率达到 92%。",
+                    },
+                    {
+                        "priority": "medium",
+                        "section": "项目经历",
+                        "problem": "现有证据没有前置",
+                        "advice": "把原简历已有的 120 条评测样本放到第一条。",
+                        "example_rewrite": "构建 120 条噪声评测样本并统计召回率与误报率。",
+                    },
+                ],
+            }
+
+    service.llm = FakeLLM()
+    review = asyncio.run(service.review_profile(db_session, profile=profile, include_llm=True))
+
+    rendered = str(review["suggestions"])
+    assert "500" not in rendered
+    assert "92%" not in rendered
+    assert "120 条噪声评测样本" in rendered
+    assert review["trace"]["llm_rejected_suggestions"] == [
+        {
+            "reason": "unsupported_numeric_claim",
+            "numbers": ["5", "500", "92"],
+            "section": "项目经历",
+        }
+    ]
+
+
+def test_deterministic_review_examples_only_use_profile_skills(db_session):
+    profile = _profile(
+        target_roles_json=["Agent 开发实习生"],
+        structured_profile_json={
+            "name": "李明",
+            "target_roles": ["Agent 开发实习生"],
+            "skills": ["Python", "FastAPI", "RAG"],
+            "projects": [{"name": "CareerAgent", "description": "实现岗位检索与简历匹配。"}],
+            "education": [],
+        },
+    )
+    db_session.add(profile)
+    db_session.commit()
+    db_session.refresh(profile)
+
+    review = asyncio.run(ResumeReviewService().review_profile(db_session, profile=profile, include_llm=False))
+    rendered = str(review["suggestions"])
+
+    assert "Python" in rendered
+    assert "FastAPI" in rendered
+    assert "LangGraph" not in rendered
+    assert "待补充真实数据" in rendered

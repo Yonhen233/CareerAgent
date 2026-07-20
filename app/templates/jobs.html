@@ -1,51 +1,84 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="workspace-grid job-entry-grid">
-  <div class="panel span-5 job-entry-panel">
-    <div class="panel-heading compact">
-      <div>
-        <p class="eyebrow">岗位搜索</p>
-        <h1>搜索适合的岗位</h1>
-      </div>
+<section class="panel job-search-workspace">
+  <div class="panel-heading">
+    <div>
+      <p class="eyebrow">岗位发现</p>
+      <h1>搜索和浏览 Agent 岗位</h1>
+      <p class="meta">不提供简历也能搜索；选择简历后，结果中会增加匹配项和能力缺口。</p>
     </div>
-    <form id="job-search-form" class="job-entry-form">
-      <div class="form-grid">
-        <label class="wide">关键词<input name="query" value="Agent 开发实习生" required></label>
-        <label>城市<input name="location" placeholder="深圳 / 上海 / 北京 / 远程"></label>
-        <label>数量<input name="limit" type="number" min="1" max="80" value="20"></label>
-        <label class="checkline"><input name="internship_only" type="checkbox" checked> 只看实习/校招</label>
+  </div>
+  <form id="job-search-form" class="job-discovery-form">
+    <label class="job-preference-input">
+      求职需求 <span class="optional-label">可选</span>
+      <textarea name="preference_text" rows="3" placeholder="例如：北京或远程的 Agent 开发实习，偏 RAG、LangGraph 和后端工程。"></textarea>
+    </label>
+    <div class="job-search-profile-control">
+      <div>
+        <span class="field-label">简历档案（可选）</span>
+        <strong id="job-search-profile-title">未选择简历</strong>
+        <small id="job-search-profile-summary">本次只按求职需求搜索。</small>
       </div>
+      <input name="profile_id" type="hidden">
+      <button class="button ghost" type="button" id="open-job-search-profile-picker"><i data-lucide="folder-search"></i> 选择简历</button>
+    </div>
+    <div class="job-search-filter-row">
+      <label>城市<input name="location" placeholder="深圳 / 上海 / 北京 / 远程"></label>
+      <label>数量<input name="limit" type="number" min="1" max="50" value="20"></label>
+      <label>
+        来源
+        <select name="source_mode">
+          <option value="hybrid" selected>真实来源 + 岗位库</option>
+          <option value="corpus">仅搜索岗位库</option>
+          <option value="live">刷新真实来源</option>
+        </select>
+      </label>
+      <label class="checkline"><input name="internship_only" type="checkbox" checked> 只看实习/校招</label>
       <button class="primary" type="submit"><i data-lucide="search"></i> 搜索岗位</button>
-    </form>
-    <div id="job-search-errors" class="notice"></div>
-  </div>
-  <div class="panel span-7 job-entry-panel">
-    <div class="panel-heading compact">
-      <div>
-        <p class="eyebrow">目标 JD</p>
-        <h1>添加目标岗位</h1>
-      </div>
     </div>
-    <form id="manual-job-form" class="job-entry-form">
-      <div class="form-grid">
-        <label>标题<input name="title" placeholder="Agent 开发实习生"></label>
-        <label>公司<input name="company" placeholder="可选"></label>
-        <label class="wide">投递链接<input name="apply_url" placeholder="https://..."></label>
-        <label class="wide">JD<textarea name="jd_text" rows="7" required></textarea></label>
-      </div>
-      <button class="primary" type="submit"><i data-lucide="plus"></i> 保存岗位</button>
-    </form>
-  </div>
+  </form>
+  <div id="job-search-errors" class="notice"></div>
 </section>
 
-<section class="panel">
+<section class="panel job-results-panel">
   <div class="panel-heading compact">
     <div>
-      <p class="eyebrow">已保存</p>
-      <h2>我的岗位池</h2>
+      <p class="eyebrow">搜索结果</p>
+      <h2 id="job-results-title">岗位列表</h2>
+      <p id="job-session-summary" class="meta">可以直接浏览岗位库，或从首页开始一次新的搜索。</p>
     </div>
     <button class="ghost" data-refresh="jobs"><i data-lucide="refresh-cw"></i> 刷新</button>
   </div>
-  <div id="jobs-list" class="result-list"></div>
+  <div id="jobs-list" class="job-result-list"></div>
 </section>
+
+<details class="panel manual-job-panel">
+  <summary><i data-lucide="plus"></i> 手动添加一份目标 JD</summary>
+  <form id="manual-job-form" class="job-entry-form">
+    <div class="form-grid">
+      <label>标题<input name="title" placeholder="Agent 开发实习生"></label>
+      <label>公司<input name="company" placeholder="可选"></label>
+      <label class="wide">投递链接<input name="apply_url" placeholder="https://..."></label>
+      <label class="wide">JD<textarea name="jd_text" rows="7" required></textarea></label>
+    </div>
+    <button class="primary" type="submit"><i data-lucide="plus"></i> 保存岗位</button>
+  </form>
+</details>
+
+<dialog id="job-search-profile-picker-dialog" class="profile-picker-dialog">
+  <div class="dialog-shell">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">选择简历档案</p>
+        <h2>为搜索结果增加匹配分析</h2>
+      </div>
+      <button class="ghost compact-button" type="button" data-close-job-search-profile-picker><i data-lucide="x"></i> 关闭</button>
+    </div>
+    <label class="wide">
+      搜索 ID、姓名或目标岗位
+      <input id="job-search-profile-picker-search" placeholder="例如：159 / 李明 / Agent">
+    </label>
+    <div id="job-search-profile-picker-list" class="profile-picker-list"></div>
+  </div>
+</dialog>
 {% endblock %}

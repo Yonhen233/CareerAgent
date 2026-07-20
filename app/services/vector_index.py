@@ -87,6 +87,7 @@ class SQLiteVectorIndex:
     def query_profile_chunks(self, db: Session, profile_id: int, query_text: str, top_k: int = 8) -> list[RetrievedChunk]:
         rows = db.query(ResumeChunk).filter(ResumeChunk.profile_id == profile_id).all()
         return self._query_rows(
+            db=db,
             rows=rows,
             query_text=query_text,
             top_k=top_k,
@@ -128,19 +129,52 @@ class SQLiteVectorIndex:
     def query_job_chunks(self, db: Session, job_id: int, query_text: str, top_k: int = 8) -> list[RetrievedChunk]:
         rows = db.query(JobChunk).filter(JobChunk.job_id == job_id).all()
         return self._query_rows(
+            db=db,
             rows=rows,
             query_text=query_text,
             top_k=top_k,
             type_boost_chunks={"required_skills", "responsibilities", "qualifications"},
         )
 
+    def query_job_corpus(
+        self,
+        db: Session,
+        query_text: str,
+        *,
+        job_ids: set[int] | None = None,
+        top_k: int = 80,
+        rerank: bool = True,
+    ) -> list[RetrievedChunk]:
+        query = db.query(JobChunk)
+        if job_ids is not None:
+            if not job_ids:
+                return []
+            query = query.filter(JobChunk.job_id.in_(job_ids))
+        rows = query.all()
+        job_by_chunk_id = {row.id: row.job_id for row in rows}
+        results = self._query_rows(
+            db=db,
+            rows=rows,
+            query_text=query_text,
+            top_k=top_k,
+            type_boost_chunks={"required_skills", "responsibilities", "qualifications", "preferred_skills"},
+            rerank=rerank,
+        )
+        for item in results:
+            metadata = dict(item.metadata or {})
+            metadata["job_id"] = job_by_chunk_id.get(item.chunk_id)
+            item.metadata = metadata
+        return results
+
     def _query_rows(
         self,
         *,
+        db: Session,
         rows: list[Any],
         query_text: str,
         top_k: int,
         type_boost_chunks: set[str],
+        rerank: bool = True,
     ) -> list[RetrievedChunk]:
         query_text = query_text.strip()
         if not query_text:
@@ -149,7 +183,9 @@ class SQLiteVectorIndex:
         expanded_query = expand_query_text(query_text)
         query_embedding = self.embedding_service.embed_text(expanded_query)
         query_vec = query_embedding.vectors[0] if query_embedding.vectors else []
-        row_vectors = self._row_vectors(rows, expected_dimensions=len(query_vec))
+        row_vectors, migrated = self._row_vectors(rows, expected_dimensions=len(query_vec))
+        if migrated:
+            db.commit()
         query_tokens = set(tokenize(expanded_query))
         scored: list[RetrievedChunk] = []
         for row, row_vec in zip(rows, row_vectors, strict=False):
@@ -189,13 +225,19 @@ class SQLiteVectorIndex:
                 )
             )
         scored.sort(key=lambda item: item.score, reverse=True)
-        first_stage_limit = max(top_k, self.settings.reranker_top_n if self.settings.reranker_enabled else top_k)
+        use_reranker = self.settings.reranker_enabled and rerank
+        first_stage_limit = max(top_k, self.settings.reranker_top_n if use_reranker else top_k)
         candidates = scored[:first_stage_limit]
-        if self.settings.reranker_enabled:
+        if use_reranker:
             return self.reranker.rerank_chunks(expanded_query, candidates, top_k=top_k)
         return candidates[:top_k]
 
-    def _row_vectors(self, rows: list[Any], *, expected_dimensions: int) -> list[list[float]]:
+    def _row_vectors(
+        self,
+        rows: list[Any],
+        *,
+        expected_dimensions: int,
+    ) -> tuple[list[list[float]], int]:
         vectors: list[list[float] | None] = []
         missing_texts: list[str] = []
         missing_positions: list[int] = []
@@ -212,7 +254,12 @@ class SQLiteVectorIndex:
             recomputed = self.embedding_service.embed_texts(missing_texts)
             for position, vector in zip(missing_positions, recomputed.vectors, strict=False):
                 vectors[position] = vector
-        return [vector or [] for vector in vectors]
+                row = rows[position]
+                row.embedding_json = vector
+                metadata = dict(row.metadata_json or {})
+                metadata["embedding"] = recomputed.info()
+                row.metadata_json = metadata
+        return [vector or [] for vector in vectors], len(missing_positions)
 
     def _metadata_with_embedding(self, metadata: dict[str, Any], embeddings: EmbeddingBatch) -> dict[str, Any]:
         enriched = dict(metadata)

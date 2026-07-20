@@ -118,24 +118,21 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")
 
     assert response.status_code == 200
-    assert "告诉 CareerAgent 你的求职目标" in response.text
-    assert "你想让 Agent 做什么" in response.text
-    assert "快速示例" in response.text
-    assert "岗位匹配" in response.text
-    assert "证据约束定制" in response.text
-    assert "审批式投递" in response.text
+    assert "告诉 CareerAgent 你想找什么" in response.text
+    assert "求职需求" in response.text
+    assert "求职需求和简历任选一项即可" in response.text
+    assert "常见搜索" in response.text
+    assert "Agent 开发实习" in response.text
+    assert "LLM 应用后端" in response.text
+    assert "RAG 工程实习" in response.text
     assert 'data-demo-scenario="match"' in response.text
-    assert 'data-demo-scenario="tailor"' in response.text
-    assert 'data-demo-scenario="application"' in response.text
-    assert "三选一提供简历档案，再开始找岗位" in response.text
-    assert "请先在三种方式中任选一种提供简历档案" in response.text
-    assert response.text.index("你想让 Agent 做什么") < response.text.index("流程内容") < response.text.index("三选一提供简历档案")
-    assert "方式一" in response.text
-    assert "方式二" in response.text
-    assert "方式三" in response.text
-    assert "流程内容" in response.text
-    assert "固定步骤" in response.text
-    assert "选择 PDF 后会自动解析，并把解析结果作为本次流程的简历档案" in response.text
+    assert 'data-demo-scenario="backend"' in response.text
+    assert 'data-demo-scenario="rag"' in response.text
+    assert "简历不是搜索岗位的前置条件" in response.text
+    assert "不提供简历时按求职需求检索" in response.text
+    assert "本次不使用简历" in response.text
+    assert "上传后自动建立档案" in response.text
+    assert "稍后再建立也可以" in response.text
     assert "profile-picker-dialog" in response.text
     assert "profile-picker-search" in response.text
     assert "open-profile-picker" in response.text
@@ -145,20 +142,19 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "selected-profile-card" in response.text
     assert "side-stack" in response.text
     assert "process-panel" in response.text
-    assert "信息会自动合并" not in response.text
-    assert 'value="create_profile"' not in response.text
-    assert 'value="search_jobs"' not in response.text
-    for action in ["tailor_resume", "quick_apply", "interview_prep"]:
-        assert f'value="{action}"' in response.text
+    assert "三选一提供简历档案" not in response.text
+    assert 'name="selected_actions"' not in response.text
     assert 'name="name"' not in response.text
     assert 'name="email"' not in response.text
     assert 'name="skills"' not in response.text
     assert 'name="project"' not in response.text
-    assert "需求入口" not in response.text
-    assert "一键开始" not in response.text
     assert "career-start-form" in response.text
     assert "career-flow-steps" in response.text
     assert "career-flow-result" in response.text
+    assert "岗位发现进度" in response.text
+    assert 'data-stage="results"' in response.text
+    assert 'name="source_mode"' in response.text
+    assert 'name="internship_only"' in response.text
     assert "active-run-monitor" in response.text
     assert "另有 ${orderedRows.length - 1} 个流程" in main_js
     assert "const orderedRows" in main_js
@@ -166,9 +162,9 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "data-toggle-active-runs" in main_js
     assert ".active-run-monitor.collapsed" in style_css
     assert "llm-global-warning" in response.text
-    assert "name=\"job_id\"" in response.text
-    assert "name=\"jd_text\"" in response.text
-    assert "开始处理" in response.text
+    assert "name=\"job_id\"" not in response.text
+    assert "name=\"jd_text\"" not in response.text
+    assert "搜索岗位" in response.text
     assert "控制台" in response.text
     assert ">历史记录<" in response.text
     assert ">流程<" not in response.text
@@ -186,31 +182,23 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "profileSummaryText" in main_js
     assert "updateResumeSourceSelection" in main_js
     assert "data-select-profile" in main_js
-    assert "profileContextFromStartForm" in main_js
-    assert 'const required = ["create_profile", "search_jobs"]' in main_js
-    assert "固定完成简历档案、岗位搜索和匹配排序" in main_js
-    assert "optionalStartActions(form).length" in main_js
-    assert "selected_actions: actions" in main_js
-    assert "profile_context: null" in main_js
-    assert "pushUniqueAction" in main_js
-    assert "runActionKeys" in main_js
-    assert "tailor_resume_for_job: \"resumes\"" in main_js
-    assert "prepare_interview_for_job: \"prep\"" in main_js
-    assert "/assistant/natural-language" in main_js
-    assert "renderNaturalLanguageResult" in main_js
+    assert "JOB_DISCOVERY_SESSION_KEY" in main_js
+    assert "/job-discovery/sessions" in main_js
+    assert "preference_text:" in main_js
+    assert "profile_id: profileId" in main_js
+    assert "window.location.assign(`/ui/jobs?session_id=${body.session.id}`)" in main_js
+    assert "简历不是搜索岗位的前置条件" in main_js
+    assert "搜索并匹配岗位" in main_js
+    assert "解析简历并匹配岗位" in main_js
     assert "businessSummaryHtml" in main_js
     assert "/agent/runs/${runId}/summary" in main_js
     assert "approval_bypass_detected" in main_js
-    assert "createProfileForCareerFlow" in main_js
-    assert "createAgentRun" in main_js
-    assert "createBackgroundAgentRun" in main_js
-    assert "waitForAgentRun" in main_js
     assert "ACTIVE_RUN_KEY" in main_js
     assert "careeragent.active_runs" in main_js
     assert "trackActiveRun" in main_js
     assert "restoreActiveRuns" in main_js
     assert "renderActiveRunMonitor" in main_js
-    assert "restoreCareerFlowFromRun" in main_js
+    assert "if (dashboardRun) await restoreCareerFlowFromRun" not in main_js
     assert "ACTIVE_RUN_RECENT_TTL_MS" in main_js
     assert "DISMISSED_RUN_KEY" in main_js
     assert "updateTrackedRun" in main_js
@@ -234,22 +222,15 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "/agent/runs/background" in main_js
     assert "/events/stream" in main_js
     assert "golden-demo-picker" in style_css
-    assert "business-summary-metrics" in style_css
-    assert "task_type: \"full_career_flow\"" in main_js
-    assert "run.status !== \"completed\"" in main_js
-    assert "resolveDirectJobForCareerFlow" in main_js
-    assert "/matches" in main_js
-    assert "task_type: \"find_jobs_for_profile\"" in main_js
     assert "flow-stepper" in style_css
-    assert "generation-picker" in style_css
     assert "guidance-card" in style_css
     assert "resume-source-guidance" in style_css
-    assert "fixed-flow-steps" in style_css
     assert "start-resume-picker" in style_css
     assert "resume-source-card.is-selected" in style_css
     assert "profile-picker-dialog" in style_css
     assert ".process-panel .process-grid" in style_css
-    assert "grid-template-columns: repeat(3" in style_css
+    assert ".start-submit-row" in style_css
+    assert ".discovery-stepper" in style_css
     assert "accent-color: var(--green)" in style_css
     assert "white-space: nowrap" in style_css
     assert "min-height: 38px" in style_css
@@ -293,17 +274,58 @@ def test_jobs_page_entry_panels_are_aligned():
     style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")
 
     assert response.status_code == 200
-    assert "job-entry-grid" in response.text
-    assert "span-5 job-entry-panel" in response.text
-    assert "span-7 job-entry-panel" in response.text
-    assert "job-entry-form" in response.text
-    assert "job-entry-grid" in style_css
-    assert "job-entry-panel" in style_css
-    assert "job-entry-form button" in style_css
-    assert "/jobs/${row.id}/html" in main_js
-    assert "预览 JD" in main_js
+    assert "job-search-workspace" in response.text
+    assert "job-discovery-form" in response.text
+    assert "求职需求" in response.text
+    assert "简历档案（可选）" in response.text
+    assert "open-job-search-profile-picker" in response.text
+    assert "job-search-profile-picker-dialog" in response.text
+    assert "job-results-panel" in response.text
+    assert "manual-job-panel" in response.text
+    assert ".job-discovery-form" in style_css
+    assert ".job-search-filter-row" in style_css
+    assert ".job-result-card" in style_css
+    assert "runJobDiscovery" in main_js
+    assert "renderJobDiscovery" in main_js
+    assert "loadJobSearchSelectedProfile" in main_js
+    assert "jobDetailUrl" in main_js
+    assert "/ui/jobs/${jobId}" in main_js
     assert ".notice:empty" in style_css
-    assert "margin-top: auto" in style_css
+
+
+def test_job_detail_page_exposes_optional_profile_match_and_tailor_flow():
+    client = TestClient(app)
+    response = client.get("/ui/jobs/123?session_id=7")
+    main_js = Path("app/static/js/main.js").read_text(encoding="utf-8")
+    style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")
+
+    assert response.status_code == 200
+    assert 'data-job-id="123"' in response.text
+    assert "岗位 JD" in response.text
+    assert "匹配与差距" in response.text
+    assert "定制简历" in response.text
+    assert "尚未选择简历" in response.text
+    assert "选择已有简历" in response.text
+    assert "上传 PDF" in response.text
+    assert "去建立档案" in response.text
+    assert "run-job-match" in response.text
+    assert "run-job-tailor" in response.text
+    assert "评分、修改建议和事实检查会单独展示" in response.text
+    assert "loadJobDetail" in main_js
+    assert "runJobDetailMatch" in main_js
+    assert "runJobDetailTailor" in main_js
+    assert "const button = event.currentTarget" in main_js
+    assert "button.disabled = false" in main_js
+    assert 'api("/matches"' in main_js
+    assert 'api("/resumes/tailor"' in main_js
+    assert 'required_skill_coverage: "必备技能覆盖"' in main_js
+    assert 'semantic_similarity: "语义相关度"' in main_js
+    assert "applyLink.hidden = !job.apply_url" in main_js
+    assert ".job-detail-grid" in style_css
+    assert ".job-detail-tabs" in style_css
+    assert ".job-gap-grid" in style_css
+    assert "[hidden]" in style_css
+    assert "display: none !important" in style_css
 
 
 def test_applications_page_uses_package_number_and_constrained_layout():

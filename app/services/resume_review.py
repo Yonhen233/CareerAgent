@@ -135,7 +135,9 @@ class ResumeReviewService:
     ) -> dict[str, Any]:
         system_prompt = (
             "你是中文求职简历评审助手。必须只基于输入的简历、JD 和 RAG 证据提出建议，"
-            "不要编造经历，不要建议用户虚构技能。返回严格 JSON。"
+            "不要编造经历、技能、公司、日期、样本量、百分比、耗时或任何量化结果。"
+            "原简历没有指标时只能写“待补充真实数据”，不得给出假设数字或看似可直接使用的虚构示例。"
+            "返回严格 JSON。"
         )
         user_prompt = json.dumps(
             {
@@ -190,14 +192,49 @@ class ResumeReviewService:
 
         llm_suggestions = parsed.get("suggestions", [])
         if isinstance(llm_suggestions, list):
+            safe_llm_suggestions, rejected_suggestions = self._ground_llm_suggestions(
+                llm_suggestions,
+                source_text=text,
+            )
             result["suggestions"] = self._dedupe_suggestion_dicts(
-                [*llm_suggestions, *result.get("suggestions", [])]
+                [*safe_llm_suggestions, *result.get("suggestions", [])]
             )[:10]
+            result["trace"]["llm_rejected_suggestions"] = rejected_suggestions
         llm_strengths = parsed.get("strengths", [])
         if isinstance(llm_strengths, list) and llm_strengths:
             result["strengths"] = [str(item) for item in llm_strengths if str(item).strip()][:5]
         result["trace"]["llm_used"] = True
         return result
+
+    def _ground_llm_suggestions(
+        self,
+        suggestions: list[Any],
+        *,
+        source_text: str,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        source_numbers = set(re.findall(r"\d+(?:\.\d+)?", source_text))
+        accepted: list[dict[str, Any]] = []
+        rejected: list[dict[str, Any]] = []
+        for raw in suggestions:
+            if not isinstance(raw, dict):
+                continue
+            claim_text = " ".join(
+                str(raw.get(key) or "")
+                for key in ("problem", "advice", "example_rewrite")
+            )
+            generated_numbers = set(re.findall(r"\d+(?:\.\d+)?", claim_text))
+            unsupported_numbers = sorted(generated_numbers - source_numbers)
+            if unsupported_numbers:
+                rejected.append(
+                    {
+                        "reason": "unsupported_numeric_claim",
+                        "numbers": unsupported_numbers,
+                        "section": str(raw.get("section") or "简历"),
+                    }
+                )
+                continue
+            accepted.append(raw)
+        return accepted, rejected
 
     def _profile_text(self, profile: Profile, profile_data: dict[str, Any]) -> str:
         parts = [profile.raw_resume_text or "", profile.headline or ""]
@@ -371,7 +408,10 @@ class ResumeReviewService:
                     "priority": "high",
                     "section": "项目经历",
                     "advice": "每个核心项目至少写清：目标场景、你的职责、关键技术方案、上线/评测结果。",
-                    "example_rewrite": "实现 XX 模块，使用 FastAPI + SQLite 管理任务状态，补充 trace 日志定位 LLM JSON 解析失败。",
+                    "example_rewrite": (
+                        "【项目名】：面向【真实场景】实现【本人完成的模块】，"
+                        "使用【真实技术栈】解决【具体问题】，结果为【待补充真实数据或可验证结论】。"
+                    ),
                 }
             )
         if dimensions["metric_density"] < 65:
@@ -380,7 +420,10 @@ class ResumeReviewService:
                     "priority": "high",
                     "section": "项目/实习经历",
                     "advice": "把“做了什么”改成“做到什么程度”，补充样本量、耗时、通过率、召回率、延迟、覆盖率等指标。",
-                    "example_rewrite": "构建 PDF Chunk/RAG 评测集，覆盖噪声简历样本，按召回率和误报率选择最终策略。",
+                    "example_rewrite": (
+                        "构建【样本量待补充】的评测集，按【真实评测指标】比较方案，"
+                        "最终结果为【待补充真实数据】。"
+                    ),
                 }
             )
         if not profile_data.get("self_summary"):
@@ -389,10 +432,20 @@ class ResumeReviewService:
                     "priority": "medium",
                     "section": "个人总结",
                     "advice": "增加 2-3 句面向目标岗位的总结，突出最相关项目、技术栈和工程化能力。",
-                    "example_rewrite": "面向中文求职场景构建 Agent 求职助手，熟悉 FastAPI、RAG、SQLite、LangGraph 和 LLM 调试评测。",
+                    "example_rewrite": self._grounded_summary_example(profile, profile_data),
                 }
             )
         return suggestions
+
+    def _grounded_summary_example(self, profile: Profile, profile_data: dict[str, Any]) -> str:
+        roles = list(profile.target_roles_json or profile_data.get("target_roles") or [])
+        target = str(roles[0] if roles else profile.headline or "目标岗位")
+        skills = [str(item) for item in (profile_data.get("skills") or []) if str(item).strip()][:6]
+        projects = [item for item in (profile_data.get("projects") or []) if isinstance(item, dict)]
+        project_name = str(projects[0].get("name") or "").strip() if projects else ""
+        project_part = f"在 {project_name} 项目中" if project_name else "在已有项目中"
+        skill_part = "、".join(skills) if skills else "【真实技术栈待补充】"
+        return f"目标岗位：{target}；{project_part}实际使用 {skill_part}，具体成果以简历中的可验证经历为准。"
 
     def _target_issues(self, match_payload: dict[str, Any]) -> list[dict[str, Any]]:
         missing = match_payload.get("missing_skills", []) or []

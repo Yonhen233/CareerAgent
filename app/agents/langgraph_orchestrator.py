@@ -681,13 +681,25 @@ class LangGraphAgentOrchestrator:
                 "Full career flow stopped: no matched jobs found. "
                 f"source_errors={state.get('source_errors') or {}}"
             )
-        selected_job = dict(matches[0])
+        selection = interrupt(
+            {
+                "kind": "job_selection",
+                "message": "岗位已经检索并完成初步匹配，请选择一个岗位后再继续生成材料。",
+                "matches": matches,
+                "required_action": "select_job",
+            }
+        )
+        selected_job_id = int(selection.get("job_id") if isinstance(selection, dict) else selection)
+        selected = next((item for item in matches if int(item["job_id"]) == selected_job_id), None)
+        if selected is None:
+            raise ValueError(f"Selected job #{selected_job_id} is not in the current search results.")
+        selected_job = dict(selected)
         db = self._db_from_state(state)
         self.trace.add_artifact(
             db,
             run_id=state["run_id"],
             artifact_type="selected_job",
-            payload={"selection_policy": "highest_overall_score", "selected_job": selected_job},
+            payload={"selection_policy": "human_selected", "selected_job": selected_job},
         )
         return {"selected_job": selected_job, "job_id": int(selected_job["job_id"]), "selected_job_id": int(selected_job["job_id"])}
 
@@ -1040,9 +1052,13 @@ class LangGraphAgentOrchestrator:
         graph_thread_id: str,
         execution_plan: dict[str, Any],
     ) -> dict[str, Any]:
+        first_value = interrupts[0].get("value") if interrupts else {}
+        interrupt_kind = first_value.get("kind") if isinstance(first_value, dict) else None
+        confirmation_type = "job_selection" if interrupt_kind == "job_selection" else "application_packet"
         return {
             "requires_confirmation": True,
-            "confirmation_type": "application_packet",
+            "requires_input": True,
+            "confirmation_type": confirmation_type,
             "interrupts": interrupts,
             "graph_thread_id": graph_thread_id,
             "execution_plan": execution_plan,

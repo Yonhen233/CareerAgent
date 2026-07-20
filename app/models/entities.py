@@ -67,6 +67,7 @@ class Profile(Base):
     applications: Mapped[list["Application"]] = relationship(back_populates="profile")
     interview_preps: Mapped[list["InterviewPrep"]] = relationship(back_populates="profile")
     agent_runs: Mapped[list["AgentRun"]] = relationship(back_populates="profile")
+    job_search_sessions: Mapped[list["JobSearchSession"]] = relationship(back_populates="profile")
 
 
 class ResumeChunk(Base):
@@ -118,6 +119,62 @@ class Job(Base):
     interview_preps: Mapped[list["InterviewPrep"]] = relationship(back_populates="job")
     interview_experiences: Mapped[list["InterviewExperience"]] = relationship(back_populates="job")
     agent_runs: Mapped[list["AgentRun"]] = relationship(back_populates="job")
+    search_results: Mapped[list["JobSearchResult"]] = relationship(back_populates="job")
+
+
+class JobSearchSession(Base):
+    __tablename__ = "job_search_sessions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    profile_id: Mapped[int | None] = mapped_column(ForeignKey("profiles.id"), nullable=True, index=True)
+    input_mode: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    preference_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved_query: Mapped[str] = mapped_column(Text, nullable=False)
+    location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    internship_only: Mapped[bool] = mapped_column(nullable=False, default=True)
+    source_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="hybrid")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="running", index=True)
+    source_errors_json: Mapped[dict[str, str]] = mapped_column(JSON, nullable=False, default=dict)
+    result_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utc_now,
+        onupdate=utc_now,
+        nullable=False,
+    )
+
+    profile: Mapped[Profile | None] = relationship(back_populates="job_search_sessions")
+    results: Mapped[list["JobSearchResult"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="JobSearchResult.rank",
+    )
+
+
+class JobSearchResult(Base):
+    __tablename__ = "job_search_results"
+    __table_args__ = (UniqueConstraint("session_id", "job_id", name="uq_job_search_result_session_job"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("job_search_sessions.id"),
+        nullable=False,
+        index=True,
+    )
+    job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"), nullable=False, index=True)
+    match_result_id: Mapped[int | None] = mapped_column(ForeignKey("match_results.id"), nullable=True, index=True)
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    retrieval_score: Mapped[float] = mapped_column(Float, nullable=False)
+    match_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    final_score: Mapped[float] = mapped_column(Float, nullable=False)
+    reason_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+    session: Mapped[JobSearchSession] = relationship(back_populates="results")
+    job: Mapped[Job] = relationship(back_populates="search_results")
+    match_result: Mapped["MatchResult | None"] = relationship()
 
 
 class JobChunk(Base):

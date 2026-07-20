@@ -50,6 +50,64 @@ Content-Type: application/json
 - repair 后仍失败时返回 HTTP 500，但 body 仍保留 `run_id/status/user_message/plan_json/result_json`，方便前端显示失败卡片并跳转流程记录。
 - 岗位搜索返回 0 个 matches 会被视为失败，不会伪装成“推荐成功”。
 
+## 岗位发现
+
+岗位发现入口不要求先建立简历。`preference_text` 与 `profile_id` 可以只提供一个，也可以同时提供。
+
+```http
+POST /job-discovery/sessions
+Content-Type: application/json
+```
+
+```json
+{
+  "preference_text": "想找北京或远程的 Agent 开发实习，偏 RAG 和后端工程",
+  "profile_id": 12,
+  "location": "北京 / 远程",
+  "internship_only": true,
+  "limit": 20,
+  "source_mode": "hybrid"
+}
+```
+
+`source_mode`：
+
+- `corpus`：只检索已经同步到系统的岗位库。
+- `live`：刷新真实招聘来源，再对本次入库岗位和已有岗位统一检索。
+- `hybrid`：面向用户的默认模式，真实来源异常会在 `source_errors_json` 中显式返回。
+
+真实来源搜索先保存原始 JD，再使用确定性结构化解析、技能别名归一化和 Prompt Injection 检测建立可搜索字段，不为每条搜索结果等待 LLM。用户触发岗位匹配、简历评审或定制简历时才进入真实 embedding/reranker 与 LLM 推理链路。
+
+返回内容包括：
+
+- `session.input_mode`：`preference_only`、`profile_only`、`preference_and_profile` 或 `browse`。
+- `session.resolved_query`：实际用于岗位 RAG 的查询。
+- `results[].retrieval_score`：需求与岗位的检索相关度。
+- `results[].match_score`：只有提供简历后才存在的简历匹配分。
+- `results[].reason`：相关性原因、语义分、匹配技能和能力缺口。
+
+刷新或跨页恢复：
+
+```http
+GET /job-discovery/sessions/{session_id}
+```
+
+最近搜索记录：
+
+```http
+GET /job-discovery/sessions
+```
+
+岗位站内详情页：
+
+```text
+/ui/jobs/{job_id}?session_id={session_id}&profile_id={profile_id}
+```
+
+详情页可继续调用 `POST /matches`、`POST /profiles/{profile_id}/review` 和 `POST /resumes/tailor`。匹配分析、修改建议和事实检查单独展示，不进入简历正文。
+
+搜索结果持久化在 `job_search_sessions/job_search_results`。历史旧维度向量在检索时会批量迁移并写回 SQLite；这会产生一次性冷启动成本，迁移后的后续请求直接复用已存 embedding。
+
 ## 简历档案
 
 ### 上传 PDF

@@ -14,6 +14,7 @@ from app.api.auth import router as auth_router
 from app.api.evaluations import router as evaluations_router
 from app.api.health import router as health_router
 from app.api.interview_prep import router as interview_prep_router
+from app.api.job_discovery import router as job_discovery_router
 from app.api.jobs import router as jobs_router
 from app.api.llm_debug import router as llm_debug_router
 from app.api.matches import router as matches_router
@@ -95,6 +96,7 @@ app.include_router(auth_router)
 app.include_router(ops_router)
 app.include_router(profiles_router)
 app.include_router(jobs_router)
+app.include_router(job_discovery_router)
 app.include_router(llm_debug_router)
 app.include_router(matches_router)
 app.include_router(resumes_router)

@@ -3,6 +3,7 @@ const ADMIN_TOKEN_KEY = "careeragent.admin_token";
 const ACTIVE_RUN_KEY = "careeragent.active_runs";
 const DISMISSED_RUN_KEY = "careeragent.dismissed_runs";
 const ACTIVE_RUN_COLLAPSED_KEY = "careeragent.active_runs_collapsed";
+const JOB_DISCOVERY_SESSION_KEY = "careeragent.job_discovery_session";
 const ACTIVE_RUN_TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "canceled"]);
 const ACTIVE_RUN_RECENT_TTL_MS = 24 * 60 * 60 * 1000;
 const LLM_DEPENDENT_PAGES = new Set([
@@ -18,6 +19,10 @@ let activeRunEventSource = null;
 let activeRunMonitorTimer = null;
 let profilePickerRows = [];
 let jobPickerRows = [];
+let jobSearchProfileRows = [];
+let jobDetailProfileRows = [];
+let currentJobDiscovery = null;
+let currentJobDetail = null;
 
 function toast(message) {
   const el = $("#toast");
@@ -409,8 +414,8 @@ function updateSelectedProfileCard(profile, source = "existing") {
   const form = $("#career-start-form");
   if (!title || !summary || !form) return;
   if (!profile) {
-    title.textContent = "尚未选择简历档案";
-    summary.textContent = "从已经建好的档案中选择，适合再次投递或继续修改。";
+    title.textContent = "本次不使用简历";
+    summary.textContent = "可以直接搜索，也可以选择档案获得匹配分析。";
     if (form.profile_id) form.profile_id.value = "";
     updateResumeSourceSelection(null);
     updateStartInputGuidance(form);
@@ -621,6 +626,12 @@ function resumeReviewDimensionLabel(key) {
     readability: "可读性",
     risk_control: "事实边界",
     target_alignment: "岗位匹配",
+    required_skill_coverage: "必备技能覆盖",
+    preferred_skill_coverage: "加分技能覆盖",
+    semantic_similarity: "语义相关度",
+    evidence_relevance: "经历证据",
+    internship_fit: "实习条件",
+    negative_evidence_penalty: "风险扣分",
   };
   return labels[key] || key;
 }
@@ -631,18 +642,235 @@ function resumeReviewPriorityLabel(priority) {
 }
 
 async function loadJobs() {
+  if ($("#job-detail-page")) {
+    await loadJobDetail();
+    return;
+  }
+  if (!$("#jobs-list")) return;
+  const params = new URLSearchParams(window.location.search);
+  const sessionId = Number(params.get("session_id") || window.localStorage?.getItem(JOB_DISCOVERY_SESSION_KEY) || 0);
+  if (sessionId > 0) {
+    try {
+      const body = await api(`/job-discovery/sessions/${sessionId}`);
+      renderJobDiscovery(body);
+      return;
+    } catch (error) {
+      window.localStorage?.removeItem(JOB_DISCOVERY_SESSION_KEY);
+      toast(`上次搜索记录无法恢复：${error.message}`);
+    }
+  }
   const rows = await api("/jobs");
-  renderItems("#jobs-list", rows, (row) => `
-    <article class="item">
-      <div class="item-title"><span>#${row.id} ${escapeHtml(row.title)}</span><span class="meta">${escapeHtml(row.company || "未知公司")}</span></div>
-      <div class="meta">${escapeHtml(row.company || "")} ${escapeHtml(row.location || "")}</div>
-      ${tags(row.structured_jd_json.required_skills || row.structured_jd_json.keywords || [])}
-      <div class="flow-result-actions">
-        <a class="button ghost" href="/jobs/${row.id}/html" target="_blank"><i data-lucide="eye"></i> 预览 JD</a>
-        ${row.apply_url ? `<a class="button ghost" href="${escapeHtml(row.apply_url)}" target="_blank"><i data-lucide="external-link"></i> 打开投递页</a>` : ""}
-      </div>
-    </article>
-  `);
+  renderJobDiscovery({
+    session: null,
+    results: rows.map((job, index) => ({
+      id: `job-${job.id}`,
+      rank: index + 1,
+      retrieval_score: null,
+      match_score: null,
+      final_score: null,
+      reason: {},
+      job,
+    })),
+  });
+}
+
+function jobDetailUrl(jobId, sessionId = null, profileId = null) {
+  const params = new URLSearchParams();
+  if (sessionId) params.set("session_id", sessionId);
+  if (profileId) params.set("profile_id", profileId);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  return `/ui/jobs/${jobId}${suffix}`;
+}
+
+function renderJobDiscovery(body) {
+  currentJobDiscovery = body;
+  const session = body.session;
+  const results = body.results || [];
+  const title = $("#job-results-title");
+  const summary = $("#job-session-summary");
+  const errors = $("#job-search-errors");
+  if (session) {
+    window.localStorage?.setItem(JOB_DISCOVERY_SESSION_KEY, String(session.id));
+    const params = new URLSearchParams(window.location.search);
+    params.set("session_id", session.id);
+    window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
+    if (title) title.textContent = `找到 ${results.length} 个岗位`;
+    const modeLabels = {
+      preference_only: "按求职需求搜索",
+      profile_only: "按简历自动匹配",
+      preference_and_profile: "结合求职需求和简历匹配",
+      browse: "浏览 Agent 岗位",
+    };
+    if (summary) {
+      summary.textContent = `${modeLabels[session.input_mode] || "岗位搜索"} · 搜索记录 #${session.id} · ${session.resolved_query}`;
+    }
+    const sourceErrors = Object.entries(session.source_errors_json || {});
+    if (errors) {
+      errors.innerHTML = sourceErrors.length
+        ? `<strong>部分岗位来源暂时不可用</strong><span>${sourceErrors.map(([name]) => escapeHtml(name)).join("、")}；其余来源和岗位库结果已正常展示。</span>`
+        : "";
+    }
+    const form = $("#job-search-form");
+    if (form) {
+      if (form.preference_text) form.preference_text.value = session.preference_text || "";
+      if (form.profile_id) form.profile_id.value = session.profile_id || "";
+      if (form.location) form.location.value = session.location || "";
+      if (form.source_mode) form.source_mode.value = session.source_mode || "hybrid";
+      if (form.internship_only) form.internship_only.checked = Boolean(session.internship_only);
+    }
+    if (session.profile_id) {
+      loadJobSearchSelectedProfile(session.profile_id).catch(() => {});
+    } else {
+      updateJobSearchProfile(null);
+    }
+  } else {
+    if (title) title.textContent = `岗位库（${results.length}）`;
+    if (summary) summary.textContent = "这是已经同步到系统的岗位。输入求职需求后，可以获得针对性的检索排序。";
+    if (errors) errors.innerHTML = "";
+  }
+
+  renderItems("#jobs-list", results, (result) => {
+    const row = result.job;
+    const structured = row.structured_jd_json || {};
+    const reasons = result.reason?.relevance_reasons || [];
+    const matched = result.reason?.matched_skills || [];
+    const missing = result.reason?.missing_skills || [];
+    const scoreLabel = result.match_score !== null && result.match_score !== undefined
+      ? `简历匹配 ${Math.round(result.match_score)}`
+      : result.retrieval_score !== null && result.retrieval_score !== undefined
+        ? `需求相关 ${Math.round(result.retrieval_score)}`
+        : "岗位库";
+    return `
+      <article class="job-result-card">
+        <div class="job-result-rank">${result.rank || ""}</div>
+        <div class="job-result-body">
+          <div class="item-title">
+            <span>${escapeHtml(row.title)}</span>
+            <span class="status-pill ${result.match_score >= 75 ? "ok" : ""}">${escapeHtml(scoreLabel)}</span>
+          </div>
+          <div class="job-result-meta">
+            <span>${escapeHtml(row.company || "未知公司")}</span>
+            <span>${escapeHtml(row.location || "地点未注明")}</span>
+            <span>${escapeHtml(row.job_type || "类型未注明")}</span>
+            <span>${escapeHtml(row.source || "manual")}</span>
+          </div>
+          ${tags(structured.required_skills || structured.keywords || [])}
+          ${reasons.length ? `<p class="job-result-reason"><strong>为什么出现：</strong>${escapeHtml(reasons.slice(0, 3).join("；"))}</p>` : ""}
+          ${matched.length || missing.length ? `
+            <div class="job-match-preview">
+              <span><strong>已匹配</strong> ${escapeHtml(matched.slice(0, 5).join("、") || "等待详细分析")}</span>
+              <span><strong>需补充</strong> ${escapeHtml(missing.slice(0, 4).join("、") || "暂无明显缺口")}</span>
+            </div>
+          ` : ""}
+          <div class="flow-result-actions">
+            <a class="button primary" href="${jobDetailUrl(row.id, session?.id, session?.profile_id)}"><i data-lucide="panel-right-open"></i> 查看岗位详情</a>
+            ${row.apply_url ? `<a class="button ghost" href="${escapeHtml(row.apply_url)}" target="_blank" rel="noopener"><i data-lucide="external-link"></i> 官方投递页</a>` : ""}
+          </div>
+        </div>
+      </article>
+    `;
+  });
+}
+
+async function runJobDiscovery(form) {
+  const raw = formJson(form);
+  const submit = form.querySelector("button[type='submit']");
+  if (submit) submit.disabled = true;
+  const errors = $("#job-search-errors");
+  if (errors) errors.innerHTML = `<span>正在检索真实岗位来源和岗位库，请稍候...</span>`;
+  try {
+    const body = await api("/job-discovery/sessions", {
+      method: "POST",
+      body: JSON.stringify({
+        preference_text: String(raw.preference_text || "").trim() || null,
+        profile_id: raw.profile_id ? Number(raw.profile_id) : null,
+        location: raw.location || null,
+        internship_only: Boolean(form.internship_only?.checked),
+        limit: Number(raw.limit || 20),
+        source_mode: raw.source_mode || "hybrid",
+      }),
+    });
+    renderJobDiscovery(body);
+    toast(`已找到 ${body.results.length} 个岗位`);
+  } finally {
+    if (submit) submit.disabled = false;
+  }
+}
+
+function updateJobSearchProfile(profile) {
+  const form = $("#job-search-form");
+  const title = $("#job-search-profile-title");
+  const summary = $("#job-search-profile-summary");
+  if (!form || !title || !summary) return;
+  if (!profile) {
+    form.profile_id.value = "";
+    title.textContent = "未选择简历";
+    summary.textContent = "本次只按求职需求搜索。";
+    return;
+  }
+  const structured = profile.structured_profile_json || {};
+  form.profile_id.value = profile.id;
+  title.textContent = `#${profile.id} ${profile.name || structured.name || "未命名简历"}`;
+  summary.textContent = profileSummaryText(profile);
+}
+
+async function loadJobSearchSelectedProfile(profileId) {
+  const profile = await api(`/profiles/${profileId}`);
+  updateJobSearchProfile(profile);
+}
+
+async function openJobSearchProfilePicker() {
+  if (!jobSearchProfileRows.length) jobSearchProfileRows = await api("/profiles");
+  renderJobSearchProfilePicker();
+  openDialog("#job-search-profile-picker-dialog");
+  $("#job-search-profile-picker-search")?.focus();
+}
+
+function renderJobSearchProfilePicker() {
+  renderProfileChoiceList({
+    target: "#job-search-profile-picker-list",
+    search: "#job-search-profile-picker-search",
+    rows: jobSearchProfileRows,
+    selectAttribute: "data-select-job-search-profile",
+  });
+}
+
+function renderProfileChoiceList({ target, search, rows, selectAttribute }) {
+  const el = $(target);
+  if (!el) return;
+  const keyword = String($(search)?.value || "").trim().toLowerCase();
+  const filtered = rows.filter((profile) => {
+    const structured = profile.structured_profile_json || {};
+    return !keyword || [
+      profile.id,
+      profile.name,
+      structured.name,
+      profile.email,
+      profile.headline,
+      ...(profile.target_roles_json || structured.target_roles || []),
+    ].join(" ").toLowerCase().includes(keyword);
+  });
+  if (!filtered.length) {
+    el.innerHTML = `<article class="item meta">没有匹配的简历档案</article>`;
+    return;
+  }
+  el.innerHTML = filtered.slice(0, 60).map((profile) => {
+    const structured = profile.structured_profile_json || {};
+    return `
+      <article class="profile-picker-item">
+        <div>
+          <div class="item-title"><span>#${profile.id} ${escapeHtml(profile.name || structured.name || "未命名简历")}</span><span class="meta">${profile.source_type === "pdf" ? "PDF 上传" : "手动/自然语言"}</span></div>
+          <div class="meta">${escapeHtml(profileSummaryText(profile))}</div>
+          ${tags((structured.skills || []).slice(0, 6))}
+        </div>
+        <div class="profile-picker-actions">
+          <button class="button primary" type="button" ${selectAttribute}="${profile.id}"><i data-lucide="check"></i> 选择</button>
+          <a class="button ghost" href="/profiles/${profile.id}/html" target="_blank"><i data-lucide="eye"></i> 预览</a>
+        </div>
+      </article>
+    `;
+  }).join("");
+  if (window.lucide) window.lucide.createIcons();
 }
 
 function jobSummaryText(job) {
@@ -650,6 +878,215 @@ function jobSummaryText(job) {
   const skills = structured.required_skills || structured.keywords || [];
   const location = job?.location ? ` · ${job.location}` : "";
   return `${job?.company || "未知公司"}${location}${skills.length ? ` · ${skills.slice(0, 3).join("、")}` : ""}`;
+}
+
+async function loadJobDetail() {
+  const root = $("#job-detail-page");
+  if (!root) return;
+  const jobId = Number(root.dataset.jobId || 0);
+  currentJobDetail = await api(`/jobs/${jobId}`);
+  renderJobDetail(currentJobDetail);
+  const params = new URLSearchParams(window.location.search);
+  const sessionId = Number(params.get("session_id") || 0);
+  const profileId = Number(params.get("profile_id") || 0);
+  const back = $("#job-detail-back");
+  if (back && sessionId) back.href = `/ui/jobs?session_id=${sessionId}`;
+  const createLink = $("#job-detail-create-profile");
+  if (createLink) createLink.href = `/ui/profiles?return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`;
+  if (profileId) {
+    try {
+      const profile = await api(`/profiles/${profileId}`);
+      selectJobDetailProfile(profile);
+    } catch (error) {
+      toast(`简历档案无法加载：${error.message}`);
+    }
+  }
+}
+
+function renderJobDetail(job) {
+  const structured = job.structured_jd_json || {};
+  const header = $("#job-detail-header");
+  if (header) {
+    header.innerHTML = `
+      <p class="eyebrow">岗位详情</p>
+      <h1>${escapeHtml(job.title)}</h1>
+      <div class="job-detail-meta">
+        <span>${escapeHtml(job.company || "未知公司")}</span>
+        <span>${escapeHtml(job.location || "地点未注明")}</span>
+        <span>${escapeHtml(job.job_type || "类型未注明")}</span>
+        <span>岗位 #${job.id}</span>
+      </div>
+    `;
+  }
+  const source = $("#job-detail-source");
+  if (source) source.textContent = `${job.source || "manual"} · ${new Date(job.discovered_at).toLocaleDateString("zh-CN")}`;
+  const tagSlot = $("#job-detail-tags");
+  if (tagSlot) tagSlot.innerHTML = tags(structured.required_skills || structured.keywords || []);
+  const sectionLabels = [
+    ["responsibilities", "岗位职责"],
+    ["qualifications", "任职要求"],
+    ["required_skills", "必备技能"],
+    ["preferred_skills", "加分项"],
+  ];
+  const structuredSlot = $("#job-detail-structured");
+  if (structuredSlot) {
+    structuredSlot.innerHTML = sectionLabels.map(([key, label]) => {
+      const items = structured[key] || [];
+      if (!items.length) return "";
+      return `<section class="jd-section"><h2>${label}</h2><ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></section>`;
+    }).join("") || `<section class="jd-section"><p class="meta">该岗位暂时没有结构化字段，请查看下方原始 JD。</p></section>`;
+  }
+  const raw = $("#job-detail-raw-jd");
+  if (raw) raw.textContent = job.raw_jd_text || "";
+  const applyLink = $("#job-apply-link");
+  if (applyLink) {
+    applyLink.hidden = !job.apply_url;
+    if (job.apply_url) applyLink.href = job.apply_url;
+  }
+}
+
+function selectJobDetailProfile(profile) {
+  const structured = profile?.structured_profile_json || {};
+  const title = $("#job-detail-profile-title");
+  const summary = $("#job-detail-profile-summary");
+  const input = $("#job-detail-profile-id");
+  if (!profile) {
+    if (input) input.value = "";
+    if (title) title.textContent = "尚未选择简历";
+    if (summary) summary.textContent = "你仍然可以只浏览 JD；需要分析或定制时再提供简历。";
+    $("#run-job-match")?.setAttribute("disabled", "disabled");
+    $("#run-job-tailor")?.setAttribute("disabled", "disabled");
+    return;
+  }
+  if (input) input.value = profile.id;
+  if (title) title.textContent = `#${profile.id} ${profile.name || structured.name || "未命名简历"}`;
+  if (summary) summary.textContent = profileSummaryText(profile);
+  $("#run-job-match")?.removeAttribute("disabled");
+  $("#run-job-tailor")?.removeAttribute("disabled");
+  const params = new URLSearchParams(window.location.search);
+  params.set("profile_id", profile.id);
+  window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
+  const status = $("#job-detail-profile-status");
+  if (status) {
+    status.textContent = "已选择该简历，当前岗位的分析和定制都会使用它。";
+    status.className = "field-hint ok";
+  }
+}
+
+async function openJobDetailProfilePicker() {
+  if (!jobDetailProfileRows.length) jobDetailProfileRows = await api("/profiles");
+  renderJobDetailProfilePicker();
+  openDialog("#job-detail-profile-picker-dialog");
+  $("#job-detail-profile-picker-search")?.focus();
+}
+
+function renderJobDetailProfilePicker() {
+  renderProfileChoiceList({
+    target: "#job-detail-profile-picker-list",
+    search: "#job-detail-profile-picker-search",
+    rows: jobDetailProfileRows,
+    selectAttribute: "data-select-job-detail-profile",
+  });
+}
+
+function activateJobDetailTab(name) {
+  document.querySelectorAll("[data-job-tab]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.jobTab === name);
+  });
+  document.querySelectorAll("[data-job-panel]").forEach((panel) => {
+    panel.classList.toggle("active", panel.dataset.jobPanel === name);
+  });
+}
+
+function renderJobMatch(match) {
+  const dimensions = match.dimension_scores_json || {};
+  const evidence = match.relevant_evidence_json || [];
+  return `
+    <section class="job-match-analysis">
+      <div class="job-match-score">
+        <div>
+          <p class="eyebrow">综合匹配</p>
+          <strong>${escapeHtml(Math.round(match.overall_score))}</strong>
+          <span>分</span>
+        </div>
+        <p>该分数用于比较岗位相关性，不代表录用概率。</p>
+      </div>
+      <div class="score-grid">
+        ${Object.entries(dimensions).map(([key, value]) => `
+          <div class="score-cell"><span>${escapeHtml(resumeReviewDimensionLabel(key))}</span><strong>${escapeHtml(Math.round(value))}</strong></div>
+        `).join("")}
+      </div>
+      <div class="job-gap-grid">
+        <section>
+          <h3>已经匹配</h3>
+          ${match.matched_skills_json?.length ? `<ul>${match.matched_skills_json.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : `<p class="meta">没有识别到明确命中的技能。</p>`}
+        </section>
+        <section>
+          <h3>能力缺口</h3>
+          ${match.missing_skills_json?.length ? `<ul>${match.missing_skills_json.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : `<p class="meta">没有识别到明显缺口。</p>`}
+        </section>
+      </div>
+      ${match.suggestions_json?.length ? `<section class="job-match-suggestions"><h3>针对性建议</h3><ol>${match.suggestions_json.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol></section>` : ""}
+      ${evidence.length ? `
+        <details class="review-evidence">
+          <summary>查看简历证据（${evidence.length} 条）</summary>
+          ${evidence.map((item) => `<article><strong>${escapeHtml(item.chunk_type || "经历证据")}</strong><p>${escapeHtml(item.text || item.snippet || "")}</p></article>`).join("")}
+        </details>
+      ` : ""}
+    </section>
+  `;
+}
+
+async function runJobDetailMatch() {
+  const profileId = Number($("#job-detail-profile-id")?.value || 0);
+  const jobId = Number($("#job-detail-page")?.dataset.jobId || 0);
+  if (!profileId) throw new Error("请先选择简历档案。");
+  activateJobDetailTab("match");
+  const slot = $("#job-match-result");
+  if (slot) slot.innerHTML = `<article class="item meta">正在从简历经历库检索与 JD 最相关的证据...</article>`;
+  const match = await api("/matches", {
+    method: "POST",
+    body: JSON.stringify({ profile_id: profileId, job_id: jobId }),
+  });
+  if (slot) slot.innerHTML = renderJobMatch(match);
+  if (window.lucide) window.lucide.createIcons();
+  return match;
+}
+
+async function runJobDetailTailor() {
+  const profileId = Number($("#job-detail-profile-id")?.value || 0);
+  const jobId = Number($("#job-detail-page")?.dataset.jobId || 0);
+  if (!profileId) throw new Error("请先选择简历档案。");
+  activateJobDetailTab("tailor");
+  const reviewSlot = $("#job-tailor-review");
+  const resultSlot = $("#job-tailor-result");
+  if (reviewSlot) reviewSlot.innerHTML = `<article class="item meta">正在进行岗位针对性评分和证据检查...</article>`;
+  const review = await api(`/profiles/${profileId}/review`, {
+    method: "POST",
+    body: JSON.stringify({ job_id: jobId, include_llm: true }),
+  });
+  if (reviewSlot) reviewSlot.innerHTML = renderResumeReview(review);
+  if (resultSlot) resultSlot.innerHTML = `<article class="item meta">评分完成，正在生成只包含简历正文的定制版本...</article>`;
+  const version = await api("/resumes/tailor", {
+    method: "POST",
+    body: JSON.stringify({ profile_id: profileId, job_id: jobId }),
+  });
+  if (resultSlot) {
+    resultSlot.innerHTML = `
+      <article class="item validation-ok">
+        <div class="item-title">
+          <span>定制简历 #${version.id}</span>
+          <span class="status-pill ${version.verification_json?.passed ? "ok" : "risk"}">${version.verification_json?.passed ? "事实检查通过" : "需要检查"}</span>
+        </div>
+        <p class="meta">评分和修改建议保留在当前页面，简历预览只包含可投递正文。</p>
+        <div class="flow-result-actions">
+          <a class="button primary" href="/resumes/${version.id}/html" target="_blank"><i data-lucide="eye"></i> 预览定制简历</a>
+          <a class="button ghost" href="/ui/resumes"><i data-lucide="files"></i> 查看全部版本</a>
+        </div>
+      </article>
+    `;
+  }
+  if (window.lucide) window.lucide.createIcons();
 }
 
 function updateTailorProfileCard(profile) {
@@ -1632,7 +2069,7 @@ function focusInterviewQuestion(button) {
   target.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
-const CAREER_FLOW_STAGES = ["profile", "search", "match", "tailor", "apply", "interview"];
+const CAREER_FLOW_STAGES = ["profile", "search", "match", "results", "tailor", "apply", "interview"];
 
 function userPackageId(value) {
   const key = value?.idempotency_key || value?.output_json?.idempotency_key || "";
@@ -1946,8 +2383,6 @@ async function restoreActiveRuns() {
   }
   writeActiveRuns(keep);
   renderActiveRunMonitor(visible);
-  const dashboardRun = visible.find((row) => row.run)?.run;
-  if (dashboardRun) await restoreCareerFlowFromRun(dashboardRun);
   if (activeRunMonitorTimer) clearTimeout(activeRunMonitorTimer);
   activeRunMonitorTimer = keep.some((row) => !ACTIVE_RUN_TERMINAL_STATUSES.has(row.status || "")) ? setTimeout(() => {
     void restoreActiveRuns();
@@ -2155,9 +2590,7 @@ async function uploadProfileFile(file) {
 }
 
 function selectedStartActions(form) {
-  const required = ["create_profile", "search_jobs"];
-  const optional = optionalStartActions(form);
-  return [...required, ...optional];
+  return ["search_jobs"];
 }
 
 function optionalStartActions(form) {
@@ -2246,18 +2679,33 @@ function updateStartInputGuidance(form) {
   const card = $("#input-guidance");
   if (!card || !form) return;
   const raw = formJson(form);
-  const actions = optionalStartActions(form);
-  const sources = [];
-  if (String(raw.instruction || "").trim()) sources.push("prompt");
-  if (raw.profile_id) sources.push(`Profile #${raw.profile_id}`);
-  if (form.elements.resume_file?.files?.[0]) sources.push("PDF");
-  const sourceText = sources.length
-    ? `将使用这些信息：${sources.join("、")}。`
-    : "请先在三种方式中任选一种提供简历档案。";
-  const actionText = actions.length
-    ? `固定完成简历档案、岗位搜索和匹配排序，并额外生成：${actions.map(startActionLabel).join("、")}。`
-    : "固定完成简历档案、岗位搜索和匹配排序；不勾选则不生成后续材料。";
-  card.innerHTML = `<strong>三选一提供简历档案，再开始找岗位</strong><span>${escapeHtml(sourceText)}${escapeHtml(actionText)}</span>`;
+  const hasPreference = Boolean(String(raw.instruction || "").trim());
+  const hasProfile = Boolean(raw.profile_id || form.elements.resume_file?.files?.[0]);
+  let title = "简历不是搜索岗位的前置条件";
+  let detail = "不提供简历时按求职需求检索；提供简历后还会为每个岗位计算匹配项和能力缺口。";
+  let buttonText = "浏览 Agent 岗位";
+  let submitSummary = "将浏览系统中的 Agent 岗位";
+  if (hasPreference && hasProfile) {
+    title = "将同时使用求职需求和简历";
+    detail = "明确填写的城市和岗位偏好优先，简历中的技能和经历用于补充检索与匹配证据。";
+    buttonText = "搜索并匹配岗位";
+    submitSummary = "将结合求职需求和简历匹配岗位";
+  } else if (hasProfile) {
+    title = "将从简历中推断适合的岗位";
+    detail = "系统会读取目标岗位、技能和经历生成搜索条件，结果页仍可修改需求后重新搜索。";
+    buttonText = "解析简历并匹配岗位";
+    submitSummary = "将从简历推断方向并匹配岗位";
+  } else if (hasPreference) {
+    title = "将按你的求职需求搜索";
+    detail = "不需要先建立简历。看到感兴趣的岗位后，再选择或上传简历进行差距分析。";
+    buttonText = "搜索岗位";
+    submitSummary = "将按求职需求搜索岗位";
+  }
+  card.innerHTML = `<strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span>`;
+  const buttonLabel = $("#career-start-submit span");
+  if (buttonLabel) buttonLabel.textContent = buttonText;
+  const summary = $("#start-submit-summary");
+  if (summary) summary.textContent = submitSummary;
 }
 
 function topMatchedJob(run) {
@@ -2441,53 +2889,35 @@ async function runCareerStartFlow(form) {
   resetCareerFlow();
   const submitButton = form.querySelector("button[type='submit']");
   if (submitButton) submitButton.disabled = true;
-  const state = {};
   try {
     const raw = formJson(form);
-    setCareerStage("profile", "running", "建档中");
-    state.profile = await createProfileForCareerFlow(form, raw);
-    setCareerStage("profile", "done", `Profile #${state.profile.id}`);
-
-    setCareerStage("search", "running", raw.job_id || raw.jd_text ? "读取目标岗位" : "搜索真实岗位");
-    const directJob = await resolveDirectJobForCareerFlow(raw, state.profile.id);
-    if (directJob) {
-      state.selectedJob = directJob;
-      setCareerStage("search", "done", `Job #${directJob.job_id}`);
-    } else {
-      setCareerStage("search", "running", "LangGraph 搜索真实岗位");
+    let profileId = Number(raw.profile_id || 0) || null;
+    const file = form.elements.resume_file?.files?.[0];
+    setCareerStage("profile", "running", profileId || file ? "准备简历信息" : "不使用简历");
+    if (!profileId && file) {
+      const profile = await parseResumeFileIntoStartForm(form, file);
+      profileId = Number(profile?.id || 0) || null;
     }
-
-    setCareerStage("match", "running", "LangGraph 匹配岗位");
-    const queuedRun = await createBackgroundAgentRun(
-      {
-        task_type: "full_career_flow",
-        profile_id: Number(state.profile.id),
-        job_id: state.selectedJob?.job_id ? Number(state.selectedJob.job_id) : null,
-        query: raw.query || "Agent 开发实习生",
+    setCareerStage("profile", "done", profileId ? `简历 #${profileId}` : "按需求搜索");
+    setCareerStage("search", "running", raw.source_mode === "corpus" ? "检索岗位库" : "检索真实来源和岗位库");
+    if (profileId) setCareerStage("match", "running", "准备简历匹配");
+    const body = await api("/job-discovery/sessions", {
+      method: "POST",
+      body: JSON.stringify({
+        preference_text: String(raw.instruction || "").trim() || null,
+        profile_id: profileId,
         location: raw.location || null,
-        limit: Number(raw.limit || 8),
-      }
-    );
-    state.fullRun = await waitForAgentRun(
-      queuedRun.id,
-      {
-        autoConfirmApplication: true,
-        confirmationNote: "用户在首页一键流程中确认生成投递包。",
-      }
-    );
-    const output = state.fullRun.output_json || {};
-    state.selectedJob = output.selected_job || state.selectedJob || topMatchedJob(state.fullRun);
-    state.tailorRun = { id: state.fullRun.id, output_json: output.tailor || {} };
-    state.applyRun = { id: state.fullRun.id, output_json: output.application || {} };
-    state.interviewRun = { id: state.fullRun.id, output_json: output.interview_prep || {} };
-    state.packageId = state.fullRun.id;
-    setCareerStage("search", "done", state.selectedJob?.job_id ? `Job #${state.selectedJob.job_id}` : `Run #${state.fullRun.id}`);
-    setCareerStage("match", "done", `${state.selectedJob?.company || ""} ${state.selectedJob?.overall_score || ""}`);
-    setCareerStage("tailor", "done", packageLabel(state.packageId));
-    setCareerStage("apply", "done", packageLabel(state.packageId));
-    setCareerStage("interview", "done", packageLabel(state.packageId));
-    renderCareerFlowResult(state);
-    toast("完整求职流程已完成");
+        internship_only: Boolean(form.internship_only?.checked),
+        limit: Number(raw.limit || 20),
+        source_mode: raw.source_mode || "hybrid",
+      }),
+    });
+    window.localStorage?.setItem(JOB_DISCOVERY_SESSION_KEY, String(body.session.id));
+    setCareerStage("search", "done", `${body.results.length} 个岗位`);
+    setCareerStage("match", "done", profileId ? "已完成简历匹配" : "岗位详情中可补充简历");
+    setCareerStage("results", "done", `搜索记录 #${body.session.id}`);
+    renderCareerFlowMessage("success", `已找到 ${body.results.length} 个岗位，正在打开搜索结果。`);
+    window.location.assign(`/ui/jobs?session_id=${body.session.id}`);
   } catch (error) {
     const current = CAREER_FLOW_STAGES.find((stage) => document.querySelector(`#career-flow-steps [data-stage="${stage}"]`)?.classList.contains("running"));
     if (current) setCareerStage(current, "failed", "失败");
@@ -2502,40 +2932,22 @@ function fillCareerDemo(form, scenario = "tailor") {
   if (!form) return;
   const scenarios = {
     match: {
-      instruction: "这是我的简历，请搜索中文 Agent 开发实习岗位，按证据判断匹配度，列出匹配项和能力缺口，不允许编造经历。",
-      actions: [],
+      instruction: "想找深圳、广州或远程的 Agent 开发实习，偏 RAG、工作流、工具调用和后端工程，排除纯产品和纯运营岗位。",
     },
-    tailor: {
-      instruction: "请根据下面的 Agent 开发实习 JD 定制我的简历。所有改动必须能追溯到原始经历，无依据能力只放在修改建议中。",
-      actions: ["tailor_resume"],
+    backend: {
+      instruction: "想找北京或杭州的 LLM 应用后端实习，关注 FastAPI、Redis、异步并发、Agent 平台和可观测性。",
     },
-    application: {
-      instruction: "请为下面的 Agent 开发实习岗位准备定制简历和投递材料。先创建投递包，未经我确认不得发送邮件或提交招聘页面。",
-      actions: ["tailor_resume", "quick_apply"],
+    rag: {
+      instruction: "想找中文场景的 RAG 或 Agent 检索工程实习，偏向量检索、混合召回、reranker、评测和 prompt injection 防护。",
     },
   };
-  const selectedScenario = scenarios[scenario] || scenarios.tailor;
+  const selectedScenario = scenarios[scenario] || scenarios.match;
   if (form.instruction) {
     form.instruction.value = selectedScenario.instruction;
   }
-  form.querySelectorAll('input[name="selected_actions"]').forEach((input) => {
-    input.checked = selectedScenario.actions.includes(input.value);
-  });
-  form.profile_id.value = "";
-  form.query.value = "Agent 开发实习生";
-  form.location.value = "深圳";
-  form.limit.value = "8";
-  if (form.company) form.company.value = "DemoAI";
-  if (form.job_id) form.job_id.value = "";
-  if (form.jd_text) {
-    form.jd_text.value = [
-      "岗位：Agent 开发实习生",
-      "职责：参与 Agent workflow、RAG 检索、工具调用、LLM 调用记录、简历定制、投递包和面试准备链路开发。",
-      "要求：熟悉 Python、FastAPI、SQLite、RAG、LLM API、Evaluation、Guardrails、Plan-Execute 和 ReAct repair。",
-      "加分：有可上线的 Agent 项目、前端交互优化和真实 LLM 调试经验。"
-    ].join("\n");
-  }
-  toast(`已填入${scenario === "match" ? "岗位匹配" : scenario === "application" ? "审批式投递" : "证据约束定制"}示例`);
+  if (form.limit) form.limit.value = "20";
+  updateStartInputGuidance(form);
+  toast("已填入求职需求示例");
 }
 
 function updateCareerFlowFromNaturalResult(body) {
@@ -3057,19 +3469,12 @@ function bindForms() {
 
   $("#career-start-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const form = event.currentTarget;
-    const raw = formJson(form);
-    if (String(raw.instruction || "").trim() || optionalStartActions(form).length) {
-      await runNaturalLanguageRequest(form);
-    } else {
-      await runCareerStartFlow(form);
-    }
+    await runCareerStartFlow(event.currentTarget);
   });
 
   document.querySelectorAll("[data-demo-scenario]").forEach((button) => button.addEventListener("click", () => {
     const form = $("#career-start-form");
     fillCareerDemo(form, button.dataset.demoScenario);
-    updateSelectedProfileCard(null);
     updateStartInputGuidance(form);
   }));
 
@@ -3083,7 +3488,7 @@ function bindForms() {
       if (event.target?.name === "resume_file") {
         const file = event.target.files?.[0];
         if (!file) {
-          setPdfParseStatus(careerStartForm, "选择 PDF 后会自动解析并建立简历档案。");
+          setPdfParseStatus(careerStartForm, "解析成功后会用于本次岗位匹配。");
           return;
         }
         try {
@@ -3200,21 +3605,71 @@ function bindForms() {
 
   $("#job-search-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const form = event.currentTarget;
-    const raw = formJson(form);
-    const payload = {
-      query: raw.query,
-      location: raw.location || null,
-      limit: Number(raw.limit || 20),
-      internship_only: form.internship_only.checked,
-      sources: ["tencent", "baidu", "meituan", "bytedance", "alibaba"],
-      store_results: true,
-    };
-    const body = await api("/jobs/search", { method: "POST", body: JSON.stringify(payload) });
-    const errors = $("#job-search-errors");
-    if (errors) errors.textContent = Object.entries(body.source_errors || {}).map(([k, v]) => `${k}: ${v}`).join(" | ");
-    toast(`Imported ${body.jobs.length} jobs`);
-    loadJobs();
+    await runJobDiscovery(event.currentTarget);
+  });
+
+  $("#open-job-search-profile-picker")?.addEventListener("click", () => {
+    openJobSearchProfilePicker().catch((error) => toast(error.message));
+  });
+  $("#job-search-profile-picker-search")?.addEventListener("input", renderJobSearchProfilePicker);
+  document.querySelectorAll("[data-close-job-search-profile-picker]").forEach((button) => {
+    button.addEventListener("click", () => closeDialog("#job-search-profile-picker-dialog"));
+  });
+
+  $("#open-job-detail-profile-picker")?.addEventListener("click", () => {
+    openJobDetailProfilePicker().catch((error) => toast(error.message));
+  });
+  $("#job-detail-profile-picker-search")?.addEventListener("input", renderJobDetailProfilePicker);
+  document.querySelectorAll("[data-close-job-detail-profile-picker]").forEach((button) => {
+    button.addEventListener("click", () => closeDialog("#job-detail-profile-picker-dialog"));
+  });
+  $("#job-detail-profile-upload")?.addEventListener("change", async (event) => {
+    const file = event.currentTarget.files?.[0];
+    if (!file) return;
+    const status = $("#job-detail-profile-status");
+    if (status) {
+      status.textContent = "正在解析 PDF 并建立简历档案...";
+      status.className = "field-hint running";
+    }
+    try {
+      const profile = await uploadProfileFile(file);
+      jobDetailProfileRows = [profile, ...jobDetailProfileRows.filter((item) => Number(item.id) !== Number(profile.id))];
+      selectJobDetailProfile(profile);
+      toast(`PDF 已解析为简历 #${profile.id}`);
+    } catch (error) {
+      if (status) {
+        status.textContent = `PDF 解析失败：${error.message}`;
+        status.className = "field-hint risk";
+      }
+      toast(error.message);
+    }
+  });
+  $("#run-job-match")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await runJobDetailMatch();
+      toast("岗位匹配与差距分析已完成");
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  $("#run-job-tailor")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    button.disabled = true;
+    try {
+      await runJobDetailTailor();
+      toast("定制简历已生成");
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      button.disabled = false;
+    }
+  });
+  document.querySelectorAll("[data-job-tab]").forEach((button) => {
+    button.addEventListener("click", () => activateJobDetailTab(button.dataset.jobTab));
   });
 
   $("#manual-job-form")?.addEventListener("submit", async (event) => {
@@ -3533,6 +3988,24 @@ function bindForms() {
     const selectProfileButton = event.target.closest("[data-select-profile]");
     if (selectProfileButton) {
       selectProfileFromPicker(selectProfileButton.dataset.selectProfile);
+    }
+    const jobSearchProfileButton = event.target.closest("[data-select-job-search-profile]");
+    if (jobSearchProfileButton) {
+      const profile = jobSearchProfileRows.find(
+        (item) => Number(item.id) === Number(jobSearchProfileButton.dataset.selectJobSearchProfile)
+      );
+      updateJobSearchProfile(profile);
+      closeDialog("#job-search-profile-picker-dialog");
+      toast(`已选择简历 #${profile?.id}`);
+    }
+    const jobDetailProfileButton = event.target.closest("[data-select-job-detail-profile]");
+    if (jobDetailProfileButton) {
+      const profile = jobDetailProfileRows.find(
+        (item) => Number(item.id) === Number(jobDetailProfileButton.dataset.selectJobDetailProfile)
+      );
+      selectJobDetailProfile(profile);
+      closeDialog("#job-detail-profile-picker-dialog");
+      toast(`已选择简历 #${profile?.id}`);
     }
     const tailorProfileButton = event.target.closest("[data-select-tailor-profile]");
     if (tailorProfileButton) {
