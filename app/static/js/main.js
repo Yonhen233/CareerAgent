@@ -22,6 +22,10 @@ let profilePickerRows = [];
 let jobPickerRows = [];
 let jobSearchProfileRows = [];
 let jobDetailProfileRows = [];
+let interviewProfileRows = [];
+let interviewJobRows = [];
+let interviewPrepRows = [];
+let activeInterviewPrepId = null;
 let currentJobDiscovery = null;
 let currentJobDetail = null;
 
@@ -139,6 +143,16 @@ function interviewAngleLabel(angle) {
     other_possible_interview_questions: "其他问题",
   };
   return labels[angle] || angle || "其他问题";
+}
+
+function interviewPracticeStatusLabel(status) {
+  const labels = {
+    todo: "待练习",
+    practicing: "练习中",
+    ready: "已掌握",
+    deferred: "稍后处理",
+  };
+  return labels[status] || status || "待练习";
 }
 
 function validationList(items, emptyText) {
@@ -987,6 +1001,7 @@ function selectJobDetailProfile(profile) {
     if (summary) summary.textContent = "你仍然可以只浏览 JD；需要分析或定制时再提供简历。";
     $("#run-job-match")?.setAttribute("disabled", "disabled");
     $("#run-job-tailor")?.setAttribute("disabled", "disabled");
+    $("#run-job-interview")?.setAttribute("disabled", "disabled");
     return;
   }
   if (input) input.value = profile.id;
@@ -994,13 +1009,30 @@ function selectJobDetailProfile(profile) {
   if (summary) summary.textContent = profileSummaryText(profile);
   $("#run-job-match")?.removeAttribute("disabled");
   $("#run-job-tailor")?.removeAttribute("disabled");
+  const interviewButton = $("#run-job-interview");
+  if (interviewButton) {
+    interviewButton.disabled = true;
+    interviewButton.dataset.interviewMode = "loading";
+    interviewButton.innerHTML = `<i data-lucide="loader-circle"></i> 正在检查面试计划`;
+  }
   const params = new URLSearchParams(window.location.search);
   params.set("profile_id", profile.id);
   window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
   const status = $("#job-detail-profile-status");
   if (status) {
-    status.textContent = "已选择该简历，当前岗位的分析和定制都会使用它。";
+    status.textContent = "已选择该简历，当前岗位的匹配、定制和面试准备都会使用它。";
     status.className = "field-hint ok";
+  }
+  const jobId = Number($("#job-detail-page")?.dataset.jobId || 0);
+  if (jobId) {
+    loadJobDetailInterviewPreps(profile.id, jobId).catch((error) => {
+      if (interviewButton) {
+        interviewButton.dataset.interviewMode = "generate";
+        interviewButton.innerHTML = `<i data-lucide="messages-square"></i> 生成面试准备包`;
+        interviewButton.disabled = false;
+      }
+      toast(error.message);
+    });
   }
 }
 
@@ -1118,6 +1150,90 @@ async function runJobDetailTailor() {
     `;
   }
   if (window.lucide) window.lucide.createIcons();
+}
+
+function renderJobInterviewPreps(rows, profileId, jobId) {
+  if (!rows.length) {
+    return `
+      <div class="empty-state">
+        <i data-lucide="messages-square"></i>
+        <strong>这个岗位还没有面试准备包</strong>
+        <span>点击右侧“生成面试准备包”，Agent 会结合当前 JD 和简历证据生成问题与追问。</span>
+      </div>
+    `;
+  }
+  return `
+    <section class="job-interview-packages">
+      <div class="item-title"><span>已有面试准备</span><span class="status-pill ok">${rows.length} 份</span></div>
+      ${rows.slice(0, 5).map((prep) => {
+        const coverage = prep.coverage_json || {};
+        return `
+          <article class="item">
+            <strong>#${prep.id} ${escapeHtml(prep.title)}</strong>
+            <p class="meta">${coverage.question_count || countInterviewQuestions(prep.question_sets_json)} 道题 · ${new Date(prep.created_at).toLocaleString()}</p>
+            <div class="flow-result-actions">
+              <a class="button primary" href="/ui/prep?prep_id=${prep.id}&profile_id=${profileId}&job_id=${jobId}"><i data-lucide="messages-square"></i> 开始练习</a>
+              <a class="button ghost" href="/interview-prep/${prep.id}/markdown"><i data-lucide="download"></i> 导出</a>
+            </div>
+          </article>
+        `;
+      }).join("")}
+      <div class="flow-result-actions">
+        <a class="button ghost" href="/ui/prep?profile_id=${profileId}&job_id=${jobId}"><i data-lucide="list"></i> 查看全部面试计划</a>
+        <button class="button ghost" type="button" data-regenerate-job-interview><i data-lucide="refresh-cw"></i> 重新生成</button>
+      </div>
+    </section>
+  `;
+}
+
+async function loadJobDetailInterviewPreps(profileId, jobId) {
+  const slot = $("#job-interview-result");
+  if (!slot) return [];
+  const rows = await api(`/interview-prep?profile_id=${profileId}&job_id=${jobId}&limit=10`);
+  slot.innerHTML = renderJobInterviewPreps(rows, profileId, jobId);
+  const button = $("#run-job-interview");
+  if (button) {
+    button.dataset.interviewMode = rows.length ? "view" : "generate";
+    button.innerHTML = rows.length
+      ? `<i data-lucide="messages-square"></i> 查看面试准备`
+      : `<i data-lucide="messages-square"></i> 生成面试准备包`;
+    button.disabled = false;
+  }
+  if (window.lucide) window.lucide.createIcons();
+  return rows;
+}
+
+async function runJobDetailInterview() {
+  const profileId = Number($("#job-detail-profile-id")?.value || 0);
+  const jobId = Number($("#job-detail-page")?.dataset.jobId || 0);
+  if (!profileId) throw new Error("请先选择简历档案。");
+  activateJobDetailTab("interview");
+  const slot = $("#job-interview-result");
+  if (slot) slot.innerHTML = `<article class="item meta">Agent 正在读取 JD、简历项目、能力缺口和同岗面经...</article>`;
+  let run;
+  try {
+    run = await createAgentRun(
+      { task_type: "prepare_interview_for_job", profile_id: profileId, job_id: jobId },
+      "生成面试准备包"
+    );
+  } catch (error) {
+    if (slot) slot.innerHTML = `<article class="validation-risk">生成失败：${escapeHtml(error.message)}</article>`;
+    throw error;
+  }
+  const prepId = Number(run.output_json?.interview_prep_id || 0);
+  const rows = await loadJobDetailInterviewPreps(profileId, jobId);
+  if (prepId && slot) {
+    const prep = rows.find((item) => Number(item.id) === prepId);
+    slot.insertAdjacentHTML("afterbegin", `
+      <article class="item validation-ok">
+        <div class="item-title"><span>面试准备包已生成</span><span class="status-pill ok">已进入历史记录 #${run.id}</span></div>
+        <p class="meta">${escapeHtml(prep?.title || `面试准备包 #${prepId}`)}</p>
+        <a class="button primary" href="/ui/prep?prep_id=${prepId}&profile_id=${profileId}&job_id=${jobId}"><i data-lucide="messages-square"></i> 开始逐题练习</a>
+      </article>
+    `);
+  }
+  if (window.lucide) window.lucide.createIcons();
+  return run;
 }
 
 function updateTailorProfileCard(profile) {
@@ -1372,7 +1488,13 @@ function renderRunOutcomeLinks(row) {
   const prepId = output.interview_prep_id || output.interview_prep?.interview_prep_id;
   if (resumeId) links.push(packageAction("/ui/resumes", "file-check-2", "定制简历", packageId));
   if (applicationId) links.push(packageAction("/ui/applications", "send", "投递材料", packageId));
-  if (prepId) links.push(packageAction("/ui/prep", "messages-square", "面试准备", packageId));
+  if (prepId) {
+    const prep = output.interview_prep || output;
+    const params = new URLSearchParams({ prep_id: String(prepId) });
+    if (prep.profile_id || row.profile_id) params.set("profile_id", String(prep.profile_id || row.profile_id));
+    if (prep.job_id || row.job_id) params.set("job_id", String(prep.job_id || row.job_id));
+    links.push(packageAction(`/ui/prep?${params.toString()}`, "messages-square", "面试准备", packageId));
+  }
   if (output.matches?.length) links.push(`<a class="button ghost" href="/ui/jobs"><i data-lucide="briefcase-business"></i> 推荐岗位 ${output.matches.length} 个</a>`);
   const confirmation = confirmationContext(row);
   if (confirmation.needsConfirmation) {
@@ -1747,49 +1869,167 @@ async function loadApplications() {
   });
 }
 
-async function loadInterviewPreps() {
-  const rows = await api("/interview-prep");
-  renderItems("#interview-prep-list", rows, (row) => {
+async function loadInterviewPreps({ selectPrepId = null } = {}) {
+  interviewPrepRows = await api("/interview-prep?limit=50");
+  renderItems("#interview-prep-list", interviewPrepRows, (row) => {
     const summary = row.summary_json || {};
     const coverage = row.coverage_json || {};
-    const preparationAngles = summary.preparation_angles || preparationAnglesFromCoverage(coverage);
-    const referenceLinks = summary.interview_reference_links || [];
-    const questionSets = row.question_sets_json || [];
-    const drills = row.gap_drills_json || [];
-    const research = row.research_checklist_json || [];
+    const questionCount = coverage.question_count || countInterviewQuestions(row.question_sets_json);
     return `
-      <article class="item">
-        <div class="item-title">
-          <span>#${row.id} ${escapeHtml(row.title)}</span>
-          <span class="status-pill ${coverage.passed ? "ok" : ""}">${coverage.passed ? "可开始练习" : "需补充"}</span>
-        </div>
-        <div class="meta">简历 ${row.profile_id} · 岗位 ${row.job_id} · ${escapeHtml(summary.fit_level || "匹配度未知")} · ${escapeHtml(summary.overall_score ?? "-")} 分</div>
-        <p><a class="button ghost" href="/interview-prep/${row.id}/markdown"><i data-lucide="download"></i> Markdown</a></p>
-        <div class="summary-strip">
-          <span><strong>${coverage.question_count || countInterviewQuestions(questionSets)}</strong> 道题</span>
-          <span><strong>${drills.length}</strong> 个缺口练习</span>
-          <span><strong>${referenceLinks.length}</strong> 条参考链接</span>
-        </div>
-        ${renderPreparationAngles(preparationAngles)}
-        ${renderInterviewReferenceLinks(referenceLinks)}
-        ${questionSets.map((group) => `
-          <h3>${escapeHtml(group.category)}</h3>
-          <ul class="compact-list">${(group.questions || []).slice(0, 4).map((q) => `
-            <li data-question-id="${escapeHtml(q.question_id || "")}">
-              <span class="tag">${escapeHtml(q.question_id || "-")}</span>
-              <span class="tag">${escapeHtml(interviewAngleLabel(q.preparation_angle))}</span>
-              <span class="tag">${escapeHtml(interviewSourceLabel(q.source_perspective))}</span>
-              <span class="tag">${escapeHtml(q.risk_level || "low")}</span>
-              ${escapeHtml(q.question)}
-              ${(q.follow_ups || []).length ? `<div class="meta">追问：${escapeHtml((q.follow_ups || []).slice(0, 2).join(" / "))}</div>` : ""}
-            </li>
-          `).join("")}</ul>
-        `).join("")}
-        ${drills.length ? `<h3>缺口 Drill</h3><ul class="compact-list">${drills.slice(0, 5).map((item) => `<li><span class="tag">${escapeHtml(item.skill)}</span>${escapeHtml(item.honest_strategy)}</li>`).join("")}</ul>` : ""}
-        ${research.length ? `<h3>外部调研清单</h3><ul class="compact-list">${research.map((item) => `<li><span class="tag">${escapeHtml(item.site || item.topic)}</span>${escapeHtml(item.topic)}：${escapeHtml(item.query)}</li>`).join("")}</ul>` : ""}
+      <article class="item interview-prep-list-item" data-interview-prep-card="${row.id}">
+        <button class="interview-prep-select" type="button" data-open-interview-prep="${row.id}" aria-pressed="false">
+          <span class="interview-prep-select-head">
+            <strong>#${row.id} ${escapeHtml(row.title)}</strong>
+            <span class="status-pill ${coverage.passed ? "ok" : ""}">${coverage.passed ? "可练习" : "需补充"}</span>
+          </span>
+          <span class="meta">简历 ${row.profile_id} · 岗位 ${row.job_id} · ${questionCount} 道题</span>
+          <span class="meta">${new Date(row.created_at).toLocaleString()} · 匹配分 ${escapeHtml(summary.overall_score ?? "-")}</span>
+        </button>
+        <a class="inline-action" href="/interview-prep/${row.id}/markdown"><i data-lucide="download"></i> 导出</a>
       </article>
     `;
   });
+  if (!interviewPrepRows.length) {
+    renderInterviewPracticeEmpty("还没有面试准备包", "选择简历和岗位后生成第一份面试计划。");
+    return;
+  }
+  const params = new URLSearchParams(window.location.search);
+  const requestedPrepId = Number(selectPrepId || params.get("prep_id") || 0);
+  const profileId = Number($("#interview-prep-form")?.elements?.profile_id?.value || params.get("profile_id") || 0);
+  const jobId = Number($("#interview-prep-form")?.elements?.job_id?.value || params.get("job_id") || 0);
+  const selected = interviewPrepRows.find((row) => Number(row.id) === requestedPrepId)
+    || interviewPrepRows.find((row) => (!profileId || Number(row.profile_id) === profileId) && (!jobId || Number(row.job_id) === jobId))
+    || interviewPrepRows[0];
+  await openInterviewPrepWorkspace(selected.id, { updateUrl: Boolean(selectPrepId) });
+}
+
+function renderInterviewPracticeEmpty(title, detail) {
+  const el = $("#interview-practice-workspace");
+  if (!el) return;
+  el.innerHTML = `
+    <div class="empty-state">
+      <i data-lucide="messages-square"></i>
+      <strong>${escapeHtml(title)}</strong>
+      <span>${escapeHtml(detail)}</span>
+    </div>
+  `;
+  if (window.lucide) window.lucide.createIcons();
+}
+
+function renderInterviewQuestion(question, prepId, practiceByQuestion) {
+  const questionId = String(question.question_id || "");
+  const practice = practiceByQuestion.get(questionId) || { status: "todo", confidence_score: 0 };
+  const followUps = Array.isArray(question.follow_ups) ? question.follow_ups : [];
+  const rawAnswerPoints = question.answer_points || question.answer_outline || [];
+  const answerPoints = Array.isArray(rawAnswerPoints) ? rawAnswerPoints : [String(rawAnswerPoints)];
+  const evidenceRefs = Array.isArray(question.evidence_refs) ? question.evidence_refs : [];
+  return `
+    <article class="interview-question-card" data-question-id="${escapeHtml(questionId)}">
+      <div class="interview-question-head">
+        <div class="tags">
+          <span class="tag">${escapeHtml(questionId || "-")}</span>
+          <span class="tag">${escapeHtml(interviewAngleLabel(question.preparation_angle))}</span>
+          <span class="tag">${escapeHtml(interviewSourceLabel(question.source_perspective))}</span>
+        </div>
+        <span class="status-pill ${practice.status === "ready" ? "ok" : ""}">${escapeHtml(interviewPracticeStatusLabel(practice.status))}</span>
+      </div>
+      <h4>${escapeHtml(question.question)}</h4>
+      ${followUps.length ? `<p class="meta">追问：${escapeHtml(followUps.slice(0, 3).join(" / "))}</p>` : ""}
+      <details>
+        <summary>查看回答重点与证据边界</summary>
+        ${question.intent ? `<p>${escapeHtml(question.intent)}</p>` : ""}
+        ${answerPoints.length ? `<ul class="compact-list">${answerPoints.slice(0, 6).map((item) => `<li>${escapeHtml(typeof item === "string" ? item : JSON.stringify(item))}</li>`).join("")}</ul>` : ""}
+        ${evidenceRefs.length ? `<p class="meta">证据：${escapeHtml(evidenceRefs.slice(0, 4).map((item) => item.ref || item.text || JSON.stringify(item)).join("；"))}</p>` : ""}
+      </details>
+      <div class="interview-practice-actions" role="group" aria-label="更新题目练习状态">
+        ${[
+          ["todo", "待练习", 0],
+          ["practicing", "练习中", 2],
+          ["ready", "已掌握", 4],
+          ["deferred", "稍后", 0],
+        ].map(([status, label, confidence]) => `
+          <button type="button" class="${practice.status === status ? "active" : ""}" data-interview-practice-status="${status}" data-prep-id="${prepId}" data-question-id="${escapeHtml(questionId)}" data-confidence="${confidence}">${label}</button>
+        `).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderInterviewPracticeWorkspace(prep, practicePayload) {
+  const el = $("#interview-practice-workspace");
+  if (!el) return;
+  const summary = prep.summary_json || {};
+  const coverage = prep.coverage_json || {};
+  const preparationAngles = summary.preparation_angles || preparationAnglesFromCoverage(coverage);
+  const referenceLinks = summary.interview_reference_links || [];
+  const drills = prep.gap_drills_json || [];
+  const progress = practicePayload.practice_summary || {};
+  const practiceByQuestion = new Map((practicePayload.practice_items || []).map((item) => [String(item.question_id), item]));
+  el.innerHTML = `
+    <div class="interview-workspace-head">
+      <div>
+        <p class="eyebrow">当前面试计划</p>
+        <h2>#${prep.id} ${escapeHtml(prep.title)}</h2>
+        <p class="meta">简历 ${prep.profile_id} · 岗位 ${prep.job_id} · ${new Date(prep.created_at).toLocaleString()}</p>
+      </div>
+      <a class="button ghost" href="/interview-prep/${prep.id}/markdown"><i data-lucide="download"></i> 导出计划</a>
+    </div>
+    <div class="interview-progress">
+      <div><strong>${progress.question_count || countInterviewQuestions(prep.question_sets_json)}</strong><span>全部题目</span></div>
+      <div><strong>${progress.practicing_count || 0}</strong><span>练习中</span></div>
+      <div><strong>${progress.ready_count || 0}</strong><span>已掌握</span></div>
+      <div><strong>${Math.round(Number(progress.ready_rate || 0) * 100)}%</strong><span>完成度</span></div>
+    </div>
+    ${renderPreparationAngles(preparationAngles)}
+    ${drills.length ? `<section class="interview-gap-focus"><h3>优先补齐</h3><ul class="compact-list">${drills.slice(0, 5).map((item) => `<li><span class="tag">${escapeHtml(item.skill)}</span>${escapeHtml(item.honest_strategy || item.prep_task || "")}</li>`).join("")}</ul></section>` : ""}
+    ${renderInterviewReferenceLinks(referenceLinks)}
+    ${(prep.question_sets_json || []).map((group) => `
+      <section class="interview-question-group">
+        <h3>${escapeHtml(group.category)}</h3>
+        <div class="interview-question-list">${(group.questions || []).map((question) => renderInterviewQuestion(question, prep.id, practiceByQuestion)).join("")}</div>
+      </section>
+    `).join("")}
+  `;
+  if (window.lucide) window.lucide.createIcons();
+}
+
+async function openInterviewPrepWorkspace(prepId, { updateUrl = true } = {}) {
+  const id = Number(prepId || 0);
+  if (!id) return;
+  activeInterviewPrepId = id;
+  const prep = interviewPrepRows.find((row) => Number(row.id) === id) || await api(`/interview-prep/${id}`);
+  const practice = await api(`/interview-prep/${id}/practice`);
+  document.querySelectorAll("[data-interview-prep-card]").forEach((card) => {
+    const selected = Number(card.dataset.interviewPrepCard) === id;
+    card.classList.toggle("is-selected", selected);
+    card.querySelector("[data-open-interview-prep]")?.setAttribute("aria-pressed", selected ? "true" : "false");
+  });
+  renderInterviewPracticeWorkspace(prep, practice);
+  if (updateUrl) {
+    const params = new URLSearchParams(window.location.search);
+    params.set("prep_id", String(id));
+    params.set("profile_id", String(prep.profile_id));
+    params.set("job_id", String(prep.job_id));
+    window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
+  }
+}
+
+async function updateInterviewPractice(button) {
+  const prepId = Number(button.dataset.prepId || 0);
+  const questionId = String(button.dataset.questionId || "");
+  const status = String(button.dataset.interviewPracticeStatus || "todo");
+  const confidence = Number(button.dataset.confidence || 0);
+  button.disabled = true;
+  try {
+    await api(`/interview-prep/${prepId}/practice`, {
+      method: "PUT",
+      body: JSON.stringify({ question_id: questionId, status, confidence_score: confidence, notes: null }),
+    });
+    await openInterviewPrepWorkspace(prepId, { updateUrl: false });
+    toast(`题目 ${questionId} 已标记为${interviewPracticeStatusLabel(status)}`);
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function countInterviewQuestions(questionSets) {
@@ -2666,7 +2906,7 @@ function renderCareerFlowResult(state) {
       <div class="flow-result-actions">
         ${tailor.resume_version_id ? packageAction("/ui/resumes", "file-check-2", "定制简历", packageId) : ""}
         ${apply.application_id ? packageAction("/ui/applications", "send", "投递材料", packageId) : ""}
-        ${interview.interview_prep_id ? packageAction(`/ui/prep?job_id=${escapeHtml(selected.job_id || "")}`, "messages-square", "面试准备", packageId) : ""}
+        ${interview.interview_prep_id ? packageAction(`/ui/prep?prep_id=${escapeHtml(interview.interview_prep_id)}&profile_id=${escapeHtml(state.profile?.id || "")}&job_id=${escapeHtml(selected.job_id || "")}`, "messages-square", "面试准备", packageId) : ""}
         ${state.fullRun?.id ? packageAction("/ui/agent-runs", "route", "查看流程", packageId) : ""}
       </div>
     </article>
@@ -3180,7 +3420,14 @@ function renderNaturalLanguageResult(body) {
   if (data.job?.id) pushUniqueAction(links, seenLinks, "jobs", packageAction("/ui/jobs", "briefcase-business", "目标岗位", packageId));
   if (data.tailor?.resume_version_id) pushUniqueAction(links, seenLinks, "resumes", packageAction("/ui/resumes", "file-check-2", "定制简历", packageId));
   if (data.application?.application_id) pushUniqueAction(links, seenLinks, "applications", packageAction("/ui/applications", "send", "投递材料", packageId));
-  if (data.interview_prep?.interview_prep_id) pushUniqueAction(links, seenLinks, "prep", packageAction("/ui/prep", "messages-square", "面试准备", packageId));
+  if (data.interview_prep?.interview_prep_id) {
+    pushUniqueAction(
+      links,
+      seenLinks,
+      "prep",
+      packageAction(`/ui/prep?prep_id=${escapeHtml(data.interview_prep.interview_prep_id)}`, "messages-square", "面试准备", packageId)
+    );
+  }
   if (data.matches?.length) {
     pushUniqueAction(
       links,
@@ -3633,18 +3880,143 @@ function renderImportedInterviewExperience(row) {
   `;
 }
 
-function prefillInterviewPrepFromQuery() {
+function updateInterviewContextStatus() {
+  const form = $("#interview-prep-form");
+  if (!form) return;
+  const profileId = Number(form.elements.profile_id?.value || 0);
+  const jobId = Number(form.elements.job_id?.value || 0);
+  const status = $("#interview-context-status");
+  const submit = $("#generate-interview-prep");
+  if (submit) submit.disabled = !(profileId && jobId);
+  if (!status) return;
+  if (profileId && jobId) {
+    status.textContent = "已关联简历和岗位，可以生成或查看已有面试计划。";
+    status.className = "field-hint ok";
+  } else if (profileId || jobId) {
+    status.textContent = profileId ? "还需要选择目标岗位。" : "还需要选择简历档案。";
+    status.className = "field-hint";
+  } else {
+    status.textContent = "请选择简历和岗位。";
+    status.className = "field-hint";
+  }
+}
+
+function updateInterviewProfileCard(profile, { updateUrl = true } = {}) {
+  const form = $("#interview-prep-form");
+  const card = $("#interview-profile-card");
+  if (!form || !card) return;
+  const structured = profile?.structured_profile_json || {};
+  form.elements.profile_id.value = profile?.id || "";
+  $("#interview-profile-title").textContent = profile ? `#${profile.id} ${profile.name || structured.name || "未命名简历"}` : "尚未选择简历";
+  $("#interview-profile-summary").textContent = profile ? profileSummaryText(profile) : "面试题会从真实项目和经历中提取追问点。";
+  card.classList.toggle("is-selected", Boolean(profile));
+  if (profile && updateUrl) {
+    const params = new URLSearchParams(window.location.search);
+    params.set("profile_id", String(profile.id));
+    params.delete("prep_id");
+    window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
+  }
+  updateInterviewContextStatus();
+}
+
+function updateInterviewJobCard(job, { updateUrl = true } = {}) {
+  const form = $("#interview-prep-form");
+  const card = $("#interview-job-card");
+  if (!form || !card) return;
+  form.elements.job_id.value = job?.id || "";
+  $("#interview-job-title").textContent = job ? `#${job.id} ${job.title || "未命名岗位"}` : "尚未选择岗位";
+  $("#interview-job-summary").textContent = job ? jobSummaryText(job) : "面试题会覆盖 JD 要求、技能缺口和岗位场景。";
+  card.classList.toggle("is-selected", Boolean(job));
+  if (job && updateUrl) {
+    const params = new URLSearchParams(window.location.search);
+    params.set("job_id", String(job.id));
+    params.delete("prep_id");
+    window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
+  }
+  const experienceJob = $("#interview-experience-form")?.elements?.job_id;
+  if (experienceJob && job?.id && !experienceJob.value) experienceJob.value = job.id;
+  updateInterviewContextStatus();
+}
+
+async function openInterviewProfilePicker() {
+  interviewProfileRows = await api("/profiles");
+  renderProfileChoiceList({
+    target: "#interview-profile-picker-list",
+    search: "#interview-profile-picker-search",
+    rows: interviewProfileRows,
+    selectAttribute: "data-select-interview-profile",
+  });
+  openDialog("#interview-profile-picker-dialog");
+  $("#interview-profile-picker-search")?.focus();
+}
+
+async function openInterviewJobPicker() {
+  interviewJobRows = await api("/jobs");
+  renderInterviewJobPickerList();
+  openDialog("#interview-job-picker-dialog");
+  $("#interview-job-picker-search")?.focus();
+}
+
+function renderInterviewJobPickerList() {
+  const el = $("#interview-job-picker-list");
+  if (!el) return;
+  const keyword = String($("#interview-job-picker-search")?.value || "").trim().toLowerCase();
+  const rows = interviewJobRows.filter((job) => {
+    const structured = job.structured_jd_json || {};
+    return [job.id, job.title, job.company, job.location, ...(structured.required_skills || []), ...(structured.keywords || [])]
+      .join(" ")
+      .toLowerCase()
+      .includes(keyword);
+  });
+  if (!rows.length) {
+    el.innerHTML = `<article class="item meta">没有匹配的岗位</article>`;
+    return;
+  }
+  el.innerHTML = rows.slice(0, 80).map((job) => `
+    <article class="profile-picker-item">
+      <div>
+        <div class="item-title"><span>#${job.id} ${escapeHtml(job.title || "未命名岗位")}</span><span class="meta">${escapeHtml(job.company || "未知公司")}</span></div>
+        <div class="meta">${escapeHtml(jobSummaryText(job))}</div>
+        ${tags(job.structured_jd_json?.required_skills || job.structured_jd_json?.keywords || [])}
+      </div>
+      <div class="profile-picker-actions">
+        <button class="button primary" type="button" data-select-interview-job="${job.id}"><i data-lucide="check"></i> 选择</button>
+        <a class="button ghost" href="/ui/jobs/${job.id}" target="_blank"><i data-lucide="eye"></i> 查看 JD</a>
+      </div>
+    </article>
+  `).join("");
+  if (window.lucide) window.lucide.createIcons();
+}
+
+async function prefillInterviewPrepFromQuery() {
   const form = $("#interview-prep-form");
   if (!form) return;
   const params = new URLSearchParams(window.location.search);
-  const experienceIds = params.get("experience_ids");
-  const jobId = params.get("job_id");
-  if (experienceIds && form.experience_ids) {
-    form.experience_ids.value = experienceIds;
+  const prepId = Number(params.get("prep_id") || 0);
+  let profileId = Number(params.get("profile_id") || 0);
+  let jobId = Number(params.get("job_id") || 0);
+  if (prepId && (!profileId || !jobId)) {
+    try {
+      const prep = await api(`/interview-prep/${prepId}`);
+      profileId ||= Number(prep.profile_id || 0);
+      jobId ||= Number(prep.job_id || 0);
+    } catch (_) {
+      // loadInterviewPreps will surface an unavailable prep through its normal error path.
+    }
   }
-  if (jobId && form.job_id) {
-    form.job_id.value = jobId;
+  const [profile, job] = await Promise.all([
+    profileId ? api(`/profiles/${profileId}`) : Promise.resolve(null),
+    jobId ? api(`/jobs/${jobId}`) : Promise.resolve(null),
+  ]);
+  if (profile) {
+    interviewProfileRows = [profile];
+    updateInterviewProfileCard(profile, { updateUrl: false });
   }
+  if (job) {
+    interviewJobRows = [job];
+    updateInterviewJobCard(job, { updateUrl: false });
+  }
+  updateInterviewContextStatus();
 }
 
 function bindForms() {
@@ -3884,6 +4256,22 @@ function bindForms() {
       button.disabled = false;
     }
   });
+  $("#run-job-interview")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
+    if (button.dataset.interviewMode === "view") {
+      activateJobDetailTab("interview");
+      return;
+    }
+    button.disabled = true;
+    try {
+      await runJobDetailInterview();
+      toast("面试准备包已生成");
+    } catch (error) {
+      toast(error.message);
+    } finally {
+      button.disabled = false;
+    }
+  });
   document.querySelectorAll("[data-job-tab]").forEach((button) => {
     button.addEventListener("click", () => activateJobDetailTab(button.dataset.jobTab));
   });
@@ -4016,23 +4404,48 @@ function bindForms() {
     event.preventDefault();
     const form = event.currentTarget;
     const raw = formJson(form);
-    const payload = {
-      profile_id: Number(raw.profile_id),
-      job_id: Number(raw.job_id),
-    };
-    if (raw.experience_ids) {
-      payload.experience_ids = raw.experience_ids
-        .split(",")
-        .map((x) => Number(x.trim()))
-        .filter(Boolean);
+    const profileId = Number(raw.profile_id || 0);
+    const jobId = Number(raw.job_id || 0);
+    if (!profileId || !jobId) throw new Error("请先选择简历和目标岗位。");
+    const button = $("#generate-interview-prep");
+    if (button) button.disabled = true;
+    renderInterviewPracticeEmpty("正在生成面试计划", "Agent 正在读取 JD、简历项目、能力缺口和同岗面经。");
+    try {
+      const run = await createAgentRun(
+        { task_type: "prepare_interview_for_job", profile_id: profileId, job_id: jobId },
+        "生成面试准备包"
+      );
+      const prepId = Number(run.output_json?.interview_prep_id || 0);
+      if (!prepId) throw new Error("面试流程已结束，但没有返回面试准备包编号。");
+      await loadInterviewPreps({ selectPrepId: prepId });
+      toast(`面试准备包 #${prepId} 已生成，并记录在流程 #${run.id}`);
+    } catch (error) {
+      renderInterviewPracticeEmpty("生成失败", error.message);
+      toast(error.message);
+    } finally {
+      updateInterviewContextStatus();
     }
-    await api("/interview-prep", {
-      method: "POST",
-      body: JSON.stringify(payload),
+  });
+  $("#open-interview-profile-picker")?.addEventListener("click", () => {
+    openInterviewProfilePicker().catch((error) => toast(error.message));
+  });
+  $("#open-interview-job-picker")?.addEventListener("click", () => {
+    openInterviewJobPicker().catch((error) => toast(error.message));
+  });
+  $("#interview-profile-picker-search")?.addEventListener("input", () => {
+    renderProfileChoiceList({
+      target: "#interview-profile-picker-list",
+      search: "#interview-profile-picker-search",
+      rows: interviewProfileRows,
+      selectAttribute: "data-select-interview-profile",
     });
-    toast("Interview prep created");
-    form.reset();
-    loadInterviewPreps();
+  });
+  $("#interview-job-picker-search")?.addEventListener("input", renderInterviewJobPickerList);
+  document.querySelectorAll("[data-close-interview-profile-picker]").forEach((button) => {
+    button.addEventListener("click", () => closeDialog("#interview-profile-picker-dialog"));
+  });
+  document.querySelectorAll("[data-close-interview-job-picker]").forEach((button) => {
+    button.addEventListener("click", () => closeDialog("#interview-job-picker-dialog"));
   });
 
   $("#interview-experience-form")?.addEventListener("submit", async (event) => {
@@ -4251,6 +4664,48 @@ function bindForms() {
         });
       return;
     }
+    const openInterviewPrepButton = event.target.closest("[data-open-interview-prep]");
+    if (openInterviewPrepButton) {
+      openInterviewPrepWorkspace(openInterviewPrepButton.dataset.openInterviewPrep)
+        .catch((error) => toast(error.message));
+      return;
+    }
+    const interviewPracticeButton = event.target.closest("[data-interview-practice-status]");
+    if (interviewPracticeButton) {
+      updateInterviewPractice(interviewPracticeButton).catch((error) => toast(error.message));
+      return;
+    }
+    const interviewProfileButton = event.target.closest("[data-select-interview-profile]");
+    if (interviewProfileButton) {
+      const profile = interviewProfileRows.find(
+        (item) => Number(item.id) === Number(interviewProfileButton.dataset.selectInterviewProfile)
+      );
+      updateInterviewProfileCard(profile);
+      closeDialog("#interview-profile-picker-dialog");
+      toast(`已选择简历 #${profile?.id}`);
+      return;
+    }
+    const interviewJobButton = event.target.closest("[data-select-interview-job]");
+    if (interviewJobButton) {
+      const job = interviewJobRows.find(
+        (item) => Number(item.id) === Number(interviewJobButton.dataset.selectInterviewJob)
+      );
+      updateInterviewJobCard(job);
+      closeDialog("#interview-job-picker-dialog");
+      toast(`已选择岗位 #${job?.id}`);
+      return;
+    }
+    const regenerateJobInterviewButton = event.target.closest("[data-regenerate-job-interview]");
+    if (regenerateJobInterviewButton) {
+      regenerateJobInterviewButton.disabled = true;
+      runJobDetailInterview()
+        .then(() => toast("面试准备包已重新生成"))
+        .catch((error) => toast(error.message))
+        .finally(() => {
+          regenerateJobInterviewButton.disabled = false;
+        });
+      return;
+    }
     const importButton = event.target.closest("[data-import-interview-candidate]");
     if (importButton) prefillInterviewSourceImport(importButton);
     const reviewButton = event.target.closest("[data-review-profile]");
@@ -4375,7 +4830,7 @@ async function bootstrap() {
     if (page === "resumes") await loadResumes();
     if (page === "applications") await loadApplications();
     if (page === "interview_prep") {
-      prefillInterviewPrepFromQuery();
+      await prefillInterviewPrepFromQuery();
       await loadInterviewExperiences();
       await loadInterviewPreps();
     }

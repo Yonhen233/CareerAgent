@@ -148,7 +148,8 @@ class InterviewPrepDeliveryService:
         else:
             row.status = status
             row.confidence_score = score
-            row.notes = notes
+            if notes is not None:
+                row.notes = notes
         db.commit()
         db.refresh(row)
         return row

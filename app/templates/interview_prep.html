@@ -2,79 +2,105 @@
 {% block content %}
 <section class="panel">
   <div class="panel-heading compact">
-      <div>
+    <div>
       <p class="eyebrow">面试准备</p>
-      <h1>生成面试准备包</h1>
+      <h1>围绕目标岗位开始准备</h1>
+      <p class="meta">面试包会关联具体岗位和简历档案，并进入同一套 Agent 历史记录与运行轨迹。</p>
     </div>
   </div>
-  <form id="interview-prep-form" class="form-grid">
-    <label>简历档案 ID<input name="profile_id" type="number" min="1" required></label>
-    <label>岗位 ID<input name="job_id" type="number" min="1" required></label>
-    <label>面经材料 ID<input name="experience_ids" placeholder="可选，如 1,2,3"></label>
-    <button class="primary" type="submit"><i data-lucide="messages-square"></i> 生成面试准备包</button>
+  <form id="interview-prep-form" class="interview-context-form">
+    <input name="profile_id" type="hidden">
+    <input name="job_id" type="hidden">
+    <div class="interview-context-grid">
+      <article id="interview-profile-card" class="interview-context-card">
+        <div>
+          <p class="eyebrow">简历档案</p>
+          <h2 id="interview-profile-title">尚未选择简历</h2>
+          <p id="interview-profile-summary" class="meta">面试题会从真实项目和经历中提取追问点。</p>
+        </div>
+        <button class="button ghost" id="open-interview-profile-picker" type="button"><i data-lucide="folder-search"></i> 选择简历</button>
+      </article>
+      <article id="interview-job-card" class="interview-context-card">
+        <div>
+          <p class="eyebrow">目标岗位</p>
+          <h2 id="interview-job-title">尚未选择岗位</h2>
+          <p id="interview-job-summary" class="meta">面试题会覆盖 JD 要求、技能缺口和岗位场景。</p>
+        </div>
+        <button class="button ghost" id="open-interview-job-picker" type="button"><i data-lucide="briefcase-business"></i> 选择岗位</button>
+      </article>
+    </div>
+    <div class="interview-generate-row">
+      <p id="interview-context-status" class="field-hint">请选择简历和岗位。</p>
+      <button class="primary" id="generate-interview-prep" type="submit" disabled><i data-lucide="sparkles"></i> 生成面试准备包</button>
+    </div>
   </form>
 </section>
 
-<section class="panel">
-  <div class="panel-heading compact">
-    <div>
-      <p class="eyebrow">面经导入</p>
-      <h2>导入同岗面经材料</h2>
+<section class="workspace-grid interview-workspace-grid">
+  <section class="panel span-4">
+    <div class="panel-heading compact">
+      <div>
+        <p class="eyebrow">面试计划</p>
+        <h2>最近生成</h2>
+      </div>
+      <button class="ghost" data-refresh="interview-prep"><i data-lucide="refresh-cw"></i> 刷新</button>
     </div>
-  </div>
-  <form id="interview-experience-form" class="form-grid">
-    <label>岗位 ID<input name="job_id" type="number" min="1" placeholder="可选"></label>
-    <label>来源平台<input name="source_site" placeholder="牛客网 / OfferShow / 小红书" required></label>
-    <label>来源链接<input name="source_url" placeholder="可选"></label>
-    <label>标题<input name="title" placeholder="如 腾讯 Agent 实习一面"></label>
-    <label>公司<input name="company" placeholder="可选"></label>
-    <label>岗位关键词<input name="role_keyword" placeholder="如 Agent 开发实习生"></label>
-    <label class="wide">面经正文<textarea name="raw_text" rows="7" required placeholder="粘贴真实面经问题、轮次、追问和备注"></textarea></label>
-    <button class="primary" type="submit"><i data-lucide="import"></i> 导入面经</button>
-  </form>
+    <div id="interview-prep-list" class="result-list interview-prep-list"></div>
+  </section>
+  <section class="panel span-8">
+    <div id="interview-practice-workspace" class="interview-practice-workspace">
+      <div class="empty-state">
+        <i data-lucide="messages-square"></i>
+        <strong>选择一个面试计划开始练习</strong>
+        <span>这里会显示岗位重点、项目追问、能力缺口和逐题练习状态。</span>
+      </div>
+    </div>
+  </section>
 </section>
 
-<section class="panel">
-  <div class="panel-heading compact">
-    <div>
-      <p class="eyebrow">已保存</p>
-      <h2>已导入面经</h2>
+<details class="panel interview-source-tools">
+  <summary>补充同岗面经材料</summary>
+  <div class="interview-source-content">
+    <form id="interview-experience-form" class="form-grid">
+      <label>关联岗位 ID<input name="job_id" type="number" min="1" placeholder="可选"></label>
+      <label>来源平台<input name="source_site" placeholder="牛客网 / OfferShow / 小红书" required></label>
+      <label>来源链接<input name="source_url" placeholder="可选"></label>
+      <label>标题<input name="title" placeholder="如 腾讯 Agent 实习一面"></label>
+      <label>公司<input name="company" placeholder="可选"></label>
+      <label>岗位关键词<input name="role_keyword" placeholder="如 Agent 开发实习生"></label>
+      <label class="wide">面经正文<textarea name="raw_text" rows="7" required placeholder="粘贴真实面经问题、轮次、追问和备注"></textarea></label>
+      <button class="primary" type="submit"><i data-lucide="import"></i> 导入面经</button>
+    </form>
+    <div class="panel-heading compact nested-heading">
+      <div>
+        <p class="eyebrow">已保存</p>
+        <h2>已导入面经</h2>
+      </div>
+      <button class="ghost" data-refresh="interview-experience"><i data-lucide="refresh-cw"></i> 刷新</button>
     </div>
-    <button class="ghost" data-refresh="interview-experience"><i data-lucide="refresh-cw"></i> 刷新</button>
+    <div id="interview-experience-list" class="result-list"></div>
   </div>
-  <div id="interview-experience-list" class="result-list"></div>
-</section>
+</details>
 
-<section class="panel">
-  <div class="panel-heading compact">
-    <div>
-      <p class="eyebrow">练习记录</p>
-      <h2>记录题目练习状态</h2>
+<dialog id="interview-profile-picker-dialog" class="profile-picker-dialog">
+  <div class="dialog-shell">
+    <div class="panel-heading compact">
+      <div><p class="eyebrow">选择简历</p><h2>用于面试准备</h2></div>
+      <button class="ghost compact-button" type="button" data-close-interview-profile-picker><i data-lucide="x"></i> 关闭</button>
     </div>
+    <label class="wide">搜索 ID、姓名或目标岗位<input id="interview-profile-picker-search" placeholder="例如：159 / 李明 / Agent"></label>
+    <div id="interview-profile-picker-list" class="profile-picker-list"></div>
   </div>
-  <form id="interview-practice-form" class="form-grid">
-    <label>面试包 ID<input name="prep_id" type="number" min="1" required></label>
-    <label>题目 ID<input name="question_id" placeholder="如 q01_01" required></label>
-    <label>状态<select name="status">
-      <option value="todo">todo</option>
-      <option value="practicing">practicing</option>
-      <option value="ready">ready</option>
-      <option value="deferred">deferred</option>
-    </select></label>
-    <label>信心分<input name="confidence_score" type="number" min="0" max="5" value="0"></label>
-    <label class="wide">备注<textarea name="notes" rows="3" placeholder="记录回答卡点、待补材料或模拟面试反馈"></textarea></label>
-    <button class="primary" type="submit"><i data-lucide="check-circle-2"></i> 更新练习状态</button>
-  </form>
-</section>
+</dialog>
 
-<section class="panel">
-  <div class="panel-heading compact">
-    <div>
-      <p class="eyebrow">已保存</p>
-      <h2>我的面试准备包</h2>
+<dialog id="interview-job-picker-dialog" class="profile-picker-dialog">
+  <div class="dialog-shell">
+    <div class="panel-heading compact">
+      <div><p class="eyebrow">选择岗位</p><h2>用于面试准备</h2></div>
+      <button class="ghost compact-button" type="button" data-close-interview-job-picker><i data-lucide="x"></i> 关闭</button>
     </div>
-    <button class="ghost" data-refresh="interview-prep"><i data-lucide="refresh-cw"></i> 刷新</button>
+    <label class="wide">搜索 ID、职位、公司或技能<input id="interview-job-picker-search" placeholder="例如：198 / Agent / 阿里"></label>
+    <div id="interview-job-picker-list" class="profile-picker-list"></div>
   </div>
-  <div id="interview-prep-list" class="result-list"></div>
-</section>
+</dialog>
 {% endblock %}

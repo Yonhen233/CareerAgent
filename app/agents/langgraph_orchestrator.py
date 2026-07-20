@@ -903,6 +903,10 @@ class LangGraphAgentOrchestrator:
 
     async def _node_finalize_full_flow(self, state: CareerAgentGraphState) -> dict[str, Any]:
         selected_job_id = int(state.get("selected_job_id") or state.get("job_id") or 0)
+        interview_prep = state.get("interview_prep") or {}
+        interview_prep_link = f"/ui/prep?profile_id={state.get('profile_id')}&job_id={selected_job_id}"
+        if interview_prep.get("interview_prep_id"):
+            interview_prep_link += f"&prep_id={interview_prep['interview_prep_id']}"
         payload = {
             "profile_id": state.get("profile_id"),
             "query": state.get("query"),
@@ -911,13 +915,13 @@ class LangGraphAgentOrchestrator:
             "source_errors": state.get("source_errors") or {},
             "tailor": state.get("tailor") or {},
             "application": state.get("application") or {},
-            "interview_prep": state.get("interview_prep") or {},
+            "interview_prep": interview_prep,
             "links": {
                 "profile": f"/ui/profiles?profile_id={state.get('profile_id')}",
                 "job": f"/ui/jobs?job_id={selected_job_id}",
                 "resume_versions": "/ui/resumes",
                 "applications": "/ui/applications",
-                "interview_prep": f"/ui/prep?job_id={selected_job_id}",
+                "interview_prep": interview_prep_link,
                 "trace": "/ui/agent-runs",
             },
         }

@@ -372,7 +372,7 @@ class RunBusinessSummaryService:
         if result_ids.get("application_id"):
             links["application"] = "/ui/applications"
         if result_ids.get("interview_prep_id"):
-            links["interview_prep"] = "/ui/prep"
+            links["interview_prep"] = f"/ui/prep?prep_id={result_ids['interview_prep_id']}"
         return links
 
     def _headline(

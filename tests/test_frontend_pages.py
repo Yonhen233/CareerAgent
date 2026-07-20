@@ -527,3 +527,34 @@ def test_interview_prep_frontend_exposes_question_quality_panel():
     assert "focusInterviewQuestion" in main_js
     assert "data-question-id" in main_js
     assert "question-highlight" in style_css
+
+
+def test_interview_prep_is_connected_to_job_context_and_direct_practice():
+    client = TestClient(app)
+    prep_response = client.get("/ui/prep")
+    job_response = client.get("/ui/jobs/1")
+    main_js = Path("app/static/js/main.js").read_text(encoding="utf-8")
+    style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")
+
+    assert prep_response.status_code == 200
+    assert "围绕目标岗位开始准备" in prep_response.text
+    assert "interview-profile-card" in prep_response.text
+    assert "interview-job-card" in prep_response.text
+    assert "interview-practice-workspace" in prep_response.text
+    assert "补充同岗面经材料" in prep_response.text
+    assert "interview-practice-form" not in prep_response.text
+    assert "interview-profile-picker-dialog" in prep_response.text
+    assert "interview-job-picker-dialog" in prep_response.text
+
+    assert job_response.status_code == 200
+    assert 'data-job-tab="interview"' in job_response.text
+    assert "run-job-interview" in job_response.text
+    assert "job-interview-result" in job_response.text
+
+    assert 'task_type: "prepare_interview_for_job"' in main_js
+    assert "openInterviewPrepWorkspace" in main_js
+    assert "data-interview-practice-status" in main_js
+    assert "updateInterviewPractice" in main_js
+    assert "loadJobDetailInterviewPreps" in main_js
+    assert "interview-context-grid" in style_css
+    assert "interview-practice-actions" in style_css

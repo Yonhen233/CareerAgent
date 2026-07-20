@@ -2,6 +2,7 @@ import asyncio
 import json
 
 from app.agents.orchestrator import AgentOrchestrator
+from app.api.interview_prep import list_interview_preps
 from app.models.entities import Job, Profile
 from app.models.schemas import AgentRunRequest
 from app.services.interview_delivery import InterviewPrepDeliveryService
@@ -409,6 +410,46 @@ def test_interview_prep_delivery_exports_markdown_and_tracks_practice(db_session
     assert "简历项目技术栈" in markdown
     assert "其他可能面试问题" in markdown
     assert "证据边界" in markdown
+
+    updated = delivery.upsert_practice_item(
+        db_session,
+        prep,
+        question_id=first_question_id,
+        status="practicing",
+        confidence_score=2,
+        notes=None,
+    )
+    assert updated.notes == "已按项目背景、行动、指标准备 90 秒回答。"
+
+
+def test_interview_prep_list_filters_by_profile_and_job(db_session):
+    profile, job = _seed_profile_job(db_session)
+    first = InterviewPrepService().create_interview_prep(db_session, profile=profile, job=job)
+    other_job = Job(
+        source="manual",
+        external_id="interview-agent-platform",
+        title="Agent 平台开发实习生",
+        company="阿里巴巴",
+        location="杭州",
+        job_type="实习",
+        raw_jd_text="负责 Agent 平台、Python、RAG 与评测系统建设。",
+        structured_jd_json={
+            "title": "Agent 平台开发实习生",
+            "company": "阿里巴巴",
+            "required_skills": ["Python", "RAG", "Agent"],
+            "responsibilities": ["建设 Agent 平台和评测系统"],
+        },
+    )
+    db_session.add(other_job)
+    db_session.commit()
+    db_session.refresh(other_job)
+    second = InterviewPrepService().create_interview_prep(db_session, profile=profile, job=other_job)
+
+    job_rows = list_interview_preps(profile_id=None, job_id=job.id, limit=50, db=db_session)
+    profile_rows = list_interview_preps(profile_id=profile.id, job_id=None, limit=50, db=db_session)
+
+    assert [row.id for row in job_rows] == [first.id]
+    assert {row.id for row in profile_rows} == {first.id, second.id}
 
 
 def test_interview_practice_rejects_unknown_question_id(db_session):

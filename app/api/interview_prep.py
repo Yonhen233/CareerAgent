@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -42,8 +42,18 @@ async def create_interview_prep(
 
 
 @router.get("", response_model=list[InterviewPrepResponse])
-def list_interview_preps(db: Session = Depends(get_db)) -> list[InterviewPrepResponse]:
-    rows = db.query(InterviewPrep).order_by(InterviewPrep.created_at.desc()).limit(200).all()
+def list_interview_preps(
+    profile_id: int | None = Query(default=None, ge=1),
+    job_id: int | None = Query(default=None, ge=1),
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> list[InterviewPrepResponse]:
+    query = db.query(InterviewPrep)
+    if profile_id is not None:
+        query = query.filter(InterviewPrep.profile_id == profile_id)
+    if job_id is not None:
+        query = query.filter(InterviewPrep.job_id == job_id)
+    rows = query.order_by(InterviewPrep.created_at.desc(), InterviewPrep.id.desc()).limit(limit).all()
     return [InterviewPrepResponse.model_validate(row) for row in rows]
 
 

@@ -17,6 +17,7 @@
         <button class="active" type="button" data-job-tab="jd">岗位 JD</button>
         <button type="button" data-job-tab="match">匹配与差距</button>
         <button type="button" data-job-tab="tailor">定制简历</button>
+        <button type="button" data-job-tab="interview">面试准备</button>
       </nav>
       <section class="job-tab-panel active" data-job-panel="jd">
         <div id="job-detail-structured"></div>
@@ -44,6 +45,15 @@
           </div>
         </div>
       </section>
+      <section class="job-tab-panel" data-job-panel="interview">
+        <div id="job-interview-result" class="job-action-result">
+          <div class="empty-state">
+            <i data-lucide="messages-square"></i>
+            <strong>选择简历后准备当前岗位的面试</strong>
+            <span>面试问题会同时引用岗位 JD、简历项目证据、能力缺口和已保存的同岗面经。</span>
+          </div>
+        </div>
+      </section>
     </article>
 
     <aside class="span-4 side-stack">
@@ -65,6 +75,7 @@
         <h2>根据这个岗位继续</h2>
         <button class="primary" type="button" id="run-job-match" disabled><i data-lucide="scan-search"></i> 分析匹配与差距</button>
         <button class="button ghost" type="button" id="run-job-tailor" disabled><i data-lucide="file-check-2"></i> 生成定制简历</button>
+        <button class="button ghost" type="button" id="run-job-interview" disabled><i data-lucide="messages-square"></i> 生成面试准备包</button>
         <a class="button ghost" id="job-apply-link" href="#" target="_blank" hidden><i data-lucide="external-link"></i> 打开官方投递页</a>
         <small>生成简历不会自动投递。浏览器填写、邮件发送等外部操作仍需单独审批。</small>
       </section>
