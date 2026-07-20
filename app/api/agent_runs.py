@@ -127,8 +127,17 @@ async def cancel_agent_run(
 
 
 @router.get("", response_model=list[AgentRunResponse])
-def list_agent_runs(db: Session = Depends(get_db), auth: AuthContext = Depends(optional_auth_context)) -> list[AgentRunResponse]:
-    rows = _tenant_query(db.query(AgentRun), auth).order_by(AgentRun.created_at.desc()).limit(100).all()
+def list_agent_runs(
+    limit: int = Query(default=100, ge=1, le=100),
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(optional_auth_context),
+) -> list[AgentRunResponse]:
+    rows = (
+        _tenant_query(db.query(AgentRun), auth)
+        .order_by(AgentRun.created_at.desc(), AgentRun.id.desc())
+        .limit(limit)
+        .all()
+    )
     return [AgentRunResponse.model_validate(row) for row in rows]
 
 

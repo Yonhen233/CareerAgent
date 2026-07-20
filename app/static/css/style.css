@@ -187,6 +187,75 @@ a {
   align-items: start;
 }
 
+.run-history-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.run-history-list {
+  max-height: min(72vh, 820px);
+  padding-right: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.run-history-list .item {
+  padding: 10px;
+}
+
+.run-history-select {
+  display: grid;
+  width: 100%;
+  gap: 7px;
+  padding: 4px;
+  border: 0;
+  color: var(--text);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.run-history-select:hover strong,
+.run-history-select:focus-visible strong {
+  color: var(--blue);
+}
+
+.run-history-select:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+.run-history-select-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.run-history-select-head strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.run-history-list .item.is-selected {
+  position: relative;
+}
+
+.run-history-list .item.is-selected::before {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: -1px;
+  width: 4px;
+  border-radius: 0 4px 4px 0;
+  background: var(--green);
+  content: "";
+}
+
 .profile-entry-panel {
   display: flex;
   flex-direction: column;
@@ -2576,5 +2645,14 @@ button svg,
     width: auto;
     max-height: calc(100vh - 96px);
     overflow-y: auto;
+  }
+
+  .run-history-list {
+    max-height: 520px;
+  }
+
+  .run-history-heading-actions {
+    width: 100%;
+    justify-content: space-between;
   }
 }

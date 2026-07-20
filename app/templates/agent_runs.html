@@ -15,17 +15,22 @@
     <div class="panel-heading compact">
       <div>
         <p class="eyebrow">历史记录</p>
-        <h2>最近运行</h2>
+        <h2>最近 50 条记录</h2>
+        <p class="meta">点击任意记录查看当时的结果、确认事项和完整运行过程。</p>
       </div>
-      <button class="ghost" data-refresh="runs"><i data-lucide="refresh-cw"></i> 刷新</button>
+      <div class="run-history-heading-actions">
+        <span id="run-history-count" class="status-pill">加载中</span>
+        <button class="ghost" data-refresh="runs"><i data-lucide="refresh-cw"></i> 刷新</button>
+      </div>
     </div>
-    <div id="runs-list" class="result-list"></div>
+    <div id="runs-list" class="result-list run-history-list" aria-label="最近 50 条求职记录"></div>
   </div>
   <div class="panel span-5">
     <div class="panel-heading compact">
       <div>
-        <p class="eyebrow">结果摘要</p>
-        <h2>本次任务完成了什么</h2>
+        <p class="eyebrow">记录详情</p>
+        <h2 id="selected-run-title">请选择一条历史记录</h2>
+        <p id="selected-run-time" class="meta">选择左侧记录后查看详情。</p>
       </div>
     </div>
     <div id="run-business-summary" class="run-business-summary muted-box"></div>

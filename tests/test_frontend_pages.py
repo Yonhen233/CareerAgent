@@ -247,7 +247,7 @@ def test_run_history_page_exposes_business_summary_before_trace():
     response = client.get("/ui/agent-runs")
 
     assert response.status_code == 200
-    assert "本次任务完成了什么" in response.text
+    assert "请选择一条历史记录" in response.text
     assert "run-business-summary" in response.text
     assert response.text.index("run-business-summary") < response.text.index("run-steps")
     assert response.text.index("run-steps") < response.text.index("run-events")
@@ -391,9 +391,13 @@ def test_agent_runs_page_exposes_langgraph_event_timeline():
     assert response.status_code == 200
     assert "求职历史记录" in response.text
     assert "查看运行记录、阶段进度和失败原因" in response.text
-    assert "最近运行" in response.text
+    assert "最近 50 条记录" in response.text
+    assert "run-history-count" in response.text
+    assert "selected-run-title" in response.text
     assert "run-history-grid" in response.text
     assert "run-history-grid" in style_css
+    assert "run-history-list" in style_css
+    assert "run-history-select" in style_css
     assert "我的求职流程" not in response.text
     assert "agent-run-form" not in response.text
     assert "run-confirmation" in response.text
@@ -401,6 +405,10 @@ def test_agent_runs_page_exposes_langgraph_event_timeline():
     assert "事件流" in response.text
     assert "renderRunConfirmation" in main_js
     assert "const initialRun" in main_js
+    assert "RUN_HISTORY_LIMIT = 50" in main_js
+    assert "data-history-run-id" in main_js
+    assert 'historyMode: "push"' in main_js
+    assert "updateRunHistoryUrl" in main_js
     assert "confirmationContext" in main_js
     assert "选择一个岗位继续" in main_js
     assert "确认生成投递材料" in main_js

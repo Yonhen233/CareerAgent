@@ -1,7 +1,7 @@
 import asyncio
 from types import SimpleNamespace
 
-from app.api.agent_runs import create_background_agent_run, get_agent_steps
+from app.api.agent_runs import create_background_agent_run, get_agent_steps, list_agent_runs
 from app.core.security import AuthContext
 from app.models.entities import AgentEvent, AgentRun, AgentStep
 from app.models.schemas import AgentRunRequest
@@ -59,3 +59,16 @@ def test_trace_service_serializes_tuple_outputs_without_memory_addresses():
     output = TraceService()._json_safe(([SimpleNamespace(id=7)], {"source_errors": {}}))
 
     assert output == [[{"id": 7}], {"source_errors": {}}]
+
+
+def test_agent_run_history_returns_requested_recent_records_up_to_fifty(db_session):
+    for index in range(55):
+        db_session.add(AgentRun(task_type="full_career_flow", status="completed", input_json={"index": index}))
+    db_session.commit()
+
+    auth = AuthContext(tenant_id="default", user_id="pytest", roles=[], auth_type="pytest")
+    rows = list_agent_runs(limit=50, db=db_session, auth=auth)
+
+    assert len(rows) == 50
+    assert rows[0].input_json["index"] == 54
+    assert rows[-1].input_json["index"] == 5

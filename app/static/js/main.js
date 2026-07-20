@@ -4,6 +4,7 @@ const ACTIVE_RUN_KEY = "careeragent.active_runs";
 const DISMISSED_RUN_KEY = "careeragent.dismissed_runs";
 const ACTIVE_RUN_COLLAPSED_KEY = "careeragent.active_runs_collapsed";
 const JOB_DISCOVERY_SESSION_KEY = "careeragent.job_discovery_session";
+const RUN_HISTORY_LIMIT = 50;
 const ACTIVE_RUN_TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "canceled"]);
 const ACTIVE_RUN_RECENT_TTL_MS = 24 * 60 * 60 * 1000;
 const LLM_DEPENDENT_PAGES = new Set([
@@ -1256,25 +1257,31 @@ function renderTailorJobPickerList() {
 }
 
 async function loadRuns(target = "#runs-list") {
-  const rows = await api("/agent/runs");
+  const rows = await api(`/agent/runs?limit=${RUN_HISTORY_LIMIT}`);
+  const historyCount = $("#run-history-count");
+  if (historyCount) historyCount.textContent = `共 ${rows.length} 条`;
   renderItems(target, rows, (row) => `
     <article class="item" data-run-card="${row.id}">
-      <div class="item-title">
-        <button class="ghost" data-run-id="${row.id}">#${row.id} ${escapeHtml(taskLabel(row.task_type))}</button>
-        <span class="status-pill ${row.status === "completed" ? "ok" : row.status === "failed" ? "risk" : ""}">${row.status === "completed" ? "已完成" : row.status === "failed" ? "失败" : escapeHtml(row.status)}</span>
-      </div>
-      <div class="meta">简历 ${row.profile_id || "-"} · 岗位 ${row.job_id || "-"} · ${row.latency_ms}ms</div>
+      <button class="run-history-select" type="button" data-history-run-id="${row.id}" aria-pressed="false">
+        <span class="run-history-select-head">
+          <strong>#${row.id} ${escapeHtml(taskLabel(row.task_type))}</strong>
+          <span class="status-pill ${row.status === "completed" ? "ok" : row.status === "failed" ? "risk" : ""}">${escapeHtml(activeRunStatusLabel(row.status))}</span>
+        </span>
+        <span class="meta">${new Date(row.created_at).toLocaleString()} · 简历 ${row.profile_id || "-"} · 岗位 ${row.job_id || "-"}</span>
+      </button>
       ${renderRunBusinessGlance(row.output_json?.business_summary)}
       ${renderRunOutcomeLinks(row)}
     </article>
   `);
-  document.querySelectorAll("[data-run-id]").forEach((button) => {
-    button.addEventListener("click", () => loadRunSteps(button.dataset.runId));
+  document.querySelectorAll("#runs-list [data-history-run-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      loadRunSteps(button.dataset.historyRunId, { historyMode: "push" }).catch((error) => toast(error.message));
+    });
   });
   if (target === "#runs-list" && rows.length) {
     const requestedRunId = Number(new URLSearchParams(window.location.search).get("run_id") || 0);
     const initialRun = rows.find((row) => Number(row.id) === requestedRunId) || rows[0];
-    await loadRunSteps(initialRun.id);
+    await loadRunSteps(initialRun.id, { historyMode: "replace" });
   }
 }
 
@@ -1375,11 +1382,25 @@ function renderRunOutcomeLinks(row) {
   return links.length ? `<div class="flow-result-actions">${links.join("")}</div>` : "";
 }
 
-async function loadRunSteps(runId) {
+function updateRunHistoryUrl(runId, historyMode) {
+  if (!historyMode || !$("#runs-list")) return;
+  const url = new URL(window.location.href);
+  url.searchParams.set("run_id", String(runId));
+  window.history[historyMode === "push" ? "pushState" : "replaceState"]({}, "", `${url.pathname}${url.search}`);
+}
+
+async function loadRunSteps(runId, { historyMode = null } = {}) {
   const run = await api(`/agent/runs/${runId}`);
+  updateRunHistoryUrl(run.id, historyMode);
   document.querySelectorAll("[data-run-card]").forEach((card) => {
-    card.classList.toggle("is-selected", Number(card.dataset.runCard) === Number(runId));
+    const selected = Number(card.dataset.runCard) === Number(run.id);
+    card.classList.toggle("is-selected", selected);
+    card.querySelector("[data-history-run-id]")?.setAttribute("aria-pressed", selected ? "true" : "false");
   });
+  const selectedTitle = $("#selected-run-title");
+  const selectedTime = $("#selected-run-time");
+  if (selectedTitle) selectedTitle.textContent = `#${run.id} ${taskLabel(run.task_type)}`;
+  if (selectedTime) selectedTime.textContent = `${new Date(run.created_at).toLocaleString()} · ${activeRunStatusLabel(run.status)}`;
   renderRunConfirmation(run);
   const [summary, rows] = await Promise.all([
     api(`/agent/runs/${runId}/summary`),
@@ -4332,6 +4353,11 @@ function bindForms() {
         })
         .catch((error) => toast(error.message));
     }
+  });
+  window.addEventListener("popstate", () => {
+    if (!$("#runs-list")) return;
+    const runId = Number(new URLSearchParams(window.location.search).get("run_id") || 0);
+    if (runId) loadRunSteps(runId).catch((error) => toast(error.message));
   });
 }
 
