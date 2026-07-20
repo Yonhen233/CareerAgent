@@ -445,8 +445,8 @@ class AgentStepResponse(BaseModel):
     step_name: str
     tool_name: str | None
     status: str
-    input_json: dict[str, Any] | None
-    output_json: dict[str, Any] | None
+    input_json: Any | None
+    output_json: Any | None
     error_message: str | None
     latency_ms: int
     created_at: datetime

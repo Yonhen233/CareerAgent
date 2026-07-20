@@ -387,6 +387,15 @@ class RunBusinessSummaryService:
         if status == "completed":
             return f"已完成 {job_text or '本次求职任务'}"
         if status == "waiting_for_confirmation" or output.get("requires_confirmation"):
+            confirmation = output
+            nested_confirmation = (output.get("result_json") or {}).get("requires_confirmation")
+            if isinstance(nested_confirmation, dict):
+                confirmation = nested_confirmation
+            interrupt = self._interrupt_value(confirmation)
+            confirmation_type = confirmation.get("confirmation_type")
+            if confirmation_type == "job_selection" or interrupt.get("kind") == "job_selection":
+                match_count = len(interrupt.get("matches") or [])
+                return f"已找到 {match_count} 个候选岗位，等待你选择"
             return f"{job_text or '投递材料'}已准备，等待你的确认"
         if status == "failed":
             return f"{job_text or '本次任务'}处理失败，可在 Trace 中定位原因"

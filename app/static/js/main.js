@@ -404,8 +404,12 @@ function profileSummaryText(profile) {
 }
 
 function updateResumeSourceSelection(source) {
-  $("#selected-profile-card")?.classList.toggle("is-selected", source === "existing");
-  $("#resume-upload-card")?.classList.toggle("is-selected", source === "pdf");
+  const selectedSource = source || "none";
+  const noResumeButton = $("#use-no-resume");
+  noResumeButton?.classList.toggle("is-selected", selectedSource === "none");
+  noResumeButton?.setAttribute("aria-pressed", selectedSource === "none" ? "true" : "false");
+  $("#selected-profile-card")?.classList.toggle("is-selected", selectedSource === "existing");
+  $("#resume-upload-card")?.classList.toggle("is-selected", selectedSource === "pdf");
 }
 
 function updateSelectedProfileCard(profile, source = "existing") {
@@ -414,10 +418,10 @@ function updateSelectedProfileCard(profile, source = "existing") {
   const form = $("#career-start-form");
   if (!title || !summary || !form) return;
   if (!profile) {
-    title.textContent = "本次不使用简历";
-    summary.textContent = "可以直接搜索，也可以选择档案获得匹配分析。";
+    title.textContent = "尚未选择档案";
+    summary.textContent = "从已有档案中选择，搜索结果会增加简历匹配分析。";
     if (form.profile_id) form.profile_id.value = "";
-    updateResumeSourceSelection(null);
+    updateResumeSourceSelection(source || "none");
     updateStartInputGuidance(form);
     return;
   }
@@ -434,6 +438,19 @@ function updateSelectedProfileCard(profile, source = "existing") {
   }
   updateResumeSourceSelection(source);
   updateStartInputGuidance(form);
+}
+
+function clearStartResumeSelection() {
+  const form = $("#career-start-form");
+  if (!form) return;
+  if (form.profile_id) form.profile_id.value = "";
+  if (form.resume_file) form.resume_file.value = "";
+  delete form.dataset.parsedResumeSignature;
+  delete form.dataset.parsedProfileId;
+  const fileName = $("#resume-file-name");
+  if (fileName) fileName.textContent = "选择 PDF";
+  setPdfParseStatus(form, "解析成功后会直接用于本次岗位匹配。");
+  updateSelectedProfileCard(null, "none");
 }
 
 async function openProfilePicker() {
@@ -801,17 +818,30 @@ function updateJobSearchProfile(profile) {
   const form = $("#job-search-form");
   const title = $("#job-search-profile-title");
   const summary = $("#job-search-profile-summary");
+  const control = $("#job-search-profile-control");
+  const clearButton = $("#clear-job-search-profile");
+  const actionLabel = $("#job-search-profile-action-label");
   if (!form || !title || !summary) return;
   if (!profile) {
     form.profile_id.value = "";
-    title.textContent = "未选择简历";
-    summary.textContent = "本次只按求职需求搜索。";
+    title.textContent = "不使用简历";
+    summary.textContent = "只按求职需求搜索岗位，不计算简历匹配分。";
+    control?.classList.add("is-no-resume");
+    control?.classList.remove("has-profile");
+    clearButton?.classList.add("is-active");
+    clearButton?.setAttribute("aria-pressed", "true");
+    if (actionLabel) actionLabel.textContent = "选择简历";
     return;
   }
   const structured = profile.structured_profile_json || {};
   form.profile_id.value = profile.id;
   title.textContent = `#${profile.id} ${profile.name || structured.name || "未命名简历"}`;
   summary.textContent = profileSummaryText(profile);
+  control?.classList.remove("is-no-resume");
+  control?.classList.add("has-profile");
+  clearButton?.classList.remove("is-active");
+  clearButton?.setAttribute("aria-pressed", "false");
+  if (actionLabel) actionLabel.textContent = "更换简历";
 }
 
 async function loadJobSearchSelectedProfile(profileId) {
@@ -1242,7 +1272,9 @@ async function loadRuns(target = "#runs-list") {
     button.addEventListener("click", () => loadRunSteps(button.dataset.runId));
   });
   if (target === "#runs-list" && rows.length) {
-    await loadRunSteps(rows[0].id);
+    const requestedRunId = Number(new URLSearchParams(window.location.search).get("run_id") || 0);
+    const initialRun = rows.find((row) => Number(row.id) === requestedRunId) || rows[0];
+    await loadRunSteps(initialRun.id);
   }
 }
 
@@ -1335,7 +1367,11 @@ function renderRunOutcomeLinks(row) {
   if (applicationId) links.push(packageAction("/ui/applications", "send", "投递材料", packageId));
   if (prepId) links.push(packageAction("/ui/prep", "messages-square", "面试准备", packageId));
   if (output.matches?.length) links.push(`<a class="button ghost" href="/ui/jobs"><i data-lucide="briefcase-business"></i> 推荐岗位 ${output.matches.length} 个</a>`);
-  if (output.requires_confirmation) links.push(`<button class="button primary" data-resume-run-id="${row.id}" type="button"><i data-lucide="check-circle-2"></i> 确认继续</button>`);
+  const confirmation = confirmationContext(row);
+  if (confirmation.needsConfirmation) {
+    const label = confirmation.type === "job_selection" ? "选择岗位并继续" : "确认生成投递材料";
+    links.push(`<button class="button primary" data-open-run-confirmation="${row.id}" type="button"><i data-lucide="check-circle-2"></i> ${label}</button>`);
+  }
   return links.length ? `<div class="flow-result-actions">${links.join("")}</div>` : "";
 }
 
@@ -1360,33 +1396,141 @@ async function loadRunSteps(runId) {
   subscribeAgentRunEvents(runId);
 }
 
-function renderRunConfirmation(run) {
-  const el = $("#run-confirmation");
-  if (!el) return;
-  const output = run.output_json || {};
-  const needsConfirmation = run.status === "waiting_for_confirmation" || output.requires_confirmation;
-  if (!needsConfirmation) {
-    el.innerHTML = `
-      <article class="item meta">
-        <strong>无待确认事项</strong>
-        <p>当前运行不需要人工确认。只有投递包、浏览器填写、邮件草稿/发送等高风险动作，才会在这里要求你确认。</p>
+function confirmationContext(run) {
+  const runOutput = run?.output_json || {};
+  const nestedRuns = runOutput.result_json?.agent_runs || [];
+  const nestedWaitingRun = nestedRuns.find((item) => item.status === "waiting_for_confirmation");
+  const confirmationOutput = nestedWaitingRun?.output_json
+    || runOutput.result_json?.requires_confirmation
+    || runOutput;
+  const interrupt = confirmationOutput.interrupts?.[0]?.value || {};
+  const kind = interrupt.kind || "";
+  const type = confirmationOutput.confirmation_type
+    || (kind === "job_selection" ? "job_selection" : kind === "application_packet_confirmation" ? "application_packet" : "");
+  return {
+    needsConfirmation: run?.status === "waiting_for_confirmation"
+      || Boolean(confirmationOutput.requires_confirmation)
+      || Boolean(nestedWaitingRun),
+    type,
+    targetRunId: Number(nestedWaitingRun?.id || run?.id || 0),
+    interrupt,
+    matches: interrupt.matches || confirmationOutput.matches || [],
+  };
+}
+
+function confirmationPanelHtml(run) {
+  const context = confirmationContext(run);
+  if (!context.needsConfirmation) {
+    return `
+      <article class="item confirmation-empty">
+        <strong>当前没有需要你处理的操作</strong>
+        <p class="meta">流程会继续运行；需要选择岗位或批准生成材料时，这里会显示具体内容。</p>
       </article>
     `;
-    return;
   }
-  el.innerHTML = `
-    <article class="item validation-risk">
+  if (context.type === "job_selection") {
+    const candidates = context.matches.slice(0, 8);
+    return `
+      <article class="item confirmation-card">
+        <div class="item-title">
+          <span>选择一个岗位继续</span>
+          <span class="status-pill">需要选择</span>
+        </div>
+        <p class="meta">${escapeHtml(context.interrupt.message || "岗位已经检索完成。请选择一个岗位，Agent 才会继续做差距分析和定制简历。")}</p>
+        <div class="confirmation-job-list">
+          ${candidates.length ? candidates.map((job) => `
+            <div class="confirmation-job-option">
+              <div>
+                <strong>${escapeHtml(job.title || `岗位 #${job.job_id}`)}</strong>
+                <small>${escapeHtml(job.company || "未知公司")}${job.overall_score !== undefined ? ` · 匹配分 ${escapeHtml(job.overall_score)}` : ""}</small>
+                ${job.matched_skills?.length ? tags(job.matched_skills.slice(0, 5)) : ""}
+              </div>
+              <button class="button primary" type="button" data-select-job-run="${context.targetRunId}" data-selected-job-id="${job.job_id}">
+                <i data-lucide="check"></i> 选择并继续
+              </button>
+            </div>
+          `).join("") : `<div class="validation-risk">当前流程没有返回可选择的岗位，请查看运行轨迹后重新搜索。</div>`}
+        </div>
+      </article>
+    `;
+  }
+  const fitGate = context.interrupt.fit_gate || {};
+  const confirmationJob = run?.confirmation_job || {};
+  const jobTitle = context.interrupt.job_title || confirmationJob.title || `岗位 #${context.interrupt.job_id || run?.job_id || "-"}`;
+  const company = context.interrupt.company || confirmationJob.company || "";
+  return `
+    <article class="item confirmation-card">
       <div class="item-title">
-        <span>待确认事项</span>
-        <span class="status-pill risk">人工确认</span>
+        <span>确认生成投递材料</span>
+        <span class="status-pill risk">需要确认</span>
       </div>
-      <p class="meta">这是高风险动作的确认点，不是普通历史操作。当前 run 准备生成或继续投递相关材料，需要你确认后才会继续执行。</p>
-      <div class="flow-result-actions">
-        <button class="button primary" data-resume-run-id="${run.id}" type="button"><i data-lucide="check-circle-2"></i> 确认继续</button>
+      <div class="confirmation-summary">
+        <strong>${escapeHtml([company, jobTitle].filter(Boolean).join(" · "))}</strong>
+        <p>确认后会生成投递包和检查清单，不会自动提交申请、填写外部网页或发送邮件。</p>
+      </div>
+      ${fitGate.overall_score !== undefined ? `
+        <div class="confirmation-fit">
+          <span>岗位匹配分 <strong>${escapeHtml(fitGate.overall_score)}</strong></span>
+          <span>投递阈值 <strong>${escapeHtml(fitGate.min_score ?? "-")}</strong></span>
+        </div>
+      ` : ""}
+      ${fitGate.missing_skills?.length ? `<div class="business-summary-detail"><span>仍需补充</span>${tags(fitGate.missing_skills.slice(0, 6))}</div>` : ""}
+      <div class="flow-result-actions confirmation-actions">
+        <button class="button primary" data-confirm-application-run="${context.targetRunId}" type="button"><i data-lucide="file-check-2"></i> 确认生成投递材料</button>
+        <button class="button ghost" data-cancel-user-run="${context.targetRunId}" type="button"><i data-lucide="circle-x"></i> 取消这次流程</button>
       </div>
     </article>
   `;
+}
+
+function renderRunConfirmation(run) {
+  const el = $("#run-confirmation");
+  if (!el) return;
+  el.innerHTML = confirmationPanelHtml(run);
   if (window.lucide) window.lucide.createIcons();
+}
+
+async function openRunConfirmation(runId) {
+  const run = await api(`/agent/runs/${runId}`);
+  const dialog = $("#run-confirmation-dialog");
+  const target = $("#global-run-confirmation");
+  const title = $("#run-confirmation-dialog-title");
+  if (!dialog || !target) return;
+  const context = confirmationContext(run);
+  if (context.type !== "job_selection" && !context.interrupt.job_title && run.job_id) {
+    try {
+      run.confirmation_job = await api(`/jobs/${run.job_id}`);
+    } catch (_) {
+      // The confirmation remains usable even when old runs no longer have a job record.
+    }
+  }
+  if (title) title.textContent = context.type === "job_selection" ? "选择要继续处理的岗位" : "确认是否生成投递材料";
+  target.innerHTML = confirmationPanelHtml(run);
+  openDialog("#run-confirmation-dialog");
+  if (window.lucide) window.lucide.createIcons();
+}
+
+async function submitRunConfirmation(button, runId, resumeJson, note) {
+  button.disabled = true;
+  try {
+    const resumed = await resumeAgentRun(runId, {
+      confirmed: true,
+      note,
+      resume_json: resumeJson,
+    });
+    updateTrackedRun(resumed);
+    if (resumed.status === "waiting_for_confirmation") {
+      toast("这一步已完成，流程还有一项需要确认");
+      await openRunConfirmation(resumed.id);
+    } else {
+      closeDialog("#run-confirmation-dialog");
+      toast(resumed.status === "completed" ? "流程已继续并完成" : `流程当前状态：${activeRunStatusLabel(resumed.status)}`);
+    }
+    if ($("#runs-list")) await loadRuns();
+    await restoreActiveRuns();
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function eventLabel(eventType, nodeName = "") {
@@ -2120,7 +2264,12 @@ function rememberDismissedRun(runId) {
 function writeActiveRuns(rows) {
   const now = Date.now();
   const dismissed = readDismissedRunIds();
-  const cleanRows = (rows || []).filter((row) => {
+  const deduplicated = new Map();
+  (rows || []).forEach((row) => {
+    const runId = Number(row.run_id || row.id);
+    if (runId > 0) deduplicated.set(runId, { ...(deduplicated.get(runId) || {}), ...row, run_id: runId });
+  });
+  const cleanRows = Array.from(deduplicated.values()).filter((row) => {
     const runId = Number(row.run_id || row.id);
     if (runId <= 0 || dismissed.has(runId)) return false;
     if (row.dismissed_at) return false;
@@ -2133,7 +2282,10 @@ function writeActiveRuns(rows) {
     window.localStorage?.removeItem(ACTIVE_RUN_KEY);
     return;
   }
-  const compactRows = cleanRows.slice(-6).map((row) => ({
+  const compactRows = cleanRows
+    .sort((left, right) => Number(left.run_id || 0) - Number(right.run_id || 0))
+    .slice(-12)
+    .map((row) => ({
     run_id: Number(row.run_id || row.id),
     task_type: row.task_type || "full_career_flow",
     label: row.label || taskLabel(row.task_type),
@@ -2170,6 +2322,7 @@ function updateTrackedRun(run) {
   const rows = readActiveRuns();
   const existing = rows.find((row) => Number(row.run_id || row.id) === runId) || {};
   const status = run.status || existing.status || "unknown";
+  const serverError = run.error_message || run.output_json?.error || null;
   const merged = {
     ...existing,
     run_id: runId,
@@ -2179,7 +2332,7 @@ function updateTrackedRun(run) {
     created_at: existing.created_at || run.created_at || new Date().toISOString(),
     status,
     finished_at: ACTIVE_RUN_TERMINAL_STATUSES.has(status) ? (existing.finished_at || new Date().toISOString()) : null,
-    error: run.error_message || run.output_json?.error || existing.error || null,
+    error: serverError || (status === "failed" ? existing.error || null : null),
   };
   writeActiveRuns([...rows.filter((row) => Number(row.run_id || row.id) !== runId), merged]);
   void restoreActiveRuns();
@@ -2208,16 +2361,6 @@ function activeRunStatusLabel(status) {
 function renderActiveRunMonitor(rows) {
   const el = $("#active-run-monitor");
   if (!el) return;
-  if (!rows.length) {
-    el.hidden = true;
-    el.innerHTML = "";
-    return;
-  }
-  el.hidden = false;
-  const primary = rows[0] || {};
-  const hasRunning = rows.some((row) => !ACTIVE_RUN_TERMINAL_STATUSES.has(row.status || ""));
-  const hasFailed = rows.some((row) => row.status === "failed");
-  const hasWaiting = rows.some((row) => row.status === "waiting_for_confirmation");
   const statusPriority = {
     waiting_for_confirmation: 0,
     running: 1,
@@ -2226,38 +2369,59 @@ function renderActiveRunMonitor(rows) {
     completed: 4,
     cancelled: 5,
     canceled: 5,
+    unknown: 6,
   };
-  const orderedRows = [...rows].sort((left, right) => {
+  const uniqueRows = Array.from(new Map((rows || []).map((row) => [Number(row.run_id || row.id), row])).values());
+  const orderedRows = uniqueRows.sort((left, right) => {
     const statusDelta = (statusPriority[left.status] ?? 9) - (statusPriority[right.status] ?? 9);
     if (statusDelta !== 0) return statusDelta;
     return Number(right.run_id || 0) - Number(left.run_id || 0);
   });
-  const highlighted = orderedRows[0] || primary;
-  const collapsed = window.localStorage?.getItem(ACTIVE_RUN_COLLAPSED_KEY) === "1";
+  const activeRows = orderedRows.filter((row) => !ACTIVE_RUN_TERMINAL_STATUSES.has(row.status || ""));
+  const displayRows = activeRows.length ? activeRows : orderedRows.slice(0, 1);
+  if (!displayRows.length) {
+    el.hidden = true;
+    el.innerHTML = "";
+    return;
+  }
+  el.hidden = false;
+  const visibleRows = displayRows.slice(0, 3);
+  const hasRunning = activeRows.some((row) => ["queued", "running"].includes(row.status));
+  const waitingCount = activeRows.filter((row) => row.status === "waiting_for_confirmation").length;
+  const collapsedPreference = window.localStorage?.getItem(ACTIVE_RUN_COLLAPSED_KEY);
+  const collapsed = collapsedPreference === null
+    ? displayRows.length > 1
+    : collapsedPreference === "1";
   el.classList.toggle("collapsed", collapsed);
   el.innerHTML = `
     <div class="active-run-title">
-      <span>${hasRunning ? "正在处理的求职流程" : "最近的求职流程"}</span>
+      <span>${activeRows.length ? "正在处理的求职流程" : "最近完成的求职流程"}</span>
       <span class="active-run-title-actions">
-        <span class="status-pill ${hasWaiting || hasFailed ? "risk" : "ok"}">${escapeHtml(activeRunStatusLabel(highlighted.status))}</span>
+        <span class="status-pill ${waitingCount ? "risk" : "ok"}">${waitingCount ? `${waitingCount} 个待确认` : hasRunning ? `${activeRows.length} 个进行中` : escapeHtml(activeRunStatusLabel(visibleRows[0].status))}</span>
         <button class="icon-button" type="button" title="${collapsed ? "展开流程状态" : "收起流程状态"}" data-toggle-active-runs>
           <i data-lucide="${collapsed ? "chevron-up" : "chevron-down"}"></i>
         </button>
       </span>
     </div>
-    ${[highlighted].map((row) => `
-      <div class="active-run-row">
-        <div>
-          <strong>${escapeHtml(row.label || taskLabel(row.task_type))} · ${escapeHtml(packageLabel(row.package_id || row.run_id))}</strong>
-          <button class="icon-button" type="button" title="不再显示这个流程" data-dismiss-active-run="${escapeHtml(row.run_id)}"><i data-lucide="x"></i></button>
+    <div class="active-run-list">
+      ${visibleRows.map((row) => `
+        <div class="active-run-row">
+          <div class="active-run-row-head">
+            <strong>${escapeHtml(row.label || taskLabel(row.task_type))} · ${escapeHtml(packageLabel(row.package_id || row.run_id))}</strong>
+            <button class="icon-button" type="button" title="不再显示这个流程" data-dismiss-active-run="${escapeHtml(row.run_id)}"><i data-lucide="x"></i></button>
+          </div>
+          <small>${escapeHtml(activeRunStatusLabel(row.status))}${row.error ? ` · ${escapeHtml(row.error)}` : ""}${row.sync_error ? " · 状态同步暂时中断" : ""}</small>
+          <div class="active-run-row-actions">
+            <a href="/ui/agent-runs?run_id=${escapeHtml(row.run_id)}">查看详情</a>
+            ${row.status === "waiting_for_confirmation" ? `<button type="button" data-open-run-confirmation="${escapeHtml(row.run_id)}">现在处理</button>` : ""}
+          </div>
         </div>
-        <small>${escapeHtml(activeRunStatusLabel(row.status))}${row.error ? ` · ${escapeHtml(row.error)}` : ""}</small>
-      </div>
-    `).join("")}
-    ${orderedRows.length > 1 ? `<a class="active-run-more" href="/ui/agent-runs">另有 ${orderedRows.length - 1} 个流程，统一到历史记录查看</a>` : ""}
-    <div class="flow-result-actions">
-      <a class="button ghost" href="/ui/agent-runs"><i data-lucide="history"></i> 查看历史记录</a>
-      ${rows.some((row) => row.status === "waiting_for_confirmation") ? `<a class="button primary" href="/ui/agent-runs"><i data-lucide="check-circle-2"></i> 去确认</a>` : ""}
+      `).join("")}
+    </div>
+    ${displayRows.length > visibleRows.length ? `<a class="active-run-more" href="/ui/agent-runs">还有 ${displayRows.length - visibleRows.length} 个进行中的流程</a>` : ""}
+    <div class="active-run-footer">
+      <a href="/ui/agent-runs"><i data-lucide="history"></i> 查看全部历史记录</a>
+      ${waitingCount ? `<span>逐条确认，互不覆盖</span>` : ""}
     </div>
   `;
   if (window.lucide) window.lucide.createIcons();
@@ -2325,9 +2489,13 @@ async function restoreCareerFlowFromRun(run) {
 
 async function restoreActiveRuns() {
   let stored = readActiveRuns();
-  if (!stored.length) {
-    stored = await recentRunsFromServer();
-  }
+  const discovered = await recentRunsFromServer();
+  const mergedRecords = new Map();
+  [...stored, ...discovered].forEach((record) => {
+    const runId = Number(record.run_id || record.id);
+    if (runId > 0) mergedRecords.set(runId, { ...(mergedRecords.get(runId) || {}), ...record, run_id: runId });
+  });
+  stored = Array.from(mergedRecords.values());
   if (!stored.length) {
     renderActiveRunMonitor([]);
     if (activeRunMonitorTimer) clearTimeout(activeRunMonitorTimer);
@@ -2343,10 +2511,20 @@ async function restoreActiveRuns() {
       return { record, error };
     }
   }));
+  const wrapperRunIds = new Set(
+    results
+      .filter((item) => {
+        if (!item.run) return false;
+        const context = confirmationContext(item.run);
+        return context.needsConfirmation && context.targetRunId && context.targetRunId !== Number(item.run.id);
+      })
+      .map((item) => Number(item.run.id))
+  );
   const keep = [];
   const visible = [];
   for (const item of results) {
     const runId = Number(item.record.run_id || item.record.id);
+    if (wrapperRunIds.has(runId)) continue;
     if (item.run) {
       const status = item.run.status || "unknown";
       const finishedAt = ACTIVE_RUN_TERMINAL_STATUSES.has(status)
@@ -2360,7 +2538,7 @@ async function restoreActiveRuns() {
         label: item.record.label || taskLabel(item.run.task_type),
         status,
         finished_at: finishedAt,
-        error: item.run.error_message || item.run.output_json?.error || item.record.error || null,
+        error: item.run.error_message || item.run.output_json?.error || null,
         run: item.run,
       };
       const recentTerminal = ACTIVE_RUN_TERMINAL_STATUSES.has(status)
@@ -2374,8 +2552,9 @@ async function restoreActiveRuns() {
       const merged = {
         ...item.record,
         run_id: runId,
-        status: "unknown",
-        error: item.error?.message || "暂时无法同步",
+        status: item.record.status || "unknown",
+        error: item.record.error || null,
+        sync_error: item.error?.message || "暂时无法同步",
       };
       keep.push(merged);
       visible.push(merged);
@@ -2402,7 +2581,7 @@ async function recentRunsFromServer() {
         const timeText = run.updated_at || run.created_at;
         return timeText && now - Date.parse(timeText) < ACTIVE_RUN_RECENT_TTL_MS;
       })
-      .slice(0, 3)
+      .slice(0, 12)
       .map((run) => ({
         run_id: run.id,
         task_type: run.task_type,
@@ -2659,6 +2838,9 @@ function setPdfParseStatus(form, message, kind = "") {
 
 async function parseResumeFileIntoStartForm(form, file) {
   if (!file) return null;
+  const fileName = $("#resume-file-name");
+  if (fileName) fileName.textContent = file.name;
+  updateResumeSourceSelection("pdf");
   const signature = `${file.name}:${file.size}:${file.lastModified}`;
   if (form.dataset.parsedResumeSignature === signature && form.dataset.parsedProfileId) {
     return api(`/profiles/${form.dataset.parsedProfileId}`);
@@ -2681,8 +2863,8 @@ function updateStartInputGuidance(form) {
   const raw = formJson(form);
   const hasPreference = Boolean(String(raw.instruction || "").trim());
   const hasProfile = Boolean(raw.profile_id || form.elements.resume_file?.files?.[0]);
-  let title = "简历不是搜索岗位的前置条件";
-  let detail = "不提供简历时按求职需求检索；提供简历后还会为每个岗位计算匹配项和能力缺口。";
+  let title = "本次只搜索岗位";
+  let detail = "当前未使用简历，看到感兴趣的 JD 后仍可继续做匹配分析。";
   let buttonText = "浏览 Agent 岗位";
   let submitSummary = "将浏览系统中的 Agent 岗位";
   if (hasPreference && hasProfile) {
@@ -3480,15 +3662,17 @@ function bindForms() {
 
   const careerStartForm = $("#career-start-form");
   if (careerStartForm) {
-    updateStartInputGuidance(careerStartForm);
-    updateSelectedProfileCard(null);
+    updateSelectedProfileCard(null, "none");
     careerStartForm.addEventListener("input", () => updateStartInputGuidance(careerStartForm));
     careerStartForm.addEventListener("change", async (event) => {
       updateStartInputGuidance(careerStartForm);
       if (event.target?.name === "resume_file") {
         const file = event.target.files?.[0];
         if (!file) {
-          setPdfParseStatus(careerStartForm, "解析成功后会用于本次岗位匹配。");
+          const fileName = $("#resume-file-name");
+          if (fileName) fileName.textContent = "选择 PDF";
+          setPdfParseStatus(careerStartForm, "解析成功后会直接用于本次岗位匹配。");
+          if (!careerStartForm.profile_id?.value) updateResumeSourceSelection("none");
           return;
         }
         try {
@@ -3500,6 +3684,11 @@ function bindForms() {
       }
     });
   }
+
+  $("#use-no-resume")?.addEventListener("click", () => {
+    clearStartResumeSelection();
+    toast("本次将不使用简历，只搜索岗位");
+  });
 
   $("#open-profile-picker")?.addEventListener("click", () => {
     openProfilePicker().catch((error) => toast(error.message));
@@ -3610,6 +3799,12 @@ function bindForms() {
 
   $("#open-job-search-profile-picker")?.addEventListener("click", () => {
     openJobSearchProfilePicker().catch((error) => toast(error.message));
+  });
+  $("#clear-job-search-profile")?.addEventListener("click", () => {
+    updateJobSearchProfile(null);
+    const notice = $("#job-search-errors");
+    if (notice) notice.innerHTML = "<span>已改为不使用简历。点击“搜索岗位”后，将只按求职需求更新结果。</span>";
+    toast("本次搜索不使用简历");
   });
   $("#job-search-profile-picker-search")?.addEventListener("input", renderJobSearchProfilePicker);
   document.querySelectorAll("[data-close-job-search-profile-picker]").forEach((button) => {
@@ -3974,6 +4169,67 @@ function bindForms() {
       if (window.lucide) window.lucide.createIcons();
       return;
     }
+    const closeRunConfirmationButton = event.target.closest("[data-close-run-confirmation]");
+    if (closeRunConfirmationButton) {
+      closeDialog("#run-confirmation-dialog");
+      return;
+    }
+    const openRunConfirmationButton = event.target.closest("[data-open-run-confirmation]");
+    if (openRunConfirmationButton) {
+      openRunConfirmationButton.disabled = true;
+      openRunConfirmation(openRunConfirmationButton.dataset.openRunConfirmation)
+        .catch((error) => toast(error.message))
+        .finally(() => {
+          openRunConfirmationButton.disabled = false;
+        });
+      return;
+    }
+    const selectJobRunButton = event.target.closest("[data-select-job-run]");
+    if (selectJobRunButton) {
+      submitRunConfirmation(
+        selectJobRunButton,
+        selectJobRunButton.dataset.selectJobRun,
+        {
+          job_id: Number(selectJobRunButton.dataset.selectedJobId),
+          source: "frontend_job_selection",
+        },
+        "用户选择目标岗位后继续求职流程。"
+      ).catch((error) => toast(error.message));
+      return;
+    }
+    const confirmApplicationButton = event.target.closest("[data-confirm-application-run]");
+    if (confirmApplicationButton) {
+      submitRunConfirmation(
+        confirmApplicationButton,
+        confirmApplicationButton.dataset.confirmApplicationRun,
+        { source: "frontend_application_confirmation" },
+        "用户确认生成投递材料；不授权自动提交、填写外部网页或发送邮件。"
+      ).catch((error) => toast(error.message));
+      return;
+    }
+    const cancelUserRunButton = event.target.closest("[data-cancel-user-run]");
+    if (cancelUserRunButton) {
+      const runId = cancelUserRunButton.dataset.cancelUserRun;
+      if (!window.confirm("确定取消这次流程吗？已生成的简历和分析结果会保留。")) return;
+      cancelUserRunButton.disabled = true;
+      api(`/agent/runs/${runId}/cancel`, {
+        method: "POST",
+        body: JSON.stringify({ reason: "用户在待确认弹窗中取消流程" }),
+      })
+        .then((run) => {
+          updateTrackedRun(run);
+          closeDialog("#run-confirmation-dialog");
+          toast(`流程 #${runId} 已取消`);
+          if ($("#runs-list")) return loadRuns();
+          return null;
+        })
+        .then(() => restoreActiveRuns())
+        .catch((error) => toast(error.message))
+        .finally(() => {
+          cancelUserRunButton.disabled = false;
+        });
+      return;
+    }
     const importButton = event.target.closest("[data-import-interview-candidate]");
     if (importButton) prefillInterviewSourceImport(importButton);
     const reviewButton = event.target.closest("[data-review-profile]");
@@ -3996,6 +4252,8 @@ function bindForms() {
       );
       updateJobSearchProfile(profile);
       closeDialog("#job-search-profile-picker-dialog");
+      const notice = $("#job-search-errors");
+      if (notice) notice.innerHTML = "<span>已选择简历。点击“搜索岗位”后，结果会增加匹配项和能力缺口。</span>";
       toast(`已选择简历 #${profile?.id}`);
     }
     const jobDetailProfileButton = event.target.closest("[data-select-job-detail-profile]");
@@ -4020,24 +4278,6 @@ function bindForms() {
       updateTailorJobCard(job);
       closeDialog("#tailor-job-picker-dialog");
       toast(`已选择岗位 #${tailorJobButton.dataset.selectTailorJob}`);
-    }
-    const resumeRunButton = event.target.closest("[data-resume-run-id]");
-    if (resumeRunButton) {
-      const runId = resumeRunButton.dataset.resumeRunId;
-      resumeRunButton.disabled = true;
-      resumeAgentRun(runId, {
-        confirmed: true,
-        note: "用户在历史记录详情中确认继续生成投递包。",
-        resume_json: { source: "agent_runs_detail" },
-      })
-        .then((resumed) => {
-          toast(resumed.status === "completed" ? "已确认并继续完成" : `当前状态：${resumed.status}`);
-          return loadRuns();
-        })
-        .catch((error) => toast(error.message))
-        .finally(() => {
-          resumeRunButton.disabled = false;
-        });
     }
     const qualityButton = event.target.closest("[data-quality-jump]");
     if (qualityButton) focusInterviewQuestion(qualityButton);

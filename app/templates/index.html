@@ -31,32 +31,50 @@
       </div>
 
       <div class="start-resume-picker optional-resume-picker wide" aria-label="可选简历">
-        <div id="input-guidance" class="guidance-card resume-source-guidance">
-          <strong>简历不是搜索岗位的前置条件</strong>
-          <span>不提供简历时按求职需求检索；提供简历后还会为每个岗位计算匹配项和能力缺口。</span>
+        <div class="resume-picker-heading">
+          <div>
+            <p class="eyebrow">简历使用方式</p>
+            <strong>请选择本次是否使用简历</strong>
+          </div>
+          <span>不使用时只搜索岗位；使用简历后增加匹配项和能力缺口。</span>
         </div>
         <input name="profile_id" type="hidden">
+        <button class="resume-source-card resume-skip-card is-selected" type="button" id="use-no-resume" aria-pressed="true">
+          <div>
+            <span class="field-label">不使用简历</span>
+            <strong>本次只搜索岗位</strong>
+            <small>适合先查看岗位机会，之后可在具体 JD 页面补充简历。</small>
+          </div>
+          <span class="resume-choice-indicator"><i data-lucide="check"></i> 当前选择</span>
+        </button>
         <div class="resume-source-card selected-profile-card" id="selected-profile-card">
           <div>
             <span class="field-label">已有档案</span>
-            <strong id="selected-profile-title">本次不使用简历</strong>
-            <small id="selected-profile-summary">可以直接搜索，也可以选择档案获得匹配分析。</small>
+            <strong id="selected-profile-title">尚未选择档案</strong>
+            <small id="selected-profile-summary">从已有档案中选择，搜索结果会增加简历匹配分析。</small>
           </div>
           <button class="button ghost" type="button" id="open-profile-picker"><i data-lucide="folder-search"></i> 选择已有档案</button>
         </div>
         <label class="resume-source-card resume-upload-inline" id="resume-upload-card">
-          <span class="field-label">PDF 简历</span>
-          <strong>上传后自动建立档案</strong>
-          <small id="pdf-parse-status" class="field-hint">解析成功后会用于本次岗位匹配。</small>
+          <div>
+            <span class="field-label">PDF 简历</span>
+            <strong>上传并自动建立档案</strong>
+            <small id="pdf-parse-status" class="field-hint">解析成功后会直接用于本次岗位匹配。</small>
+          </div>
+          <span class="button ghost resume-file-trigger"><i data-lucide="file-up"></i><span id="resume-file-name">选择 PDF</span></span>
           <input name="resume_file" type="file" accept="application/pdf">
         </label>
         <div class="resume-source-card resume-create-card">
           <div>
-            <span class="field-label">还没有简历</span>
-            <strong>稍后再建立也可以</strong>
-            <small>你可以先浏览岗位，看到感兴趣的 JD 后再补充简历。</small>
+            <span class="field-label">新建档案</span>
+            <strong>手动填写或自然语言生成</strong>
+            <small>适合还没有完整简历，或需要补充多段教育、项目和实习经历。</small>
           </div>
           <a class="button ghost start-profile-create" href="/ui/profiles"><i data-lucide="file-pen-line"></i> 去简历页建档</a>
+        </div>
+        <div id="input-guidance" class="resume-selection-summary" aria-live="polite">
+          <strong>本次只搜索岗位</strong>
+          <span>当前未使用简历，看到感兴趣的 JD 后仍可继续做匹配分析。</span>
         </div>
       </div>
 

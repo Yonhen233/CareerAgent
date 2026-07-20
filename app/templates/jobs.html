@@ -10,23 +10,26 @@
   </div>
   <form id="job-search-form" class="job-discovery-form">
     <label class="job-preference-input">
-      求职需求 <span class="optional-label">可选</span>
+      <span class="field-label-row"><span>求职需求</span><span class="optional-label">可选</span></span>
       <textarea name="preference_text" rows="3" placeholder="例如：北京或远程的 Agent 开发实习，偏 RAG、LangGraph 和后端工程。"></textarea>
     </label>
-    <div class="job-search-profile-control">
+    <div class="job-search-profile-control is-no-resume" id="job-search-profile-control">
       <div>
-        <span class="field-label">简历档案（可选）</span>
-        <strong id="job-search-profile-title">未选择简历</strong>
-        <small id="job-search-profile-summary">本次只按求职需求搜索。</small>
+        <span class="field-label-row"><span>本次简历</span><span class="optional-label">可选</span></span>
+        <strong id="job-search-profile-title">不使用简历</strong>
+        <small id="job-search-profile-summary">只按求职需求搜索岗位，不计算简历匹配分。</small>
       </div>
       <input name="profile_id" type="hidden">
-      <button class="button ghost" type="button" id="open-job-search-profile-picker"><i data-lucide="folder-search"></i> 选择简历</button>
+      <div class="job-search-profile-actions">
+        <button class="button ghost is-active" type="button" id="clear-job-search-profile" aria-pressed="true"><i data-lucide="search"></i> 不使用简历</button>
+        <button class="button ghost" type="button" id="open-job-search-profile-picker"><i data-lucide="folder-search"></i> <span id="job-search-profile-action-label">选择简历</span></button>
+      </div>
     </div>
     <div class="job-search-filter-row">
-      <label>城市<input name="location" placeholder="深圳 / 上海 / 北京 / 远程"></label>
-      <label>数量<input name="limit" type="number" min="1" max="50" value="20"></label>
+      <label><span class="field-label-row"><span>城市</span><span class="optional-label">可选</span></span><input name="location" placeholder="深圳 / 上海 / 北京 / 远程"></label>
+      <label><span class="field-label-row"><span>数量</span></span><input name="limit" type="number" min="1" max="50" value="20"></label>
       <label>
-        来源
+        <span class="field-label-row"><span>来源</span></span>
         <select name="source_mode">
           <option value="hybrid" selected>真实来源 + 岗位库</option>
           <option value="corpus">仅搜索岗位库</option>

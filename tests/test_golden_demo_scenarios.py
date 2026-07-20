@@ -81,3 +81,33 @@ def test_business_summary_preserves_zero_match_score(db_session):
     summary = RunBusinessSummaryService().build(db_session, run=run)
 
     assert summary["metrics"]["match_score"] == 0.0
+
+
+def test_business_summary_distinguishes_job_selection_from_application_confirmation(db_session):
+    run = AgentRun(
+        task_type="full_career_flow",
+        status="waiting_for_confirmation",
+        input_json={},
+        output_json={
+            "requires_confirmation": True,
+            "confirmation_type": "job_selection",
+            "interrupts": [
+                {
+                    "value": {
+                        "kind": "job_selection",
+                        "matches": [
+                            {"job_id": 1, "title": "Agent 工程师"},
+                            {"job_id": 2, "title": "RAG 开发实习生"},
+                        ],
+                    }
+                }
+            ],
+        },
+    )
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+
+    summary = RunBusinessSummaryService().build(db_session, run=run)
+
+    assert summary["headline"] == "已找到 2 个候选岗位，等待你选择"

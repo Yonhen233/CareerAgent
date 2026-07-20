@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>CareerAgent</title>
-    <link rel="stylesheet" href="/static/css/style.css?v=20260720-job-discovery-3">
+    <link rel="stylesheet" href="/static/css/style.css?v=20260720-run-confirmation-1">
     <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
   </head>
   <body data-page="{{ page }}">
@@ -33,8 +33,20 @@
     <main class="shell">
       {% block content %}{% endblock %}
     </main>
+    <dialog id="run-confirmation-dialog" class="profile-picker-dialog run-confirmation-dialog">
+      <div class="dialog-shell">
+        <div class="panel-heading compact">
+          <div>
+            <p class="eyebrow">流程需要你的决定</p>
+            <h2 id="run-confirmation-dialog-title">处理待确认事项</h2>
+          </div>
+          <button class="ghost compact-button" type="button" data-close-run-confirmation><i data-lucide="x"></i> 关闭</button>
+        </div>
+        <div id="global-run-confirmation" class="result-list compact-result"></div>
+      </div>
+    </dialog>
     <div id="active-run-monitor" class="active-run-monitor" hidden></div>
     <div id="toast" class="toast" hidden></div>
-    <script src="/static/js/main.js?v=20260720-job-discovery-3"></script>
+    <script src="/static/js/main.js?v=20260720-run-confirmation-1"></script>
   </body>
 </html>

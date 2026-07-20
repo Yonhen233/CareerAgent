@@ -188,7 +188,7 @@ class TraceService:
     def _json_safe(self, value: Any) -> Any:
         if hasattr(value, "id"):
             return {"id": getattr(value, "id")}
-        if isinstance(value, list):
+        if isinstance(value, (list, tuple, set)):
             return [self._json_safe(item) for item in value]
         if isinstance(value, dict):
             return {str(k): self._json_safe(v) for k, v in value.items()}
