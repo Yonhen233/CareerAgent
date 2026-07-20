@@ -1,5 +1,49 @@
 # 开发日志
 
+## 2026-07-20 13:02:31 +08:00：黄金业务路径、文件化 Skill、Tool Policy 与业务摘要
+### 这次做了什么
+- 按“工程能力已经较深，但业务主线和演示表达不够集中”的评述重构产品表达，没有照搬外部电商项目的 JSON 存储、Mock 或为技术名词而拆多 Agent。
+- 在开始页增加“岗位匹配、证据约束定制、审批式投递”三条快速示例，并新增 `evals/golden_demo_scenarios.json` 和 `docs/GOLDEN_DEMOS.md`，固化输入、阶段、预期产物和禁止行为。
+- 将原 Python 常量式 Skill 注册升级为 7 个真实 `skills/*/SKILL.md`：每个 Skill 都有版本、触发条件、输入、允许工具、上下文、输出契约、禁止行为、成功标准、失败策略和正文指令。
+- 增加 Skill 渐进式披露：`GET /agent/skills` 只返回目录 metadata，`GET /agent/skills/{skill_name}` 才返回完整指令；执行计划只带本任务需要的精简契约。
+- 扩展统一 Tool Policy，声明风险等级、审批要求、业务幂等、超时、重试、审计事件、MCP 候选和反向 Skill 授权；Planner 会阻止未被当前 Skill 授权的 Tool。
+- 将 LangGraph Trace 中的工具名统一为 Tool Policy 的 canonical name，避免类名、步骤名和工具注册表对不上。
+- 新增 `RunBusinessSummaryService` 和 `GET /agent/runs/{run_id}/summary`，按路由、过程、结果、副作用四层汇总岗位、证据、Guardrail、repair、工具成功率、产物 ID、审批和真实外发结果。
+- 历史记录页优先展示业务摘要，再展示阶段和 LangGraph 事件；README 增加 90 秒业务主线、组件存在理由和 V1-V8 产品演进。
+- 浏览器验收中顺手修复 390px 窄屏顶部导航横向溢出；全局任务卡改为只突出一条最高优先级流程，其他流程进入历史记录，并支持收起为 64px 状态条。
+
+### 发现的问题
+- 原 Skill 只是 Python 注册表中的说明对象，没有独立版本、禁止行为、成功标准和失败策略，难以证明“渐进式披露”和能力治理真实存在。
+- 原 Tool Spec 只强调输入输出和 MCP 候选，缺少统一的风险、审批、幂等、超时、重试和审计协议。
+- 原运行页把原始 step/event 当作主要产物，用户和面试官需要阅读大量 JSON 才能判断一次任务是否产生了业务价值。
+- 项目有较多深层工程能力，但 README 首屏是功能清单，真实主线和三条高价值场景不够突出，容易被误判为技术堆栈型 Demo。
+- 390px 浏览器验收发现导航把页面宽度从 390px 撑到 456px；任务浮层同时显示 3 条记录会遮挡右侧运行摘要。
+
+### 怎么修复
+- 使用 PyYAML 加载和严格校验 `SKILL.md` front matter，并保留原 `AGENT_SKILLS` 兼容接口，避免破坏已有调用。
+- Planner 根据任务选择 Skill contract 和 Tool Policy，执行前运行 `validate_tool_permissions`，权限失败直接抛错并留在 Trace。
+- 业务摘要只读取已落库的 run、step、artifact、approval、Job 和 ResumeVersion，不从最终文案猜测成功，也不虚构“修改前后分数提升”。
+- 将三条黄金路径的期望输出和 forbidden behaviors 写成机器可读资产，并增加回归测试检查覆盖和权限契约。
+- 移动端对 `.nav` 设置受容器约束的宽度和横向滚动；任务卡按 waiting/running/queued/failed 排序，只展示最高优先级记录，并增加持久化收起交互。
+
+### 验证结果
+- `node --check app\static\js\main.js` 通过。
+- 定向回归 31 个测试通过；修复移动端后前端定向回归 16 个测试通过。
+- `python -m pytest -q --tb=short` 通过，136 个测试全部通过；新增用例确认匹配分为 0 时业务摘要不会误显示为空。
+- 内置浏览器打开 `http://127.0.0.1:8062/`，三条快速示例、固定步骤、三选一简历来源和运行进度均可见。
+- 390x844 视口复验 `scrollWidth=375 < innerWidth=390`，页面不再横向溢出；任务卡展开高度从 367px 降到 228px，收起后为 64px。
+- 历史记录 run #185 成功展示四层摘要，工具调用数 5、工具成功率 100%，页面无横向溢出；浏览器控制台无 error。
+
+### 未修复的问题
+- 现有历史 run 在本次 schema 上线前没有固化 `business_summary` artifact；详情 API 会实时重建，但部分旧 run 缺少 ResumeVersion verification，因此会显示“事实风险未检查”或空证据覆盖。
+- 当前业务摘要没有展示“定制前后匹配分提升”，因为还没有同一简历和同一 JD 的人工标注前后对照集；不能为了演示而生成虚假 delta。
+- SubAgent 当前主要承担职责和上下文边界，不是多个自治 LLM 的效果实验；项目不会仅为了显得复杂而增加多 Agent 通信。
+
+### 下一步
+- 构建同一简历/同一 JD 的定制前后对照评测，真实计算 score delta、证据覆盖变化和人工偏好。
+- 增加用户反馈表，区分材料生成、人工确认、真实投递、面试邀请和录用结果，形成长期 outcome 指标。
+- 在发布流水线中把三条黄金场景与现有 RAG、Guardrail、Prompt Injection 和全流程 release gate 统一执行。
+
 ## 2026-07-08 16:54:20 +08:00：修复 LLM 全局提示空黄色条
 ### 这次做了什么
 - 修复部分页面顶部出现空黄色提示条的问题。

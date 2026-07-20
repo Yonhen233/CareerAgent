@@ -2,6 +2,7 @@ const $ = (selector) => document.querySelector(selector);
 const ADMIN_TOKEN_KEY = "careeragent.admin_token";
 const ACTIVE_RUN_KEY = "careeragent.active_runs";
 const DISMISSED_RUN_KEY = "careeragent.dismissed_runs";
+const ACTIVE_RUN_COLLAPSED_KEY = "careeragent.active_runs_collapsed";
 const ACTIVE_RUN_TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "canceled"]);
 const ACTIVE_RUN_RECENT_TTL_MS = 24 * 60 * 60 * 1000;
 const LLM_DEPENDENT_PAGES = new Set([
@@ -796,6 +797,7 @@ async function loadRuns(target = "#runs-list") {
         <span class="status-pill ${row.status === "completed" ? "ok" : row.status === "failed" ? "risk" : ""}">${row.status === "completed" ? "已完成" : row.status === "failed" ? "失败" : escapeHtml(row.status)}</span>
       </div>
       <div class="meta">简历 ${row.profile_id || "-"} · 岗位 ${row.job_id || "-"} · ${row.latency_ms}ms</div>
+      ${renderRunBusinessGlance(row.output_json?.business_summary)}
       ${renderRunOutcomeLinks(row)}
     </article>
   `);
@@ -805,6 +807,84 @@ async function loadRuns(target = "#runs-list") {
   if (target === "#runs-list" && rows.length) {
     await loadRunSteps(rows[0].id);
   }
+}
+
+function percentageText(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "-";
+  return `${Math.round(Number(value) * 100)}%`;
+}
+
+function approvalStatusLabel(value) {
+  const labels = {
+    pending: "等待确认",
+    approved: "已批准",
+    rejected: "已拒绝",
+    missing: "缺少审批",
+    not_required: "无需审批",
+  };
+  return labels[value] || value || "无需审批";
+}
+
+function renderRunBusinessGlance(summary) {
+  if (!summary?.metrics) return "";
+  const metrics = summary.metrics;
+  const parts = [];
+  if (metrics.match_score !== null && metrics.match_score !== undefined) parts.push(`匹配分 ${metrics.match_score}`);
+  if (metrics.evidence_coverage !== null && metrics.evidence_coverage !== undefined) parts.push(`证据覆盖 ${percentageText(metrics.evidence_coverage)}`);
+  if (metrics.guardrail_risk_level) parts.push(`事实风险 ${metrics.guardrail_risk_level}`);
+  if (metrics.tool_call_count !== null && metrics.tool_call_count !== undefined) parts.push(`工具 ${metrics.tool_call_count} 次`);
+  return parts.length ? `<div class="run-business-glance">${parts.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>` : "";
+}
+
+function businessSummaryHtml(summary, compact = false) {
+  if (!summary?.metrics) {
+    return `<p class="meta">运行完成后会在这里显示匹配、证据、事实检查、工具和审批结果。</p>`;
+  }
+  const metrics = summary.metrics;
+  const selected = summary.selected_job || {};
+  const sideEffect = summary.side_effect_layer || {};
+  const risk = metrics.guardrail_risk_level || "未检查";
+  const riskClass = risk === "high" || sideEffect.approval_bypass_detected ? "risk" : "ok";
+  const metricItems = [
+    ["岗位匹配分", metrics.match_score ?? "-"],
+    ["证据覆盖", percentageText(metrics.evidence_coverage)],
+    ["无依据表述", metrics.unsupported_claim_count ?? 0],
+    ["已拦截问题", metrics.forbidden_claim_block_count ?? 0],
+    ["工具调用", metrics.tool_call_count ?? 0],
+    ["工具成功率", percentageText(metrics.tool_success_rate)],
+    ["自动修复", metrics.repair_count ?? 0],
+    ["审批", approvalStatusLabel(sideEffect.approval_status)],
+  ];
+  const visibleMetrics = compact ? metricItems.slice(0, 6) : metricItems;
+  return `
+    <div class="business-summary-head">
+      <div>
+        <strong>${escapeHtml(summary.headline || summary.task_label || "任务摘要")}</strong>
+        <p class="meta">${escapeHtml([selected.company, selected.title].filter(Boolean).join(" · ") || summary.task_label || "")}</p>
+      </div>
+      <span class="status-pill ${riskClass}">事实风险 ${escapeHtml(risk)}</span>
+    </div>
+    <div class="business-summary-metrics">
+      ${visibleMetrics.map(([label, value]) => `
+        <div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>
+      `).join("")}
+    </div>
+    ${summary.result_layer?.missing_skills?.length ? `
+      <div class="business-summary-detail"><span>待补能力</span>${tags(summary.result_layer.missing_skills.slice(0, 8))}</div>
+    ` : ""}
+    ${summary.skills_used?.length && !compact ? `
+      <div class="business-summary-detail"><span>本次使用的能力</span>${tags(summary.skills_used)}</div>
+    ` : ""}
+    ${sideEffect.approval_bypass_detected ? `
+      <p class="validation-risk">检测到高风险工具绕过审批，当前结果不可发布。</p>
+    ` : ""}
+  `;
+}
+
+function renderRunBusinessSummary(summary) {
+  const el = $("#run-business-summary");
+  if (!el) return;
+  el.innerHTML = businessSummaryHtml(summary);
 }
 
 function renderRunOutcomeLinks(row) {
@@ -828,7 +908,11 @@ async function loadRunSteps(runId) {
     card.classList.toggle("is-selected", Number(card.dataset.runCard) === Number(runId));
   });
   renderRunConfirmation(run);
-  const rows = await api(`/agent/runs/${runId}/steps`);
+  const [summary, rows] = await Promise.all([
+    api(`/agent/runs/${runId}/summary`),
+    api(`/agent/runs/${runId}/steps`),
+  ]);
+  renderRunBusinessSummary(summary);
   renderItems("#run-steps", rows, (row) => `
     <article class="item">
       <div class="item-title"><span>${escapeHtml(stepLabel(row.step_name))}</span><span class="status-pill ${row.status === "completed" ? "ok" : row.status === "failed" ? "risk" : ""}">${row.status === "completed" ? "完成" : row.status === "failed" ? "失败" : escapeHtml(row.status)}</span></div>
@@ -1697,12 +1781,34 @@ function renderActiveRunMonitor(rows) {
   const hasRunning = rows.some((row) => !ACTIVE_RUN_TERMINAL_STATUSES.has(row.status || ""));
   const hasFailed = rows.some((row) => row.status === "failed");
   const hasWaiting = rows.some((row) => row.status === "waiting_for_confirmation");
+  const statusPriority = {
+    waiting_for_confirmation: 0,
+    running: 1,
+    queued: 2,
+    failed: 3,
+    completed: 4,
+    cancelled: 5,
+    canceled: 5,
+  };
+  const orderedRows = [...rows].sort((left, right) => {
+    const statusDelta = (statusPriority[left.status] ?? 9) - (statusPriority[right.status] ?? 9);
+    if (statusDelta !== 0) return statusDelta;
+    return Number(right.run_id || 0) - Number(left.run_id || 0);
+  });
+  const highlighted = orderedRows[0] || primary;
+  const collapsed = window.localStorage?.getItem(ACTIVE_RUN_COLLAPSED_KEY) === "1";
+  el.classList.toggle("collapsed", collapsed);
   el.innerHTML = `
     <div class="active-run-title">
       <span>${hasRunning ? "正在处理的求职流程" : "最近的求职流程"}</span>
-      <span class="status-pill ${hasWaiting || hasFailed ? "risk" : "ok"}">${escapeHtml(activeRunStatusLabel(primary.status))}</span>
+      <span class="active-run-title-actions">
+        <span class="status-pill ${hasWaiting || hasFailed ? "risk" : "ok"}">${escapeHtml(activeRunStatusLabel(highlighted.status))}</span>
+        <button class="icon-button" type="button" title="${collapsed ? "展开流程状态" : "收起流程状态"}" data-toggle-active-runs>
+          <i data-lucide="${collapsed ? "chevron-up" : "chevron-down"}"></i>
+        </button>
+      </span>
     </div>
-    ${rows.slice(0, 3).map((row) => `
+    ${[highlighted].map((row) => `
       <div class="active-run-row">
         <div>
           <strong>${escapeHtml(row.label || taskLabel(row.task_type))} · ${escapeHtml(packageLabel(row.package_id || row.run_id))}</strong>
@@ -1711,6 +1817,7 @@ function renderActiveRunMonitor(rows) {
         <small>${escapeHtml(activeRunStatusLabel(row.status))}${row.error ? ` · ${escapeHtml(row.error)}` : ""}</small>
       </div>
     `).join("")}
+    ${orderedRows.length > 1 ? `<a class="active-run-more" href="/ui/agent-runs">另有 ${orderedRows.length - 1} 个流程，统一到历史记录查看</a>` : ""}
     <div class="flow-result-actions">
       <a class="button ghost" href="/ui/agent-runs"><i data-lucide="history"></i> 查看历史记录</a>
       ${rows.some((row) => row.status === "waiting_for_confirmation") ? `<a class="button primary" href="/ui/agent-runs"><i data-lucide="check-circle-2"></i> 去确认</a>` : ""}
@@ -1918,6 +2025,9 @@ function renderCareerFlowResult(state) {
       </div>
       <div class="meta">${escapeHtml(selected.title || "已完成")} · ${escapeHtml(selected.company || "")} · Profile ${escapeHtml(state.profile?.id || "-")} · Job ${escapeHtml(selected.job_id || "-")}</div>
       ${tags(selected.matched_skills || [])}
+      <div class="embedded-business-summary">
+        ${businessSummaryHtml(state.fullRun?.output_json?.business_summary, true)}
+      </div>
       <div class="flow-result-actions">
         ${tailor.resume_version_id ? packageAction("/ui/resumes", "file-check-2", "定制简历", packageId) : ""}
         ${apply.application_id ? packageAction("/ui/applications", "send", "投递材料", packageId) : ""}
@@ -2388,11 +2498,29 @@ async function runCareerStartFlow(form) {
   }
 }
 
-function fillCareerDemo(form) {
+function fillCareerDemo(form, scenario = "tailor") {
   if (!form) return;
+  const scenarios = {
+    match: {
+      instruction: "这是我的简历，请搜索中文 Agent 开发实习岗位，按证据判断匹配度，列出匹配项和能力缺口，不允许编造经历。",
+      actions: [],
+    },
+    tailor: {
+      instruction: "请根据下面的 Agent 开发实习 JD 定制我的简历。所有改动必须能追溯到原始经历，无依据能力只放在修改建议中。",
+      actions: ["tailor_resume"],
+    },
+    application: {
+      instruction: "请为下面的 Agent 开发实习岗位准备定制简历和投递材料。先创建投递包，未经我确认不得发送邮件或提交招聘页面。",
+      actions: ["tailor_resume", "quick_apply"],
+    },
+  };
+  const selectedScenario = scenarios[scenario] || scenarios.tailor;
   if (form.instruction) {
-    form.instruction.value = "我想找 Agent 开发实习岗位，优先深圳。请先搜索并匹配岗位，再按我勾选的内容生成材料。";
+    form.instruction.value = selectedScenario.instruction;
   }
+  form.querySelectorAll('input[name="selected_actions"]').forEach((input) => {
+    input.checked = selectedScenario.actions.includes(input.value);
+  });
   form.profile_id.value = "";
   form.query.value = "Agent 开发实习生";
   form.location.value = "深圳";
@@ -2407,7 +2535,7 @@ function fillCareerDemo(form) {
       "加分：有可上线的 Agent 项目、前端交互优化和真实 LLM 调试经验。"
     ].join("\n");
   }
-  toast("已填入演示信息");
+  toast(`已填入${scenario === "match" ? "岗位匹配" : scenario === "application" ? "审批式投递" : "证据约束定制"}示例`);
 }
 
 function updateCareerFlowFromNaturalResult(body) {
@@ -2938,12 +3066,12 @@ function bindForms() {
     }
   });
 
-  $("#career-demo-fill")?.addEventListener("click", () => {
+  document.querySelectorAll("[data-demo-scenario]").forEach((button) => button.addEventListener("click", () => {
     const form = $("#career-start-form");
-    fillCareerDemo(form);
+    fillCareerDemo(form, button.dataset.demoScenario);
     updateSelectedProfileCard(null);
     updateStartInputGuidance(form);
-  });
+  }));
 
   const careerStartForm = $("#career-start-form");
   if (careerStartForm) {
@@ -3377,6 +3505,18 @@ function bindForms() {
     const dismissRunButton = event.target.closest("[data-dismiss-active-run]");
     if (dismissRunButton) {
       dismissActiveRun(dismissRunButton.dataset.dismissActiveRun);
+      return;
+    }
+    const toggleActiveRunsButton = event.target.closest("[data-toggle-active-runs]");
+    if (toggleActiveRunsButton) {
+      const monitor = $("#active-run-monitor");
+      const collapsed = !monitor?.classList.contains("collapsed");
+      window.localStorage?.setItem(ACTIVE_RUN_COLLAPSED_KEY, collapsed ? "1" : "0");
+      monitor?.classList.toggle("collapsed", collapsed);
+      const icon = toggleActiveRunsButton.querySelector("i");
+      if (icon) icon.setAttribute("data-lucide", collapsed ? "chevron-up" : "chevron-down");
+      toggleActiveRunsButton.title = collapsed ? "展开流程状态" : "收起流程状态";
+      if (window.lucide) window.lucide.createIcons();
       return;
     }
     const importButton = event.target.closest("[data-import-interview-candidate]");

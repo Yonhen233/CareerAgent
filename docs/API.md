@@ -454,22 +454,40 @@ GET /agent/runs/{run_id}
 GET /agent/runs/{run_id}/steps
 ```
 
+### 查询业务运行摘要
+
+```http
+GET /agent/runs/{run_id}/summary
+```
+
+返回面向用户的四层摘要：
+
+- `routing_layer`：本次选择的 Skill、SubAgent、Tool 和权限校验。
+- `process_layer`：工具调用、成功率、repair、幂等复用和耗时。
+- `result_layer`：目标岗位、匹配证据、Guardrail、简历/投递/面试包产物 ID。
+- `side_effect_layer`：高风险 Tool、审批状态、真实外发结果和审批绕过检测。
+
+该接口会从当前 run、step、artifact、approval 和产物表实时重建摘要。run 完成时同一结构也会写入 `output_json.business_summary` 和 `business_summary` artifact。
+
 ### 查询 Agent Tool 注册表
 
 ```http
 GET /agent/tools
 ```
 
-返回当前 LangGraph Orchestrator 可调用的工具、输入输出描述、副作用和是否适合后续 MCP 化。
+返回当前 LangGraph Orchestrator 可调用的工具，以及输入输出、副作用、风险等级、审批要求、幂等策略、超时、重试、审计事件、允许该工具的 Skill 和是否适合后续 MCP 化。
 
 ### 查询 Agent Skill 与 SubAgent 注册表
 
 ```http
 GET /agent/skills
+GET /agent/skills/{skill_name}
 GET /agent/subagents
 ```
 
-`GET /agent/skills` 返回能力名称、状态、所属 SubAgent、触发条件、使用工具、上下文策略和输出契约。
+`GET /agent/skills` 返回能力目录 metadata，包括名称、版本、状态、owner、触发条件、允许工具、上下文、输出契约、禁止行为、成功标准和失败策略，但不返回 `SKILL.md` 正文指令。
+
+`GET /agent/skills/{skill_name}` 按需返回指定 Skill 的完整契约和正文指令；未知名称返回 404。这是 Skill 渐进式披露边界，避免把所有能力指令塞进每次 LLM 上下文。
 
 `GET /agent/subagents` 返回 SubAgent 职责、拥有的 skill、读取/写入边界和上下文策略。
 

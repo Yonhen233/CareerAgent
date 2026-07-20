@@ -27,10 +27,14 @@
 
 ## Skill 与 SubAgent
 
-当前已经引入显式 Skill 注册表和 SubAgent 注册表：
+当前已经引入文件化 Skill 契约和 SubAgent 注册表：
 
-- `GET /agent/skills`：查看 Agent 能力、触发条件、上下文策略和输出契约。
+- `skills/*/SKILL.md`：每个 Skill 使用 YAML front matter 声明版本、状态、owner、触发条件、输入、允许调用的 Tool、上下文、输出契约、禁止行为、成功标准和失败策略，正文保存执行指令。
+- `GET /agent/skills`：只返回 Skill 目录 metadata，不返回完整执行指令。
+- `GET /agent/skills/{skill_name}`：按需返回指定 Skill 的完整契约和正文指令。
 - `GET /agent/subagents`：查看各 SubAgent 的职责、读写边界和上下文策略。
+
+`AgentPlanner` 不再只把 Skill 名字写进计划。它会根据 `task_type` 选择 Skill，生成精简的 `skill_contracts`，并校验计划中每个 Tool 是否出现在至少一个当前 Skill 的 `allowed_tools` 中。权限校验失败时直接阻止计划执行，不把未授权工具调用交给 LLM 或 Orchestrator。
 
 核心 SubAgent：
 
@@ -64,7 +68,7 @@ LLM 不再直接读取全量 Profile、全量 JD 和全部证据，而是由 `Co
 
 渐进式披露规则是：默认只给 LLM 看结构化摘要和 Top evidence；只有 Guardrail repair 需要具体引用时，后续才暴露更细粒度原文。证据不足时直接报告缺口，不让模型编造。
 
-这个能力不会出现在 Skill 注册表里，因为它不是用户意图层的能力，而是 LLM 调用链路的上下文策略。Skill 仍保留给 `fit_assessment`、`resume_tailoring` 这类可执行任务能力。
+这个能力不会作为独立 Skill 或 SubAgent 暴露，因为它不是用户意图层的能力，而是 LLM 调用链路的 runtime policy。Skill 的“渐进式披露”是另一层含义：目录查询只暴露 metadata，执行计划只带当前任务的精简契约，只有调试或执行器确实需要时才读取完整 `SKILL.md` 指令。两者共同减少无关上下文，但职责不同。
 
 ## LangGraph Plan-Execute
 
@@ -94,7 +98,11 @@ Graph state 只保存 JSON 友好的 ID、状态和产物摘要，例如 `profil
 执行计划现在会包含：
 
 - `skills`
+- `skill_contracts`
+- `skill_disclosure`
 - `subagents`
+- `tool_policies`
+- `tool_permission_validation`
 - `context_policy`
 - `react_loops`
 - `mcp_recommendation`
@@ -184,44 +192,65 @@ JD、PDF 简历、RAG chunk 和导入面经都被视为 untrusted content。`Pro
 
 ## 当前 Tool
 
-`GET /agent/tools` 可以查看工具注册表。当前工具包括：
+`GET /agent/tools` 可以查看统一工具策略注册表。每个 Tool 除了输入、输出和副作用，还必须声明：
 
-| Tool | 作用 | 是否适合 MCP |
-| --- | --- | --- |
-| `profile_repository.load_profile` | 加载候选人档案 | 否 |
-| `job_repository.load_job` | 加载目标岗位 | 否 |
-| `job_search.search_jobs` | 并发搜索岗位源 | 是 |
-| `jd_parser.parse_jd` | 解析 JD | 否 |
-| `vector_index.upsert_job_chunks` | 写入 JD chunk 和 embedding | 否 |
-| `matcher.match_job` | 生成匹配分数和证据 | 否 |
-| `vector_index.retrieve_resume_evidence` | 检索简历证据并 rerank | 否 |
-| `resume_tailor.tailor_resume` | 定制简历 | 否 |
-| `guardrail.verify_resume` | 检查幻觉和证据覆盖 | 否 |
-| `application.create_quick_apply_packet` | 生成投递包 | 是 |
+- `risk_level`：`low`、`medium` 或 `high`。
+- `approval_requirement`：无审批或必须绑定的 `action_type`。
+- `idempotency_policy`：只读、唯一键 upsert、run 级业务幂等或 approval 级单次执行。
+- `timeout_seconds` 和 `retry_policy`。
+- `audit_events`：必须留下的成功、失败或审批审计事件。
+- `allowed_skills`：由 `SKILL.md` 反向计算，供 Planner 做权限校验。
+- `mcp_candidate`：未来是否值得迁移到跨进程/跨授权域工具。
+
+当前核心工具包括：
+
+| Tool | 风险 | 审批要求 | 幂等策略 |
+| --- | --- | --- | --- |
+| `profile_repository.load_profile` | low | 无 | 只读 |
+| `job_search.search_jobs` | medium | 无 | `source + external_id` upsert |
+| `jd_parser.parse_jd` | medium | 无 | 每个岗位版本保存一份结构化结果 |
+| `matcher.match_job` | low | 无 | run 保存被选中的 match result |
+| `vector_index.retrieve_resume_evidence` | low | 无 | 只读 |
+| `resume_tailor.tailor_resume` | medium | 无 | `run + profile + job` |
+| `guardrail.verify_resume` | low | 无 | 只读 |
+| `application.create_quick_apply_packet` | high | `application_packet` | `run + profile + job + resume` |
+| `browser_apply` | high | `browser_apply` | 一个 approval 绑定一次执行 |
+| `email_draft` | high | `email_draft` | 一个 approval 绑定一次执行 |
+| `email_send` | high | `email_send` | 一个 approval 绑定一次执行 |
+
+## 业务运行摘要
+
+原始 Step/Event/LLM log 适合排障，但用户和面试官不应该依赖阅读几十段 JSON 才知道一次任务做了什么。`RunBusinessSummaryService` 会在 run 结束时生成 `business_summary` artifact，同时 `GET /agent/runs/{run_id}/summary` 可以基于最新审批和外发结果实时重建摘要：
+
+- 路由层：选中的 Skill、SubAgent、Tool 和权限校验。
+- 过程层：工具调用数、成功率、repair、幂等复用和总耗时。
+- 结果层：目标岗位、匹配与缺口、证据覆盖、Guardrail、简历/投递/面试包 ID。
+- 副作用层：高风险工具、审批状态、外发结果和审批绕过检测。
+
+摘要只汇总已经落库的事实，不从最终文案反推“看起来成功”。当前也不会虚构简历定制前后的分数提升；这类 delta 必须由同一标注集上的前后对照评测产生。
 
 ## 是否需要 MCP
 
-当前阶段不强制引入 MCP。
+当前阶段不为了“技术栈完整”强制把所有 Python Tool 包装成 MCP。
 
 理由：
 
-- 工具都在同一 FastAPI 进程内，直接 Python 调用更简单。
+- Profile、JD、RAG、匹配和 Guardrail 都在同一服务与数据权限域内，直接 Python Tool 能保留更清晰的事务和类型边界。
 - Agent trace 已经能记录每一步 input/output/latency/error。
 - 本地 SQLite 是权威存储，工具边界还没有跨进程或跨授权域。
 
 适合 MCP 的下一阶段：
 
-- 浏览器：打开招聘网站、辅助填写表单、等待用户确认提交。
-- 邮箱：发送外联邮件或保存草稿。
+- 浏览器和邮箱已经通过高风险工具网关接入，并受 approval table 约束；当需要独立授权、远端部署或复用现成服务时，最适合优先 MCP 化。
 - 日历：根据邮件或聊天记录安排面试。
 - 云盘/本地文件系统：管理不同岗位的简历版本。
 - 需要登录态的招聘平台：把账号授权和抓取能力隔离在 MCP server 中。
 
 推荐路线：
 
-1. 先保持当前 Python Tool registry。
-2. 当浏览器/邮箱/日历接入后，把这些外部工具封装为 MCP。
-3. Orchestrator 只面向统一 Tool Spec，不直接依赖某个 MCP server 的实现。
+1. 保持当前统一 Tool Policy 作为 Orchestrator 的稳定协议。
+2. 优先将浏览器、邮箱、日历等跨授权域工具迁移为 MCP，核心数据库工具仍保留进程内调用。
+3. MCP adapter 必须继承相同的审批、幂等、超时、重试和审计策略，不能绕过 HighRiskActionToolService。
 
 ## LangGraph 迁移状态
 

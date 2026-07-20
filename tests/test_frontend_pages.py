@@ -120,6 +120,13 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert response.status_code == 200
     assert "告诉 CareerAgent 你的求职目标" in response.text
     assert "你想让 Agent 做什么" in response.text
+    assert "快速示例" in response.text
+    assert "岗位匹配" in response.text
+    assert "证据约束定制" in response.text
+    assert "审批式投递" in response.text
+    assert 'data-demo-scenario="match"' in response.text
+    assert 'data-demo-scenario="tailor"' in response.text
+    assert 'data-demo-scenario="application"' in response.text
     assert "三选一提供简历档案，再开始找岗位" in response.text
     assert "请先在三种方式中任选一种提供简历档案" in response.text
     assert response.text.index("你想让 Agent 做什么") < response.text.index("流程内容") < response.text.index("三选一提供简历档案")
@@ -153,6 +160,11 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "career-flow-steps" in response.text
     assert "career-flow-result" in response.text
     assert "active-run-monitor" in response.text
+    assert "另有 ${orderedRows.length - 1} 个流程" in main_js
+    assert "const orderedRows" in main_js
+    assert "ACTIVE_RUN_COLLAPSED_KEY" in main_js
+    assert "data-toggle-active-runs" in main_js
+    assert ".active-run-monitor.collapsed" in style_css
     assert "llm-global-warning" in response.text
     assert "name=\"job_id\"" in response.text
     assert "name=\"jd_text\"" in response.text
@@ -186,6 +198,9 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "prepare_interview_for_job: \"prep\"" in main_js
     assert "/assistant/natural-language" in main_js
     assert "renderNaturalLanguageResult" in main_js
+    assert "businessSummaryHtml" in main_js
+    assert "/agent/runs/${runId}/summary" in main_js
+    assert "approval_bypass_detected" in main_js
     assert "createProfileForCareerFlow" in main_js
     assert "createAgentRun" in main_js
     assert "createBackgroundAgentRun" in main_js
@@ -218,6 +233,8 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "EventSource" in main_js
     assert "/agent/runs/background" in main_js
     assert "/events/stream" in main_js
+    assert "golden-demo-picker" in style_css
+    assert "business-summary-metrics" in style_css
     assert "task_type: \"full_career_flow\"" in main_js
     assert "run.status !== \"completed\"" in main_js
     assert "resolveDirectJobForCareerFlow" in main_js
@@ -237,6 +254,17 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "white-space: nowrap" in style_css
     assert "min-height: 38px" in style_css
     assert "console-entry" in style_css
+
+
+def test_run_history_page_exposes_business_summary_before_trace():
+    client = TestClient(app)
+    response = client.get("/ui/agent-runs")
+
+    assert response.status_code == 200
+    assert "本次任务完成了什么" in response.text
+    assert "run-business-summary" in response.text
+    assert response.text.index("run-business-summary") < response.text.index("run-steps")
+    assert response.text.index("run-steps") < response.text.index("run-events")
 
 
 def test_profiles_entry_panels_are_user_facing_and_aligned():

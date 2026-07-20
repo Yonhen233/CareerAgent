@@ -835,6 +835,33 @@ POST /evaluations/llm-workflow
 - 本轮补充了 `resume_tailor` 的 1 轮 ReAct repair loop：Guardrail 高风险时读取 issues、压缩上下文和当前草稿，修复后再次验证，并把 `react_repair` 元数据写入简历版本。
 - `match_and_retrieve.details.top_evidence` 已增加 `evidence_type` 和 `polarity`，用于排查 RAG 命中的到底是交付证据、课程噪声还是缺口披露。
 
+## 四层业务验收
+
+三条黄金路径定义在 `evals/golden_demo_scenarios.json`，演示和人工验收步骤见 `docs/GOLDEN_DEMOS.md`。它们把现有评测指标重新组织为面向一次真实 run 的四层检查：
+
+| 层级 | 单次 run 可观测指标 | 对应回归评测 |
+| --- | --- | --- |
+| 路由层 | Skill/SubAgent 选择、Tool 权限校验 | Agent full-flow 任务覆盖、Planner 权限测试 |
+| 过程层 | tool call 数、成功率、repair、幂等复用、延迟 | 全流程 trace 完整率、LLM workflow retry/repair、worker recovery |
+| 结果层 | match score、证据覆盖、缺失技能、Guardrail、产物 ID | Job relevance、RAG、PDF Chunk、投递包和面试包评测 |
+| 副作用层 | 审批状态、approval bypass、真实外发 artifact | interrupt/resume、高风险工具门禁、审批审计测试 |
+
+`GET /agent/runs/{run_id}/summary` 是单次运行的业务可观测视图，不替代离线标注集，也不把一个 run 的结果包装成模型整体质量。发布判断仍以各评测集的 aggregate metrics 和 release gate 为准。
+
+当前已落库并可展示：
+
+- `match_score`、matched/missing skill 数量。
+- `evidence_coverage`、source evidence 数量。
+- `guardrail_passed`、risk level、unsupported claim 和 forbidden claim 阻断数。
+- repair 数、Tool 成功率、失败 Tool 数、幂等复用和总耗时。
+- approval status、外发 artifact 和 approval bypass 检测。
+
+当前没有宣称：
+
+- “定制简历后匹配分提升 X%”：还没有在同一人工标注集上执行修改前后对照实验。
+- “投递成功率提升 X%”：没有真实用户投递结果和录用反馈闭环。
+- “多 Agent 优于单 Agent”：当前 SubAgent 是职责边界，不是为了增加数量而做的独立自治模型实验。
+
 ## 后续优化
 
 - 增加真实 PDF 简历和真实岗位 JD 的人工标注评测集。
@@ -845,3 +872,5 @@ POST /evaluations/llm-workflow
 - 继续评估不同 evidence budget 对 Guardrail 和关键词覆盖的影响。
 - 增加 LLM-as-judge，但保留人工抽检。
 - 在 CI 中设置最低 `fit_label_accuracy`、`top3_recall`、`guardrail_pass_rate` 和 `end_to_end_pass_rate` 阈值。
+- 增加同一简历/同一 JD 的定制前后对照集，只有真实计算 score delta 后才在业务摘要展示提升幅度。
+- 引入用户反馈表，区分材料生成成功、人工确认、真实投递、面试邀请和录用结果，建立长期 outcome 指标。

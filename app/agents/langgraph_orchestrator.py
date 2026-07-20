@@ -613,7 +613,7 @@ class LangGraphAgentOrchestrator:
             db,
             run_id=state["run_id"],
             step_name="load_profile",
-            tool_name="ProfileRepository",
+            tool_name="profile_repository.load_profile",
             input_json={"profile_id": state.get("profile_id")},
             handler=lambda: self._load_profile(db, state.get("profile_id")),
         )
@@ -626,7 +626,7 @@ class LangGraphAgentOrchestrator:
             db,
             run_id=state["run_id"],
             step_name="search_jobs",
-            tool_name="JobSearchService",
+            tool_name="job_search.search_jobs",
             input_json={"query": state.get("query"), "location": state.get("location"), "limit": state.get("limit")},
             handler=lambda: self.job_search.search(
                 db,
@@ -649,7 +649,7 @@ class LangGraphAgentOrchestrator:
                 db,
                 run_id=state["run_id"],
                 step_name=f"match_job_{job.id}",
-                tool_name="MatcherService",
+                tool_name="matcher.match_job",
                 input_json={"profile_id": profile.id, "job_id": job.id},
                 handler=lambda job=job: self._async_value(self.matcher.create_match_result(db, profile, job)),
             )
@@ -697,7 +697,7 @@ class LangGraphAgentOrchestrator:
             db,
             run_id=state["run_id"],
             step_name="load_job",
-            tool_name="JobRepository",
+            tool_name="job_repository.load_job",
             input_json={"job_id": state.get("job_id")},
             handler=lambda: self._load_job(db, state.get("job_id")),
         )
@@ -711,7 +711,7 @@ class LangGraphAgentOrchestrator:
             db,
             run_id=state["run_id"],
             step_name="match_job",
-            tool_name="MatcherService",
+            tool_name="matcher.match_job",
             input_json={"profile_id": profile.id, "job_id": job.id},
             handler=lambda: self._async_value(self.matcher.create_match_result(db, profile, job)),
         )
@@ -747,7 +747,7 @@ class LangGraphAgentOrchestrator:
             db,
             run_id=state["run_id"],
             step_name="tailor_resume_with_rag",
-            tool_name="ResumeTailorService",
+            tool_name="resume_tailor.tailor_resume",
             input_json={"profile_id": profile.id, "job_id": job.id},
             handler=lambda: self.tailor.tailor_resume(db, profile, job),
         )
@@ -768,7 +768,7 @@ class LangGraphAgentOrchestrator:
             db,
             run_id=state["run_id"],
             step_name="fit_gate",
-            tool_name="MatcherService",
+            tool_name="matcher.match_job",
             input_json={"profile_id": profile.id, "job_id": job.id, "min_score": 55},
             handler=lambda: self._async_value(self._fit_gate(db, profile, job)),
         )
@@ -790,7 +790,7 @@ class LangGraphAgentOrchestrator:
             db,
             run_id=state["run_id"],
             step_name="create_missing_tailored_resume",
-            tool_name="ResumeTailorService",
+            tool_name="resume_tailor.tailor_resume",
             input_json={"profile_id": profile.id, "job_id": job.id},
             handler=lambda: self.tailor.tailor_resume(db, profile, job),
         )
@@ -820,7 +820,7 @@ class LangGraphAgentOrchestrator:
             db,
             run_id=state["run_id"],
             step_name="create_application_packet",
-            tool_name="ApplicationService",
+            tool_name="application.create_quick_apply_packet",
             input_json={"profile_id": profile.id, "job_id": job.id, "resume_version_id": resume_version.id},
             handler=lambda: self.application.create_quick_apply_packet(
                 db,
@@ -854,7 +854,7 @@ class LangGraphAgentOrchestrator:
             db,
             run_id=state["run_id"],
             step_name="generate_interview_prep",
-            tool_name="InterviewPrepService",
+            tool_name="interview_prep.generate_packet",
             input_json={"profile_id": profile.id, "job_id": job.id, "match_result_id": match_result.id},
             handler=lambda: self.interview_prep.create_interview_prep_with_llm(
                 db, profile=profile, job=job, match_result=match_result

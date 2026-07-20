@@ -71,7 +71,17 @@ def test_tailor_resume_agent_workflow(db_session):
     assert run.output_json["orchestration_framework"] == "langgraph"
     assert run.output_json["execution_plan"]["orchestration_framework"] == "langgraph"
     assert run.output_json["execution_plan"]["context_policy"]["progressive_disclosure"] is True
+    assert run.output_json["execution_plan"]["tool_permission_validation"]["passed"] is True
+    assert run.output_json["execution_plan"]["skill_disclosure"]["instructions_in_plan"] is False
     assert not any(item["name"] == "context_manager" for item in run.output_json["execution_plan"]["subagents"])
+    summary = run.output_json["business_summary"]
+    assert summary["task_label"] == "定制岗位简历"
+    assert summary["metrics"]["tool_call_count"] >= 3
+    assert summary["metrics"]["tool_success_rate"] == 1.0
+    assert summary["metrics"]["unsupported_claim_count"] == 0
+    assert summary["routing_layer"]["tool_permission_validation"]["passed"] is True
+    assert summary["result_layer"]["result_ids"]["resume_version_id"] == run.output_json["resume_version_id"]
+    assert summary["side_effect_layer"]["approval_bypass_detected"] is False
 
 
 def test_tailor_resume_repairs_high_risk_draft_once(db_session, monkeypatch):
@@ -140,6 +150,10 @@ def test_full_career_flow_plan_exposes_modern_agent_boundaries():
     assert plan["mode"] == "plan_execute"
     assert plan["orchestration_framework"] == "langgraph"
     assert plan["langgraph_decision"]["migrated"] is True
+    assert plan["tool_permission_validation"]["passed"] is True
+    assert len(plan["skill_contracts"]) == len(plan["skills"])
+    assert all(item["instructions_loaded"] is False for item in plan["skill_contracts"])
+    assert all(item["risk_level"] in {"low", "medium", "high"} for item in plan["tool_policies"])
     assert "resume_tailoring" in active_skill_names_for_task("full_career_flow")
     assert "interview_preparation" in active_skill_names_for_task("full_career_flow")
     assert "context_manager" not in [item["name"] for item in subagents_for_task("full_career_flow")]

@@ -152,11 +152,26 @@ class TraceService:
         started_at: float,
     ) -> AgentRun:
         run.status = status
-        run.output_json = output_json
         run.error_message = error_message
         run.latency_ms = int((time.perf_counter() - started_at) * 1000)
+        payload = dict(output_json or {})
+        from app.services.run_business_summary import RunBusinessSummaryService
+
+        payload["business_summary"] = RunBusinessSummaryService().build(
+            db,
+            run=run,
+            output_json=payload,
+            status=status,
+        )
+        run.output_json = payload
         db.commit()
         db.refresh(run)
+        self.add_artifact(
+            db,
+            run_id=run.id,
+            artifact_type="business_summary",
+            payload=payload["business_summary"],
+        )
         self.add_event(
             db,
             run_id=run.id,
@@ -165,7 +180,7 @@ class TraceService:
                 "status": status,
                 "latency_ms": run.latency_ms,
                 "error_message": error_message,
-                "output_json": output_json or {},
+                "output_json": payload,
             },
         )
         return run

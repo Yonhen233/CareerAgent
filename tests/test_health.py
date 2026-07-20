@@ -18,6 +18,11 @@ def test_agent_tools_endpoint_lists_registered_tools():
     names = {item["name"] for item in response.json()}
     assert "matcher.match_job" in names
     assert "vector_index.retrieve_resume_evidence" in names
+    email_send = next(item for item in response.json() if item["name"] == "email_send")
+    assert email_send["risk_level"] == "high"
+    assert email_send["approval_requirement"] == "email_send"
+    assert email_send["idempotency_policy"]
+    assert "application_packet" in email_send["allowed_skills"]
 
 
 def test_agent_skills_and_subagents_endpoints_list_context_capabilities():
@@ -28,6 +33,17 @@ def test_agent_skills_and_subagents_endpoints_list_context_capabilities():
     skill_names = {item["name"] for item in skills_response.json()}
     assert "resume_tailoring" in skill_names
     assert "progressive_disclosure" not in skill_names
+    resume_tailoring = next(item for item in skills_response.json() if item["name"] == "resume_tailoring")
+    assert resume_tailoring["version"] == "1.0.0"
+    assert resume_tailoring["source_path"].endswith("resume_tailoring/SKILL.md")
+    assert resume_tailoring["instructions_loaded"] is False
+    assert "instructions" not in resume_tailoring
+
+    detail_response = client.get("/agent/skills/resume_tailoring")
+    assert detail_response.status_code == 200
+    assert detail_response.json()["instructions_loaded"] is True
+    assert "定制简历" in detail_response.json()["instructions"]
+    assert detail_response.json()["forbidden_behaviors"]
 
     subagents_response = client.get("/agent/subagents")
     assert subagents_response.status_code == 200

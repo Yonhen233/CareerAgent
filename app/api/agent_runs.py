@@ -22,6 +22,7 @@ from app.models.schemas import (
     AgentStepResponse,
 )
 from app.services.trace_service import TraceService
+from app.services.run_business_summary import RunBusinessSummaryService
 from app.services.task_runner import get_task_runner
 
 router = APIRouter(prefix="/agent/runs", tags=["agent-runs"])
@@ -137,6 +138,18 @@ def get_agent_run(run_id: int, db: Session = Depends(get_db), auth: AuthContext 
     if run is None:
         raise HTTPException(status_code=404, detail="Agent run not found.")
     return AgentRunResponse.model_validate(run)
+
+
+@router.get("/{run_id}/summary")
+def get_agent_run_summary(
+    run_id: int,
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(optional_auth_context),
+) -> dict:
+    run = _tenant_query(db.query(AgentRun), auth).filter(AgentRun.id == run_id).first()
+    if run is None:
+        raise HTTPException(status_code=404, detail="Agent run not found.")
+    return RunBusinessSummaryService().build(db, run=run)
 
 
 @router.get("/{run_id}/graph-state")

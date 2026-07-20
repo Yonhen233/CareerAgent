@@ -4,6 +4,41 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
 
 默认演示场景是中文求职场景下的“Agent 开发实习生”，英文岗位只作为少量辅助测试；数据模型和服务层可以扩展到其他技术岗位。
 
+## 90 秒看懂 CareerAgent
+
+CareerAgent 的核心不是“让 LLM 写一段简历”，而是把真实求职任务变成一条可恢复、可审批、可量化的 Agent 工作流：
+
+```text
+PDF/结构化简历 + 中文目标岗位
+-> 岗位匹配与能力缺口
+-> RAG 检索真实经历证据
+-> 证据约束简历定制
+-> Guardrail 检查与一次 ReAct 修复
+-> 人工审批投递材料/外发动作
+-> 业务摘要 + LangGraph Trace + LLM 调用日志
+```
+
+开始页提供三条可复现的黄金路径：
+
+| 路径 | 用户要解决的问题 | 重点产物 |
+| --- | --- | --- |
+| 岗位匹配 | 这份简历适合哪些中文 Agent 实习岗位，差距在哪里 | 匹配分、证据、已匹配/缺失技能 |
+| 证据约束定制 | 如何按 JD 改简历，又不编造经历 | 定制简历、证据覆盖、Guardrail、repair trace |
+| 审批式投递 | 如何准备并执行高风险投递动作 | 投递包、LangGraph interrupt、审批审计、外发结果 |
+
+每次 run 都返回四层业务摘要：路由层解释选择了哪些 Skill/SubAgent/Tool，过程层展示工具成功率、修复和耗时，结果层展示岗位、简历和投递产物，副作用层展示审批与真实外发状态。演示脚本和验收口径见 [docs/GOLDEN_DEMOS.md](docs/GOLDEN_DEMOS.md)，机器可读场景位于 `evals/golden_demo_scenarios.json`。
+
+## 为什么这些组件存在
+
+| 业务问题 | 工程设计 |
+| --- | --- |
+| PDF 布局和噪声导致简历证据丢失 | 结构感知 Chunk、页码/字段 metadata、PDF Chunk 评测 |
+| JD 关键词相同不代表经历真实 | SQLite 权威数据 + 向量召回 + CrossEncoder rerank + evidence type classifier |
+| 长流程中断或刷新后任务丢失 | Redis 外部队列、LangGraph checkpointer、run recovery、业务幂等键 |
+| LLM 可能编造项目或把缺口写成经验 | Evidence-constrained generation、Guardrail、一次 ReAct repair |
+| 浏览器填写和邮件发送不可静默执行 | Tool Policy、审批表、LangGraph interrupt、RBAC、审计事件 |
+| 最终文本好看但无法定位中间错误 | Run/Step/Artifact/Event、LLM 调用日志、四层业务摘要 |
+
 ## 核心能力
 
 - 自然语言求职入口：
@@ -57,7 +92,10 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
   - JD、PDF 简历、RAG evidence 和导入面经进入 LLM 前会经过 PromptInjectionGuard 检测，风险写入结构化 metadata；prompt injection 评测按 release gate 校验总体和分 source/category 的最低召回率与最高误报率。
   - PromptInjectionGuard 有 adversarial 评测集，覆盖 JD/PDF/RAG/面经四类来源，输出 recall、false positive rate、severity accuracy 和分桶指标。
   - 首页一键流程现在只创建一个后台 `full_career_flow` run；前端通过 SSE 推进阶段进度，不再在浏览器里拼接多个小 run。
-  - 显式注册 Tool、Skill 和 SubAgent，计划产物会展示当前任务使用的能力边界。
+  - `skills/*/SKILL.md` 定义版本化 Skill 契约，包含触发条件、输入、允许调用的 Tool、上下文、输出契约、禁止行为、成功标准和失败策略。
+  - Skill 采用渐进式披露：能力目录只返回 metadata，执行计划只携带任务所需契约，完整指令通过 Skill 详情接口按需读取。
+  - Tool Policy 统一声明风险等级、审批要求、幂等策略、超时、重试、审计事件和 MCP 候选；Planner 会校验所有计划工具都被当前 Skill 明确授权。
+  - 显式注册 Tool、Skill 和 SubAgent，计划产物会展示当前任务使用的能力边界和权限校验结果。
   - 简历定制带 1 轮 ReAct repair loop：Guardrail 高风险时读取 issues 和压缩上下文，修复后再次验证，并记录 `react_repair` 元数据。
 - LLM 上下文治理：
   - 渐进式披露是 LLM 调用前的 runtime policy，不单独包装成 subagent。
@@ -84,7 +122,19 @@ CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Ag
 - 可观测性：
   - `agent_runs`、`agent_steps`、`agent_artifacts`、`agent_events` 记录每次工作流。
   - `agent_events` 会保存 `run_created/run_started/run_finished`、LangGraph node start/update/end、interrupt、step start/end/fail 和 artifact 事件。
+  - 每个 run 生成 `business_summary` artifact，统一展示路由、过程、结果、副作用四层指标，不需要从原始 JSON 中猜测本次任务完成了什么。
   - 可通过 UI 或 API 查看 Trace。
+
+## 产品演进
+
+- V1：单份简历与单份 JD 的规则匹配。
+- V2：PDF 结构感知 Chunk、SQLite JD/简历 Chunk 存储和 RAG 证据检索。
+- V3：真实 embedding、Top20 + reranker、证据类型分类和量化评测。
+- V4：LangGraph Plan-Execute、ReAct repair、持久化 checkpoint 和事件流。
+- V5：Redis 外部队列、worker recovery、DLQ、优先级和业务幂等。
+- V6：人工审批 interrupt、浏览器/邮件高风险工具网关和审计。
+- V7：多租户 RBAC、Supervisor、健康探针、发布阈值和 Prompt Injection 评测。
+- V8：版本化 `SKILL.md`、统一 Tool Policy、三条黄金演示和面向用户的四层业务摘要。
 
 ## 架构概览
 
@@ -94,6 +144,7 @@ flowchart LR
     API --> Redis["Redis Queue / Lock / RateLimit"]
     Redis --> Worker["Agent Worker"]
     Worker --> Agent["LangGraph Agent Orchestrator"]
+    Agent --> Skill["SKILL.md 契约 + Tool Policy"]
     Agent --> Search["并发岗位搜索"]
     Agent --> Match["岗位匹配"]
     Agent --> Tailor["RAG 简历定制"]
@@ -107,6 +158,7 @@ flowchart LR
     Tailor -.可选.-> LLM["DeepSeek / OpenAI-compatible LLM"]
     LLM --> Debug["LLM 调用日志"]
     Agent --> Trace["Run / Step / Artifact / Event Trace"]
+    Trace --> Summary["四层业务摘要"]
     Trace -.pub/sub.-> Redis
 ```
 
@@ -163,10 +215,10 @@ LLM_THINKING_MODE=auto
 
 ## 主要页面
 
-- `/`：面向用户的一键开始页。顶部支持自然语言需求入口；下方支持已有 Profile ID、上传 PDF、填写简历核心信息；岗位侧可搜索真实岗位，也可输入已有 Job ID 或粘贴目标 JD 来稳定跑通完整流程。页面会展示简历建档、岗位搜索/读取、匹配排序、定制简历、投递包、面试包 6 个阶段。
+- `/`：面向用户的一键开始页。先选择已有档案、上传 PDF 自动建档或跳转简历页建档，再填写岗位搜索条件或选择已有岗位；“快速示例”可一键切换岗位匹配、证据约束定制和审批式投递。页面会展示简历建档、岗位搜索/读取、匹配排序、定制简历、投递包、面试包 6 个阶段。
 - `/ui/profiles`：上传 PDF 或按主流中文简历栏目手动生成简历档案；手动建档可自定义栏目、为教育/实习/项目/校园实践添加多段条目，并可选上传照片；“我的简历档案”支持一键打开 HTML 简历预览，并可在浏览器中打印或另存为 PDF。
 - `/ui/jobs`：搜索真实岗位或手动粘贴 JD。
-- `/ui/agent-runs`：运行 Agent 并查看步骤。
+- `/ui/agent-runs`：求职历史记录。优先展示路由、过程、结果、副作用四层业务摘要，再按需展开阶段进度、LangGraph 事件和原始 Trace。
 - `/ui/resumes`：查看定制简历版本；默认以 HTML 简历预览展示排版效果，保留 Markdown 下载用于调试或二次编辑。
 - `/ui/applications`：查看投递包、投递状态、Guardrail issues/warnings 和人工确认边界。
 - `/ui/prep`：导入同岗面经材料，生成和查看面试准备包，展示网上同岗面经、简历项目技术栈和其他可能面试问题三类准备角度，展示 LLM 连续追问、题目质量分、可点击定位的失败项、面经参考链接，导出 Markdown，并记录按题练习状态。兼容旧路径 `/ui/interview-prep`。
@@ -214,8 +266,10 @@ python scripts/run_user_flow_smoke.py --pdf demo_resumes/agent_intern_strong_res
 - `GET /agent/runs/{run_id}/approvals`
 - `GET /agent/tools`
 - `GET /agent/skills`
+- `GET /agent/skills/{skill_name}`
 - `GET /agent/subagents`
 - `GET /agent/runs/{run_id}/steps`
+- `GET /agent/runs/{run_id}/summary`
 - `POST /resumes/tailor`
 - `GET /profiles/{profile_id}/html`
 - `GET /resumes/{resume_version_id}/html`

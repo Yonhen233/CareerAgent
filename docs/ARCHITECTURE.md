@@ -6,7 +6,8 @@ CareerAgent 的目标不是“一个 Prompt 生成简历”，而是一个可观
 
 - `app/api`：FastAPI 路由层，负责请求校验、DB Session 注入和服务编排。
 - `app/frontend`：Jinja 页面路由，提供本地工作台。
-- `app/agents`：LangGraph Agent 工作流编排、Tool 注册表、Skill 注册表和 SubAgent 注册表。
+- `app/agents`：LangGraph Agent 工作流编排、Tool Policy、文件化 Skill 契约和 SubAgent 注册表。
+- `skills`：版本化 `SKILL.md`，保存能力触发条件、输入、允许工具、上下文、输出、禁止行为和失败策略。
 - `app/services`：领域服务，包括简历解析、JD 解析、岗位搜索、RAG 检索、匹配、简历定制、Guardrails、投递包、评测和 Trace。
 - `app/models`：SQLAlchemy 数据模型和 Pydantic 响应模型。
 - `app/core`：配置、数据库、LLM 客户端。
@@ -26,14 +27,16 @@ CareerAgent 的目标不是“一个 Prompt 生成简历”，而是一个可观
 - `agent_runs`：Agent 工作流运行记录。
 - `agent_steps`：Agent 步骤级 Trace。
 - `agent_artifacts`：Agent 产物。
+- `agent_approvals`：投递包、浏览器和邮件高风险动作的独立审批审计。
+- `ops_audit_events`：DLQ 管理和高风险工具放行等运维审计事件。
 - `llm_call_logs`：LLM 调用调试日志。
 - `evaluation_runs`：评测运行结果。
 
 ## Agent 能力注册
 
-`app/agents/tools.py` 保存可执行 Tool 的输入输出、副作用和 MCP 化候选标记。
+`app/agents/tools.py` 保存可执行 Tool 的输入输出、副作用、风险、审批、幂等、超时、重试、审计事件和 MCP 化候选标记。
 
-`app/agents/skills.py` 保存更高层的能力注册：
+`skills/*/SKILL.md` 保存更高层的版本化能力契约，`app/agents/skills.py` 负责加载、校验和按需披露：
 
 - `resume_intake_and_structuring`
 - `jd_structuring`
@@ -44,6 +47,8 @@ CareerAgent 的目标不是“一个 Prompt 生成简历”，而是一个可观
 - `interview_preparation`
 
 `app/agents/subagents.py` 保存工程责任边界，例如 `fit_judge`、`resume_writer`、`application_operator`。上下文压缩不再注册成独立 subagent，而是由 `ContextCompressor` 作为 LLM 调用前的 runtime policy 执行。
+
+Plan 阶段只读取 Skill metadata 和当前任务所需的精简契约，不把全部正文指令塞入上下文。Planner 还会检查计划里的每个 Tool 是否被当前 Skill 授权；未通过校验的计划不会进入业务节点。
 
 ## Agent 工作流
 
@@ -62,6 +67,7 @@ Agent 主编排已经迁移到 LangGraph。`app/agents/orchestrator.py` 只保�
 5. 用户确认或一键流程自动确认后，从 checkpoint 恢复并生成投递包。
 6. 生成面试准备包。
 7. 输出 `selected_job`、`matches`、`tailor`、`application`、`interview_prep` 和 UI links。
+8. `RunBusinessSummaryService` 汇总路由、过程、结果和副作用四层信息，写入 `business_summary` artifact。
 
 ### `find_jobs_for_profile`
 
@@ -171,8 +177,13 @@ Reranker：
 - `application.create_quick_apply_packet`
 - `interview_experience.import_text`
 - `interview_prep.generate_packet`
+- `browser_apply`
+- `email_draft`
+- `email_send`
 
-当前不强制引入 MCP。原因是这些工具都在同一 FastAPI 进程内，直接 Python 调用更简单、可测、可追踪。适合 MCP 化的边界是外部能力：
+核心 Profile/JD/RAG 工具仍在同一服务和事务域中，不为了展示技术名词强制 MCP 化。浏览器与邮件工具已经接入 HighRiskActionToolService 和 approval table；当它们需要独立授权、远端部署或跨产品复用时，再通过 MCP adapter 暴露，仍必须继承当前 Tool Policy。
+
+适合 MCP 化的边界是外部能力：
 
 - 浏览器自动填写招聘表单。
 - 邮箱发送外联消息。
@@ -196,11 +207,18 @@ Reranker：
 - SQLite/SQLAlchemy Session 写入保持顺序执行。
 - 原因是同步 Session 不是线程安全对象，盲目并发写入会造成不稳定错误。
 
-后续可升级方向：
+长任务已经通过 Redis 外部优先级队列和独立 worker 执行；API 进程不再用进程内 BackgroundTasks 承载 Agent run。多个 worker 可并发消费不同 run，单个 run 内仍对岗位搜索和 JD 解析做受控并发。SQLite 写入保持顺序事务，run lock、Profile active/rate limit、业务幂等键、heartbeat、stale recovery 和 DLQ 共同处理重复消费与异常恢复。
 
-- 引入 async SQLAlchemy engine。
-- 将岗位抓取、JD 解析、向量入库拆成后台任务队列。
-- 使用 Celery、Arq 或 Dramatiq 承载长任务。
+后续如果吞吐量超过单节点 SQLite 的写入边界，再将权威业务库迁移到 PostgreSQL/async SQLAlchemy；不是为了“异步化”提前改写全部领域代码。
+
+## 业务摘要与原始 Trace
+
+一次 run 同时保留两种视图：
+
+- 面向用户的 `business_summary`：路由层、过程层、结果层、副作用层。
+- 面向开发的原始证据：`agent_steps`、`agent_events`、`agent_artifacts`、`llm_call_logs`、`agent_approvals`。
+
+`TraceService.finish_run` 在 run 完成时固化业务摘要；`GET /agent/runs/{run_id}/summary` 会结合最新审批和外发 artifact 实时重建，因此审批决定发生在 run interrupt 之后时，历史记录仍能展示最新状态。
 
 ## LLM 调试
 

@@ -1,120 +1,222 @@
+from __future__ import annotations
+
 from dataclasses import asdict, dataclass
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
+
+import yaml
+
+
+SKILL_ROOT = Path(__file__).resolve().parents[2] / "skills"
+
+TASK_SKILL_MAPPING: dict[str, list[str]] = {
+    "find_jobs_for_profile": [
+        "resume_intake_and_structuring",
+        "jd_structuring",
+        "evidence_retrieval",
+    ],
+    "tailor_resume_for_job": [
+        "evidence_retrieval",
+        "fit_assessment",
+        "resume_tailoring",
+    ],
+    "quick_apply": ["resume_tailoring", "application_packet"],
+    "prepare_interview_for_job": [
+        "evidence_retrieval",
+        "fit_assessment",
+        "interview_preparation",
+    ],
+    "full_career_flow": [
+        "resume_intake_and_structuring",
+        "jd_structuring",
+        "evidence_retrieval",
+        "fit_assessment",
+        "resume_tailoring",
+        "application_packet",
+        "interview_preparation",
+    ],
+}
+
+
+class SkillDefinitionError(RuntimeError):
+    pass
 
 
 @dataclass(frozen=True)
 class AgentSkillSpec:
     name: str
+    version: str
     status: str
     owner_subagent: str
     purpose: str
     trigger: str
+    required_inputs: list[str]
     tools: list[str]
     context_policy: str
     output_contract: dict[str, str]
-    reason: str = ""
+    forbidden_behaviors: list[str]
+    success_criteria: list[str]
+    failure_policy: str
+    instructions: str
+    source_path: str
 
-    def as_dict(self) -> dict[str, Any]:
-        return asdict(self)
+    def as_dict(self, *, include_instructions: bool = False) -> dict[str, Any]:
+        payload = asdict(self)
+        instructions = payload.pop("instructions")
+        payload["instructions_loaded"] = include_instructions
+        payload["instructions_chars"] = len(instructions)
+        if include_instructions:
+            payload["instructions"] = instructions
+        return payload
 
 
-AGENT_SKILLS: list[AgentSkillSpec] = [
-    AgentSkillSpec(
-        name="resume_intake_and_structuring",
-        status="active",
-        owner_subagent="profile_analyst",
-        purpose="把 PDF/文本简历转成可检索、可审计的候选人 Profile。",
-        trigger="用户上传 PDF 或粘贴简历文本时。",
-        tools=["resume_parser.parse_structured_resume", "vector_index.upsert_profile_chunks"],
-        context_policy="允许完整简历输入；解析后只向下游传递结构化 Profile 和压缩摘要。",
-        output_contract={"profile_json": "dict", "resume_chunks": "list"},
-    ),
-    AgentSkillSpec(
-        name="jd_structuring",
-        status="active",
-        owner_subagent="job_analyst",
-        purpose="把真实 JD 解析成 required skills、职责和资格条件。",
-        trigger="新增岗位或岗位搜索入库时。",
-        tools=["jd_parser.parse_jd", "vector_index.upsert_job_chunks"],
-        context_policy="允许完整 JD 输入；向匹配和定制阶段传递结构化 JD 与压缩 JD 摘要。",
-        output_contract={"structured_jd": "dict", "job_chunks": "list"},
-    ),
-    AgentSkillSpec(
-        name="evidence_retrieval",
-        status="active",
-        owner_subagent="evidence_curator",
-        purpose="检索简历和 JD 的可解释证据，并过滤 planned/coursework 类弱证据。",
-        trigger="岗位匹配、fit judge、简历定制前。",
-        tools=["vector_index.retrieve_resume_evidence", "matcher.match_job"],
-        context_policy="只保留 Top evidence、retrieval score、rerank metadata 和必要文本片段。",
-        output_contract={"evidence": "list[RetrievedChunk]", "match_result": "dict"},
-    ),
-    AgentSkillSpec(
-        name="fit_assessment",
-        status="active",
-        owner_subagent="fit_judge",
-        purpose="基于压缩上下文判断 strong/partial/weak fit，并给出证据和缺口。",
-        trigger="用户比较岗位或运行 LLM workflow 评测时。",
-        tools=["llm.generate_json", "context_compressor.compress_fit_context"],
-        context_policy="必须使用压缩上下文；禁止读取未压缩全量历史。",
-        output_contract={"fit_label": "str", "fit_score": "number", "matched_evidence": "list", "gaps": "list"},
-    ),
-    AgentSkillSpec(
-        name="resume_tailoring",
-        status="active",
-        owner_subagent="resume_writer",
-        purpose="根据 JD 与证据生成定制简历，并保持事实可追溯。",
-        trigger="用户要求针对某岗位改简历时。",
-        tools=["context_compressor.compress_tailor_context", "resume_tailor.tailor_resume", "guardrail.verify_resume"],
-        context_policy="必须使用压缩上下文和 Top evidence；Guardrail 失败时进入修复或报错。",
-        output_contract={"resume_markdown": "str", "change_summary": "list", "keyword_alignment": "dict"},
-    ),
-    AgentSkillSpec(
-        name="application_packet",
-        status="active",
-        owner_subagent="application_operator",
-        purpose="生成投递包、求职信、外联消息和人工确认清单。",
-        trigger="用户准备投递时。",
-        tools=["application.create_quick_apply_packet", "llm.generate_text"],
-        context_policy="只读取 Profile 摘要、目标 JD 摘要和最终定制简历。",
-        output_contract={"application": "dict", "checklist": "list"},
-    ),
-    AgentSkillSpec(
-        name="interview_preparation",
-        status="active",
-        owner_subagent="interview_coach",
-        purpose="根据 JD、匹配结果和证据生成面试问题、回答要点、缺口 drill 和外部调研清单。",
-        trigger="用户准备某个岗位面试或投递后复盘时。",
-        tools=["matcher.match_job", "interview_experience.import_text", "interview_prep.generate_packet"],
-        context_policy="只读取结构化 JD、匹配结果、Top evidence 和缺口；缺少证据的技能必须作为缺口披露。",
-        output_contract={"question_sets": "list", "gap_drills": "list", "research_checklist": "list"},
-    ),
-]
+class SkillRegistry:
+    """Load versioned business capabilities from SKILL.md files."""
+
+    REQUIRED_FIELDS = {
+        "name",
+        "version",
+        "status",
+        "owner_subagent",
+        "purpose",
+        "trigger",
+        "required_inputs",
+        "allowed_tools",
+        "context_policy",
+        "output_contract",
+        "forbidden_behaviors",
+        "success_criteria",
+        "failure_policy",
+    }
+
+    def __init__(self, root: Path = SKILL_ROOT) -> None:
+        self.root = root
+        self._skills = self._load()
+
+    def _load(self) -> dict[str, AgentSkillSpec]:
+        if not self.root.exists():
+            raise SkillDefinitionError(f"Skill directory does not exist: {self.root}")
+        loaded: dict[str, AgentSkillSpec] = {}
+        for path in sorted(self.root.glob("*/SKILL.md")):
+            metadata, instructions = self._parse(path)
+            missing = sorted(self.REQUIRED_FIELDS - set(metadata))
+            if missing:
+                raise SkillDefinitionError(f"{path} is missing metadata: {', '.join(missing)}")
+            name = str(metadata["name"]).strip()
+            if not name:
+                raise SkillDefinitionError(f"{path} has an empty skill name.")
+            if name in loaded:
+                raise SkillDefinitionError(f"Duplicate skill name: {name}")
+            relative_path = path.relative_to(self.root.parent).as_posix()
+            loaded[name] = AgentSkillSpec(
+                name=name,
+                version=str(metadata["version"]).strip(),
+                status=str(metadata["status"]).strip(),
+                owner_subagent=str(metadata["owner_subagent"]).strip(),
+                purpose=str(metadata["purpose"]).strip(),
+                trigger=str(metadata["trigger"]).strip(),
+                required_inputs=self._string_list(metadata["required_inputs"], path, "required_inputs"),
+                tools=self._string_list(metadata["allowed_tools"], path, "allowed_tools"),
+                context_policy=str(metadata["context_policy"]).strip(),
+                output_contract={
+                    str(key): str(value) for key, value in dict(metadata["output_contract"]).items()
+                },
+                forbidden_behaviors=self._string_list(
+                    metadata["forbidden_behaviors"], path, "forbidden_behaviors"
+                ),
+                success_criteria=self._string_list(metadata["success_criteria"], path, "success_criteria"),
+                failure_policy=str(metadata["failure_policy"]).strip(),
+                instructions=instructions.strip(),
+                source_path=relative_path,
+            )
+        if not loaded:
+            raise SkillDefinitionError(f"No SKILL.md definitions found under {self.root}")
+        return loaded
+
+    def _parse(self, path: Path) -> tuple[dict[str, Any], str]:
+        raw = path.read_text(encoding="utf-8")
+        if not raw.startswith("---\n"):
+            raise SkillDefinitionError(f"{path} must start with YAML front matter.")
+        try:
+            _, front_matter, instructions = raw.split("---", 2)
+        except ValueError as exc:
+            raise SkillDefinitionError(f"{path} has invalid YAML front matter boundaries.") from exc
+        metadata = yaml.safe_load(front_matter)
+        if not isinstance(metadata, dict):
+            raise SkillDefinitionError(f"{path} front matter must be a mapping.")
+        if not instructions.strip():
+            raise SkillDefinitionError(f"{path} must include skill instructions.")
+        return metadata, instructions
+
+    def _string_list(self, value: Any, path: Path, field_name: str) -> list[str]:
+        if (
+            not isinstance(value, list)
+            or not value
+            or not all(isinstance(item, str) and item.strip() for item in value)
+        ):
+            raise SkillDefinitionError(f"{path} field {field_name} must be a non-empty string list.")
+        return [item.strip() for item in value]
+
+    def list(self, *, include_deferred: bool = True) -> list[AgentSkillSpec]:
+        rows = list(self._skills.values())
+        return rows if include_deferred else [skill for skill in rows if skill.status == "active"]
+
+    def get(self, name: str) -> AgentSkillSpec:
+        try:
+            return self._skills[name]
+        except KeyError as exc:
+            raise KeyError(f"Unknown Agent skill: {name}") from exc
+
+    def for_task(self, task_type: str) -> list[AgentSkillSpec]:
+        names = TASK_SKILL_MAPPING.get(task_type, [])
+        return [self.get(name) for name in names]
+
+    def allowed_tools_for_task(self, task_type: str) -> set[str]:
+        return {tool for skill in self.for_task(task_type) for tool in skill.tools}
+
+    def validate_tools(self, task_type: str, tool_names: list[str]) -> list[str]:
+        allowed = self.allowed_tools_for_task(task_type)
+        return sorted({name for name in tool_names if name not in allowed})
+
+    def skills_for_tool(self, tool_name: str) -> list[str]:
+        return sorted(skill.name for skill in self._skills.values() if tool_name in skill.tools)
+
+
+@lru_cache(maxsize=1)
+def get_skill_registry() -> SkillRegistry:
+    return SkillRegistry()
+
+
+# Compatibility export for callers that used the original in-code registry.
+AGENT_SKILLS: list[AgentSkillSpec] = get_skill_registry().list(include_deferred=True)
 
 
 def list_agent_skills(*, include_deferred: bool = True) -> list[dict[str, Any]]:
-    skills = AGENT_SKILLS if include_deferred else [skill for skill in AGENT_SKILLS if skill.status == "active"]
-    return [skill.as_dict() for skill in skills]
+    return [
+        skill.as_dict(include_instructions=False)
+        for skill in get_skill_registry().list(include_deferred=include_deferred)
+    ]
+
+
+def get_agent_skill(name: str, *, include_instructions: bool = True) -> dict[str, Any]:
+    return get_skill_registry().get(name).as_dict(include_instructions=include_instructions)
 
 
 def active_skill_names_for_task(task_type: str) -> list[str]:
-    mapping = {
-        "find_jobs_for_profile": ["resume_intake_and_structuring", "jd_structuring", "evidence_retrieval"],
-        "tailor_resume_for_job": [
-            "evidence_retrieval",
-            "fit_assessment",
-            "resume_tailoring",
-        ],
-        "quick_apply": ["resume_tailoring", "application_packet"],
-        "prepare_interview_for_job": ["evidence_retrieval", "fit_assessment", "interview_preparation"],
-        "full_career_flow": [
-            "resume_intake_and_structuring",
-            "jd_structuring",
-            "evidence_retrieval",
-            "fit_assessment",
-            "resume_tailoring",
-            "application_packet",
-            "interview_preparation",
-        ],
-    }
-    return mapping.get(task_type, [])
+    return [skill.name for skill in get_skill_registry().for_task(task_type)]
+
+
+def skill_contracts_for_task(task_type: str) -> list[dict[str, Any]]:
+    return [
+        skill.as_dict(include_instructions=False)
+        for skill in get_skill_registry().for_task(task_type)
+    ]
+
+
+def validate_tool_permissions(task_type: str, tool_names: list[str]) -> list[str]:
+    return get_skill_registry().validate_tools(task_type, tool_names)
+
+
+def skill_names_for_tool(tool_name: str) -> list[str]:
+    return get_skill_registry().skills_for_tool(tool_name)
