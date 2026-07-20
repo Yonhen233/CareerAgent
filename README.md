@@ -136,6 +136,41 @@ PDF/结构化简历 + 中文目标岗位
 - V7：多租户 RBAC、Supervisor、健康探针、发布阈值和 Prompt Injection 评测。
 - V8：版本化 `SKILL.md`、统一 Tool Policy、三条黄金演示和面向用户的四层业务摘要。
 
+## 当前文件架构
+
+```text
+CareerAgent/
+├── app/                                  # FastAPI 产品代码
+│   ├── main.py                           # 应用组合根与 Router 注册
+│   ├── agents/                           # LangGraph、Planner、Skill/Tool/SubAgent 注册
+│   │   ├── langgraph_orchestrator.py     # 主图、节点、路由、interrupt/resume
+│   │   ├── natural_language.py           # 自然语言需求图与 plan repair
+│   │   ├── skills.py                     # SKILL.md 加载与渐进式披露
+│   │   ├── tools.py                      # Tool Policy 与权限校验
+│   │   └── subagents.py                  # Agent 职责和上下文边界
+│   ├── api/                              # Profile、Job、Run、审批、评测和运维 API
+│   ├── services/                         # 简历、岗位、RAG、安全、队列等领域服务
+│   ├── core/                             # 配置、SQLite、LLM、Redis、安全和遥测
+│   ├── models/                           # SQLAlchemy 实体与 Pydantic Schema
+│   ├── frontend/                         # Jinja 页面路由
+│   ├── templates/                        # 用户页面与控制台
+│   └── static/                           # CSS 和浏览器端交互
+├── skills/                               # 7 个版本化 SKILL.md 能力契约
+├── evals/                                # PDF/RAG/Agent/Injection 评测集与阈值
+├── scripts/                              # Worker、Supervisor、数据生成和真实 smoke
+├── tests/                                # API、Agent、RAG、安全、队列和前端回归
+├── demo_resumes/                         # 可直接上传的演示 PDF
+├── docs/                                 # 架构、接口、评测、开发和面试资料
+├── data/                                 # 运行时数据库/向量/checkpoint，Git 忽略
+├── logs/                                 # 运行时日志，Git 忽略
+├── docker-compose.smtp.yml               # Mailpit SMTP smoke
+├── .env.example                          # 无密钥配置模板
+├── pyproject.toml                        # pytest/ruff 配置
+└── requirements.txt                      # Python 依赖
+```
+
+完整到文件级的注释目录、模块依赖方向和“新增功能应该放在哪里”见 [项目目录说明](docs/PROJECT_STRUCTURE.md)。
+
 ## 架构概览
 
 ```mermaid
@@ -340,6 +375,8 @@ pytest -q
 
 ## 文档
 
+- [文档导航](docs/README.md)
+- [项目目录说明](docs/PROJECT_STRUCTURE.md)
 - [架构设计](docs/ARCHITECTURE.md)
 - [Agent 设计说明](docs/AGENT_DESIGN.md)
 - [Redis + SQLite 架构说明](docs/CAREER_AGENT_REDIS_SQLITE_ARCHITECTURE.md)

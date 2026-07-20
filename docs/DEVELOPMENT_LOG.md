@@ -1,5 +1,41 @@
 # 开发日志
 
+## 2026-07-20 14:15:36 +08:00：项目文件架构说明与文档归档治理
+### 这次做了什么
+- 参考 `ecom-service-agent` README 中“真实目录树 + 行内职责注释”的表达方式，为 CareerAgent 新增 `docs/PROJECT_STRUCTURE.md`。
+- 文件级目录说明覆盖 FastAPI 入口、LangGraph Agent、API、领域服务、Core、Models、前端、Skill、评测集、Worker 脚本、测试、演示 PDF 和运行时目录。
+- 补充分层职责、依赖方向、“常见需求去哪里改”和新文件放置规则，明确 API、Agent、Skill、Service、Core、Evals 的边界。
+- 在 README 增加精简版“当前文件架构”，并链接到完整目录说明。
+- 新增 `docs/README.md` 文档索引，将核心设计、接口开发、RAG 评测、生产安全和面试资料分组。
+- 将仓库根目录的三份 2026-07-06 面试材料移动到 `docs/interview/archive-2026-07-06/`，增加归档说明，避免旧测试数量和旧实现状态被当成当前事实。
+- 新增 `tests/test_project_structure_docs.py`，持续检查核心路径存在、目录文档关键章节存在，以及历史面试快照不再散落根目录。
+
+### 发现的问题
+- 现有源码分层已经稳定，但 `app/services` 按领域平铺后缺少职责地图，读者很难快速定位 PDF、RAG、审批、队列和外发工具。
+- README 只有运行时架构图，没有类似“打开仓库后先看哪里”的物理文件树。
+- `docs/` 没有统一索引，设计、评测、生产补强和面试资料都在同一层展示。
+- 三份历史面试材料位于仓库根目录，而且内容早于后续 Prompt Injection、Redis worker、Skill、Tool Policy 和业务摘要改造。
+
+### 怎么修复
+- 保留当前 Python package 和 import，不为了目录视觉整齐大规模移动 `app/services`；通过文件级注释树和放置规则解决可发现性问题。
+- 明确依赖方向为 `Frontend/API -> Agents -> Services -> Models/Core`，Skill 只提供 Planner/Tool Policy metadata，生产代码不能反向依赖评测。
+- 把日期快照归入 archive，并在 `docs/interview/README.md` 标明它们不是当前实现状态的权威来源。
+- 使用测试锁定核心文件、说明章节和归档位置，降低目录说明后续失真概率。
+
+### 验证结果
+- README、`docs/README.md`、`docs/PROJECT_STRUCTURE.md` 和面试资料索引中的本地 Markdown 链接全部可解析。
+- `git diff --check` 通过，仅有 Windows CRLF 转换提示。
+- `python -m pytest tests\test_project_structure_docs.py -q` 通过，2 个目录治理测试全部通过。
+- `python -m pytest -q --tb=short` 通过，138 个测试全部通过。
+
+### 未修复的问题
+- `app/services` 仍是平铺包。这是有意保留：当前文件大多是单职责模块，强拆成多级 package 会制造大范围 import churn，却不会直接提升运行质量。
+- 2026-07-06 的归档面试材料包含过期实现描述；本次只做归档和状态警示，没有逐段改写历史快照。
+
+### 下一步
+- 新增较大领域时按 `docs/PROJECT_STRUCTURE.md` 的阈值评估是否建立子 package，而不是继续无限扩充平铺目录。
+- 后续新增 Tool、Skill、评测或用户页面时同步更新目录说明和对应回归测试。
+
 ## 2026-07-20 13:02:31 +08:00：黄金业务路径、文件化 Skill、Tool Policy 与业务摘要
 ### 这次做了什么
 - 按“工程能力已经较深，但业务主线和演示表达不够集中”的评述重构产品表达，没有照搬外部电商项目的 JSON 存储、Mock 或为技术名词而拆多 Agent。

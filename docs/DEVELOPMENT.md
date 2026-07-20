@@ -408,3 +408,5 @@ docs/DEVELOPMENT_LOG.md
 - 说明怎么修复。
 - 说明未修复问题和原因。
 - 说明下一步怎么做。
+
+新增模块前先查看 `docs/PROJECT_STRUCTURE.md` 的分层边界和文件放置规则，避免把业务逻辑写进 API、把运行时状态写进 Skill，或在 LangGraph 节点中复制领域服务。

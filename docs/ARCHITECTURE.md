@@ -2,6 +2,8 @@
 
 CareerAgent 的目标不是“一个 Prompt 生成简历”，而是一个可观测、可评测、可扩展的求职 Agent 工程。
 
+仓库的完整文件树、每个文件职责和新增功能放置规则见 [项目目录说明](PROJECT_STRUCTURE.md)。
+
 ## 分层
 
 - `app/api`：FastAPI 路由层，负责请求校验、DB Session 注入和服务编排。
