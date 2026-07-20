@@ -113,6 +113,12 @@ class Settings(BaseSettings):
         )
     )
     tencent_careers_enabled: bool = True
+    baidu_careers_enabled: bool = True
+    meituan_careers_enabled: bool = True
+    bytedance_careers_enabled: bool = True
+    alibaba_careers_enabled: bool = True
+    job_source_browser_headless: bool = True
+    job_source_browser_timeout_ms: int = 30000
     lever_careers_enabled: bool = False
     lever_company_slugs: str = "anthropic,cohere,scaleai,perplexityai"
 

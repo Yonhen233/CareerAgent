@@ -17,6 +17,7 @@
 
 - [PDF Chunk 方案](PDF_CHUNKING.md)
 - [量化评测方案](EVALUATION.md)
+- [国内真实岗位源](REAL_JOB_SOURCES.md)
 
 ## 生产与安全
 

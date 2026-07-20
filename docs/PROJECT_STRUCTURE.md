@@ -42,7 +42,7 @@ CareerAgent/
 │   │   ├── resume_tailor.py                  # RAG 证据约束简历定制与 ReAct repair
 │   │   ├── resume_delivery.py                # HTML/Markdown 简历交付
 │   │   │
-│   │   ├── job_sources.py                    # 中文岗位源适配器
+│   │   ├── job_sources.py                    # 腾讯/百度/美团/字节/阿里岗位源适配器
 │   │   ├── job_search.py                     # 并发岗位搜索与入库
 │   │   ├── job_relevance.py                  # 中文岗位相关性排序
 │   │   ├── jd_parser.py                      # JD 结构化解析

@@ -1,0 +1,114 @@
+[
+  {
+    "name": "中文 Agent 开发实习",
+    "query": "Agent 开发实习生",
+    "limit": 8,
+    "sources": ["tencent", "baidu", "meituan", "bytedance", "alibaba"],
+    "expectations": {
+      "min_result_source_rate": 0.8,
+      "min_non_empty_jd_rate": 1.0,
+      "min_apply_url_rate": 1.0,
+      "min_internship_like_rate": 0.5,
+      "min_query_relevance_rate": 0.75,
+      "min_agent_related_rate": 0.75
+    }
+  },
+  {
+    "name": "Coding Agent 实习",
+    "query": "Coding Agent 实习生",
+    "limit": 8,
+    "sources": ["tencent", "baidu", "meituan", "bytedance", "alibaba"],
+    "expectations": {
+      "min_result_source_rate": 0.8,
+      "min_non_empty_jd_rate": 1.0,
+      "min_apply_url_rate": 1.0,
+      "min_internship_like_rate": 0.5,
+      "min_query_relevance_rate": 0.75,
+      "min_agent_related_rate": 0.75
+    }
+  },
+  {
+    "name": "RAG 知识库实习",
+    "query": "RAG 知识库 开发实习生",
+    "limit": 8,
+    "sources": ["tencent", "baidu", "meituan", "bytedance", "alibaba"],
+    "expectations": {
+      "min_result_source_rate": 0.8,
+      "min_non_empty_jd_rate": 1.0,
+      "min_apply_url_rate": 1.0,
+      "min_internship_like_rate": 0.5,
+      "min_query_relevance_rate": 0.7,
+      "min_agent_related_rate": 0.5
+    }
+  },
+  {
+    "name": "大模型评测实习",
+    "query": "大模型 评测 实习生",
+    "limit": 8,
+    "sources": ["tencent", "baidu", "meituan", "bytedance", "alibaba"],
+    "expectations": {
+      "min_result_source_rate": 0.8,
+      "min_non_empty_jd_rate": 1.0,
+      "min_apply_url_rate": 1.0,
+      "min_internship_like_rate": 0.5,
+      "min_query_relevance_rate": 0.75,
+      "min_agent_related_rate": 0.5
+    }
+  },
+  {
+    "name": "Agent 产品实习",
+    "query": "AI Agent 产品实习生",
+    "limit": 8,
+    "sources": ["tencent", "baidu", "meituan", "bytedance", "alibaba"],
+    "expectations": {
+      "min_result_source_rate": 0.8,
+      "min_non_empty_jd_rate": 1.0,
+      "min_apply_url_rate": 1.0,
+      "min_internship_like_rate": 0.5,
+      "min_query_relevance_rate": 0.75,
+      "min_agent_related_rate": 0.75
+    }
+  },
+  {
+    "name": "Agent 后端工程实习",
+    "query": "Agent 后端 Python 实习生",
+    "limit": 8,
+    "sources": ["tencent", "baidu", "meituan", "bytedance", "alibaba"],
+    "expectations": {
+      "min_result_source_rate": 0.8,
+      "min_non_empty_jd_rate": 1.0,
+      "min_apply_url_rate": 1.0,
+      "min_internship_like_rate": 0.5,
+      "min_query_relevance_rate": 0.7,
+      "min_agent_related_rate": 0.6
+    }
+  },
+  {
+    "name": "多模态 Agent 实习",
+    "query": "多模态 Agent 算法实习生",
+    "limit": 8,
+    "sources": ["tencent", "baidu", "meituan", "bytedance", "alibaba"],
+    "expectations": {
+      "min_result_source_rate": 0.8,
+      "min_non_empty_jd_rate": 1.0,
+      "min_apply_url_rate": 1.0,
+      "min_internship_like_rate": 0.5,
+      "min_query_relevance_rate": 0.75,
+      "min_agent_related_rate": 0.75
+    }
+  },
+  {
+    "name": "Prompt 与 Agent 安全实习",
+    "query": "Prompt Agent 安全 评测实习生",
+    "limit": 8,
+    "sources": ["tencent", "baidu", "meituan", "bytedance", "alibaba"],
+    "expectations": {
+      "min_result_source_rate": 0.8,
+      "min_non_empty_jd_rate": 1.0,
+      "min_apply_url_rate": 1.0,
+      "min_internship_like_rate": 0.5,
+      "min_query_relevance_rate": 0.6,
+      "min_agent_related_rate": 0.6
+    }
+  }
+]

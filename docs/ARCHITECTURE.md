@@ -75,7 +75,7 @@ Agent 主编排已经迁移到 LangGraph。`app/agents/orchestrator.py` 只保�
 
 1. LangGraph `plan_task` 节点生成 Plan-Execute 执行计划，包含 tools、skills、subagents、context policy 和 `orchestration_framework=langgraph`，并写入 `agent_artifacts`。
 2. 加载 Profile。
-3. 并发搜索岗位源。
+3. 并发搜索腾讯、百度、美团、字节跳动和阿里巴巴岗位源。
 4. 并发解析 JD。
 5. 顺序写入岗位和 JD chunk。
 6. 匹配 Profile 与岗位。
@@ -199,7 +199,7 @@ Reranker：
 
 已使用的并发点：
 
-- 岗位源搜索：腾讯等中文 source 使用 `asyncio.gather` 并发请求；Lever/Greenhouse 这类海外 ATS 不进入默认中文链路，只能作为显式英文辅助场景。
+- 岗位源搜索：腾讯、百度、美团、字节跳动、阿里巴巴 source 使用 `asyncio.gather` 并发请求；字节内部使用 Playwright 生成官网动态签名并捕获结构化 JSON，阿里内部并发搜索动态发现的实习批次。Lever/Greenhouse 这类海外 ATS 不进入默认中文链路，只能作为显式英文辅助场景。
 - Source 返回后执行确定性中文相关性排序，按 Agent/LLM/RAG、开发/工程、实习/校招等正向信号提升岗位，按产品、销售、商务等偏离信号降权。
 - JD 解析：多个岗位的 JD 解析使用 semaphore 控制并发。
 - 外部 I/O：HTTP 请求、LLM 调用都走 async client。

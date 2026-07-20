@@ -1,5 +1,50 @@
 # 开发日志
 
+## 2026-07-20 15:08:23 +08:00：国内招聘站调研与腾讯/百度/美团/字节/阿里五源接入
+### 这次做了什么
+- 实测国内互联网公司自有招聘站，正式增加百度、美团、字节跳动和阿里巴巴 Source，与已有腾讯组成默认五源中文岗位链路。
+- 百度 Source 从公开 SSR `window.__INITIAL_DATA__` 读取实习岗位、职责、要求、地点和招聘项目。
+- 美团 Source 调用公开岗位搜索 JSON，再以受控并发读取详情 JSON，补全职责、要求、部门和岗位亮点。
+- 字节 Source 使用 async Playwright 打开官方校园招聘页，等待官网生成动态 `_signature`，捕获状态码为 200 的结构化岗位 JSON；没有复制短期签名，也没有依赖 DOM selector 抓 JD。
+- 阿里 Source 首次访问获取 `XSRF-TOKEN`，调用批次发现接口获取 2027 届、日常和研究型实习批次，再并发搜索各批次完整 JD。
+- 增加招聘站 query normalization，把自然语言目标提取为 `Agent`、`RAG`、`LLM`、`大模型` 等官网检索词，返回后仍按原始完整 query 做统一相关性排序。
+- 默认 `JobSearchRequest`、前端岗位搜索和 `.env.example` 已切换为五源；Lever 继续只作为显式英文辅助。
+- 新增 `evals/real_job_source_cases.json` 的 8 类真实 query release suite、`scripts/run_real_job_source_eval.py` 阈值脚本和 `tests/test_job_sources.py` Source 契约测试。
+- 新增 `docs/REAL_JOB_SOURCES.md`，记录正式来源、未接入站点、协议边界、部署要求和真实指标；同步更新 README、API、架构、开发、评测和目录文档。
+
+### 发现的问题
+- 字节公开岗位 JSON 的 `_signature` 由官网 JavaScript 动态生成；直接 HTTP 请求或复用浏览器里复制的签名会收到 405 或很快失效。
+- 阿里 `/position/search` 不接受“Agent 开发实习生”这种自然语言整句作为有效检索词，返回 `datas=null`；输入 `Agent` 时可以返回大量研究型和日常实习岗位。
+- 阿里实习项目同时存在多个动态批次，固定写死 2027 届 `batchId` 会漏掉日常实习和研究型实习，也会在下一招聘年度失效。
+- 腾讯当前 Agent 结果仍混有社招；单一腾讯 smoke 的实习率只有 0.3750，不能代表中文 Agent 实习市场。
+- 滴滴公开接口当前能返回 Agent 社招但没有 Agent 实习；OPPO 详情可读但列表发现链路不稳定；小米、华为、京东尚未验证稳定的完整 JD 搜索协议。
+
+### 怎么修复
+- 对字节使用真实浏览器生成签名，但只把官方 JSON 响应作为数据协议；浏览器缺失、超时或协议变化直接写入 `source_errors`。
+- 对阿里先动态发现所有 `internship` 批次，再并发查询；`success=true` 且 `datas=null/totalCount=0` 被正确视为空结果，不伪装成协议异常。
+- 将官网检索词规划和跨来源排序分开：Source 负责用站点能理解的短检索词扩大候选池，`job_relevance` 负责按用户完整 query 做实习、Agent、开发、算法、后端、产品等意图重排。
+- 五个 Source 在 FastAPI 服务层通过 `asyncio.gather` 并发运行；美团详情和阿里批次也各自在 Source 内并发，SQLite 写入仍保持顺序。
+- 未达到“稳定发现、完整 JD、稳定投递 URL、连续 smoke”四项要求的站点不进入默认链路。
+
+### 验证结果
+- Source 契约、中文默认源和评测服务定向回归：`34 passed`；新增字节/阿里后 Source 定向回归：`8 passed`。
+- 完整回归 `python -m pytest -q --tb=short`：`143 passed`；Python 编译检查、前端 JavaScript 语法检查、评测集 JSON 校验和 `git diff --check` 均通过。
+- 单次真实五源 smoke EvaluationRun `#39`：5/5 来源可达且有结果，40 条岗位，JD 非空率 1.0000，投递链接率 1.0000，实习率 0.8500，query relevance 1.0000，Agent 相关率 0.9750，总耗时 7314ms。
+- 8 类真实岗位 suite EvaluationRun `#40-#47`：8/8 case 通过，共返回 316 条岗位；每个 case 的可达率、有结果率、JD 非空率、投递链接率和 query relevance 都是 1.0000。
+- 完整 suite 的实习率为 0.7778-0.9000，Agent 相关率为 0.8333-1.0000，单 case 五源并发耗时为 6.5-7.6 秒。
+- 实际结果包含字节 `Agent开发实习生-开发者服务`、`AI Agent开发实习生-App Infra`，以及阿里 `研究型实习生-高性能算子生成 Agent 研发`、`日常实习生-1688-LLM/Agent实习生` 等完整 JD。
+
+### 未修复的问题
+- 字节 Source 每次搜索会启动一个 Chromium 进程，当前单 Source 实测约 4.6 秒；尚未实现浏览器进程池或短 TTL 查询缓存。
+- 招聘站协议属于外部系统，字段、签名和批次随时可能变化；本次通过 release suite 证明当前可用，不能承诺永久稳定。
+- 当前环境没有安装 Ruff，`python -m ruff check` 无法执行；代码质量继续由编译检查、`git diff --check` 和完整 pytest 覆盖。
+- 滴滴、OPPO、小米、华为、京东没有为了增加 Source 数量而半接入，原因和当前证据已写入 `docs/REAL_JOB_SOURCES.md`。
+
+### 下一步
+- 为字节 Source 增加可选的浏览器池和 1-5 分钟查询缓存，降低重复搜索的冷启动开销，同时保留 source 级 trace。
+- 把五源 smoke 加入定时监控，按来源记录协议失败、空结果、P95 延迟、JD 非空率和实习率趋势。
+- 继续验证滴滴实习批次和 OPPO 列表协议；只有达到四项接入标准后再进入默认中文链路。
+
 ## 2026-07-20 14:15:36 +08:00：项目文件架构说明与文档归档治理
 ### 这次做了什么
 - 参考 `ecom-service-agent` README 中“真实目录树 + 行内职责注释”的表达方式，为 CareerAgent 新增 `docs/PROJECT_STRUCTURE.md`。

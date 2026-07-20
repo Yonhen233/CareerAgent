@@ -3207,7 +3207,7 @@ function bindForms() {
       location: raw.location || null,
       limit: Number(raw.limit || 20),
       internship_only: form.internship_only.checked,
-      sources: ["tencent"],
+      sources: ["tencent", "baidu", "meituan", "bytedance", "alibaba"],
       store_results: true,
     };
     const body = await api("/jobs/search", { method: "POST", body: JSON.stringify(payload) });

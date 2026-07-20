@@ -567,12 +567,13 @@ POST /evaluations/interview-source-smoke?query=Agent%20%E5%BC%80%E5%8F%91%E5%AE%
 
 ```http
 POST /evaluations/real-job-source-smoke
-POST /evaluations/real-job-source-smoke?query=Agent%20%E5%BC%80%E5%8F%91%E5%AE%9E%E4%B9%A0%E7%94%9F&limit=8&sources=tencent
+POST /evaluations/real-job-source-smoke?query=Agent%20%E5%BC%80%E5%8F%91%E5%AE%9E%E4%B9%A0%E7%94%9F&limit=8&sources=tencent&sources=baidu&sources=meituan&sources=bytedance&sources=alibaba
 ```
 
 评测内容：
 
-- 并发访问真实岗位源；默认中文主链路使用腾讯招聘公开接口，Lever/Greenhouse 这类海外 ATS 不参与默认中文评测，只能在显式英文辅助场景下单独评测。
+- 并发访问腾讯、百度、美团、字节跳动和阿里巴巴五个真实岗位源；Lever/Greenhouse 这类海外 ATS 不参与默认中文评测，只能在显式英文辅助场景下单独评测。
+- 字节由 Playwright 触发官网动态签名请求并读取结构化 JSON；阿里先动态发现 2027 届、日常和研究型实习批次，再并发搜索完整 JD。
 - 对每个 source 单独记录 `status`、`source_reachable`、`result_count`、`latency_ms`、`error` 和 `sample_jobs`。
 - 不调用 LLM 解析 JD，不写入主岗位库，只评估 source 层健康度，避免 LLM、embedding 或数据库状态掩盖招聘源问题。
 - 网络失败、招聘站接口变化、空结果都会进入 `source_errors` 或 `source_unavailable`，不污染 `agent_full_flow` 的核心 pass rate。
@@ -601,31 +602,31 @@ POST /evaluations/real-job-source-smoke?query=Agent%20%E5%BC%80%E5%8F%91%E5%AE%9
 | 指标 | 结果 |
 | --- | ---: |
 | query | `Agent 开发实习生` |
-| sources | `tencent` |
+| sources | `tencent, baidu, meituan, bytedance, alibaba` |
 | status | `completed` |
 | reachable_source_rate | 1.0000 |
 | result_source_rate | 1.0000 |
-| total_result_count | 8 |
+| total_result_count | 40 |
 | non_empty_jd_rate | 1.0000 |
 | apply_url_rate | 1.0000 |
-| internship_like_rate | 0.3750 |
+| internship_like_rate | 0.8500 |
 | query_relevance_rate | 1.0000 |
-| agent_related_rate | 1.0000 |
-| avg_relevance_score | 18.8250 |
-| avg_top_relevance_score | 27.2000 |
+| agent_related_rate | 0.9750 |
+| avg_relevance_score | 26.0850 |
+| avg_top_relevance_score | 29.7400 |
 | source_error_count | 0 |
 
-排序后 top sample：
+五源 top sample：
 
-| 排名 | 岗位 | relevance_score | 排序原因 |
-| ---: | --- | ---: | --- |
-| 1 | Agent Development Intern 107276 | 27.2000 | Agent/LLM/RAG、实习/校招、开发/工程 |
-| 2 | Agent Evaluation Intern 107491 | 26.9000 | Agent/LLM/RAG、实习/校招、开发/工程 |
-| 3 | AI Agent Research & Application Intern 106432 | 25.9000 | Agent/LLM/RAG、实习/校招、开发/工程 |
-| 4 | AI Agent开发工程师（游戏研发） | 15.7000 | Agent/LLM/RAG、开发/工程，缺少实习信号 |
-| 5 | 大模型算法工程师(RAG & Agent方向) | 14.7000 | Agent/LLM/RAG、开发/工程，缺少实习信号 |
+| Source | 岗位 | relevance_score |
+| --- | --- | ---: |
+| 腾讯 | Agent Evaluation Intern | 26.9000 |
+| 百度 | Agent策略算法实习生 | 29.2000 |
+| 美团 | 大模型应用开发实习生 | 30.8000 |
+| 字节 | Agent开发实习生-开发者服务 | 31.8000 |
+| 阿里 | 研究型实习生-高性能算子生成 Agent 研发 | 30.5000 |
 
-本次结果说明腾讯招聘公开接口当前可达，中文 query 可以返回 Agent 实习和大模型/RAG/Agent 开发工程类岗位。排序前真实搜索曾把 QQ-Agent 产品经理、游戏研发 Agent 产品策划等岗位混入 top 结果；现在 source 层排序会优先提升实习开发岗位，把产品/策划类岗位降到更靠后。`internship_like_rate=0.3750` 说明本次 top8 中仍只有 3 个实习岗位，原因是真实招聘源当前候选池里的实习岗位数量有限；这应通过后续增加中文岗位源和更大候选池改善，而不是引入 Greenhouse 这类中国场景较弱的英文 ATS 作为默认源。
+本次五源运行是 EvaluationRun `#40`，总耗时 6905ms。8 类查询的完整 suite 对应 `#40-#47`，共返回 316 条岗位，8/8 case 通过；每个 case 的五源可达率、五源有结果率、JD 非空率、投递链接率和 query relevance 都是 1.0000，实习率为 0.7778-0.9000，Agent 相关率为 0.8333-1.0000，单 case 总耗时 6.5-7.6 秒。详细接入边界和站点筛选记录见 `docs/REAL_JOB_SOURCES.md`。
 
 ## 真实 JD Ingest Smoke
 

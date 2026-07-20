@@ -6,6 +6,7 @@
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
+playwright install chromium
 copy .env.example .env
 uvicorn app.main:app --reload
 ```
@@ -48,6 +49,10 @@ RERANKER_PROVIDER_FALLBACK=error
 RERANKER_TOP_N=20
 RERANKER_ANCHOR_TOP_N=5
 JOB_INGEST_CONCURRENCY=6
+BYTEDANCE_CAREERS_ENABLED=true
+ALIBABA_CAREERS_ENABLED=true
+JOB_SOURCE_BROWSER_HEADLESS=true
+JOB_SOURCE_BROWSER_TIMEOUT_MS=30000
 ```
 
 说明：
@@ -67,6 +72,7 @@ JOB_INGEST_CONCURRENCY=6
 - `RERANKER_PROVIDER_FALLBACK=error`：真实 reranker 加载失败时直接报错。
 - `RERANKER_ANCHOR_TOP_N=5`：保留前 5 条一阶段证据顺序，降低 reranker 牺牲召回的风险。
 - `JOB_INGEST_CONCURRENCY`：并发解析 JD 的最大并发数。
+- `JOB_SOURCE_BROWSER_TIMEOUT_MS`：字节官网签名请求的浏览器超时；失败会进入 source trace，不复用静态签名。
 - `LANGGRAPH_CHECKPOINT_FILE`：LangGraph SQLite checkpoint 文件，用于跨请求恢复 interrupted graph。
 
 ## LangGraph 编排开发约定
@@ -117,6 +123,7 @@ class MySource(JobSource):
 - source 失败不能让整个搜索失败。
 - 返回内容要统一映射到 `JobPosting`。
 - 外部请求使用 async HTTP client。
+- 需要官网动态签名时可以使用 async Playwright，但应捕获结构化 JSON 响应，不以 DOM selector 作为岗位数据协议。
 - 中文主场景 source 应优先稳定返回中文 JD；海外 ATS 类 source 只能作为显式开启的英文辅助源。
 - 不因为某个 ATS 接口容易访问就加入主路径；Greenhouse 这类中国求职场景较弱的源不作为默认能力，除非后续有明确英文岗位场景和单独评测。
 - 新 source 返回后应复用 `job_relevance` 的中文岗位相关性排序和 trace 字段，避免各 source 各自定义不可比较的排序规则。

@@ -62,7 +62,9 @@ PDF/结构化简历 + 中文目标岗位
   - 支持对一阶段 Top20 chunk 使用 CrossEncoder reranker，默认 Top5 作为召回锚点。
   - `EvidenceClassifier` 会区分 shipped project、metric evidence、coursework、planned learning 和 missing-skill disclosure，并影响 RAG 证据排序。
 - 岗位来源：
-  - 腾讯招聘公开职位接口，作为中文主场景岗位源。
+  - 默认中文主链路接入腾讯、百度、美团、字节跳动和阿里巴巴五个公司自有招聘站。
+  - 腾讯使用公开职位 JSON；百度读取公开 SSR 数据；美团使用搜索与详情 JSON；阿里动态发现实习批次并读取完整 JD。
+  - 字节岗位接口需要官网动态 `_signature`，因此使用 Playwright 触发官网请求并捕获结构化 JSON，不硬编码签名，也不依赖 DOM selector。
   - 海外 ATS 只作为少量英文辅助，不进入默认中文链路；Greenhouse 这类中国招聘场景弱的源不作为核心能力接入。
   - Lever 公开岗位 API 仅作为显式开启的英文辅助岗位源，默认不参与中文主链路。
   - Source 层有确定性的中文岗位相关性排序，会优先提升 Agent/LLM/RAG、开发/工程和实习/校招信号，降低产品、销售、商务等不匹配岗位。
@@ -135,6 +137,7 @@ PDF/结构化简历 + 中文目标岗位
 - V6：人工审批 interrupt、浏览器/邮件高风险工具网关和审计。
 - V7：多租户 RBAC、Supervisor、健康探针、发布阈值和 Prompt Injection 评测。
 - V8：版本化 `SKILL.md`、统一 Tool Policy、三条黄金演示和面向用户的四层业务摘要。
+- V9：腾讯/百度/美团/字节/阿里五源中文岗位检索、动态批次/签名适配和真实多 query release suite。
 
 ## 当前文件架构
 
@@ -203,9 +206,12 @@ flowchart LR
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
+playwright install chromium
 copy .env.example .env
 uvicorn app.main:app --reload
 ```
+
+`playwright install chromium` 用于字节跳动岗位源和浏览器外发工具；未安装时字节 Source 会显式写入 `source_errors`。
 
 后台一键流程需要 Redis 和独立 worker：
 
