@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from app.services.interview_agentic_rag import SOURCE_CLAIM_POLICY
+
 
 class DeterministicInterviewEvaluationLLM:
     """Structured LLM fixture used only by the offline evaluation harness."""
@@ -109,7 +111,7 @@ class DeterministicInterviewEvaluationLLM:
                     for evidence_id in claim["current_evidence_ids"]
                     if evidence_id in evidence_by_alias
                 ]
-                allowed_sets = [set(item["allowed_claim_types"]) for item in cited]
+                allowed_sets = [set(SOURCE_CLAIM_POLICY[item["source_type"]]) for item in cited]
                 allowed = sorted(set.intersection(*allowed_sets)) if allowed_sets else []
                 flattened.append(
                     {

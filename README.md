@@ -346,6 +346,7 @@ python scripts/run_user_flow_smoke.py --pdf demo_resumes/agent_intern_strong_res
 - `GET /ops/readiness`
 - `GET /ops/metrics`
 - `GET /ops/config`
+- `GET /ops/llm-usage`
 - `GET /ops/queue/status`
 - `POST /ops/queue/recover-queued`
 - `GET /ops/approvals`
@@ -382,8 +383,9 @@ pytest -q
 - `REQUIRE_ADMIN_FOR_MUTATIONS=true`：开启后，所有 `POST/PUT/PATCH/DELETE` 写操作都需要 `X-Admin-Token`，适合演示“读写权限隔离”。
 - `/ops/readiness`：检查数据库、LLM 配置、embedding/reranker provider。
 - `/ops/metrics`：查看请求数、平均延迟、状态码分布、Agent run/task/LLM call 状态分布和最近评测摘要。
+- `/ops/llm-usage`：按最近时间窗聚合供应商实际返回的输入、输出和总 Token，并按模型、workflow、单次 workflow run 和 trace 分组；不会把缺失 usage 的调用记成 0。
 - `/tasks/llm-workflow`：把真实 LLM workflow 放到后台执行，前端轮询 `/tasks` 展示进度，适合 18-case 长跑。
-- `/ui/ops`：提供这些运维接口的前端面板，并支持保存本机 Admin Token。
+- `/ui/ops`：提供这些运维接口的前端面板，在控制台展示 LLM Token 用量，并支持保存本机 Admin Token；用户面试页不展示费用或 Token 数据。
 
 ## 文档
 

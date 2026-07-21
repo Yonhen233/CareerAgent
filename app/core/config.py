@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     interview_rag_rrf_k: int = 60
     interview_rag_min_answer_chars: int = 120
     interview_rag_answer_repair_attempts: int = 1
-    interview_rag_max_llm_calls: int = 8
+    interview_rag_max_llm_calls: int = 6
     interview_rag_max_prompt_chars: int = 60000
     interview_rag_max_completion_tokens: int = 18000
 

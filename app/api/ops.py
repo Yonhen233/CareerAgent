@@ -20,6 +20,7 @@ from app.models.schemas import (
 )
 from app.services.approval_service import ApprovalService
 from app.services.high_risk_action_tools import ApprovalRequiredError, HighRiskActionToolService
+from app.services.llm_usage import LLMUsageService
 from app.services.outbound_tools import OutboundToolError
 from app.services.stale_runs import StaleRunService
 from app.services.task_runner import RedisTaskRunner
@@ -125,6 +126,24 @@ def config_summary(_: AuthContext = Depends(require_admin)) -> dict:
             "active_run_limit_per_profile": settings.agent_active_run_limit_per_profile,
         },
     }
+
+
+@router.get("/llm-usage")
+def llm_usage(
+    hours: int = Query(default=24, ge=1, le=24 * 90),
+    since_id: int | None = Query(default=None, ge=0),
+    workflow: str | None = Query(default=None, min_length=1, max_length=80),
+    workflow_run_id: str | None = Query(default=None, min_length=1, max_length=128),
+    db: Session = Depends(get_db),
+    _: AuthContext = Depends(require_admin),
+) -> dict:
+    return LLMUsageService().summarize(
+        db,
+        hours=hours,
+        since_id=since_id,
+        workflow=workflow,
+        workflow_run_id=workflow_run_id,
+    )
 
 
 @router.get("/queue/status")

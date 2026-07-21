@@ -9,7 +9,11 @@ from app.core.llm import LLMConfigurationError
 from app.models.entities import InterviewPrep, Job, Profile
 from app.models.schemas import AgentRunRequest
 from app.services.interview_answer_framework import InterviewAnswerFrameworkService
-from app.services.interview_agentic_rag import InterviewAgenticRAGError, InterviewAgenticRAGService
+from app.services.interview_agentic_rag import (
+    SOURCE_CLAIM_POLICY,
+    InterviewAgenticRAGError,
+    InterviewAgenticRAGService,
+)
 from app.services.interview_delivery import InterviewPrepDeliveryService
 from app.services.interview_experience import InterviewExperienceService
 from app.services.interview_prep import InterviewPrepService
@@ -31,13 +35,13 @@ def _verifier_claims(payload):
                 for evidence_id in item["current_evidence_ids"]
                 if evidence_id in evidence_by_alias
             ]
-            allowed_sets = [set(value["allowed_claim_types"]) for value in cited]
+            allowed_sets = [set(SOURCE_CLAIM_POLICY[value["source_type"]]) for value in cited]
             allowed = sorted(set.intersection(*allowed_sets)) if allowed_sets else []
             flattened.append(
                 {
                     **item,
                     "question_id": group["question_id"],
-                    "question": group["question"],
+                    "question": group.get("question", ""),
                     "available_evidence": group["available_evidence"],
                     "allowed_claim_types": allowed,
                 }
@@ -303,6 +307,44 @@ class MalformedThenRepairedJSONLLM:
         return '{"items":[{"id":"q1" "value":"保留原业务值"}]}'
 
 
+class OnePrunableClaimLLM(FakeAgenticInterviewLLM):
+    def _answer_payload(self, items):
+        payload = json.loads(super()._answer_payload(items))
+        evidence_by_question = {
+            item["question_id"]: item["evidence"][0]["evidence_id"]
+            for item in items
+        }
+        for answer in payload["answers"]:
+            answer["claims"].append(
+                {
+                    "text": "这条故意构造的额外说法会被独立 verifier 拒绝，但不应导致其余三条已支持事实被整题重写。",
+                    "claim_type": "answer_strategy",
+                    "evidence_ids": [evidence_by_question[answer["question_id"]]],
+                }
+            )
+        return json.dumps(payload, ensure_ascii=False)
+
+    async def generate_text(self, *, trace_name, **kwargs):
+        raw = await super().generate_text(trace_name=trace_name, **kwargs)
+        if not trace_name.startswith("interview_agentic_rag.verify."):
+            return raw
+        payload = json.loads(raw)
+        rejected_questions = set()
+        for verdict in payload["verdicts"]:
+            question_id = verdict["question_id"]
+            if question_id in rejected_questions or verdict["claim_index"] != 3:
+                continue
+            verdict.update(
+                {
+                    "supported": False,
+                    "normalized_evidence_ids": [],
+                    "reason": "测试故意拒绝额外 claim。",
+                }
+            )
+            rejected_questions.add(question_id)
+        return json.dumps(payload, ensure_ascii=False)
+
+
 def _create_grounded_prep(db_session, *, profile, job, experience_ids=None):
     return asyncio.run(
         InterviewPrepService(llm=FakeAgenticInterviewLLM()).create_interview_prep_with_llm(
@@ -341,6 +383,32 @@ def test_interview_default_flow_stays_within_four_llm_calls_and_context_budget(d
     ]
     assert sum(item["prompt_chars"] for item in llm.calls) <= 60000
     assert sum(item["max_tokens"] for item in llm.calls) <= 18000
+    verify_call = next(item for item in llm.calls if item["trace_name"] == "interview_agentic_rag.verify.1")
+    assert verify_call["prompt_chars"] < 18000
+
+
+def test_interview_prunes_one_bad_claim_without_rewriting_complete_answers(db_session):
+    profile, job = _seed_profile_job(db_session)
+    llm = OnePrunableClaimLLM()
+
+    prep = asyncio.run(
+        InterviewPrepService(llm=llm).create_interview_prep_with_llm(
+            db_session,
+            profile=profile,
+            job=job,
+        )
+    )
+
+    questions = [
+        question
+        for group in prep.question_sets_json
+        for question in group.get("questions", [])
+    ]
+    assert len(llm.calls) == 4
+    assert not any("repair" in item["trace_name"] for item in llm.calls)
+    assert prep.summary_json["agentic_rag"]["repair_attempts"] == 0
+    assert prep.summary_json["agentic_rag"]["verification_warning_count"] == len(questions)
+    assert all(len(question["claims"]) == 3 for question in questions)
 
 
 def test_agentic_rag_repairs_malformed_json_with_traced_llm_node(db_session):
@@ -538,6 +606,52 @@ def test_claim_verifier_prunes_rejected_claims_before_repair(db_session):
     assert errors[0]["code"] == "claim_not_supported"
     assert answers["q1"]["claims"] == []
     assert answers["q1"]["citations"] == []
+
+
+def test_claim_verifier_only_sends_cited_and_rebinding_evidence():
+    service = InterviewAgenticRAGService(llm=FakeAgenticInterviewLLM())
+    evidence = [
+        {
+            "evidence_id": "job:1",
+            "source_type": "job",
+            "allowed_claim_types": sorted(SOURCE_CLAIM_POLICY["job"]),
+        },
+        {
+            "evidence_id": "resume:1",
+            "source_type": "resume",
+            "allowed_claim_types": sorted(SOURCE_CLAIM_POLICY["resume"]),
+        },
+        {
+            "evidence_id": "project:1",
+            "source_type": "project_document",
+            "allowed_claim_types": sorted(SOURCE_CLAIM_POLICY["project_document"]),
+        },
+        {
+            "evidence_id": "knowledge:1",
+            "source_type": "technical_knowledge",
+            "allowed_claim_types": sorted(SOURCE_CLAIM_POLICY["technical_knowledge"]),
+        },
+        {
+            "evidence_id": "interview:1",
+            "source_type": "interview_experience",
+            "allowed_claim_types": sorted(SOURCE_CLAIM_POLICY["interview_experience"]),
+        },
+    ]
+
+    selected = service._verification_evidence(
+        evidence,
+        [
+            {
+                "text": "项目实现了 trace。",
+                "claim_type": "project_implementation",
+                "evidence_ids": ["job:1"],
+            }
+        ],
+    )
+
+    assert selected == {"job:1", "resume:1", "project:1"}
+    assert "knowledge:1" not in selected
+    assert "interview:1" not in selected
 
 
 def _seed_profile_job(db_session):
@@ -744,6 +858,7 @@ def test_interview_prep_with_llm_generates_project_and_foundation_followups(db_s
     markdown = InterviewPrepDeliveryService().render_markdown(prep)
 
     assert prep.generation_mode == "langgraph_agentic_rag_v3_cost_guarded"
+    assert prep.summary_json["llm_workflow_run_id"]
     assert prep.summary_json["llm_question_generation"]["enabled"] is True
     assert {"llm_project_implementation", "llm_foundation_drill"} <= sources
     assert any(question.get("follow_ups") for question in questions)

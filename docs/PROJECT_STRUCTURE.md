@@ -78,6 +78,7 @@ CareerAgent/
 │   │   ├── task_runner.py                    # 队列任务执行入口
 │   │   ├── stale_runs.py                     # heartbeat 与 stale run 管理
 │   │   ├── ops_audit.py                      # 运维与高风险动作审计
+│   │   ├── llm_usage.py                      # 供应商 Token 用量的时间窗与 workflow 聚合
 │   │   ├── session_auth.py                   # Session 用户、租户和角色
 │   │   └── evaluation_service.py             # 评测执行和指标聚合
 │   │

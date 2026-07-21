@@ -505,14 +505,27 @@ def test_ops_frontend_exposes_production_controls():
     assert "ops-readiness" in response.text
     assert "admin-token-form" in response.text
     assert "ops-metrics" in response.text
+    assert "ops-llm-usage" in response.text
     assert "ops-llm-logs" in response.text
     assert "/ui/quality" in response.text
     assert "/docs" in response.text
     assert "loadOpsPage" in main_js
+    assert "renderOpsLLMUsage" in main_js
+    assert "/ops/llm-usage?hours=24" in main_js
     assert "careeragent.admin_token" in main_js
     assert "X-Admin-Token" in main_js
     assert "loadDashboardOpsSummary" in main_js
     assert "details-block" in style_css
+
+
+def test_interview_prep_page_does_not_expose_llm_usage_details():
+    client = TestClient(app)
+    response = client.get("/ui/prep")
+
+    assert response.status_code == 200
+    assert "默认生成 10 道重点题" not in response.text
+    assert "调用模型 4 次" not in response.text
+    assert "token" not in response.text.lower()
 
 
 def test_interview_prep_frontend_exposes_question_quality_panel():

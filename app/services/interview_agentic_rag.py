@@ -63,6 +63,7 @@ class InterviewRAGState(TypedDict, total=False):
     evidence: dict[str, list[dict[str, Any]]]
     answers: dict[str, dict[str, Any]]
     verification_errors: list[dict[str, Any]]
+    verification_warnings: list[dict[str, Any]]
     dirty_question_ids: list[str]
     repair_attempts: int
     graph_trace: list[dict[str, Any]]
@@ -136,6 +137,7 @@ class InterviewAgenticRAGService:
                 "questions": questions,
                 "dirty_question_ids": [item["question_id"] for item in questions],
                 "repair_attempts": 0,
+                "verification_warnings": [],
                 "graph_trace": [],
             }
         )
@@ -230,6 +232,11 @@ class InterviewAgenticRAGService:
                 require_rendered_answer=False,
             )
             classified_dirty_answers = dirty_answers
+            warnings = [
+                item
+                for item in state.get("verification_warnings") or []
+                if str(item.get("question_id") or "") not in dirty_ids
+            ]
             blocked_ids = self._error_question_ids(errors)
             entailment_questions = [
                 item for item in dirty_questions if item["question_id"] not in blocked_ids
@@ -246,7 +253,20 @@ class InterviewAgenticRAGService:
                 )
                 classified_dirty_answers = dict(classified_dirty_answers)
                 classified_dirty_answers.update(entailment_answers)
-                errors.extend(entailment_errors)
+                prunable_codes = {
+                    "claim_not_supported",
+                    "claim_citation_link_invalid",
+                    "claim_classification_invalid",
+                }
+                for item in entailment_errors:
+                    question_id = str(item.get("question_id") or "")
+                    surviving_claims = len(
+                        (entailment_answers.get(question_id) or {}).get("claims") or []
+                    )
+                    if item.get("code") in prunable_codes and surviving_claims >= 3:
+                        warnings.append(item)
+                    else:
+                        errors.append(item)
 
             blocked_ids = self._error_question_ids(errors)
             policy_questions = [
@@ -293,6 +313,7 @@ class InterviewAgenticRAGService:
             return {
                 "answers": classified_answers,
                 "verification_errors": errors,
+                "verification_warnings": warnings,
                 "dirty_question_ids": failed_question_ids,
                 "graph_trace": self._append_trace(
                     state,
@@ -300,6 +321,7 @@ class InterviewAgenticRAGService:
                     {
                         "passed": not errors,
                         "error_count": len(errors),
+                        "warning_count": len(warnings),
                         "verified_question_count": len(dirty_questions),
                     },
                 ),
@@ -370,6 +392,7 @@ class InterviewAgenticRAGService:
                         ),
                         "source_counts": dict(sorted(source_counts.items())),
                         "repair_attempts": int(state.get("repair_attempts") or 0),
+                        "verification_warning_count": len(state.get("verification_warnings") or []),
                         "graph_trace": trace,
                     },
                 }
@@ -967,6 +990,8 @@ class InterviewAgenticRAGService:
 8. claim 必须紧贴证据原文，不要把相近概念扩写成更强结论。候选人归属和具体项目实现分别来自不同来源时，
    同一个 claim 必须同时引用 resume 与 project_document；找不到直接证据就删除该事实并诚实说明边界。
 9. 不要输出 reference_answer、answer_framework 或 citations，服务端会在 claims 通过验证后组合答案和引用。
+10. project_implementation 必须描述证据中已经实现的事实；“我会使用”“可以采用”等未来方案只能标成 answer_strategy，
+    不得把 Chroma、LLM reranker、logging 等证据未明确出现的具体组件补进项目经历。
 
 claim_type 只能是：candidate_experience、candidate_skill、candidate_metric、job_requirement、job_responsibility、
 interview_pattern、project_implementation、technical_explanation、answer_strategy。
@@ -995,7 +1020,7 @@ project_implementation/technical_explanation；technical_knowledge 用于 techni
                     "question_id": question_id,
                     "question": question["question"],
                     "follow_ups": question.get("follow_ups") or [],
-                    "retrieval_plan": plans[question_id],
+                    "retrieval_plan": {"intent": plans[question_id]["intent"]},
                     "evidence": [
                         self._evidence_for_prompt(item, alias=f"E{index}")
                         for index, item in enumerate(evidence[question_id], start=1)
@@ -1117,6 +1142,10 @@ JD 只能证明岗位要求；面经只能证明问题线索；技术知识只�
         question_items: list[dict[str, Any]] = []
         for question in questions:
             question_id = question["question_id"]
+            verification_evidence_ids = self._verification_evidence(
+                evidence[question_id],
+                answers[question_id]["claims"],
+            )
             alias_by_id = {
                 item["evidence_id"]: f"E{index}"
                 for index, item in enumerate(evidence[question_id], start=1)
@@ -1125,15 +1154,14 @@ JD 只能证明岗位要求；面经只能证明问题线索；技术知识只�
                 {
                     "evidence_id": f"E{index}",
                     "source_type": item["source_type"],
-                    "allowed_claim_types": item["allowed_claim_types"],
                     "text": item["text"][: self.settings.interview_rag_evidence_chars],
                 }
                 for index, item in enumerate(evidence[question_id], start=1)
+                if item["evidence_id"] in verification_evidence_ids
             ]
             question_items.append(
                 {
                     "question_id": question_id,
-                    "question": question["question"],
                     "available_evidence": available_evidence,
                     "claims": [
                         {
@@ -1268,6 +1296,49 @@ JD 只能证明岗位要求；面经只能证明问题线索；技术知识只�
                 for evidence_id in claim["evidence_ids"]
             ]
         return classified, errors
+
+    def _verification_evidence(
+        self,
+        evidence: list[dict[str, Any]],
+        claims: list[dict[str, Any]],
+    ) -> set[str]:
+        evidence_by_id = {item["evidence_id"]: item for item in evidence}
+        selected = {
+            evidence_id
+            for claim in claims
+            for evidence_id in claim.get("evidence_ids") or []
+            if evidence_id in evidence_by_id
+        }
+        for claim in claims:
+            claim_type = str(claim.get("claim_type") or "")
+            compatible = [
+                item
+                for item in evidence
+                if claim_type in set(item.get("allowed_claim_types") or [])
+            ]
+            selected_supports_type = any(
+                claim_type in set(evidence_by_id[evidence_id].get("allowed_claim_types") or [])
+                for evidence_id in selected
+            )
+            if compatible and not selected_supports_type:
+                selected.add(compatible[0]["evidence_id"])
+            if claim_type == "project_implementation":
+                selected_sources = {
+                    evidence_by_id[evidence_id]["source_type"]
+                    for evidence_id in selected
+                }
+                for source_type in ("resume", "project_document"):
+                    if source_type in selected_sources:
+                        continue
+                    candidate = next(
+                        (item for item in compatible if item["source_type"] == source_type),
+                        None,
+                    )
+                    if candidate is not None:
+                        selected.add(candidate["evidence_id"])
+        if not selected:
+            selected.update(item["evidence_id"] for item in evidence[:2])
+        return selected
 
     def _compose_verified_answers(
         self,
@@ -1521,10 +1592,7 @@ JD 只能证明岗位要求；面经只能证明问题线索；技术知识只�
         return {
             "evidence_id": alias,
             "source_type": item["source_type"],
-            "source_label": item["source_label"],
-            "allowed_claim_types": item["allowed_claim_types"],
             "text": item["text"][: self.settings.interview_rag_evidence_chars],
-            "retrieval_rank": item.get("retrieval_rank"),
         }
 
     def _evidence_aliases(self, evidence: list[dict[str, Any]]) -> dict[str, str]:

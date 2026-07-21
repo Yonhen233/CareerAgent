@@ -2463,11 +2463,62 @@ function renderOpsLogs(logs) {
         <span>${escapeHtml(row.trace_name)}</span>
         <span class="status-pill ${statusClass(row.status)}">${escapeHtml(row.status)}</span>
       </div>
-      <div class="meta">${escapeHtml(row.model)} / ${escapeHtml(row.latency_ms)}ms / tokens=${escapeHtml(row.total_tokens || "-")} (${escapeHtml(row.prompt_tokens || 0)} in / ${escapeHtml(row.completion_tokens || 0)} out) / stage=${escapeHtml(row.context_json?.stage || "-")}</div>
+      <div class="meta">${escapeHtml(row.model)} / ${escapeHtml(row.latency_ms)}ms / tokens=${escapeHtml(row.total_tokens > 0 ? row.total_tokens : "未返回")} (${escapeHtml(row.prompt_tokens || 0)} in / ${escapeHtml(row.completion_tokens || 0)} out) / workflow=${escapeHtml(row.context_json?.workflow || "-")} / stage=${escapeHtml(row.context_json?.stage || "-")}</div>
       ${row.error_message ? `<div class="message-preview">${escapeHtml(row.error_message)}</div>` : ""}
       ${row.response_preview ? `<details class="details-block"><summary>响应预览</summary><pre>${escapeHtml(row.response_preview)}</pre></details>` : ""}
     </article>
   `).join("");
+}
+
+function tokenCount(value) {
+  return Number(value || 0).toLocaleString("zh-CN");
+}
+
+function usageGroupRows(rows, emptyText) {
+  if (!rows?.length) return `<p class="meta">${escapeHtml(emptyText)}</p>`;
+  return rows.slice(0, 8).map((row) => `
+    <div class="item-title">
+      <span>${escapeHtml(row.key)}</span>
+      <span class="meta">${tokenCount(row.total_tokens)} tokens · ${escapeHtml(row.completed_calls)} 次完成</span>
+    </div>
+  `).join("");
+}
+
+function renderOpsLLMUsage(payload) {
+  const summary = payload?.summary || {};
+  if (!summary.log_count) {
+    return `<div class="item meta">最近 24 小时没有 LLM 调用记录。</div>`;
+  }
+  const hasMissingUsage = Number(summary.missing_usage_calls || 0) > 0;
+  return `
+    <article class="item">
+      <div class="validation-grid">
+        ${metricCell("输入 Token", tokenCount(summary.prompt_tokens))}
+        ${metricCell("输出 Token", tokenCount(summary.completion_tokens))}
+        ${metricCell("总 Token", tokenCount(summary.total_tokens))}
+        ${metricCell("完成调用", summary.completed_calls ?? 0)}
+        ${metricCell("非完成日志", summary.non_completed_calls ?? 0)}
+        ${metricCell("Usage 覆盖率", percent(summary.usage_coverage_rate))}
+      </div>
+      <p class="meta ${hasMissingUsage ? "validation-risk" : ""}">
+        统计仅累加供应商响应中的 usage；${hasMissingUsage ? `${escapeHtml(summary.missing_usage_calls)} 次完成调用未返回 usage，不能当作 0 token。` : "所有完成调用均有 token 记录。"}
+      </p>
+      <div class="workspace-grid compact-grid">
+        <div class="span-6">
+          <strong>按工作流</strong>
+          ${usageGroupRows(payload.by_workflow, "暂无工作流归类")}
+        </div>
+        <div class="span-6">
+          <strong>按模型</strong>
+          ${usageGroupRows(payload.by_model, "暂无模型归类")}
+        </div>
+      </div>
+      <details class="details-block">
+        <summary>按 trace 与工作流运行查看</summary>
+        <pre>${escapeHtml(safeJson({ by_trace: payload.by_trace, by_workflow_run: payload.by_workflow_run }, 12000))}</pre>
+      </details>
+    </article>
+  `;
 }
 
 async function loadDashboardOpsSummary() {
@@ -2506,6 +2557,7 @@ async function loadOpsPage() {
     api("/ops/readiness"),
     api("/ops/metrics"),
     api("/ops/config"),
+    api("/ops/llm-usage?hours=24"),
     api("/tasks?limit=12"),
     api("/llm/debug/logs?limit=20"),
     api("/ops/queue/status"),
@@ -2514,7 +2566,7 @@ async function loadOpsPage() {
     api("/ops/agent-runs/stale"),
     api("/ops/audit-events?limit=20"),
   ]);
-  const [readiness, metrics, config, tasks, logs, queue, runs, approvals, staleRuns, auditEvents] = results;
+  const [readiness, metrics, config, llmUsage, tasks, logs, queue, runs, approvals, staleRuns, auditEvents] = results;
   $("#ops-readiness").innerHTML = readiness.status === "fulfilled"
     ? renderOpsReadiness(readiness.value)
     : `<div class="item validation-risk">${escapeHtml(readiness.reason.message)}</div>`;
@@ -2524,6 +2576,9 @@ async function loadOpsPage() {
   $("#ops-config").innerHTML = config.status === "fulfilled"
     ? renderOpsConfig(config.value)
     : `<div class="item validation-risk">${escapeHtml(config.reason.message)}</div>`;
+  $("#ops-llm-usage").innerHTML = llmUsage.status === "fulfilled"
+    ? renderOpsLLMUsage(llmUsage.value)
+    : `<div class="item validation-risk">${escapeHtml(llmUsage.reason.message)}</div>`;
   $("#ops-tasks").innerHTML = tasks.status === "fulfilled" && tasks.value.length
     ? tasks.value.map(renderTaskRun).join("")
     : `<div class="item meta">${tasks.status === "fulfilled" ? "暂无后台任务" : escapeHtml(tasks.reason.message)}</div>`;

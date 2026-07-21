@@ -779,6 +779,7 @@ GET /tasks/{task_id}
 GET /ops/readiness
 GET /ops/metrics
 GET /ops/config
+GET /ops/llm-usage?hours=24&since_id=0&workflow=interview_prep
 GET /ops/audit-events
 POST /ops/queue/dead-letter/{dlq_index}/replay
 POST /ops/queue/dead-letter/{dlq_index}/discard
@@ -791,6 +792,7 @@ POST /ops/high-risk-actions/{approval_id}/execute
 - `RBAC_ENABLED=true` 时，管理接口也接受可信 header：`X-Tenant-Id`、`X-User-Id`、`X-User-Roles`。带 `owner/admin/ops` 角色的用户可访问运维接口，审计 actor 使用 `X-User-Id`。
 - `/ops/readiness` 返回数据库、LLM、embedding 和 reranker 的健康状态。
 - `/ops/metrics` 返回请求计数、平均延迟、状态码分布、Agent run/task/LLM call 状态分布和最近评测摘要。
+- `/ops/llm-usage` 聚合 `llm_call_logs` 中供应商实际返回的 prompt/completion/total token，支持 `hours`、`since_id`、`workflow` 和 `workflow_run_id` 过滤，并返回按模型、workflow、单次运行和 trace 的分组。`missing_usage_calls` 单独报告，不能解释为零消耗。
 - `/ops/config` 只返回脱敏配置摘要，不返回 API key。
 - `/ops/queue/status` 返回 Redis queue、dead-letter queue、带 `dlq_index` 的 DLQ 预览、最大重试次数和 queued recovery 配置。
 - `/ops/queue/recover-queued` 扫描 SQLite 中长时间 `queued` 的 Agent run，并重新写入 Redis 队列。
@@ -803,7 +805,7 @@ POST /ops/high-risk-actions/{approval_id}/execute
 - `/ops/audit-events` 查询 DLQ 处置、高风险工具放行等运维审计事件。
 - `/ops/agent-runs/stale` 返回长时间无事件进展的 running run。
 - `/ops/agent-runs/mark-stale` 将 stale running run 标记为 failed，并写 `run_marked_stale` 事件。
-- `/ui/ops` 是对应的前端运维面板，会展示 readiness、metrics、脱敏配置、后台任务和最近 LLM 调用日志，并支持在本机浏览器保存 `X-Admin-Token`。
+- `/ui/ops` 是对应的前端运维面板，会展示 readiness、metrics、LLM Token 聚合、脱敏配置、后台任务和最近 LLM 调用日志，并支持在本机浏览器保存 `X-Admin-Token`。Token 用量不进入用户面试页。
 
 查询历史评测：
 

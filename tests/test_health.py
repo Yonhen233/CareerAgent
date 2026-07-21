@@ -66,6 +66,11 @@ def test_ops_readiness_and_metrics_endpoints():
         assert config.status_code == 200
         assert "api_key" not in str(config.json()).lower()
 
+        usage = client.get("/ops/llm-usage?hours=24")
+        assert usage.status_code == 200
+        assert {"summary", "by_model", "by_workflow", "by_trace"} <= set(usage.json())
+        assert "api_key" not in str(usage.json()).lower()
+
 
 def test_tasks_endpoint_lists_task_runs():
     with TestClient(app) as client:

@@ -1,5 +1,59 @@
 # 开发日志
 
+## 2026-07-21 20:53:32 +08:00：增加 Token 用量控制台，并由真实面试 case 反推上下文降本
+### 用户或系统看到了什么异常
+- 用户在 DeepSeek 平台余额只剩约 3 元，需要知道 LLM 是否仍存在异常消耗；原系统虽然逐条保存 `prompt_tokens/completion_tokens/total_tokens`，但控制台无法回答“最近 24 小时用了多少”“一次面试流程用了多少”“哪个节点最贵”。
+- 旧面试页直接写了“通常调用模型 4 次”等实现细节，却没有在运维控制台提供真实 usage 聚合，信息边界正好反了：普通用户看到了成本机制，开发者反而只能手工加日志。
+- 真实调用简历 `#159` + 腾讯岗位 `#218 Agent Evaluation Intern` 时，前三次请求成功，第四个 claim verifier 在发 HTTP 前触发 prompt 字符预算，接口在 114.51 秒后返回 502，没有生成面试包。
+
+### 最初的设计假设为什么不成立
+- 初始判断是 v3 正常路径只有 4 次调用，已经从旧版 59 次显著下降，因此成本问题基本解决。这个判断只看了调用次数，没有看同一批 evidence、检索计划和 claims 在各节点间被重复发送了多少次。
+- 另一个隐含假设是任何 verifier 否定都应该触发 repair。真实输出证明，一个答案有 4 条 claim 时，即使只删除 1 条幻觉，剩余 3 条通常已经足以组成可用回答；为此重写整题会再次发送问题、证据和旧答案，成本与收益不成比例。
+- 不能简单删除 verifier。真实生成预览中出现了证据没有明确支持的 `Python logging`、把 CrossEncoder/reranker 写成 `LLM 重排`、以及把技能栏中的 Chroma 扩写成项目实现等说法；如果只做 citation ID 存在性检查，这些内容会直接进入用户可参考答案。
+
+### 定位证据与量化结果
+- 新增 `/ops/llm-usage` 后，以 `since_id=1122&workflow=interview_prep` 精确聚合本次真实运行。4 条日志属于同一 `workflow_run_id=a28be88e7f8c4ad98ff6d25bd76a22ce`。
+- `interview_prep.generate_interviewer_questions`：输入 1,570、输出 805、合计 2,375 tokens，14.652 秒。
+- `interview_agentic_rag.generate.1`：输入 5,523、输出 1,348、合计 6,871 tokens，19.931 秒。
+- `interview_agentic_rag.generate.2`：输入 5,517、输出 1,069、合计 6,586 tokens，15.417 秒。
+- 前三次供应商实际返回 usage 合计：输入 12,610、输出 3,222、总计 15,832 tokens；usage 覆盖率 100%。
+- `interview_agentic_rag.verify.1` 准备发送 26,676 字符时，会让累计 prompt 从 39,025 增至 65,701，超过 60,000 字符硬上限，因此记录 `budget_exceeded`，实际 token 为 0，也没有发出第四个 HTTP 请求。
+- 这说明本次不是循环、并发扇出或 retry 造成的调用次数爆炸，而是 verifier 再次携带全部 Top5 evidence、完整检索计划和全部 claims，形成跨节点上下文重复。
+
+### 这次做了什么
+- 新增 `LLMUsageService` 和管理接口 `GET /ops/llm-usage`，支持 `hours`、`since_id`、`workflow`、`workflow_run_id` 过滤，并按模型、workflow、单次 workflow run 和 trace 聚合。
+- 聚合只累加供应商响应中的 usage；完成调用未返回 usage 时计入 `missing_usage_calls`，不把未知消耗伪装成 0。控制台显示输入、输出、总 token、完成/非完成日志和 usage 覆盖率。
+- 面试入口为每次生成创建唯一 `workflow_run_id`，并把 profile/job/workflow 写入所有嵌套 LLM trace；持久化成功时也把该 ID 写入面试包 summary。
+- 从用户面试页删除调用次数和预算提示，只保留“答案引用简历、JD 与面经证据”的用户说明；Token 数据只在运维控制台展示。
+- 压缩答案生成 prompt：每题只携带精简 intent，不再重复 search queries、全量 claim type、forbidden claims 和 planner metadata；evidence prompt 删除 UI label、排序调试字段和重复来源策略。
+- 压缩 verifier prompt：保留 claim 当前引用的证据；若来源与 claim type 不兼容，再补一条可重绑定证据；`project_implementation` 额外确保 resume 与 project document 的所有权边界都可见。verifier 不再接收每题完整 Top5。
+- verifier 仍独立执行语义支持判断。被拒绝的 claim 会被删除；若某题仍有至少 3 条已支持 claim，则将删除记录降为 `verification_warning` 并直接组合答案，只有答案已不完整时才进入 repair。
+- 默认面试工作流最大 LLM 调用数由 8 收紧为 6。正常路径仍为 4 次，只为确实不完整的少量题保留一次受预算约束的修复空间。
+- 强化生成约束：未来方案只能标为 `answer_strategy`；证据未明确出现时，不得把 Chroma、LLM reranker、logging 等具体组件补写为已交付实现。
+
+### 为什么选择这个修复
+- 没有删除 RAG verifier，因为真实输出已经证明“有 citation”不等于“citation 支持 claim”；保留独立语义核验是防止候选人把虚构经历带进面试的必要成本。
+- 没有提高 60k prompt 上限来让 case 强行通过，因为那只会掩盖重复上下文并继续消耗余额。先减少输入，再由硬预算处理异常路径。
+- 没有把答案改回关键词模板或硬编码题型。检索和 LLM 仍负责语义生成，确定性代码只负责来源权限、引用完整性、最小可用 claim 数和预算。
+- 没有在余额不明时立即跑第二次真实请求。本次 provider usage 已足以定位根因；继续试错会违背“先用 trace 排查，再花真实 token 验证”的原则。
+
+### 修复后的验证
+- 代表性 10 题 fake-provider 成本回归仍为 4 次调用：问题生成 3,496 字符、两个答案批次 8,161/8,549 字符、verifier 12,025 字符；总 prompt 为 32,231 字符，较此前离线基线 57,220 下降约 43.7%。
+- verifier 单次 prompt 增加 `<18,000` 字符回归门禁；总 prompt 继续受 60,000 字符硬预算约束，总 completion reservation 为 11,800。
+- 相关面试、Token 聚合、健康接口和前端测试 64 个通过；最终全量回归 `184 passed`。
+- 第一次全量回归暴露 1 个测试替身契约漂移：生产 verifier 为降本删除重复的 `allowed_claim_types` 后，离线 `DeterministicInterviewEvaluationLLM` 仍读取旧字段并触发 `KeyError`。最终没有把冗余字段加回生产 prompt，而是让 fixture 与生产共享 `SOURCE_CLAIM_POLICY`，确保 source type 到 claim type 的规则只有一个权威来源。
+- 真实测试的 Key 只短暂进入测试进程，临时 `.env` 已删除；测试完成后立即停止带 Key 的服务，避免页面误操作继续扣费。
+
+### 未修复的问题与原因
+- 本次没有得到修复后的真实面试包，因为第一次真实 case 已使用 15,832 tokens，无法从 DeepSeek API 获得实时人民币余额或逐请求账单；在余额约 3 元的条件下继续调用风险不可控。
+- `LLMUsageService` 记录 token，不估算人民币费用。不同模型、缓存命中和平台价格可能变化，把静态单价写进代码会产生误导；如需金额应接供应商账单 API 或可版本化价格表。
+- fake-provider 能证明调用次数、prompt 体积、schema、引用和 release gate，但不能替代修复后 DeepSeek 的语言质量验证。下次真实验证应只跑同一 case 一次，并以新的 `workflow_run_id` 对照 15,832-token 基线。
+
+### 下一步
+- 余额确认足够后，只重跑 `#159 + #218` 一个 case，目标是 4 次内完成、总 provider token 明显低于本次路径推算、质量门禁通过且无 repair；若失败，继续按 trace 定位，不扩大 case 数。
+- 对真实答案逐题抽检：是否直接回答问题、是否错误绑定候选人经历、是否仍出现 LLM reranker/logging 等无证据组件、引用 evidence 是否真正支持 claim。
+- 若长期需要金额治理，引入按模型版本生效日期维护的 price catalog，并将估算金额与供应商账单金额分栏展示，不能混成一个指标。
+
 ## 2026-07-21 20:21:18 +08:00：将开发日志升级为问题驱动的工程复盘
 ### 为什么要改
 - 旧日志虽然按时间记录了“做了什么、发现了什么、怎么修复”，但不少条目仍是功能清单，缺少当时的错误假设、定位过程和方案取舍。

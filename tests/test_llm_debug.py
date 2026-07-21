@@ -12,6 +12,7 @@ from app.core.llm import (
 )
 from app.api.llm_debug import list_llm_logs
 from app.models.entities import LLMCallLog
+from app.services.llm_usage import LLMUsageService
 
 
 def test_llm_call_log_records_debug_metadata(db_session):
@@ -168,6 +169,68 @@ def test_llm_debug_logs_filter_by_context(db_session):
 
     assert [row.trace_name for row in payload] == ["run_1_case_a"]
     assert payload[0].context_json["stage"] == "jd_parse"
+
+
+def test_llm_usage_aggregates_provider_tokens_and_reports_missing_usage(db_session):
+    db_session.add_all(
+        [
+            LLMCallLog(
+                trace_name="interview.questions",
+                model="deepseek-v4-pro",
+                base_url="https://api.deepseek.com",
+                status="completed",
+                prompt_preview_json={},
+                response_preview="ok",
+                prompt_chars=120,
+                response_chars=30,
+                prompt_tokens=30,
+                completion_tokens=10,
+                total_tokens=40,
+                latency_ms=100,
+                context_json={"workflow": "interview_prep", "workflow_run_id": "run-a"},
+            ),
+            LLMCallLog(
+                trace_name="interview.answers",
+                model="deepseek-v4-pro",
+                base_url="https://api.deepseek.com",
+                status="completed",
+                prompt_preview_json={},
+                response_preview="ok",
+                prompt_chars=80,
+                response_chars=20,
+                prompt_tokens=0,
+                completion_tokens=0,
+                total_tokens=0,
+                latency_ms=80,
+                context_json={"workflow": "interview_prep", "workflow_run_id": "run-a"},
+            ),
+            LLMCallLog(
+                trace_name="resume.tailor",
+                model="other-model",
+                base_url="http://llm",
+                status="failed",
+                prompt_preview_json={},
+                response_preview=None,
+                error_message="timeout",
+                prompt_chars=40,
+                response_chars=0,
+                latency_ms=50,
+                context_json={"workflow": "resume_tailor", "workflow_run_id": "run-b"},
+            ),
+        ]
+    )
+    db_session.commit()
+
+    payload = LLMUsageService().summarize(db_session, hours=24, workflow="interview_prep")
+
+    assert payload["summary"]["log_count"] == 2
+    assert payload["summary"]["completed_calls"] == 2
+    assert payload["summary"]["provider_usage_calls"] == 1
+    assert payload["summary"]["missing_usage_calls"] == 1
+    assert payload["summary"]["usage_coverage_rate"] == 0.5
+    assert payload["summary"]["total_tokens"] == 40
+    assert payload["by_workflow"][0]["key"] == "interview_prep"
+    assert payload["by_workflow_run"][0]["key"] == "run-a"
 
 
 def test_deepseek_v4_official_api_disables_thinking_by_default(monkeypatch):

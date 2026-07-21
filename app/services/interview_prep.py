@@ -4,6 +4,7 @@ import json
 import re
 from typing import Any
 from urllib.parse import quote_plus
+from uuid import uuid4
 
 from sqlalchemy.orm import Session
 
@@ -15,6 +16,7 @@ from app.core.llm import (
     extract_json_object,
     format_exception,
     llm_call_budget,
+    llm_trace_context,
 )
 from app.models.entities import InterviewPrep, Job, MatchResult, Profile
 from app.services.interview_agentic_rag import InterviewAgenticRAGError, InterviewAgenticRAGService
@@ -210,15 +212,23 @@ class InterviewPrepService:
             max_prompt_chars=self.settings.interview_rag_max_prompt_chars,
             max_completion_tokens=self.settings.interview_rag_max_completion_tokens,
         )
-        with llm_call_budget(budget):
-            return await self._create_interview_prep_with_llm_budgeted(
-                db,
-                profile=profile,
-                job=job,
-                match_result=match_result,
-                experience_ids=experience_ids,
-                budget=budget,
-            )
+        workflow_run_id = uuid4().hex
+        with llm_trace_context(
+            workflow="interview_prep",
+            workflow_run_id=workflow_run_id,
+            profile_id=profile.id,
+            job_id=job.id,
+        ):
+            with llm_call_budget(budget):
+                return await self._create_interview_prep_with_llm_budgeted(
+                    db,
+                    profile=profile,
+                    job=job,
+                    match_result=match_result,
+                    experience_ids=experience_ids,
+                    budget=budget,
+                    workflow_run_id=workflow_run_id,
+                )
 
     async def _create_interview_prep_with_llm_budgeted(
         self,
@@ -229,6 +239,7 @@ class InterviewPrepService:
         match_result: MatchResult | None,
         experience_ids: list[int] | None,
         budget: LLMCallBudget,
+        workflow_run_id: str,
     ) -> InterviewPrep:
         match = match_result or self.matcher.create_match_result(db, profile, job)
         evidence = self._evidence(match)
@@ -300,6 +311,7 @@ class InterviewPrepService:
         summary["question_quality"] = question_quality
         summary["agentic_rag"] = {"status": "completed", **(rag_result.get("summary") or {})}
         summary["llm_budget"] = budget.to_dict()
+        summary["llm_workflow_run_id"] = workflow_run_id
         draft.summary_json = summary
         draft.generation_mode = "langgraph_agentic_rag_v3_cost_guarded"
         if not question_quality.get("passed") or not draft.coverage_json.get("passed"):
