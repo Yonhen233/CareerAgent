@@ -184,7 +184,7 @@ JD、PDF 简历、RAG chunk 和导入面经都被视为 untrusted content。`Pro
 - `resume_project_tech_stack`：简历项目涉及的技术栈与交付证据，包括 `llm_project_implementation` 生成的项目实现追问。
 - `other_possible_interview_questions`：其他可能面试问题，包括通用行为题、JD 技术追问、缺口追问和 `llm_foundation_drill` 生成的八股/基础追问。
 
-`summary_json.preparation_angles` 会记录每个角度的输入来源、题目数和准备重点；`summary_json.interview_reference_links` 只保存面经标题、链接、搜索入口和边界说明；`summary_json.question_quality` 保存本地可解释 judge 的质量分、阈值、失败项和样例问题；`coverage_json.preparation_angle_counts`、`preparation_angles_passed`、`question_quality_score` 和 `question_quality_passed` 用来量化三视角覆盖与问题质量。`InterviewPrepDeliveryService` 负责把准备包渲染成 Markdown，并记录 `todo`、`practicing`、`ready`、`deferred` 等按题练习状态。评测会检查题号唯一性、来源视角覆盖、准备角度覆盖、LLM 追问组、质量 judge 和 Markdown 导出，而不只检查最终生成了一段文本。
+`summary_json.preparation_angles` 会记录每个角度的输入来源、题目数和准备重点；`summary_json.interview_reference_links` 只保存面经标题、链接、搜索入口和边界说明。`InterviewReferenceService` 会过滤 `example/sample/demo` 等占位地址，区分用户导入原文、站内搜索、平台入口和普通搜索，并在读取旧面试包与导出 Markdown 时重新规范化。`summary_json.question_quality` 保存本地可解释 judge 的质量分、阈值、失败项和样例问题；`coverage_json.preparation_angle_counts`、`preparation_angles_passed`、`question_quality_score` 和 `question_quality_passed` 用来量化三视角覆盖与问题质量。`InterviewPrepDeliveryService` 负责把准备包渲染成 Markdown，并记录 `todo`、`practicing`、`ready`、`deferred` 等按题练习状态。评测会检查题号唯一性、来源视角覆盖、准备角度覆盖、LLM 追问组、质量 judge 和 Markdown 导出，而不只检查最终生成了一段文本。
 
 面试题质量 judge 暂时不引入新的 LLM-as-judge 技术栈，而是使用本地可解释规则检查 JD 贴合、连续追问深度、缺口诚实边界、项目绑定、证据可追溯、行动性和重复率。理由是面试包生成本身已经调用 LLM，质量门禁需要低成本、可离线回归、失败原因可解释；后续如果要做人工抽检或发布前评审，可以在这个本地 judge 之后叠加 LLM-as-judge。
 

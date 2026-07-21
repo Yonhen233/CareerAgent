@@ -1987,9 +1987,9 @@ function renderInterviewPracticeWorkspace(prep, practicePayload) {
       <a class="button ghost" href="/interview-prep/${prep.id}/markdown"><i data-lucide="download"></i> 导出计划</a>
     </div>
     <nav class="interview-prep-path" aria-label="面试准备路线">
-      <span><b>1</b><span><strong>看准备重点</strong><small>明确 JD 与项目主线</small></span></span>
-      <span><b>2</b><span><strong>补能力缺口</strong><small>只使用真实经历作答</small></span></span>
-      <span><b>3</b><span><strong>逐题练习</strong><small>记录掌握进度</small></span></span>
+      <span><b>1</b><span><strong>了解考察范围</strong><small>查看问题来源和数量</small></span></span>
+      <span><b>2</b><span><strong>准备缺口回答</strong><small>明确不会什么、怎么说明</small></span></span>
+      <span><b>3</b><span><strong>按主题练习</strong><small>逐题记录掌握进度</small></span></span>
     </nav>
     <div class="interview-progress">
       <div><strong>${questionCount}</strong><span>全部题目</span></div>
@@ -1999,20 +1999,20 @@ function renderInterviewPracticeWorkspace(prep, practicePayload) {
     </div>
     <div class="interview-overview-grid">
       ${renderPreparationAngles(preparationAngles)}
-      ${drills.length ? `
-        <section class="interview-overview-section interview-gap-focus">
-          <div class="interview-section-heading">
-            <div><p class="eyebrow">第二步</p><h3>优先补齐</h3></div>
-            <span class="interview-section-count">${Math.min(drills.length, 5)} 项</span>
-          </div>
-          <ul class="interview-gap-list">${drills.slice(0, 5).map((item) => `<li><span class="tag">${escapeHtml(item.skill)}</span><p>${escapeHtml(item.honest_strategy || item.prep_task || "")}</p></li>`).join("")}</ul>
-        </section>
-      ` : ""}
+      <section class="interview-overview-section interview-gap-focus">
+        <div class="interview-section-heading">
+          <div><p class="eyebrow">第二步</p><h3>准备缺口回答</h3><p class="meta">这些能力在简历中缺少充分证据。面试时如实说明，并准备相邻经验和学习计划。</p></div>
+          <span class="interview-section-count">${Math.min(drills.length, 5)} 项</span>
+        </div>
+        ${drills.length
+          ? `<ul class="interview-gap-list">${drills.slice(0, 5).map((item) => `<li><span class="tag">${escapeHtml(item.skill)}</span><p><strong>回答建议：</strong>${escapeHtml(item.honest_strategy || item.prep_task || "")}</p></li>`).join("")}</ul>`
+          : `<p class="interview-no-gap">当前简历与 JD 之间没有识别出需要单独准备的明显能力缺口。</p>`}
+      </section>
     </div>
     ${renderInterviewReferenceLinks(referenceLinks)}
     <section class="interview-question-workbench">
       <div class="interview-section-heading interview-question-workbench-head">
-        <div><p class="eyebrow">第三步</p><h3>按主题逐题练习</h3><p class="meta">先选择主题，再逐题标记练习状态。</p></div>
+        <div><p class="eyebrow">第三步</p><h3>按主题练习</h3><p class="meta">先选择主题，再逐题标记练习状态。</p></div>
         <span class="interview-section-count">${questionCount} 题</span>
       </div>
       <nav class="interview-question-directory" aria-label="面试题主题">
@@ -2077,7 +2077,7 @@ function renderPreparationAngles(angles) {
   return `
     <section class="interview-overview-section">
       <div class="interview-section-heading">
-        <div><p class="eyebrow">第一步</p><h3>准备重点</h3></div>
+        <div><p class="eyebrow">第一步</p><h3>了解考察范围</h3><p class="meta">面试问题会从以下三类信息中生成。</p></div>
         <span class="interview-section-count">${angles.length} 类</span>
       </div>
       <div class="interview-angle-grid">${angles.map((angle) => {
@@ -2155,13 +2155,14 @@ function renderInterviewReferenceLinks(links) {
   return `
     <details class="interview-reference-panel">
       <summary>
-        <span><i data-lucide="library"></i><span><strong>面经与参考资料</strong><small>默认收起，需要时再查看外部链接</small></span></span>
+        <span><i data-lucide="library"></i><span><strong>面经来源与搜索入口</strong><small>具体原文和平台搜索会明确区分</small></span></span>
         <span class="interview-section-count">${uniqueLinks.length} 条</span>
       </summary>
       <ul class="interview-reference-list">${uniqueLinks.map((item) => `
       <li>
-        <span class="tag">${escapeHtml(item.site || item.kind || "参考")}</span>
+        <span class="tag">${escapeHtml(item.site || "参考")}</span>
         <div>${item.url ? `<a href="${escapeHtml(item.url)}" target="_blank">${escapeHtml(item.title || item.url)}</a>` : `<strong>${escapeHtml(item.title || item.query || "")}</strong>`}
+        <span class="interview-reference-type">${escapeHtml(item.reference_type_label || "外部链接")}</span>
         <div class="meta">${escapeHtml(item.note || item.query || "")}</div>
         </div>
       </li>

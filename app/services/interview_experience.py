@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.entities import InterviewExperience, Job
+from app.services.interview_references import InterviewReferenceService
 from app.services.matcher import normalize_skill
 from app.services.prompt_injection_guard import PromptInjectionGuard
 
@@ -168,7 +169,7 @@ class InterviewExperienceService:
             "evidence_type": "interview_experience",
             "source_id": row.id,
             "source_site": row.source_site,
-            "source_url": row.source_url,
+            "source_url": row.source_url if InterviewReferenceService.is_valid_public_url(row.source_url) else None,
             "title": row.title,
             "company": row.company,
             "role_keyword": row.role_keyword,
@@ -282,7 +283,7 @@ class InterviewExperienceService:
         topic_count: int,
     ) -> dict[str, Any]:
         known_site = source_site in set(KNOWN_SOURCE_SITES.values())
-        has_url = bool(source_url)
+        has_url = InterviewReferenceService.is_valid_public_url(source_url)
         has_round = any(marker in text for marker in ROUND_MARKERS)
         score = 0.2
         if known_site:
@@ -304,6 +305,8 @@ class InterviewExperienceService:
         if question_count == 0:
             noise_flags.append("no_explicit_question")
             score -= 0.15
+        if source_url and not has_url:
+            noise_flags.append("invalid_or_placeholder_source_url")
         return {
             "score": round(max(0.0, min(score, 1.0)), 4),
             "known_site": known_site,

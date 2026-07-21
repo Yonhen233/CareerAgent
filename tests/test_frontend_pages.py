@@ -564,6 +564,12 @@ def test_interview_prep_is_connected_to_job_context_and_direct_practice():
     assert "interview-question-directory" in main_js
     assert "interview-followups" in main_js
     assert "const seen = new Set()" in main_js
+    assert "了解考察范围" in main_js
+    assert "准备缺口回答" in main_js
+    assert "按主题练习" in main_js
+    assert "优先补齐" not in main_js
+    assert "面经来源与搜索入口" in main_js
+    assert "interview-reference-type" in main_js
     assert "interview-context-grid" in style_css
     assert "interview-practice-actions" in style_css
     assert "interview-plan-sidebar" in style_css

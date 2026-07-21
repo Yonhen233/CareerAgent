@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.entities import InterviewPracticeItem, InterviewPrep
+from app.services.interview_references import InterviewReferenceService
 
 
 VALID_PRACTICE_STATUSES = {"todo", "practicing", "ready", "deferred"}
@@ -210,7 +211,7 @@ class InterviewPrepDeliveryService:
                 lines.append(f"- {label}：{count}")
             lines.append("")
 
-        reference_links = summary.get("interview_reference_links") or []
+        reference_links = InterviewReferenceService.normalize_links(summary.get("interview_reference_links") or [])
         if reference_links:
             lines.extend(["## 面经参考链接", ""])
             for item in reference_links:

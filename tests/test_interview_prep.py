@@ -2,12 +2,13 @@ import asyncio
 import json
 
 from app.agents.orchestrator import AgentOrchestrator
-from app.api.interview_prep import list_interview_preps
+from app.api.interview_prep import _interview_prep_response, list_interview_preps
 from app.models.entities import Job, Profile
 from app.models.schemas import AgentRunRequest
 from app.services.interview_delivery import InterviewPrepDeliveryService
 from app.services.interview_experience import InterviewExperienceService
 from app.services.interview_prep import InterviewPrepService
+from app.services.interview_references import InterviewReferenceService
 from app.services.text_splitter import ResumeTextSplitter
 from app.services.vector_index import SQLiteVectorIndex
 
@@ -319,7 +320,7 @@ def test_interview_experience_import_extracts_questions_topics_and_credibility(d
     row = InterviewExperienceService().create_experience(
         db_session,
         source_site="nowcoder",
-        source_url="https://www.nowcoder.com/discuss/example",
+        source_url="https://www.nowcoder.com/discuss/123456789",
         title="腾讯 Agent 开发实习一面",
         company="腾讯",
         role_keyword="Agent 开发实习生",
@@ -331,6 +332,85 @@ def test_interview_experience_import_extracts_questions_topics_and_credibility(d
     assert {"RAG", "FastAPI", "SQLite"} <= set(row.topics_json)
     assert row.credibility_json["score"] >= 0.75
     assert row.credibility_json["has_url"] is True
+
+
+def test_interview_references_filter_placeholders_and_build_honest_search_entries():
+    links = InterviewReferenceService.normalize_links(
+        [
+            {
+                "kind": "confirmed_imported_interview_experience",
+                "site": "牛客网",
+                "title": "示例面经",
+                "url": "https://www.nowcoder.com/discuss/example-agent-intern",
+            },
+            {
+                "kind": "confirmed_imported_interview_experience",
+                "site": "牛客网",
+                "title": "真实导入面经",
+                "url": "https://www.nowcoder.com/discuss/123456789",
+            },
+            {
+                "kind": "search_reference_link",
+                "site": "牛客网",
+                "topic": "同岗位面经",
+                "query": "site:nowcoder.com Agent 开发实习生 面经",
+                "url": "https://www.baidu.com/s?wd=old",
+            },
+            {
+                "kind": "search_reference_link",
+                "site": "小红书",
+                "topic": "候选人经验",
+                "query": "小红书 Agent 开发实习生 面经",
+            },
+            {
+                "kind": "search_reference_link",
+                "site": "OfferShow",
+                "topic": "薪资与流程",
+                "query": "Agent 开发实习生 offer",
+            },
+        ]
+    )
+
+    assert len(links) == 4
+    assert all("example-agent-intern" not in str(item.get("url")) for item in links)
+    assert links[0]["reference_type"] == "source_article"
+    assert any(item["url"].startswith("https://www.nowcoder.com/search/all?query=") for item in links)
+    assert any(item["url"].startswith("https://www.xiaohongshu.com/search_result?keyword=") for item in links)
+    assert any(item["url"] == "https://offershow.cn/" for item in links)
+    assert {item["reference_type_label"] for item in links} >= {"原文", "搜索入口", "平台入口"}
+    assert InterviewReferenceService.normalize_links(links) == links
+
+
+def test_legacy_interview_links_are_normalized_in_api_and_markdown(db_session):
+    profile, job = _seed_profile_job(db_session)
+    prep = InterviewPrepService().create_interview_prep(db_session, profile=profile, job=job)
+    summary = dict(prep.summary_json or {})
+    summary["interview_reference_links"] = [
+        {
+            "kind": "confirmed_imported_interview_experience",
+            "site": "牛客网",
+            "title": "旧示例面经",
+            "url": "https://www.nowcoder.com/discuss/example-agent-intern",
+        },
+        {
+            "kind": "search_reference_link",
+            "site": "牛客网",
+            "title": "牛客网：同岗位面经",
+            "query": "site:nowcoder.com Agent 开发实习生 面经",
+            "url": "https://www.baidu.com/s?wd=legacy",
+        },
+    ]
+    prep.summary_json = summary
+
+    response = _interview_prep_response(prep)
+    response_links = response.summary_json["interview_reference_links"]
+    markdown = InterviewPrepDeliveryService().render_markdown(prep)
+
+    assert len(response_links) == 1
+    assert response_links[0]["title"] == "搜索牛客网：同岗位面经"
+    assert response_links[0]["url"].startswith("https://www.nowcoder.com/search/all?query=")
+    assert "example-agent-intern" not in markdown
+    assert "https://www.nowcoder.com/search/all?query=" in markdown
 
 
 def test_interview_prep_uses_imported_source_backed_experience_questions(db_session):

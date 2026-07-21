@@ -16,6 +16,7 @@ from app.models.schemas import (
 from app.services.interview_delivery import InterviewPrepDeliveryService
 from app.services.interview_experience import InterviewExperienceService
 from app.services.interview_prep import InterviewPrepService
+from app.services.interview_references import InterviewReferenceService
 
 router = APIRouter(prefix="/interview-prep", tags=["interview-prep"])
 
@@ -38,7 +39,7 @@ async def create_interview_prep(
         )
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Interview prep LLM generation failed: {exc}") from exc
-    return InterviewPrepResponse.model_validate(prep)
+    return _interview_prep_response(prep)
 
 
 @router.get("", response_model=list[InterviewPrepResponse])
@@ -54,7 +55,7 @@ def list_interview_preps(
     if job_id is not None:
         query = query.filter(InterviewPrep.job_id == job_id)
     rows = query.order_by(InterviewPrep.created_at.desc(), InterviewPrep.id.desc()).limit(limit).all()
-    return [InterviewPrepResponse.model_validate(row) for row in rows]
+    return [_interview_prep_response(row) for row in rows]
 
 
 @router.post("/experiences", response_model=InterviewExperienceResponse, status_code=status.HTTP_201_CREATED)
@@ -168,7 +169,16 @@ def export_interview_prep_markdown(prep_id: int, db: Session = Depends(get_db)) 
 
 @router.get("/{prep_id}", response_model=InterviewPrepResponse)
 def get_interview_prep(prep_id: int, db: Session = Depends(get_db)) -> InterviewPrepResponse:
-    return InterviewPrepResponse.model_validate(_get_interview_prep_or_404(db, prep_id))
+    return _interview_prep_response(_get_interview_prep_or_404(db, prep_id))
+
+
+def _interview_prep_response(prep: InterviewPrep) -> InterviewPrepResponse:
+    response = InterviewPrepResponse.model_validate(prep)
+    summary = dict(response.summary_json or {})
+    summary["interview_reference_links"] = InterviewReferenceService.normalize_links(
+        summary.get("interview_reference_links") or []
+    )
+    return response.model_copy(update={"summary_json": summary})
 
 
 def _get_interview_prep_or_404(db: Session, prep_id: int) -> InterviewPrep:

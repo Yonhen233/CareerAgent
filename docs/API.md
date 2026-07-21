@@ -581,7 +581,7 @@ Content-Type: application/json
 {
   "job_id": 1,
   "source_site": "牛客网",
-  "source_url": "https://www.nowcoder.com/discuss/example",
+  "source_url": "https://www.nowcoder.com/discuss/123456789",
   "title": "腾讯 Agent 开发实习一面",
   "company": "腾讯",
   "role_keyword": "Agent 开发实习生",

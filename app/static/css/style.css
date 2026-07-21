@@ -563,6 +563,12 @@ a {
   margin-bottom: 4px;
 }
 
+.interview-section-heading .meta {
+  max-width: 520px;
+  margin: 6px 0 0;
+  line-height: 1.5;
+}
+
 .interview-section-count {
   flex: 0 0 auto;
   padding: 4px 7px;
@@ -640,6 +646,15 @@ a {
   line-height: 1.55;
 }
 
+.interview-no-gap {
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid #ead9af;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
 .interview-reference-panel {
   margin: 18px 0 22px;
   border: 1px solid var(--line);
@@ -702,6 +717,18 @@ a {
 .interview-reference-list a {
   color: var(--blue);
   font-weight: 700;
+}
+
+.interview-reference-type {
+  display: inline-flex;
+  margin-left: 7px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  color: #44546a;
+  background: #edf2f7;
+  font-size: 10px;
+  font-weight: 700;
+  vertical-align: middle;
 }
 
 .interview-question-workbench {

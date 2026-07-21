@@ -11,6 +11,7 @@ from app.core.config import get_settings
 from app.core.llm import LLMClient, LLMConfigurationError, extract_json_object, format_exception
 from app.models.entities import InterviewPrep, Job, MatchResult, Profile
 from app.services.interview_experience import InterviewExperienceService
+from app.services.interview_references import InterviewReferenceService
 from app.services.matcher import MatcherService, normalize_skill
 
 
@@ -1337,10 +1338,11 @@ class InterviewPrepService:
                     "site": site,
                     "kind": "search_reference_link",
                     "query": query,
+                    "topic": item.get("topic"),
                     "note": "只作为面经参考入口；不绕过登录、不抓取正文、不把标题当作事实证据。",
                 }
             )
-        return links
+        return InterviewReferenceService.normalize_links(links)
 
     def _skills(self, job: Job, key: str) -> list[str]:
         return self._unique([str(item).strip() for item in (job.structured_jd_json or {}).get(key, []) if str(item).strip()])
