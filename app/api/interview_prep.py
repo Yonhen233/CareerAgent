@@ -1,7 +1,7 @@
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
 from app.models.entities import InterviewExperience, InterviewPrep, Job, Profile
@@ -13,6 +13,7 @@ from app.models.schemas import (
     InterviewPrepRequest,
     InterviewPrepResponse,
 )
+from app.services.interview_answer_framework import InterviewAnswerFrameworkService
 from app.services.interview_delivery import InterviewPrepDeliveryService
 from app.services.interview_experience import InterviewExperienceService
 from app.services.interview_prep import InterviewPrepService
@@ -49,7 +50,10 @@ def list_interview_preps(
     limit: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
 ) -> list[InterviewPrepResponse]:
-    query = db.query(InterviewPrep)
+    query = db.query(InterviewPrep).options(
+        joinedload(InterviewPrep.profile),
+        joinedload(InterviewPrep.job),
+    )
     if profile_id is not None:
         query = query.filter(InterviewPrep.profile_id == profile_id)
     if job_id is not None:
@@ -178,11 +182,21 @@ def _interview_prep_response(prep: InterviewPrep) -> InterviewPrepResponse:
     summary["interview_reference_links"] = InterviewReferenceService.normalize_links(
         summary.get("interview_reference_links") or []
     )
-    return response.model_copy(update={"summary_json": summary})
+    question_sets = InterviewAnswerFrameworkService().normalize_question_sets(
+        response.question_sets_json,
+        profile=prep.profile,
+        job=prep.job,
+    )
+    return response.model_copy(update={"summary_json": summary, "question_sets_json": question_sets})
 
 
 def _get_interview_prep_or_404(db: Session, prep_id: int) -> InterviewPrep:
-    prep = db.query(InterviewPrep).filter(InterviewPrep.id == prep_id).first()
+    prep = (
+        db.query(InterviewPrep)
+        .options(joinedload(InterviewPrep.profile), joinedload(InterviewPrep.job))
+        .filter(InterviewPrep.id == prep_id)
+        .first()
+    )
     if prep is None:
         raise HTTPException(status_code=404, detail="Interview prep not found.")
     return prep

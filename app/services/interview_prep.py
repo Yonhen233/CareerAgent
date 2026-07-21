@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.llm import LLMClient, LLMConfigurationError, extract_json_object, format_exception
 from app.models.entities import InterviewPrep, Job, MatchResult, Profile
+from app.services.interview_answer_framework import InterviewAnswerFrameworkService
 from app.services.interview_experience import InterviewExperienceService
 from app.services.interview_references import InterviewReferenceService
 from app.services.matcher import MatcherService, normalize_skill
@@ -90,6 +91,11 @@ class InterviewPrepService:
         question_sets = [item for item in question_sets if item["questions"]]
         question_sets = self._dedupe_question_sets(question_sets)
         self._attach_question_metadata(question_sets, missing=missing)
+        question_sets = InterviewAnswerFrameworkService().normalize_question_sets(
+            question_sets,
+            profile=profile,
+            job=job,
+        )
         gap_drills = self._gap_drills(job, missing)
         research_checklist = self._research_checklist(job, required, missing)
         question_quality = self._question_quality_judge(
@@ -967,7 +973,7 @@ class InterviewPrepService:
         questions = [question for group in question_sets for question in group.get("questions", [])]
         if not questions:
             return {
-                "mode": "heuristic_v1",
+                "mode": "heuristic_v2_answer_framework",
                 "passed": False,
                 "score": 0.0,
                 "rates": {},
@@ -1029,7 +1035,18 @@ class InterviewPrepService:
             if evidence_required:
                 denominators["evidence_traceability"] += 1
             evidence_traceability = (not evidence_required) or bool(question.get("evidence_refs"))
-            actionability = len(question.get("answer_points") or []) >= 2 and len(str(question.get("question") or "")) >= 10
+            framework = question.get("answer_framework") or []
+            framework_sections = {str(item.get("section") or "") for item in framework if isinstance(item, dict)}
+            has_evidence_step = "绑定项目证据" in framework_sections
+            has_boundary_step = any("边界" in section or "失败" in section for section in framework_sections)
+            has_verification_step = any("评测" in section or "验证" in section or "可观测" in section for section in framework_sections)
+            actionability = (
+                len(framework) >= 4
+                and has_evidence_step
+                and has_boundary_step
+                and has_verification_step
+                and len(str(question.get("question") or "")) >= 10
+            )
 
             results = {
                 "jd_alignment": (jd_aligned, True),
@@ -1078,6 +1095,7 @@ class InterviewPrepService:
             "gap_boundary": 0.9,
             "project_binding": 0.8,
             "evidence_traceability": 1.0,
+            "actionability": 0.9,
             "duplicate_rate_max": 0.08,
         }
         passed = (
@@ -1087,10 +1105,11 @@ class InterviewPrepService:
             and rates["gap_boundary"] >= thresholds["gap_boundary"]
             and rates["project_binding"] >= thresholds["project_binding"]
             and rates["evidence_traceability"] >= thresholds["evidence_traceability"]
+            and rates["actionability"] >= thresholds["actionability"]
             and duplicate_rate <= thresholds["duplicate_rate_max"]
         )
         return {
-            "mode": "heuristic_v1",
+            "mode": "heuristic_v2_answer_framework",
             "passed": passed,
             "score": score,
             "thresholds": thresholds,

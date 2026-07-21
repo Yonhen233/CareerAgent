@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.models.entities import InterviewPracticeItem, InterviewPrep
+from app.services.interview_answer_framework import InterviewAnswerFrameworkService
 from app.services.interview_references import InterviewReferenceService
 
 
@@ -47,7 +48,7 @@ class InterviewPrepDeliveryService:
 
     def question_items(self, prep: InterviewPrep) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
-        for group_index, group in enumerate(prep.question_sets_json or [], start=1):
+        for group_index, group in enumerate(self.normalized_question_sets(prep), start=1):
             category = str(group.get("category") or f"题组 {group_index}")
             for question_index, question in enumerate(group.get("questions") or [], start=1):
                 question_id = str(question.get("question_id") or f"q{group_index:02d}_{question_index:02d}")
@@ -61,6 +62,11 @@ class InterviewPrepDeliveryService:
                         "follow_ups": [str(item) for item in question.get("follow_ups") or []],
                         "intent": str(question.get("intent") or ""),
                         "answer_points": [str(item) for item in question.get("answer_points") or []],
+                        "answer_framework": question.get("answer_framework") or [],
+                        "answer_framework_source": str(question.get("answer_framework_source") or ""),
+                        "answer_framework_source_label": str(question.get("answer_framework_source_label") or ""),
+                        "question_generation_source": str(question.get("question_generation_source") or ""),
+                        "question_generation_source_label": str(question.get("question_generation_source_label") or ""),
                         "risk_level": str(question.get("risk_level") or "low"),
                         "skills": [str(item) for item in question.get("skills") or []],
                         "source_perspective": source_perspective,
@@ -71,6 +77,13 @@ class InterviewPrepDeliveryService:
                     }
                 )
         return items
+
+    def normalized_question_sets(self, prep: InterviewPrep) -> list[dict[str, Any]]:
+        return InterviewAnswerFrameworkService().normalize_question_sets(
+            prep.question_sets_json,
+            profile=prep.profile,
+            job=prep.job,
+        )
 
     def source_label(self, source_perspective: str) -> str:
         return SOURCE_PERSPECTIVE_LABELS.get(source_perspective, source_perspective or "未标注来源")
@@ -253,7 +266,7 @@ class InterviewPrepDeliveryService:
                 lines.append("- 待补齐：" + "、".join(str(item) for item in missing))
             lines.append("")
 
-        for group in prep.question_sets_json or []:
+        for group in self.normalized_question_sets(prep):
             lines.extend([f"## {group.get('category') or '题组'}", ""])
             for question in group.get("questions") or []:
                 question_id = str(question.get("question_id") or "")
@@ -280,16 +293,21 @@ class InterviewPrepDeliveryService:
                 if question.get("follow_ups"):
                     lines.append("- 连续追问：")
                     lines.extend(f"  - {item}" for item in question.get("follow_ups") or [])
-                if question.get("answer_points"):
-                    lines.append("- 回答要点：")
-                    lines.extend(f"  - {item}" for item in question.get("answer_points") or [])
+                if question.get("answer_framework_source_label"):
+                    lines.append(f"- 回答框架来源：{question.get('answer_framework_source_label')}")
+                if question.get("answer_framework"):
+                    lines.append("- 回答框架：")
+                    lines.extend(
+                        f"  - {item.get('section')}：{item.get('guidance')}"
+                        for item in question.get("answer_framework") or []
+                    )
                 if row and row.notes:
                     lines.append(f"- 练习备注：{row.notes}")
                 refs = question.get("evidence_refs") or []
                 if refs:
                     lines.append("- 证据引用：")
                     for ref in refs:
-                        preview = ref.get("preview") or ref.get("source_url") or ref.get("ref")
+                        preview = ref.get("preview") or ref.get("source_label") or "证据已记录"
                         lines.append(f"  - {preview}")
                 lines.append("")
 

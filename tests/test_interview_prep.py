@@ -446,6 +446,46 @@ def test_interview_prep_uses_imported_source_backed_experience_questions(db_sess
     assert prep.coverage_json["source_backed_question_count"] >= 2
     assert source_questions
     assert any(ref.get("source_site") == "牛客网" for question in source_questions for ref in question["evidence_refs"])
+    first_question = source_questions[0]
+    framework_sections = [item["section"] for item in first_question["answer_framework"]]
+    assert first_question["question_generation_source"] == "imported_interview_experience"
+    assert first_question["answer_framework_source"] == "evidence_rule_enriched"
+    assert framework_sections == ["先给结论", "说明选择依据", "绑定项目证据", "用评测做决定", "说明取舍边界"]
+    assert "CareerAgent" in first_question["answer_framework"][2]["guidance"]
+    assert "先标注来源" not in " ".join(first_question["answer_points"])
+    assert any(ref.get("source_type") == "resume_project" for ref in first_question["evidence_refs"])
+
+
+def test_legacy_answer_framework_is_upgraded_on_api_read(db_session):
+    profile, job = _seed_profile_job(db_session)
+    prep = InterviewPrepService().create_interview_prep(db_session, profile=profile, job=job)
+    question = prep.question_sets_json[0]["questions"][0]
+    question["answer_points"] = [
+        "先标注来源：牛客网 / 示例面经。",
+        "围绕 Python、FastAPI、SQLite、RAG 说明可引用的项目、指标或缺口边界。",
+        "不能包装成生产经验。",
+    ]
+    question["question"] = "导入面经提到：RAG 的 chunk 切分策略怎么选？"
+    question.pop("answer_framework", None)
+    question["source_perspective"] = "source_backed_interview_experience"
+    question["skills"] = ["RAG"]
+    question["evidence_refs"] = [
+        {
+            "ref": "interview_experience:99",
+            "source_site": "牛客网",
+            "source_url": "https://www.nowcoder.com/discuss/example-agent-intern",
+            "preview": "RAG 的 chunk 切分策略怎么选？",
+        }
+    ]
+
+    response = _interview_prep_response(prep)
+    upgraded = response.question_sets_json[0]["questions"][0]
+
+    assert upgraded["answer_framework_source_label"] == "系统根据 JD、简历证据和题目类型生成"
+    assert upgraded["answer_framework"][0]["section"] == "先给结论"
+    assert upgraded["answer_framework"][3]["section"] == "用评测做决定"
+    assert "source_url" not in upgraded["evidence_refs"][0]
+    assert upgraded["evidence_refs"][0]["preview"] == "RAG 的 chunk 切分策略怎么选？"
 
 
 def test_interview_prep_delivery_exports_markdown_and_tracks_practice(db_session):

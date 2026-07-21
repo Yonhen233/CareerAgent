@@ -68,6 +68,7 @@ CareerAgent/
 │   │   ├── interview_sources.py              # 牛客/OfferShow/小红书来源 smoke
 │   │   ├── interview_prep.py                 # JD + 项目 + 缺口的面试问题生成
 │   │   ├── interview_delivery.py             # 面试包 Markdown 和练习状态
+│   │   ├── interview_answer_framework.py     # 面试题回答框架、证据绑定和旧数据升级
 │   │   │
 │   │   ├── trace_service.py                  # Run/Step/Artifact/Event Trace
 │   │   ├── run_business_summary.py           # 路由/过程/结果/副作用四层业务摘要

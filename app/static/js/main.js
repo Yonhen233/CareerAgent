@@ -1923,6 +1923,9 @@ function renderInterviewQuestion(question, prepId, practiceByQuestion) {
   const followUps = Array.isArray(question.follow_ups) ? question.follow_ups : [];
   const rawAnswerPoints = question.answer_points || question.answer_outline || [];
   const answerPoints = Array.isArray(rawAnswerPoints) ? rawAnswerPoints : [String(rawAnswerPoints)];
+  const answerFramework = Array.isArray(question.answer_framework) && question.answer_framework.length
+    ? question.answer_framework
+    : answerPoints.map((item, index) => ({ section: `回答要点 ${index + 1}`, guidance: String(item) }));
   const evidenceRefs = Array.isArray(question.evidence_refs) ? question.evidence_refs : [];
   return `
     <article class="interview-question-card" data-question-id="${escapeHtml(questionId)}">
@@ -1943,9 +1946,35 @@ function renderInterviewQuestion(question, prepId, practiceByQuestion) {
       ` : ""}
       <details class="interview-answer-outline">
         <summary>展开回答框架与证据</summary>
-        ${question.intent ? `<p>${escapeHtml(question.intent)}</p>` : ""}
-        ${answerPoints.length ? `<ul class="compact-list">${answerPoints.slice(0, 6).map((item) => `<li>${escapeHtml(typeof item === "string" ? item : JSON.stringify(item))}</li>`).join("")}</ul>` : ""}
-        ${evidenceRefs.length ? `<p class="meta">证据：${escapeHtml(evidenceRefs.slice(0, 4).map((item) => item.ref || item.text || JSON.stringify(item)).join("；"))}</p>` : ""}
+        <div class="interview-framework-meta">
+          <span>${escapeHtml(question.question_generation_source_label || "由系统根据岗位与简历生成题目")}</span>
+          <span>${escapeHtml(question.answer_framework_source_label || "回答框架来源未标注")}</span>
+        </div>
+        ${question.intent ? `<div class="interview-question-intent"><strong>考察点</strong><span>${escapeHtml(question.intent)}</span></div>` : ""}
+        ${answerFramework.length ? `
+          <ol class="interview-answer-steps">
+            ${answerFramework.slice(0, 6).map((item, index) => `
+              <li>
+                <span class="interview-answer-step-number">${index + 1}</span>
+                <div>
+                  <strong>${escapeHtml(item.section || `回答要点 ${index + 1}`)}</strong>
+                  <p>${escapeHtml(item.guidance || String(item))}</p>
+                </div>
+              </li>
+            `).join("")}
+          </ol>
+        ` : ""}
+        ${evidenceRefs.length ? `
+          <div class="interview-evidence-list">
+            <strong>可引用证据</strong>
+            ${evidenceRefs.slice(0, 4).map((item) => `
+              <div>
+                <span>${escapeHtml(item.source_label || item.source_site || "简历或面经")}</span>
+                <p>${escapeHtml(item.preview || item.text || "已记录证据，回答时请回到原始材料核对。")}</p>
+              </div>
+            `).join("")}
+          </div>
+        ` : `<p class="interview-evidence-empty">当前没有可直接引用的简历证据，回答时请明确说明经验边界。</p>`}
       </details>
       <div class="interview-practice-control">
         <span>练习状态</span>
