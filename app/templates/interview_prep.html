@@ -37,17 +37,18 @@
 </section>
 
 <section class="workspace-grid interview-workspace-grid">
-  <section class="panel span-4">
+  <aside class="panel interview-plan-sidebar">
     <div class="panel-heading compact">
       <div>
-        <p class="eyebrow">面试计划</p>
-        <h2>最近生成</h2>
+        <p class="eyebrow">练习计划</p>
+        <h2>最近面试包</h2>
+        <p class="meta">选择一份计划，在右侧继续准备。</p>
       </div>
-      <button class="ghost" data-refresh="interview-prep"><i data-lucide="refresh-cw"></i> 刷新</button>
+      <button class="icon-button" data-refresh="interview-prep" type="button" title="刷新面试计划" aria-label="刷新面试计划"><i data-lucide="refresh-cw"></i></button>
     </div>
     <div id="interview-prep-list" class="result-list interview-prep-list"></div>
-  </section>
-  <section class="panel span-8">
+  </aside>
+  <section class="panel interview-plan-main">
     <div id="interview-practice-workspace" class="interview-practice-workspace">
       <div class="empty-state">
         <i data-lucide="messages-square"></i>

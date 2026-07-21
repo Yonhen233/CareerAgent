@@ -1875,17 +1875,18 @@ async function loadInterviewPreps({ selectPrepId = null } = {}) {
     const summary = row.summary_json || {};
     const coverage = row.coverage_json || {};
     const questionCount = coverage.question_count || countInterviewQuestions(row.question_sets_json);
+    const planTitle = String(row.title || "面试计划").replace(/\s*面试准备包\s*$/, "");
     return `
       <article class="item interview-prep-list-item" data-interview-prep-card="${row.id}">
         <button class="interview-prep-select" type="button" data-open-interview-prep="${row.id}" aria-pressed="false">
           <span class="interview-prep-select-head">
-            <strong>#${row.id} ${escapeHtml(row.title)}</strong>
+            <span class="interview-prep-number">计划 #${row.id}</span>
             <span class="status-pill ${coverage.passed ? "ok" : ""}">${coverage.passed ? "可练习" : "需补充"}</span>
           </span>
-          <span class="meta">简历 ${row.profile_id} · 岗位 ${row.job_id} · ${questionCount} 道题</span>
-          <span class="meta">${new Date(row.created_at).toLocaleString()} · 匹配分 ${escapeHtml(summary.overall_score ?? "-")}</span>
+          <strong class="interview-prep-role">${escapeHtml(planTitle)}</strong>
+          <span class="interview-prep-facts"><span>${questionCount} 道题</span><span>匹配 ${escapeHtml(summary.overall_score ?? "-")}</span></span>
+          <span class="meta">${new Date(row.created_at).toLocaleDateString()} · 简历 ${row.profile_id} / 岗位 ${row.job_id}</span>
         </button>
-        <a class="inline-action" href="/interview-prep/${row.id}/markdown"><i data-lucide="download"></i> 导出</a>
       </article>
     `;
   });
@@ -1934,22 +1935,30 @@ function renderInterviewQuestion(question, prepId, practiceByQuestion) {
         <span class="status-pill ${practice.status === "ready" ? "ok" : ""}">${escapeHtml(interviewPracticeStatusLabel(practice.status))}</span>
       </div>
       <h4>${escapeHtml(question.question)}</h4>
-      ${followUps.length ? `<p class="meta">追问：${escapeHtml(followUps.slice(0, 3).join(" / "))}</p>` : ""}
-      <details>
-        <summary>查看回答重点与证据边界</summary>
+      ${followUps.length ? `
+        <div class="interview-followups">
+          <strong>面试官可能追问</strong>
+          <ul>${followUps.slice(0, 3).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
+        </div>
+      ` : ""}
+      <details class="interview-answer-outline">
+        <summary>展开回答框架与证据</summary>
         ${question.intent ? `<p>${escapeHtml(question.intent)}</p>` : ""}
         ${answerPoints.length ? `<ul class="compact-list">${answerPoints.slice(0, 6).map((item) => `<li>${escapeHtml(typeof item === "string" ? item : JSON.stringify(item))}</li>`).join("")}</ul>` : ""}
         ${evidenceRefs.length ? `<p class="meta">证据：${escapeHtml(evidenceRefs.slice(0, 4).map((item) => item.ref || item.text || JSON.stringify(item)).join("；"))}</p>` : ""}
       </details>
-      <div class="interview-practice-actions" role="group" aria-label="更新题目练习状态">
-        ${[
-          ["todo", "待练习", 0],
-          ["practicing", "练习中", 2],
-          ["ready", "已掌握", 4],
-          ["deferred", "稍后", 0],
-        ].map(([status, label, confidence]) => `
-          <button type="button" class="${practice.status === status ? "active" : ""}" data-interview-practice-status="${status}" data-prep-id="${prepId}" data-question-id="${escapeHtml(questionId)}" data-confidence="${confidence}">${label}</button>
-        `).join("")}
+      <div class="interview-practice-control">
+        <span>练习状态</span>
+        <div class="interview-practice-actions" role="group" aria-label="更新题目练习状态">
+          ${[
+            ["todo", "待练习", 0],
+            ["practicing", "练习中", 2],
+            ["ready", "已掌握", 4],
+            ["deferred", "稍后", 0],
+          ].map(([status, label, confidence]) => `
+            <button type="button" class="${practice.status === status ? "active" : ""}" data-interview-practice-status="${status}" data-prep-id="${prepId}" data-question-id="${escapeHtml(questionId)}" data-confidence="${confidence}">${label}</button>
+          `).join("")}
+        </div>
       </div>
     </article>
   `;
@@ -1963,29 +1972,56 @@ function renderInterviewPracticeWorkspace(prep, practicePayload) {
   const preparationAngles = summary.preparation_angles || preparationAnglesFromCoverage(coverage);
   const referenceLinks = summary.interview_reference_links || [];
   const drills = prep.gap_drills_json || [];
+  const questionGroups = prep.question_sets_json || [];
   const progress = practicePayload.practice_summary || {};
+  const questionCount = progress.question_count || countInterviewQuestions(questionGroups);
+  const completion = Math.max(0, Math.min(100, Math.round(Number(progress.ready_rate || 0) * 100)));
   const practiceByQuestion = new Map((practicePayload.practice_items || []).map((item) => [String(item.question_id), item]));
   el.innerHTML = `
     <div class="interview-workspace-head">
       <div>
-        <p class="eyebrow">当前面试计划</p>
-        <h2>#${prep.id} ${escapeHtml(prep.title)}</h2>
+        <p class="eyebrow">当前计划 · #${prep.id}</p>
+        <h2>${escapeHtml(prep.title)}</h2>
         <p class="meta">简历 ${prep.profile_id} · 岗位 ${prep.job_id} · ${new Date(prep.created_at).toLocaleString()}</p>
       </div>
       <a class="button ghost" href="/interview-prep/${prep.id}/markdown"><i data-lucide="download"></i> 导出计划</a>
     </div>
+    <nav class="interview-prep-path" aria-label="面试准备路线">
+      <span><b>1</b><span><strong>看准备重点</strong><small>明确 JD 与项目主线</small></span></span>
+      <span><b>2</b><span><strong>补能力缺口</strong><small>只使用真实经历作答</small></span></span>
+      <span><b>3</b><span><strong>逐题练习</strong><small>记录掌握进度</small></span></span>
+    </nav>
     <div class="interview-progress">
-      <div><strong>${progress.question_count || countInterviewQuestions(prep.question_sets_json)}</strong><span>全部题目</span></div>
+      <div><strong>${questionCount}</strong><span>全部题目</span></div>
       <div><strong>${progress.practicing_count || 0}</strong><span>练习中</span></div>
       <div><strong>${progress.ready_count || 0}</strong><span>已掌握</span></div>
-      <div><strong>${Math.round(Number(progress.ready_rate || 0) * 100)}%</strong><span>完成度</span></div>
+      <div class="interview-completion-card"><strong>${completion}%</strong><span>完成度</span><div class="interview-mini-progress"><i style="width:${completion}%"></i></div></div>
     </div>
-    ${renderPreparationAngles(preparationAngles)}
-    ${drills.length ? `<section class="interview-gap-focus"><h3>优先补齐</h3><ul class="compact-list">${drills.slice(0, 5).map((item) => `<li><span class="tag">${escapeHtml(item.skill)}</span>${escapeHtml(item.honest_strategy || item.prep_task || "")}</li>`).join("")}</ul></section>` : ""}
+    <div class="interview-overview-grid">
+      ${renderPreparationAngles(preparationAngles)}
+      ${drills.length ? `
+        <section class="interview-overview-section interview-gap-focus">
+          <div class="interview-section-heading">
+            <div><p class="eyebrow">第二步</p><h3>优先补齐</h3></div>
+            <span class="interview-section-count">${Math.min(drills.length, 5)} 项</span>
+          </div>
+          <ul class="interview-gap-list">${drills.slice(0, 5).map((item) => `<li><span class="tag">${escapeHtml(item.skill)}</span><p>${escapeHtml(item.honest_strategy || item.prep_task || "")}</p></li>`).join("")}</ul>
+        </section>
+      ` : ""}
+    </div>
     ${renderInterviewReferenceLinks(referenceLinks)}
-    ${(prep.question_sets_json || []).map((group) => `
-      <section class="interview-question-group">
-        <h3>${escapeHtml(group.category)}</h3>
+    <section class="interview-question-workbench">
+      <div class="interview-section-heading interview-question-workbench-head">
+        <div><p class="eyebrow">第三步</p><h3>按主题逐题练习</h3><p class="meta">先选择主题，再逐题标记练习状态。</p></div>
+        <span class="interview-section-count">${questionCount} 题</span>
+      </div>
+      <nav class="interview-question-directory" aria-label="面试题主题">
+        ${questionGroups.map((group, index) => `<a href="#interview-question-group-${index + 1}">${escapeHtml(group.category)}<span>${(group.questions || []).length}</span></a>`).join("")}
+      </nav>
+    </section>
+    ${questionGroups.map((group, index) => `
+      <section class="interview-question-group" id="interview-question-group-${index + 1}">
+        <div class="interview-question-group-head"><h3>${escapeHtml(group.category)}</h3><span>${(group.questions || []).length} 题</span></div>
         <div class="interview-question-list">${(group.questions || []).map((question) => renderInterviewQuestion(question, prep.id, practiceByQuestion)).join("")}</div>
       </section>
     `).join("")}
@@ -2039,19 +2075,30 @@ function countInterviewQuestions(questionSets) {
 function renderPreparationAngles(angles) {
   if (!angles || !angles.length) return "";
   return `
-    <h3>准备角度</h3>
-    <ul class="compact-list">${angles.map((angle) => {
+    <section class="interview-overview-section">
+      <div class="interview-section-heading">
+        <div><p class="eyebrow">第一步</p><h3>准备重点</h3></div>
+        <span class="interview-section-count">${angles.length} 类</span>
+      </div>
+      <div class="interview-angle-grid">${angles.map((angle) => {
       const inputs = (angle.source_inputs || []).filter(Boolean).slice(0, 2).join("；");
       const focus = (angle.focus || []).filter(Boolean).slice(0, 1).join("；");
       return `
-        <li>
-          <span class="tag">${escapeHtml(angle.label || interviewAngleLabel(angle.angle))}</span>
-          <span class="tag">${escapeHtml(angle.question_count || 0)} 题</span>
-          ${escapeHtml(inputs || focus || "")}
-        </li>
+        <article class="interview-angle-card">
+          <div><i data-lucide="${interviewAngleIcon(angle.angle)}"></i><strong>${escapeHtml(angle.label || interviewAngleLabel(angle.angle))}</strong><span>${escapeHtml(angle.question_count || 0)} 题</span></div>
+          <p>${escapeHtml(inputs || focus || "等待补充准备素材")}</p>
+        </article>
       `;
-    }).join("")}</ul>
+    }).join("")}</div>
+    </section>
   `;
+}
+
+function interviewAngleIcon(angle) {
+  const value = String(angle || "");
+  if (value.includes("experience") || value.includes("online")) return "globe-2";
+  if (value.includes("project") || value.includes("stack")) return "code-2";
+  return "message-circle-question";
 }
 
 function renderQuestionQuality(quality) {
@@ -2098,15 +2145,28 @@ function renderQualityIssue(issue) {
 
 function renderInterviewReferenceLinks(links) {
   if (!links || !links.length) return "";
+  const seen = new Set();
+  const uniqueLinks = links.filter((item) => {
+    const key = `${item.site || item.kind || ""}|${item.url || ""}|${item.title || item.query || ""}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  }).slice(0, 8);
   return `
-    <h3>面经参考链接</h3>
-    <ul class="compact-list">${links.slice(0, 8).map((item) => `
+    <details class="interview-reference-panel">
+      <summary>
+        <span><i data-lucide="library"></i><span><strong>面经与参考资料</strong><small>默认收起，需要时再查看外部链接</small></span></span>
+        <span class="interview-section-count">${uniqueLinks.length} 条</span>
+      </summary>
+      <ul class="interview-reference-list">${uniqueLinks.map((item) => `
       <li>
         <span class="tag">${escapeHtml(item.site || item.kind || "参考")}</span>
-        ${item.url ? `<a href="${escapeHtml(item.url)}" target="_blank">${escapeHtml(item.title || item.url)}</a>` : escapeHtml(item.title || item.query || "")}
+        <div>${item.url ? `<a href="${escapeHtml(item.url)}" target="_blank">${escapeHtml(item.title || item.url)}</a>` : `<strong>${escapeHtml(item.title || item.query || "")}</strong>`}
         <div class="meta">${escapeHtml(item.note || item.query || "")}</div>
+        </div>
       </li>
-    `).join("")}</ul>
+      `).join("")}</ul>
+    </details>
   `;
 }
 

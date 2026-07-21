@@ -545,6 +545,8 @@ def test_interview_prep_is_connected_to_job_context_and_direct_practice():
     assert "interview-practice-form" not in prep_response.text
     assert "interview-profile-picker-dialog" in prep_response.text
     assert "interview-job-picker-dialog" in prep_response.text
+    assert "interview-plan-sidebar" in prep_response.text
+    assert "最近面试包" in prep_response.text
 
     assert job_response.status_code == 200
     assert 'data-job-tab="interview"' in job_response.text
@@ -556,5 +558,13 @@ def test_interview_prep_is_connected_to_job_context_and_direct_practice():
     assert "data-interview-practice-status" in main_js
     assert "updateInterviewPractice" in main_js
     assert "loadJobDetailInterviewPreps" in main_js
+    assert "interview-prep-path" in main_js
+    assert "interview-overview-grid" in main_js
+    assert "interview-reference-panel" in main_js
+    assert "interview-question-directory" in main_js
+    assert "interview-followups" in main_js
+    assert "const seen = new Set()" in main_js
     assert "interview-context-grid" in style_css
     assert "interview-practice-actions" in style_css
+    assert "interview-plan-sidebar" in style_css
+    assert "interview-question-workbench" in style_css
