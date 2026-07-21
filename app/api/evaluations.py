@@ -5,6 +5,7 @@ from app.core.database import get_db
 from app.models.entities import EvaluationRun
 from app.models.schemas import EvaluationRunResponse
 from app.services.evaluation_service import EvaluationService
+from app.services.interview_claim_evaluation import InterviewClaimVerifierEvaluationService
 
 router = APIRouter(prefix="/evaluations", tags=["evaluations"])
 
@@ -60,6 +61,18 @@ def run_prompt_injection_evaluation(db: Session = Depends(get_db)) -> Evaluation
 @router.post("/interview-prep", response_model=EvaluationRunResponse, status_code=status.HTTP_201_CREATED)
 def run_interview_prep_evaluation(db: Session = Depends(get_db)) -> EvaluationRunResponse:
     run = EvaluationService().run_interview_prep_evaluation(db)
+    return EvaluationRunResponse.model_validate(run)
+
+
+@router.post(
+    "/interview-claim-verifier",
+    response_model=EvaluationRunResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def run_interview_claim_verifier_evaluation(
+    db: Session = Depends(get_db),
+) -> EvaluationRunResponse:
+    run = await InterviewClaimVerifierEvaluationService().run(db)
     return EvaluationRunResponse.model_validate(run)
 
 

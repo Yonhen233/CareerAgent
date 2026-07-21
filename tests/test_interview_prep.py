@@ -50,6 +50,18 @@ def _verifier_claims(payload):
     return flattened
 
 
+def _answer_checks(payload, *, answered=True):
+    return [
+        {
+            "question_id": item["question_id"],
+            "answered": answered,
+            "missing_points": [] if answered else ["问题核心要求"],
+            "reason": "" if answered else "测试模拟回答未正面回应问题。",
+        }
+        for item in payload["items"]
+    ]
+
+
 class FakeAgenticInterviewLLM:
     def __init__(self):
         self.calls = []
@@ -186,7 +198,8 @@ class FakeAgenticInterviewLLM:
                             "reason": "测试证据明确支持该 claim。",
                         }
                         for item in claims
-                    ]
+                    ],
+                    "answer_checks": _answer_checks(payload),
                 },
                 ensure_ascii=False,
             )
@@ -389,19 +402,20 @@ def test_interview_default_flow_uses_batched_verifier_within_context_budget(db_s
         for question in group.get("questions", [])
     ]
     assert len(questions) == 10
-    assert len(llm.calls) == 5
+    assert len(llm.calls) == 6
     assert [item["trace_name"] for item in llm.calls] == [
         "interview_prep.generate_interviewer_questions",
         "interview_agentic_rag.generate.1",
         "interview_agentic_rag.generate.2",
         "interview_agentic_rag.verify.1",
         "interview_agentic_rag.verify.2",
+        "interview_agentic_rag.verify.3",
     ]
-    assert sum(item["prompt_chars"] for item in llm.calls) <= 60000
-    assert sum(item["max_tokens"] for item in llm.calls) <= 18000
+    assert sum(item["prompt_chars"] for item in llm.calls) <= 85000
+    assert sum(item["max_tokens"] for item in llm.calls) <= 22000
     verify_calls = [item for item in llm.calls if item["trace_name"].startswith("interview_agentic_rag.verify.")]
-    assert len(verify_calls) == 2
-    assert all(item["prompt_chars"] < 10000 for item in verify_calls)
+    assert len(verify_calls) == 3
+    assert all(item["prompt_chars"] < 12000 for item in verify_calls)
     assert all(item["max_tokens"] == 1800 for item in verify_calls)
 
 
@@ -479,16 +493,34 @@ def test_interview_prunes_one_bad_claim_without_rewriting_complete_answers(db_se
         for group in prep.question_sets_json
         for question in group.get("questions", [])
     ]
-    assert len(llm.calls) == 5
+    assert len(llm.calls) == 6
     assert not any("repair" in item["trace_name"] for item in llm.calls)
     assert prep.summary_json["agentic_rag"]["repair_attempts"] == 0
     assert prep.summary_json["agentic_rag"]["verification_warning_count"] == len(questions)
     assert all(len(question["claims"]) == 3 for question in questions)
 
 
+def test_interview_claim_error_is_prunable_when_any_verified_claim_survives():
+    service = InterviewAgenticRAGService(llm=FakeAgenticInterviewLLM())
+
+    assert service._is_prunable_claim_error(
+        {"code": "claim_not_supported"},
+        surviving_claims=1,
+    )
+    assert not service._is_prunable_claim_error(
+        {"code": "claim_not_supported"},
+        surviving_claims=0,
+    )
+    assert not service._is_prunable_claim_error(
+        {"code": "answer_not_responsive"},
+        surviving_claims=3,
+    )
+
+
 def test_agentic_rag_repairs_malformed_json_with_traced_llm_node(db_session):
     llm = MalformedThenRepairedJSONLLM()
     service = InterviewAgenticRAGService(llm=llm)
+    service.settings = service.settings.model_copy(update={"interview_rag_json_repair_attempts": 1})
 
     payload = asyncio.run(
         service._generate_json(
@@ -510,6 +542,7 @@ def test_agentic_rag_repairs_malformed_json_with_traced_llm_node(db_session):
 def test_agentic_rag_rejects_json_that_remains_invalid_after_repair(db_session):
     llm = MalformedThenRepairedJSONLLM(repair_succeeds=False)
     service = InterviewAgenticRAGService(llm=llm)
+    service.settings = service.settings.model_copy(update={"interview_rag_json_repair_attempts": 1})
 
     with pytest.raises(InterviewAgenticRAGError, match="invalid JSON after 1 repair attempt"):
         asyncio.run(
@@ -531,6 +564,7 @@ def test_answer_repair_keeps_local_evidence_aliases_without_exposing_database_id
             "question_id": "q1",
             "reference_answer": "示例回答",
             "answer_framework": [],
+            "_claims_verified": True,
             "claims": [
                 {
                     "text": "候选人实现了 RAG 检索",
@@ -546,6 +580,67 @@ def test_answer_repair_keeps_local_evidence_aliases_without_exposing_database_id
     assert "resume_chunk:987" not in json.dumps(payload, ensure_ascii=False)
 
 
+def test_answer_repair_merges_new_claims_with_verified_claims_without_duplicates():
+    service = InterviewAgenticRAGService(llm=FakeAgenticInterviewLLM())
+
+    merged = service._merge_verified_claims(
+        [
+            {
+                "text": "我会用中间件生成 trace_id，并让 worker 独立记录状态。",
+                "claim_type": "answer_strategy",
+                "evidence_ids": ["technical:fastapi"],
+            }
+        ],
+        [
+            {
+                "text": "FastAPI 的 async 适合 IO 等待，CPU 密集任务应交给进程池或独立服务。",
+                "claim_type": "technical_explanation",
+                "evidence_ids": ["technical:fastapi"],
+            },
+            {
+                "text": "我会用中间件生成 trace_id，并让 worker 独立记录状态。",
+                "claim_type": "answer_strategy",
+                "evidence_ids": ["technical:fastapi"],
+            },
+        ],
+    )
+
+    assert [item["claim_type"] for item in merged] == [
+        "answer_strategy",
+        "technical_explanation",
+    ]
+
+
+def test_composer_accepts_two_verified_sections_when_answer_is_substantive():
+    service = InterviewAgenticRAGService(llm=FakeAgenticInterviewLLM())
+    service.settings = service.settings.model_copy(update={"interview_rag_min_answer_chars": 80})
+
+    composed, errors = service._compose_verified_answers(
+        questions=[{"question_id": "q1"}],
+        answers={
+            "q1": {
+                "question_id": "q1",
+                "claims": [
+                    {
+                        "text": "FastAPI 的 async 主要提升 IO 等待场景的并发利用率，长耗时任务应写入外部队列。",
+                        "claim_type": "technical_explanation",
+                        "evidence_ids": ["technical:fastapi"],
+                    },
+                    {
+                        "text": "我会为请求生成 trace_id，并持久化 run_id、阶段、heartbeat、错误和结果，便于排查与恢复。",
+                        "claim_type": "answer_strategy",
+                        "evidence_ids": ["technical:fastapi"],
+                    },
+                ],
+                "citations": [],
+            }
+        },
+    )
+
+    assert errors == []
+    assert len(composed["q1"]["answer_framework"]) == 2
+
+
 def test_claim_verifier_rebinds_generator_miscitation_to_supporting_evidence(db_session):
     class CitationLinkerLLM:
         @property
@@ -555,7 +650,8 @@ def test_claim_verifier_rebinds_generator_miscitation_to_supporting_evidence(db_
         async def generate_text(self, *, user_prompt, trace_name, **kwargs):
             del kwargs
             assert trace_name.startswith("interview_agentic_rag.verify.")
-            item = _verifier_claims(json.loads(user_prompt))[0]
+            request = json.loads(user_prompt)
+            item = _verifier_claims(request)[0]
             project = next(
                 evidence
                 for evidence in item["available_evidence"]
@@ -572,7 +668,8 @@ def test_claim_verifier_rebinds_generator_miscitation_to_supporting_evidence(db_
                             "normalized_evidence_ids": [project["evidence_id"]],
                             "reason": "项目文档直接描述该实现。",
                         }
-                    ]
+                    ],
+                    "answer_checks": _answer_checks(request),
                 },
                 ensure_ascii=False,
             )
@@ -629,7 +726,8 @@ def test_claim_verifier_prunes_rejected_claims_before_repair(db_session):
 
         async def generate_text(self, *, user_prompt, **kwargs):
             del kwargs
-            item = _verifier_claims(json.loads(user_prompt))[0]
+            request = json.loads(user_prompt)
+            item = _verifier_claims(request)[0]
             return json.dumps(
                 {
                     "verdicts": [
@@ -641,7 +739,8 @@ def test_claim_verifier_prunes_rejected_claims_before_repair(db_session):
                             "normalized_evidence_ids": [],
                             "reason": "证据没有直接描述该实现。",
                         }
-                    ]
+                    ],
+                    "answer_checks": _answer_checks(request),
                 },
                 ensure_ascii=False,
             )
@@ -681,6 +780,234 @@ def test_claim_verifier_prunes_rejected_claims_before_repair(db_session):
     assert errors[0]["code"] == "claim_not_supported"
     assert answers["q1"]["claims"] == []
     assert answers["q1"]["citations"] == []
+
+
+def test_claim_verifier_rejects_factually_supported_but_off_topic_answer(db_session):
+    class OffTopicVerifierLLM:
+        available = True
+
+        async def generate_text(self, *, user_prompt, **kwargs):
+            del kwargs
+            request = json.loads(user_prompt)
+            item = _verifier_claims(request)[0]
+            return json.dumps(
+                {
+                    "verdicts": [
+                        {
+                            "question_id": item["question_id"],
+                            "claim_index": item["claim_index"],
+                            "supported": True,
+                            "normalized_claim_type": "project_implementation",
+                            "normalized_evidence_ids": item["current_evidence_ids"],
+                            "reason": "",
+                        }
+                    ],
+                    "answer_checks": _answer_checks(request, answered=False),
+                },
+                ensure_ascii=False,
+            )
+
+    answers, errors = asyncio.run(
+        InterviewAgenticRAGService(llm=OffTopicVerifierLLM())._verify_claim_entailment(
+            db_session,
+            questions=[
+                {
+                    "question_id": "q1",
+                    "question": "Agent 在架构中的位置是什么，为什么选它，有什么替代方案？",
+                }
+            ],
+            evidence={
+                "q1": [
+                    {
+                        "evidence_id": "project_document:eval",
+                        "source_type": "project_document",
+                        "allowed_claim_types": sorted(SOURCE_CLAIM_POLICY["project_document"]),
+                        "text": "岗位排序评测包含 13 个查询和 130 个候选岗位。",
+                    }
+                ]
+            },
+            answers={
+                "q1": {
+                    "question_id": "q1",
+                    "claims": [
+                        {
+                            "text": "岗位排序评测包含 13 个查询和 130 个候选岗位。",
+                            "claim_type": "project_implementation",
+                            "evidence_ids": ["project_document:eval"],
+                        }
+                    ],
+                    "citations": [],
+                }
+            },
+        )
+    )
+
+    assert answers["q1"]["claims"]
+    assert [item["code"] for item in errors] == ["answer_not_responsive"]
+
+
+def test_claim_verifier_retries_only_questions_omitted_from_complete_json(db_session):
+    class OmitThenCompleteVerifierLLM:
+        available = True
+
+        def __init__(self):
+            self.calls = []
+
+        async def generate_text(self, *, user_prompt, trace_name, **kwargs):
+            del kwargs
+            self.calls.append(trace_name)
+            request = json.loads(user_prompt)
+            items = request["items"]
+            if not trace_name.endswith("missing_retry"):
+                items = [item for item in items if item["question_id"] == "q1"]
+            claims = _verifier_claims({"items": items})
+            return json.dumps(
+                {
+                    "verdicts": [
+                        {
+                            "question_id": item["question_id"],
+                            "claim_index": item["claim_index"],
+                            "supported": True,
+                            "normalized_claim_type": "project_implementation",
+                            "normalized_evidence_ids": item["current_evidence_ids"],
+                            "reason": "",
+                        }
+                        for item in claims
+                    ],
+                    "answer_checks": _answer_checks({"items": items}),
+                },
+                ensure_ascii=False,
+            )
+
+    llm = OmitThenCompleteVerifierLLM()
+    service = InterviewAgenticRAGService(llm=llm)
+    questions = [
+        {"question_id": "q1", "question": "问题一"},
+        {"question_id": "q2", "question": "问题二"},
+    ]
+    evidence = {
+        question["question_id"]: [
+            {
+                "evidence_id": f"project:{question['question_id']}",
+                "source_type": "project_document",
+                "allowed_claim_types": sorted(SOURCE_CLAIM_POLICY["project_document"]),
+                "text": f"{question['question_id']} 的项目实现证据。",
+            }
+        ]
+        for question in questions
+    }
+    answers = {
+        question["question_id"]: {
+            "question_id": question["question_id"],
+            "claims": [
+                {
+                    "text": f"{question['question_id']} 的项目实现。",
+                    "claim_type": "project_implementation",
+                    "evidence_ids": [f"project:{question['question_id']}"],
+                }
+            ],
+            "citations": [],
+        }
+        for question in questions
+    }
+
+    classified, errors = asyncio.run(
+        service._verify_claim_entailment(
+            db_session,
+            questions=questions,
+            evidence=evidence,
+            answers=answers,
+        )
+    )
+
+    assert errors == []
+    assert all(classified[question_id]["claims"] for question_id in ("q1", "q2"))
+    assert llm.calls == [
+        "interview_agentic_rag.verify.1",
+        "interview_agentic_rag.verify.missing_retry",
+    ]
+
+
+def test_reranker_candidate_pool_expands_final_source_quotas():
+    service = InterviewAgenticRAGService(llm=FakeAgenticInterviewLLM())
+    ranked = [
+        {
+            "evidence_id": f"{source}:{index}",
+            "source_type": source,
+            "score": 1 - (index * 0.01),
+        }
+        for index in range(5)
+        for source in ("resume", "technical_knowledge")
+    ]
+
+    selected = service._ensure_source_candidates(
+        ranked,
+        target_sources=["resume", "technical_knowledge"],
+        limit=8,
+        source_quotas={"resume": 1, "technical_knowledge": 1},
+    )
+
+    counts = Counter(item["source_type"] for item in selected)
+    assert counts["resume"] >= 3
+    assert counts["technical_knowledge"] >= 3
+
+
+def test_reranker_candidate_pool_preserves_each_retrieval_channel_head():
+    service = InterviewAgenticRAGService(llm=FakeAgenticInterviewLLM())
+    ranked = []
+    for index in range(8):
+        channel_ranks = {
+            "exact": 1 if index == 6 else index + 10,
+            "bm25": 1 if index == 6 else index + 10,
+            "vector": 1 if index == 0 else index + 10,
+        }
+        ranked.append(
+            {
+                "evidence_id": f"technical:{index}",
+                "source_type": "technical_knowledge",
+                "score": 1 - index * 0.05,
+                "metadata": {"retrieval": {"channel_ranks": channel_ranks}},
+            }
+        )
+
+    selected = service._ensure_source_candidates(
+        ranked,
+        target_sources=["technical_knowledge"],
+        limit=3,
+        source_quotas={"technical_knowledge": 1},
+    )
+
+    assert {item["evidence_id"] for item in selected} >= {"technical:0", "technical:6"}
+
+
+def test_interview_reranker_query_excludes_broad_profile_and_job_context():
+    query = InterviewAgenticRAGService(llm=FakeAgenticInterviewLLM())._rerank_query(
+        {
+            "question": "FastAPI 接口并发变高时，trace 怎么记录？",
+            "skills": ["FastAPI", "Trace"],
+            "intent": "把真实同岗面经映射到候选人简历和目标 JD。",
+        }
+    )
+
+    assert "FastAPI 接口并发" in query
+    assert "FastAPI Trace" in query
+    assert "候选人简历" not in query
+
+
+def test_interview_reranker_query_strips_imported_interview_wrapper():
+    query = InterviewAgenticRAGService(llm=FakeAgenticInterviewLLM())._rerank_query(
+        {
+            "question": (
+                "导入面经（牛客网）提到：如果 FastAPI 接口并发变高，trace 怎么记录？ "
+                "请结合 Agent 开发实习和你的简历证据准备回答。"
+            ),
+            "skills": ["FastAPI"],
+        }
+    )
+
+    assert query.startswith("如果 FastAPI 接口并发变高")
+    assert "导入面经" not in query
+    assert "请结合" not in query
 
 
 def test_claim_verifier_only_sends_cited_and_rebinding_evidence():
@@ -1387,8 +1714,18 @@ def test_interview_project_plan_reserves_multiple_project_evidence_slots(db_sess
         },
     )
     plan = plans["q-project"]
-    assert plan["target_sources"] == ["resume", "project_document", "job"]
-    assert plan["source_quotas"] == {"resume": 2, "project_document": 2, "job": 1}
+    assert plan["target_sources"] == [
+        "resume",
+        "project_document",
+        "job",
+        "technical_knowledge",
+    ]
+    assert plan["source_quotas"] == {
+        "resume": 1,
+        "project_document": 2,
+        "job": 1,
+        "technical_knowledge": 1,
+    }
 
     ranked = [
         {
@@ -1416,9 +1753,44 @@ def test_interview_project_plan_reserves_multiple_project_evidence_slots(db_sess
         top_k=5,
     )
     assert Counter(item["source_type"] for item in selected) == {
-        "resume": 2,
+        "resume": 1,
         "project_document": 2,
         "job": 1,
+        "technical_knowledge": 1,
+    }
+
+
+def test_source_backed_interview_plan_combines_interview_project_and_technical_evidence(db_session):
+    service = InterviewAgenticRAGService(llm=FakeAgenticInterviewLLM())
+    profile, job = _seed_profile_job(db_session)
+
+    plan = service._build_retrieval_plans(
+        profile=profile,
+        job=job,
+        questions=[
+            {
+                "question_id": "q-trace",
+                "question": "FastAPI 并发变高时 trace 怎么记录？",
+                "intent": "把同岗面经映射到当前项目",
+                "skills": ["FastAPI"],
+                "source_perspective": "source_backed_interview_experience",
+            }
+        ],
+        source_inventory={
+            "resume": 3,
+            "job": 3,
+            "interview_experience": 2,
+            "project_document": 4,
+            "technical_knowledge": 4,
+        },
+    )["q-trace"]
+
+    assert plan["source_quotas"] == {
+        "interview_experience": 1,
+        "resume": 1,
+        "job": 1,
+        "project_document": 1,
+        "technical_knowledge": 1,
     }
 
 
@@ -1571,7 +1943,8 @@ def test_interview_langgraph_repairs_semantically_unsupported_claims(db_session)
                                 "reason": "首次校验故意模拟证据不蕴含，修复后通过。",
                             }
                             for item in claims
-                        ]
+                        ],
+                        "answer_checks": _answer_checks(payload),
                     },
                     ensure_ascii=False,
                 )

@@ -8,7 +8,8 @@ from typing import Any
 from app.core.config import Settings, get_settings
 
 
-TOKEN_RE = re.compile(r"[a-zA-Z0-9_\-\+#\.]{2,}|[\u4e00-\u9fff]{1,}")
+TOKEN_RE = re.compile(r"[a-zA-Z0-9_\-\+#\.]{2,}|[\u4e00-\u9fff]+")
+CJK_RE = re.compile(r"^[\u4e00-\u9fff]+$")
 
 QUERY_ALIASES = {
     "retrieval augmented generation": "RAG",
@@ -48,7 +49,19 @@ class EmbeddingBatch:
 
 
 def tokenize(text: str) -> list[str]:
-    return [token.lower() for token in TOKEN_RE.findall(text or "")]
+    tokens: list[str] = []
+    for raw in TOKEN_RE.findall(text or ""):
+        token = raw.lower()
+        if not CJK_RE.fullmatch(token):
+            tokens.append(token)
+            continue
+        if len(token) <= 3:
+            tokens.append(token)
+        for width in (2, 3):
+            if len(token) < width:
+                continue
+            tokens.extend(token[index : index + width] for index in range(len(token) - width + 1))
+    return tokens
 
 
 def expand_query_text(text: str) -> str:

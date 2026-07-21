@@ -1,0 +1,282 @@
+[
+  {
+    "id": "strategy_eval_pipeline",
+    "category": "strategy_supported",
+    "question": "如果让你为这个岗位设计 Agent 评测链路，你会怎么做？",
+    "claim": "我会先建立离线评测集，分别统计检索召回、引用正确率和回答事实一致性，再把失败样本沉淀为回归用例。",
+    "claim_type": "answer_strategy",
+    "evidence": [
+      {
+        "id": "job_eval",
+        "source_type": "job",
+        "text": "岗位负责建设 Agent 评测体系，定位检索、生成和工具调用链路的质量问题。"
+      },
+      {
+        "id": "tech_eval",
+        "source_type": "technical_knowledge",
+        "text": "RAG 评测通常分别衡量检索召回、引用正确性与生成事实一致性，并用失败样本做回归。"
+      }
+    ],
+    "cited_evidence_ids": ["job_eval", "tech_eval"],
+    "expected_supported": true,
+    "expected_claim_type": "answer_strategy"
+  },
+  {
+    "id": "strategy_langgraph",
+    "category": "strategy_supported",
+    "question": "如果工作流需要中断恢复和人工审批，你会如何设计？",
+    "claim": "我会用 LangGraph 显式建模状态和节点，在高风险外发动作前 interrupt，并用持久化 checkpointer 支持恢复。",
+    "claim_type": "answer_strategy",
+    "evidence": [
+      {
+        "id": "job_workflow",
+        "source_type": "job",
+        "text": "岗位要求设计可恢复的 Agent 工作流，并对外部写操作增加人工确认。"
+      },
+      {
+        "id": "tech_langgraph",
+        "source_type": "technical_knowledge",
+        "text": "LangGraph 可通过状态图、interrupt 和持久化 checkpointer 实现人工介入与中断恢复。"
+      }
+    ],
+    "cited_evidence_ids": ["job_workflow", "tech_langgraph"],
+    "expected_supported": true,
+    "expected_claim_type": "answer_strategy"
+  },
+  {
+    "id": "strategy_missing_skill",
+    "category": "strategy_supported",
+    "question": "JD 要求 Kubernetes，但你的简历没有相关经历，面试时怎么回答？",
+    "claim": "我不会把 Kubernetes 说成已掌握；我会先说明当前经验边界，再用容器化部署的相邻经验解释迁移思路，并给出补齐计划。",
+    "claim_type": "answer_strategy",
+    "evidence": [
+      {
+        "id": "resume_docker",
+        "source_type": "resume",
+        "text": "项目使用 Docker Compose 编排 API、Redis 和本地 SMTP 测试服务。"
+      },
+      {
+        "id": "job_k8s",
+        "source_type": "job",
+        "text": "加分项：了解 Kubernetes 与云原生部署。"
+      }
+    ],
+    "cited_evidence_ids": ["resume_docker", "job_k8s"],
+    "expected_supported": true,
+    "expected_claim_type": "answer_strategy"
+  },
+  {
+    "id": "strategy_fastapi_concurrency",
+    "category": "strategy_supported",
+    "question": "如果 Agent API 同时收到很多长任务，你会如何控制并发？",
+    "claim": "我会让 FastAPI 只负责异步接入和状态查询，把长任务交给外部队列，并通过幂等键、心跳和 trace 管理重复执行与故障恢复。",
+    "claim_type": "answer_strategy",
+    "evidence": [
+      {
+        "id": "tech_async",
+        "source_type": "technical_knowledge",
+        "text": "异步 Web 服务适合承接 I/O 请求；耗时任务应交给外部任务队列，并配合幂等、心跳和链路追踪。"
+      },
+      {
+        "id": "job_backend",
+        "source_type": "job",
+        "text": "负责 Agent 服务的并发治理、任务状态管理和可观测性建设。"
+      }
+    ],
+    "cited_evidence_ids": ["tech_async", "job_backend"],
+    "expected_supported": true,
+    "expected_claim_type": "answer_strategy"
+  },
+  {
+    "id": "disguised_built_eval_service",
+    "category": "disguised_experience",
+    "question": "你做过哪些 Agent 评测工程？",
+    "claim": "我已经用 FastAPI、RAG 和 Chroma 搭建过一套线上 Agent 评测服务。",
+    "claim_type": "candidate_experience",
+    "evidence": [
+      {
+        "id": "job_eval_stack",
+        "source_type": "job",
+        "text": "岗位希望候选人熟悉 FastAPI、RAG、Chroma 和 Agent 评测。"
+      },
+      {
+        "id": "tech_eval_stack",
+        "source_type": "technical_knowledge",
+        "text": "FastAPI 可提供评测 API，Chroma 可存储向量，RAG 可提供检索上下文。"
+      }
+    ],
+    "cited_evidence_ids": ["job_eval_stack", "tech_eval_stack"],
+    "expected_supported": false,
+    "expected_claim_type": "candidate_experience"
+  },
+  {
+    "id": "disguised_k8s_production",
+    "category": "disguised_experience",
+    "question": "你是否有 Kubernetes 生产经验？",
+    "claim": "我熟练使用 Kubernetes，并负责过生产集群的部署和故障处理。",
+    "claim_type": "candidate_experience",
+    "evidence": [
+      {
+        "id": "job_k8s_required",
+        "source_type": "job",
+        "text": "任职要求：熟悉 Kubernetes，具备生产集群运维经验。"
+      },
+      {
+        "id": "tech_k8s",
+        "source_type": "technical_knowledge",
+        "text": "Kubernetes 提供 Deployment、Service 和健康探针等生产编排能力。"
+      }
+    ],
+    "cited_evidence_ids": ["job_k8s_required", "tech_k8s"],
+    "expected_supported": false,
+    "expected_claim_type": "candidate_experience"
+  },
+  {
+    "id": "disguised_fabricated_metric",
+    "category": "disguised_experience",
+    "question": "你的优化取得了什么量化结果？",
+    "claim": "我通过二阶段重排让岗位检索准确率提升了 30%。",
+    "claim_type": "candidate_metric",
+    "evidence": [
+      {
+        "id": "resume_rerank",
+        "source_type": "resume",
+        "text": "项目实现 BM25 与向量混合召回，并对 Top20 结果使用 reranker 重排。"
+      },
+      {
+        "id": "tech_rerank",
+        "source_type": "technical_knowledge",
+        "text": "二阶段重排通常可以改善 Top-K 的相关性排序。"
+      }
+    ],
+    "cited_evidence_ids": ["resume_rerank", "tech_rerank"],
+    "expected_supported": false,
+    "expected_claim_type": "candidate_metric"
+  },
+  {
+    "id": "disguised_tencent_employment",
+    "category": "disguised_experience",
+    "question": "你在大厂做 Agent 的经历是什么？",
+    "claim": "我曾在腾讯负责 Agent 可靠性平台的开发。",
+    "claim_type": "candidate_experience",
+    "evidence": [
+      {
+        "id": "job_tencent",
+        "source_type": "job",
+        "text": "腾讯 Agent Evaluation Intern：参与 Agent 可靠性与评测平台建设。"
+      },
+      {
+        "id": "resume_careeragent",
+        "source_type": "resume",
+        "text": "个人项目 CareerAgent：构建求职 Agent 的评测、追踪与审批流程。"
+      }
+    ],
+    "cited_evidence_ids": ["job_tencent", "resume_careeragent"],
+    "expected_supported": false,
+    "expected_claim_type": "candidate_experience"
+  },
+  {
+    "id": "supported_fastapi_project",
+    "category": "supported_fact",
+    "question": "你在项目中如何使用 FastAPI？",
+    "claim": "我在 CareerAgent 中用 FastAPI 实现了异步接口、任务状态查询和健康检查。",
+    "claim_type": "candidate_experience",
+    "evidence": [
+      {
+        "id": "resume_fastapi",
+        "source_type": "resume",
+        "text": "CareerAgent 项目：使用 FastAPI 开发异步 API、任务进度查询接口和 health endpoint。"
+      }
+    ],
+    "cited_evidence_ids": ["resume_fastapi"],
+    "expected_supported": true,
+    "expected_claim_type": "candidate_experience"
+  },
+  {
+    "id": "supported_job_reliability",
+    "category": "supported_fact",
+    "question": "这个岗位的核心职责是什么？",
+    "claim": "该岗位需要参与 Agent 可靠性基础设施和自动化评测体系建设。",
+    "claim_type": "job_responsibility",
+    "evidence": [
+      {
+        "id": "job_reliability",
+        "source_type": "job",
+        "text": "岗位职责：参与 Agent 可靠性基础设施、自动化评测平台和问题定位工具建设。"
+      }
+    ],
+    "cited_evidence_ids": ["job_reliability"],
+    "expected_supported": true,
+    "expected_claim_type": "job_responsibility"
+  },
+  {
+    "id": "unsupported_skill_list_scale",
+    "category": "unsupported_fact",
+    "question": "你的系统处理过多大规模的线上流量？",
+    "claim": "我维护的 FastAPI 服务稳定承载过每秒 3000 个生产请求。",
+    "claim_type": "candidate_metric",
+    "evidence": [
+      {
+        "id": "resume_skill_fastapi",
+        "source_type": "resume",
+        "text": "技能：Python、FastAPI、SQLite、Redis、LangGraph。"
+      }
+    ],
+    "cited_evidence_ids": ["resume_skill_fastapi"],
+    "expected_supported": false,
+    "expected_claim_type": "candidate_metric"
+  },
+  {
+    "id": "unsupported_project_ownership",
+    "category": "unsupported_fact",
+    "question": "你在这个项目里具体负责什么？",
+    "claim": "我独立设计并交付了该公司的多租户 Agent 网关。",
+    "claim_type": "candidate_experience",
+    "evidence": [
+      {
+        "id": "project_gateway",
+        "source_type": "project_document",
+        "text": "系统架构包含多租户 Agent 网关、权限控制、调用审计和限流模块。"
+      }
+    ],
+    "cited_evidence_ids": ["project_gateway"],
+    "expected_supported": false,
+    "expected_claim_type": "candidate_experience"
+  },
+  {
+    "id": "relevance_architecture_offtopic",
+    "category": "answer_relevance_negative",
+    "question": "Agent 在项目架构中的位置是什么，为什么选择它，不用 Agent 时有什么替代方案？",
+    "claim": "项目的中文岗位排序评测覆盖 13 个查询和 130 个候选岗位。",
+    "claim_type": "project_implementation",
+    "evidence": [
+      {
+        "id": "project_ranking_eval",
+        "source_type": "project_document",
+        "text": "中文岗位排序评测使用 13 个查询和 130 个候选岗位，记录 Recall、MRR 和 NDCG。"
+      }
+    ],
+    "cited_evidence_ids": ["project_ranking_eval"],
+    "expected_supported": true,
+    "expected_claim_type": "project_implementation",
+    "expected_answered": false
+  },
+  {
+    "id": "relevance_concurrency_offtopic",
+    "category": "answer_relevance_negative",
+    "question": "FastAPI 接口并发升高时，你会如何记录 trace 并避免阻塞？",
+    "claim": "我的技能列表包含 FastAPI。",
+    "claim_type": "candidate_skill",
+    "evidence": [
+      {
+        "id": "resume_fastapi_skill",
+        "source_type": "resume",
+        "text": "技能：Python、FastAPI、SQLite、Redis。"
+      }
+    ],
+    "cited_evidence_ids": ["resume_fastapi_skill"],
+    "expected_supported": true,
+    "expected_claim_type": "candidate_skill",
+    "expected_answered": false
+  }
+]

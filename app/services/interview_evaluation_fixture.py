@@ -48,7 +48,16 @@ class DeterministicInterviewEvaluationLLM:
                             "reason": "离线评测 fixture 的 claim 与引用证据按构造契约一致。",
                         }
                         for item in claims
-                    ]
+                    ],
+                    "answer_checks": [
+                        {
+                            "question_id": item["question_id"],
+                            "answered": True,
+                            "missing_points": [],
+                            "reason": "",
+                        }
+                        for item in payload["items"]
+                    ],
                 },
                 ensure_ascii=False,
             )

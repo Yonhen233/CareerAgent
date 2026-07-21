@@ -70,7 +70,7 @@ flowchart LR
     D --> E["Top20 CrossEncoder Reranker"]
     E --> F["每题 Top5 Evidence"]
     F --> G["LLM 两批生成 Claims"]
-    G --> H["LLM 两批验证全部 Claims"]
+    G --> H["LLM 三批验证 Claims 与答题相关性"]
     H --> I["本地 Source Policy Gate"]
     I --> J["本地 Verified Claim Composer"]
     J -->|"通过"| K["Quality/Coverage Release Gate"]
@@ -80,13 +80,18 @@ flowchart LR
 
 - 来源包括 `resume/job/interview_experience/project_document/technical_knowledge`，各来源只能支持白名单中的 claim type。
 - JD 不能证明候选人做过，面经不能证明公司固定题库，技术知识不能证明候选人经历，项目文档不能单独证明候选人所有权。
-- 默认只生成 10 题，正常路径固定为 5 次 LLM 调用：题目生成 1 次、Claims 生成 2 批、Claims 验证 2 批；不再为每题单独规划或验证。
-- verifier 按 5 题一批组织 Prompt，每题 Top5 evidence 只出现一次，不再为每个 claim 重复整段证据；保留完整 Top5 以支持 citation rebinding。
-- Top20 第一阶段与最终 Top5 都按 `source_perspective` 执行来源配额。项目题优先简历与项目文档，基础/JD 题优先 JD、简历和技术知识，避免平均分配造成证据稀释。
-- LLM 生成自然、按回答顺序排列的 claims；服务端只用已验证 claims 组合正文，因此无需 renderer 和 coverage judge 再次调用模型。
-- 工作流硬限制为 7 次 HTTP 调用尝试、60,000 Prompt 字符和 18,000 最大输出 token 预留；网络重试也单独计费，达到任一上限会在下一次请求前报错。
+- 默认只生成 10 题，正常路径固定为 6 次 LLM 调用：题目生成 1 次、Claims 生成 2 批、Claims 验证 3 批；不再为每题单独规划或验证。
+- verifier 按最多 4 题一批组织 Prompt，每题 Top5 evidence 只出现一次，同时校验 claim 支持性和整题回答相关性；保留完整 Top5 以支持 citation rebinding。真实 DeepSeek 测试证明 5 题一批加入 answer check 后会撞到 1,800 completion 上限，因此不能继续沿用旧批次。
+- Top20 第一阶段与最终 Top5 都按 `source_perspective` 执行来源配额，并保留各来源 Exact、BM25、Vector 通道的头部候选。项目题同时检索简历、项目事实、JD 和技术知识；面经题同时保留面经、简历、JD、项目与技术证据，避免只有问题线索而没有可回答原理。
+- 默认 `ms-marco` cross-encoder 只处理英文 query；中文 query 使用双/三字 n-gram lexical reranker。真实 bad case 证明英文模型会把“Agent”词频高的评测文档排到中文架构证据前，按语言能力路由比继续使用不匹配模型更可靠，也显著降低本地 CPU 延迟。
+- 生成与 verifier 使用每条最多 360 字的完整短语义段。`docs/interview/CAREER_AGENT_PROJECT_EVIDENCE.md` 保存经过代码与架构文档核对的 Agent 位置、数据流、选型和 Trace 事实；它只能证明仓库实现，候选人归属仍需同时引用简历。
+- LLM 生成自然、按回答顺序排列的 claims；服务端只用已验证 claims 组合正文，因此无需 renderer 和 coverage judge 再次调用模型。repair 保留上一轮已验证 claims，只补缺口；单条 unsupported claim 会被剪除并记录 warning，整题是否通过继续由相关性、最短正文和引用门禁决定。
+- 工作流硬限制为 9 次 HTTP 调用尝试、85,000 Prompt 字符和 22,000 最大输出 token 预留；正常路径使用 6 次。若 verifier 完整 JSON 漏掉某题，只针对漏项题执行一次 `missing_retry`，不会重跑已完成批次；余下 2 次用于一批失败题 repair 与复核。repair 后的 verifier 批次串行执行，避免一批预算失败时另一批仍在付费。网络重试也单独计费，达到任一上限会在下一次请求前报错。
+- 生产链路默认不做 JSON 语法修复。真实 bad case 表明 completion 截断不是语法修补可以恢复的错误，自动修补只会重复消耗输出 token；当前策略是保留 trace 后直接失败，由更小批次从根因上避免截断。
 - `llm_call_logs` 保存供应商返回的 `prompt_tokens/completion_tokens/total_tokens`；旧日志没有 usage 时保持 0，不做虚构估算。
 - repair 最多 1 轮，只处理失败题并严格串行执行；第一批失败或预算不足时不再启动后续请求。旧 v1/v2 面试包不会读取时静默升级，必须重新生成 v3。
+- 10 题预算先保留同岗面经、项目和行为问题的最低多样性，再优先覆盖至少 80% 的 JD 必备技能，最后补充更多面经或基础题。发布门禁不再用固定三段、固定句号数或强制第一人称判断可用性，而是检查已验证 claims、正文长度、引用、来源权限和 verifier 的问题相关性。
+- 真实 DeepSeek 面试包 `#47` 使用 8 次调用、30,478 tokens、83.07 秒完成；质量分 1.0，JD 必备技能覆盖 85.71%，一次定向 repair 后发布。
 
 ### 岗位发现
 

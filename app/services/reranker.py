@@ -1,4 +1,5 @@
 import os
+import re
 from dataclasses import replace
 from typing import Any
 
@@ -8,6 +9,7 @@ from app.services.embedding_service import expand_query_text, tokenize
 
 _RERANKER_MODEL_CACHE: dict[str, Any] = {}
 _RERANKER_FAILURES: dict[str, str] = {}
+CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 
 
 class RerankerService:
@@ -61,6 +63,8 @@ class RerankerService:
                 candidate.metadata = metadata
                 reranked.append(candidate)
 
+        if info.get("language_route") == "cjk_lexical":
+            return sorted(reranked, key=self._score, reverse=True)[:top_k]
         return self._anchored_sort(reranked)[:top_k]
 
     def rerank_dicts(self, query: str, candidates: list[dict[str, Any]], *, top_k: int) -> list[dict[str, Any]]:
@@ -83,6 +87,11 @@ class RerankerService:
             return [candidates[:top_k] for _, candidates, top_k in groups]
 
         if self.provider in {"cross_encoder", "cross-encoder", "sentence_transformers"}:
+            if any(self._requires_cjk_heuristic(query) for query, _, _ in groups):
+                return [
+                    self.rerank_dicts(query, candidates, top_k=top_k)
+                    for query, candidates, top_k in groups
+                ]
             try:
                 model = self._load_cross_encoder()
                 pairs = [
@@ -168,6 +177,8 @@ class RerankerService:
             item["metadata"] = metadata
             reranked.append(item)
 
+        if info.get("language_route") == "cjk_lexical":
+            return sorted(reranked, key=self._score, reverse=True)[:top_k]
         return self._anchored_sort(reranked)[:top_k]
 
     def _score_pairs(
@@ -177,6 +188,17 @@ class RerankerService:
         chunk_types: list[str],
     ) -> tuple[list[float], dict[str, Any]]:
         if self.provider in {"cross_encoder", "cross-encoder", "sentence_transformers"}:
+            if self._requires_cjk_heuristic(query):
+                scores, info = self._heuristic_scores(
+                    query,
+                    texts,
+                    chunk_types,
+                    fallback_reason=(
+                        f"{self.model_name} is English-only; used CJK lexical reranking for this query."
+                    ),
+                )
+                info["language_route"] = "cjk_lexical"
+                return scores, info
             try:
                 model = self._load_cross_encoder()
                 scores = model.predict(
@@ -227,6 +249,9 @@ class RerankerService:
         except Exception as exc:  # noqa: BLE001
             _RERANKER_FAILURES[cache_key] = str(exc)
             raise
+
+    def _requires_cjk_heuristic(self, query: str) -> bool:
+        return bool(CJK_RE.search(query)) and "ms-marco" in self.model_name.lower()
 
     def _ensure_local_model_cache_env(self) -> None:
         self.settings.embedding_cache_path.mkdir(parents=True, exist_ok=True)

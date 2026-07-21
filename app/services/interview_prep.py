@@ -471,12 +471,36 @@ class InterviewPrepService:
                         selected_count += 1
                         return
 
-        take("source_backed_interview_experience", 3)
+        required_norm = {
+            normalize_skill(skill)
+            for skill in self._unique(required_skills or [])
+            if normalize_skill(skill)
+        }
+        required_target = min(
+            len(required_norm),
+            (len(required_norm) * 8 + 9) // 10,
+        )
+
+        def selected_required_count() -> int:
+            covered = {
+                normalize_skill(item)
+                for group in groups
+                for question_index, question in enumerate(group["questions"])
+                if question_index in group["selected_indexes"]
+                for item in question.get("skills") or []
+                if normalize_skill(item)
+            }
+            return len(required_norm & covered)
+
+        take("source_backed_interview_experience", 1)
         take("llm_project_implementation", 1)
         take("resume_project_stack", 1)
         take("general_interview", 1)
         for skill in self._unique(required_skills or []):
+            if selected_required_count() >= required_target:
+                break
             take_required_skill(skill)
+        take("source_backed_interview_experience", 2)
         take("llm_foundation_drill", 1)
         take("jd_technical_depth", 1)
         take("jd_gap_drill", 1)
@@ -1290,7 +1314,7 @@ class InterviewPrepService:
             evidence_traceability = (not evidence_required) or bool(question.get("evidence_refs"))
             framework = question.get("answer_framework") or []
             actionability = (
-                len(framework) >= 3
+                bool(framework)
                 and all(
                     isinstance(item, dict)
                     and str(item.get("section") or "").strip()
@@ -1301,9 +1325,8 @@ class InterviewPrepService:
             )
             reference_answer = str(question.get("reference_answer") or "").strip()
             reference_answer_usability = (
-                len(reference_answer) >= 120
-                and reference_answer.count("。") >= 2
-                and "我" in reference_answer
+                len(reference_answer) >= self.settings.interview_rag_min_answer_chars
+                and bool(question.get("claims"))
                 and not any(marker in reference_answer for marker in ("先标注来源", "请自行补充", "TODO"))
             )
             retrieval_plan = question.get("retrieval_plan") or {}

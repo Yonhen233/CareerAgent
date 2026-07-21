@@ -1,6 +1,6 @@
 import os
 
-from app.services.embedding_service import EmbeddingService
+from app.services.embedding_service import EmbeddingService, tokenize
 from app.services.reranker import RerankerService
 
 
@@ -45,6 +45,104 @@ def test_reranker_promotes_more_relevant_candidate():
 
     assert reranked[0]["uid"] == "agent"
     assert reranked[0]["metadata"]["rerank"]["reranker_provider"] == "heuristic"
+
+
+def test_chinese_tokenizer_exposes_terms_inside_long_sentences():
+    tokens = tokenize("请说明项目架构中的Agent编排位置和替代方案")
+
+    assert {"架构", "编排", "替代", "方案"} <= set(tokens)
+    assert "请说明项目架构中的" not in tokens
+
+
+def test_chinese_heuristic_reranker_prefers_architecture_evidence():
+    candidates = [
+        {
+            "uid": "evaluation",
+            "text": "Agent 岗位排序评测包含九个案例和离线指标。",
+            "chunk_type": "document_section",
+            "score": 0.5,
+        },
+        {
+            "uid": "architecture",
+            "text": "项目架构中 Agent 负责工作流编排、工具路由和状态管理，不使用时可改为固定流程。",
+            "chunk_type": "document_section",
+            "score": 0.5,
+        },
+    ]
+
+    reranked = RerankerService(enabled=True, provider="heuristic", anchor_top_n=0).rerank_dicts(
+        "说明 Agent 在项目架构中的位置、选型理由和替代方案",
+        candidates,
+        top_k=2,
+    )
+
+    assert reranked[0]["uid"] == "architecture"
+
+
+def test_english_cross_encoder_is_not_used_for_chinese_query(monkeypatch):
+    service = RerankerService(
+        enabled=True,
+        provider="cross_encoder",
+        model_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
+        anchor_top_n=0,
+    )
+    monkeypatch.setattr(
+        service,
+        "_load_cross_encoder",
+        lambda: (_ for _ in ()).throw(AssertionError("English reranker must not score Chinese queries")),
+    )
+
+    reranked = service.rerank_dicts(
+        "说明 Agent 在项目架构中的位置和替代方案",
+        [
+            {"uid": "eval", "text": "Agent 评测包含九个样例。", "chunk_type": "document_section", "score": 0.5},
+            {
+                "uid": "architecture",
+                "text": "项目架构由 Agent 编排工具、状态和审批，替代方案是固定工作流。",
+                "chunk_type": "document_section",
+                "score": 0.5,
+            },
+        ],
+        top_k=2,
+    )
+
+    assert reranked[0]["uid"] == "architecture"
+    assert reranked[0]["metadata"]["rerank"]["reranker_provider"] == "heuristic"
+    assert "English-only" in reranked[0]["metadata"]["rerank"]["fallback_reason"]
+
+
+def test_chinese_language_route_can_promote_beyond_cross_encoder_anchor():
+    service = RerankerService(
+        enabled=True,
+        provider="cross_encoder",
+        model_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
+        anchor_top_n=5,
+    )
+    candidates = [
+        {
+            "uid": f"noise-{index}",
+            "text": "Agent 评测与通用输出治理。",
+            "chunk_type": "document_section",
+            "score": 0.9 - index * 0.01,
+        }
+        for index in range(5)
+    ] + [
+        {
+            "uid": "fastapi",
+            "text": "FastAPI 并发请求使用异步 I/O，trace 写入应避免阻塞并交给队列。",
+            "chunk_type": "document_section",
+            "score": 0.82,
+        }
+    ]
+
+    reranked = service.rerank_dicts(
+        "FastAPI 接口并发变高时 trace 怎么记录？",
+        candidates,
+        top_k=6,
+    )
+
+    assert reranked[0]["uid"] == "fastapi"
+    assert reranked[0]["metadata"]["rerank"]["language_route"] == "cjk_lexical"
 
 
 def test_cross_encoder_reranks_multiple_query_groups_in_one_predict_call(monkeypatch):

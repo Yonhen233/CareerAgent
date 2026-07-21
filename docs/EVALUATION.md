@@ -5,7 +5,7 @@
 面试评测不再只检查题目数量和回答长度，还检查完整链路契约：
 
 - 默认问题数是否等于 10；
-- 正常路径调用数是否等于 5，含修复路径是否不超过 7；
+- 正常路径调用数是否等于 6，含一次漏项重试和一轮业务修复时是否不超过 9；
 - 累计 Prompt 字符和最大输出 token 预留是否低于工作流硬预算；
 - 本地 multi-query plan、source inventory 与按题目视角设置的来源配额是否兼容；
 - citation integrity 与局部证据别名合法率；
@@ -15,9 +15,11 @@
 - repair error count 与 dirty question count 是否逐轮收敛；
 - release gate 失败时 InterviewPrep 是否保持不落库。
 
-真实 DeepSeek 旧包 `#44` 使用 59 次调用、1,490,670 Prompt 字符和 237,622 Response 字符，其中 verifier 占 37 次调用和 1,080,855 Prompt 字符。当前 v3 契约为 10 题、正常 5 次调用、最多 7 次尝试；2026-07-21 的同一真实 case 在正常 5 次路径使用 23,286 tokens，但因方案型 claim 被 verifier 误判而进入 repair，整轮实际使用 26,206 tokens 后失败。历史日志没有供应商 usage 字段，不能把字符数伪装成真实 token；v3 起保存 API 返回的 token usage，并把每次 HTTP 重试单独计入硬预算。
+真实 DeepSeek 旧包 `#44` 使用 59 次调用、1,490,670 Prompt 字符和 237,622 Response 字符，其中 verifier 占 37 次调用和 1,080,855 Prompt 字符。当前 v3 契约为 10 题、正常 6 次调用、最多 9 次尝试；verifier 采用最多 4 题一批，避免 claim verdict 加 answer check 后撞到 completion 上限。完整 JSON 若漏题，只重试漏项题；历史日志没有供应商 usage 字段，不能把字符数伪装成真实 token。
 
-最新 `answer_strategy` verifier 契约已经通过离线回归，但尚未再次使用真实 Key 验证，因此当前不能宣称真实面试生成链路已经通过。后续在线验证必须使用固定 case、独立 `workflow_run_id` 和调用预算门禁，不允许连续盲跑。
+独立 `interview_claim_verifier` 数据集包含 14 个 case，覆盖 4 个可支持方案、4 个伪装成方案的既有经历、2 个支持事实、2 个不支持事实和 2 个“事实正确但答非所问”样本。真实 run `#50` 分两批各 7 case：support accuracy、strategy recall、question-answering accuracy 均为 1.0，false positive rate、disguised-experience false positive rate 和 nonresponsive false accept rate 均为 0。真实在线评测必须先通过该低成本闸门，完整面试链路才允许继续运行。
+
+最终真实 DeepSeek 面试包 `#47` 使用简历 `#159` 与岗位 `#218`：10 题、8 次调用、83.07 秒，实际输入 23,028、输出 7,450、总计 30,478 tokens；一次定向 repair 后发布。question quality 为 1.0，必备技能覆盖 `6/7=0.8571`，引用完整性、来源权限和参考答案可用性均为 1.0。该数字是单次成功工作流成本，不代表开发期总试错成本；`llm_call_logs #1153-#1253` 合计 397,770 tokens。
 
 离线评测中的 `DeterministicInterviewEvaluationLLM` 只在显式 `LLM_FALLBACK_ENABLED=true` 的评测 harness 使用，不进入产品路径；产品未配置 LLM 或 release gate 失败时直接报错。
 
@@ -495,7 +497,7 @@ POST /evaluations/interview-prep
 - 检查缺口技能是否进入 `gap_drills_json`，避免把 `没有 MLflow`、`没有 Kubernetes 集群维护经验` 这类缺口披露误写成已掌握。
 - 检查每道题是否有唯一 `question_id`，并且 `source_perspective` 覆盖同岗位面经/面经调研、简历项目技术栈和其他可能面试问题。
 - 检查每道题是否带有 `preparation_angle`，且 `summary_json.preparation_angles` 和 `coverage_json.preparation_angle_counts` 显式覆盖网上同岗位面经、简历项目技术栈、其他可能面试问题三类准备角度。
-- 检查 `summary_json.question_quality`：本地可解释 judge 会衡量 JD 贴合、连续追问深度、缺口诚实边界、项目绑定、证据可追溯、回答框架行动性、参考答案可用性和重复率。`heuristic_v3_reference_answer` 要求每题至少有 4 个结构化思路步骤，并同时覆盖项目证据、评测/验证和失败或事实边界；`reference_answer` 还必须达到 120 字、包含至少两句完整陈述、使用第一人称且不能含开发占位语。release 阈值要求 `actionability >= 0.9` 且 `reference_answer_usability >= 0.9`。
+- 检查 `summary_json.question_quality`：本地可解释 judge 会衡量 JD 贴合、连续追问深度、缺口诚实边界、项目绑定、证据可追溯、回答框架行动性、参考答案可用性和重复率。当前门禁要求存在非空的已验证回答框架与 claims、`reference_answer` 达到 `INTERVIEW_RAG_MIN_ANSWER_CHARS`，且不含 TODO 或“请自行补充”等占位语；不再用固定段数、句号数或强制第一人称误杀技术说明。release 阈值仍要求 `actionability >= 0.9` 且 `reference_answer_usability >= 0.9`。
 - 检查 `summary_json.interview_reference_links` 和 Markdown 是否包含面经参考标题/链接或搜索入口；外部平台正文难以获取时，不把抓正文作为核心通过条件。
 - 检查 Markdown 交付包是否可渲染，且包含问题来源分布、准备角度、面经参考链接、连续追问、外部调研清单和证据边界。
 
