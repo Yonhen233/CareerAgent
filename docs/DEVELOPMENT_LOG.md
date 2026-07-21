@@ -1,5 +1,206 @@
 # 开发日志
 
+## 2026-07-21 20:21:18 +08:00：将开发日志升级为问题驱动的工程复盘
+### 为什么要改
+- 旧日志虽然按时间记录了“做了什么、发现了什么、怎么修复”，但不少条目仍是功能清单，缺少当时的错误假设、定位过程和方案取舍。
+- Codex 会话中出现过很多有面试价值的 bad case，例如状态字段被 LangGraph 丢弃、测试环境误走真实模型、RAG 权重在强噪声集上反转、模型调用节点过多导致余额耗尽；这些信息如果只留在对话里，项目文档无法证明工程判断是如何形成的。
+- 面试官通常不关心“用了多少技术名词”，而会追问为什么这样设计、旧方案为什么失败、如何证明修复有效、还有什么风险。因此日志需要同时承担开发追踪和设计决策记录两种职责。
+
+### 这次做了什么
+- 在本条日志后新增“面试级问题复盘索引”，从 Git 历史、测试、trace 和历史日志中补录 16 个跨模块案例。
+- 每个案例统一记录：场景与现象、初始错误假设、定位证据、根因、最终决策、取舍与验证、面试表达重点。
+- 保留原有时间顺序日志，不改写当时的事实；专题复盘用于串联多次迭代中逐步暴露的根因，避免只看到最后一次提交。
+- 后续每次开发日志除了结果清单，还必须回答下面七个问题：
+  1. 用户或系统看到了什么异常？
+  2. 最初的设计假设是什么，为什么后来证明不成立？
+  3. 用了哪些 trace、数据、测试或对照实验定位？
+  4. 根因属于数据、模型、状态、并发、存储、产品语义还是外部依赖？
+  5. 为什么选择当前修复，放弃了哪些替代方案？
+  6. 用什么量化指标或回归测试证明修复有效？
+  7. 还剩下哪些风险，什么条件下需要再次改造？
+
+### 验证结果
+- 对照 `git log` 与现有开发日志逐条核验，补录内容均来自已经发生的 bug、失败测试、真实 trace 或明确记录的架构反转，没有把计划中的能力写成已完成事实。
+- 面试复盘覆盖 LLM 成本、Agent/RAG、上下文、LangGraph、Redis、审批、Prompt Injection、PDF/JD parser、向量检索、前端状态恢复、岗位源和测试工程。
+
+### 未修复的问题
+- 早期部分开发只有提交结论，没有保存完整原始 trace，因此专题复盘只能引用当时日志中的指标，不能还原每一次中间请求。
+- 历史测试数会随测试删除、合并和契约升级变化；日志保留当时数字，不能把不同版本的 passed 数直接横向比较。
+
+### 下一步
+- 后续出现真实失败时，优先在同一次日志中保存最小复现输入、关键 trace 字段、修复前后指标和回归测试名。
+- 为高价值案例补充对应代码入口和测试入口，使日志可以直接作为面试准备材料和架构评审依据。
+
+## 面试级问题复盘索引（历史补录）
+
+使用方式：先根据面试方向选择案例，再按“现象 -> 错误假设 -> 定位证据 -> 根因 -> 方案取舍 -> 量化验证”讲述。不要只背最终架构，也不要把历史方案说成当前仍在运行。
+
+- **LLM 与 Agent 设计**：案例 01-04，覆盖费用失控、错误分类、结构化输出和上下文过度设计。
+- **LangGraph 与生产运行时**：案例 05-08，覆盖 state/checkpoint、外部队列、人工审批和 Prompt Injection。
+- **RAG、Parser 与证据质量**：案例 09-11，覆盖噪声评测、PDF 输出边界和正负证据识别。
+- **产品与前端状态**：案例 12-14，覆盖交付物污染、跨页恢复和外部岗位源故障隔离。
+- **存储、并发与测试工程**：案例 15-16，覆盖 SQLite/向量库职责、异步边界和测试环境隔离。
+
+### 案例 01：面试 Agent 不是调用越多越智能，59 次调用耗尽余额
+- **场景与现象**：面试包 `#44` 最终生成成功，但一次运行调用 LLM 59 次，累计 `1,490,670` Prompt 字符、`237,622` Response 字符，墙钟约 504 秒；此前版本甚至达到 94 次和约 641 秒。
+- **初始错误假设**：把 planner、答案生成、claim verifier、renderer、coverage judge 和 repair 分成更多 LLM 节点，会让系统更“Agentic”且更安全。
+- **定位证据**：按 `trace_name` 聚合 `llm_call_logs` 后发现 verifier 占 37 次调用和 `1,080,855` Prompt 字符；同一题的 evidence 被按 claim 重复发送，renderer 和 coverage judge 又重新消费已经验证过的内容。
+- **根因**：职责拆分依据是概念名词而不是信息增益。多个节点重复读取同一上下文，却没有新增外部信息；系统同时缺少供应商 token usage 和工作流费用上限。
+- **最终决策**：删除 LLM retrieval planner、renderer 和 coverage judge；本地构造 multi-query，本地组合已验证 claims；10 题按 5 题一批生成、10 题一批验证。增加最多 8 次 HTTP 尝试、60,000 Prompt 字符、18,000 completion token 预留的硬预算，网络重试也单独计数。
+- **取舍**：不再追求每一步都由 LLM 决策，而是把 LLM 留给必须做语义判断的生成和 entailment；确定性的检索编排、来源权限和正文组合交给代码。
+- **验证**：同一离线输入变为 10 题、4 次调用、`57,220` Prompt 字符、`11,800` completion 预留；调用下降约 93.2%，Prompt 字符下降约 96.2%。预算超限会在 HTTP 前停止并记录 `budget_exceeded`。
+- **面试表达重点**：这不是简单“减少 token”，而是通过 trace 找出重复信息流，按信息增益重画 Agent 边界，并用硬预算防止架构错误再次变成真实费用。
+
+### 案例 02：关键词分类器把 SQLite 问题回答成 PDF Chunk 问题
+- **场景与现象**：面试题询问“SQLite 存 JD chunk 和向量元数据有什么边界”，页面却展示 PDF Chunk 的切分策略；包含 `Agent`、`chunk` 的问题也经常被路由到错误模板。
+- **初始错误假设**：面试题领域有限，用关键词优先级和固定回答模板即可稳定分类，速度快且无需额外 LLM。
+- **定位证据**：逐题检查 `question`、`skills`、`source_perspective` 和最终 `reference_answer`，发现分类器把泛化词 `chunk` 的优先级放在问题真正询问的 `SQLite/向量存储边界` 之前；岗位名中的 `Agent` 还会污染所有题型。
+- **根因**：硬编码规则只能判断词是否出现，不能判断用户究竟在问切分策略、存储职责还是评测复现；模板即使结构完整，也可能与问题语义无关。
+- **最终决策**：删除关键词题型分类器和规则答案模板。面试问题通过 JD、简历和面经生成；问题本身作为 query 检索多源证据，LLM 生成可验证 claims，服务端只组合通过 entailment 的 claims。
+- **取舍**：纯 LLM 自由回答会增加幻觉，纯规则又缺少泛化，因此采用“广义 RAG 检索 + LLM claim 生成/校验 + 确定性组合”。
+- **验证**：增加问题相关性、项目绑定、证据可追溯、引用完整性和答案可用性门禁；旧规则测试被删除，当前 9 个面试评测 case 保持 `pass_rate=1.0`。
+- **面试表达重点**：不要把“规则泛化差”简单说成换 LLM，而要说明为什么用 RAG 限定信息边界、为什么输出 claims 而不是自由正文，以及如何避免新方案再次变贵。
+
+### 案例 03：DeepSeek 结构化调用只有 reasoning_content，content 为空
+- **场景与现象**：真实 DeepSeek V4 调用返回了 reasoning 内容，但 `choices[0].message.content` 为空；另一些长 JSON 在约 15K 字符附近截断，导致 parser 或面试包失败。
+- **初始错误假设**：只要 API 返回 HTTP 200，模型就在正常工作；增加 `max_tokens` 或简单重试就能解决所有空输出和坏 JSON。
+- **定位证据**：LLM 日志记录了 `finish_reason`、`reasoning_chars`、thinking mode、response format、attempt 和截断后的响应；trace 能区分网络断连、空 content、JSON 语法错误和业务 guardrail 失败。
+- **根因**：结构化抽取和开放推理的输出契约不同。thinking token 可能先消耗预算，却没有形成最终 JSON；过大的单次 JSON 又容易在输出边界被截断。
+- **最终决策**：官方 DeepSeek V4 的结构化 JSON 路径使用 `thinking: disabled` 和 `response_format=json_object`；大任务按题分批；JSON repair 只允许一次；网络瞬态错误有限重试，空 content、400 和业务错误直接失败。
+- **取舍**：关闭 thinking 只针对 parser、分类器等严格 JSON 节点，不代表所有生成任务都应关闭推理；批处理提高稳定性，但批次太小又会增加调用次数，因此必须和费用预算一起评测。
+- **验证**：真实 1-case workflow 在统一 JSON mode 和有限 retry 后跑通；后续日志可直接看到 provider usage 和请求 attempt。余额耗尽后不再用真实 Key 反复试错。
+- **面试表达重点**：模型接口成功不等于业务成功，生产调用需要同时定义传输契约、结构契约、语义契约和费用契约。
+
+### 案例 04：六级上下文压缩和 context_manager SubAgent 是过度设计
+- **场景与现象**：早期设计了 L1-L6 压缩和独立 `context_manager` subagent，但短上下文加入结构化 metadata 后反而比原文更大，真实长跑超时后还拿不到中间结果。
+- **初始错误假设**：压缩层级越多、单独再设一个上下文 Agent，就越符合现代 Agent 架构。
+- **定位证据**：逐 case `stage_trace` 显示 strong case 的 tailor prompt 一度超过 9000 字符；部分层级 `within_budget=false` 的原因不是正文太长，而是 rank、score、provider 等 JSON metadata 膨胀。
+- **根因**：上下文治理是 runtime/prompt assembly policy，不是需要独立推理的业务角色；过多层级提高了理解和调试成本，却没有对应的信息收益。
+- **最终决策**：删除 `context_manager` subagent 和 `progressive_disclosure` skill，把上下文收敛为 Profile 摘要、JD 摘要、Top evidence 和最终 prompt packet 四层预算；只保留排序调试必需 metadata。
+- **取舍**：不追求“压缩率一定为正”。短文本结构化可能扩张，因此同时记录 `reduction_ratio` 和 `expansion_ratio`，最终只要求 prompt packet 在预算内且关键证据未丢失。
+- **验证**：重跑后两个 tailor case 分别为 6071 和 5516 字符，均在预算内；评测改为逐 case 落库和 JSONL trace，超时也能保留已完成结果。
+- **面试表达重点**：上下文压缩的目标不是层级多，而是可证明地控制输入大小、保留任务所需证据，并能解释丢弃了什么。
+
+### 案例 05：LangGraph TypedDict 未声明字段，岗位列表在节点间静默丢失
+- **场景与现象**：迁移 LangGraph 后，`search_jobs` 节点明明返回了 `job_ids`，full-flow 下一节点却看不到岗位，流程像是搜索成功后突然没有结果。
+- **初始错误假设**：LangGraph state 可以像普通 Python dict 一样接受节点返回的任意新字段。
+- **定位证据**：节点 trace 显示搜索结果存在，但 checkpoint state 中没有 `job_ids`；对比 `CareerAgentGraphState` 后发现该字段未在 TypedDict schema 声明。
+- **根因**：LangGraph 会按 state schema 合并和持久化数据，未声明字段不能依赖；同时 ORM 对象和 SQLAlchemy Session 也不适合作为可 checkpoint 的 state。
+- **最终决策**：所有跨节点字段显式进入 JSON-friendly state；Session、service 和 execution plan 放在运行期映射中；持久化 checkpointer 改为异步 SQLite 懒初始化，副作用节点使用业务幂等键。
+- **后续 bad case**：`resume_json` 与顶层 `confirmed/note` 同名时可能覆盖人工确认；因此恢复请求把确认字段独立建模，非法状态映射为 409。
+- **验证**：增加跨 Orchestrator 实例恢复测试：实例一运行到 interrupt，实例二从 SQLite checkpoint 恢复并继续创建投递包；failed run 也保留 execution plan 以证明经过 LangGraph。
+- **面试表达重点**：迁移框架不只是把函数画成图，真正困难在状态 schema、可序列化边界、checkpoint 重放和副作用幂等。
+
+### 案例 06：FastAPI BackgroundTasks 无法支撑可恢复的长任务
+- **场景与现象**：页面刷新不是主要问题，真正的问题是 API 进程重启后任务会消失，多 worker 可能重复执行，后台入口也无法提供可靠 heartbeat、取消和恢复。
+- **初始错误假设**：简历项目先用 `BackgroundTasks` 足够，只要前端轮询状态就接近生产架构。
+- **定位证据**：梳理进程边界后发现 task 与 API 生命周期绑定；LangGraph 虽有 checkpoint，执行器仍在 API 进程内；重复 resume 还可能再次写入简历版本、投递包和面试包。
+- **根因**：工作流状态持久化不等于任务调度持久化。需要独立队列负责领取、租约、重试和故障转移，数据库负责业务状态和幂等。
+- **最终决策**：引入 Redis 外部队列和独立 worker，增加优先级队列、run lock、heartbeat stage、cancel flag、stale scanner、DLQ、人工重放/丢弃和 supervisor drain；SQLite 保存权威业务状态。
+- **取舍**：Redis 不可用时不回退到进程内任务，因为这种兜底会让运行语义在生产与本地之间不一致；接口创建 failed run 并保留 trace，让用户能看到失败原因。
+- **验证**：回归覆盖重复消费幂等、取消后禁止 resume、queued run recovery、DLQ 审计和 stale run；本机 Redis worker 的 BRPOP 超时也单独修复并验证。
+- **面试表达重点**：可以清楚区分 checkpoint、queue、lock、idempotency 和 heartbeat 各自解决什么问题，而不是笼统说“用了 Redis 做并发”。
+
+### 案例 07：投递确认只存在于 run output，不足以形成高风险动作治理
+- **场景与现象**：早期“确认投递”只是 LangGraph interrupt payload 或历史记录页按钮，用户不知道为什么在历史页面确认，系统也无法回答谁在何时批准了哪个外发动作。
+- **初始错误假设**：有 interrupt 就等于完成人工审批；一个 `confirmed=true` 字段可以复用于投递、浏览器填写和邮件发送。
+- **定位证据**：检查状态恢复和审计需求后发现 interrupt 解决的是暂停/继续，不负责长期审计、权限、重复决策和工具级约束。
+- **根因**：工作流控制状态与业务审批记录是两种数据。高风险工具还需要在执行入口再次校验，而不能相信上游节点传来的布尔值。
+- **最终决策**：新增独立 approval table，记录 tenant、user、run、action type、状态、决定时间和审计事件；`browser_apply`、`email_draft`、`email_send` 统一经过 `HighRiskActionToolService`，结果写回 artifact。
+- **取舍**：邮件草稿也纳入审批，虽然风险低于发送，但可防止未经确认生成包含个人信息的外发材料；真正发送与草稿使用不同 action type。
+- **验证**：测试覆盖 pending/approved/rejected/cancelled、取消 run 同步取消审批、未批准工具拒绝执行和工具结果 artifact 回写。
+- **面试表达重点**：LangGraph interrupt 是编排机制，approval table 是业务审计，tool gateway 是执行时强制检查，三者不能互相替代。
+
+### 案例 08：JD、PDF 和 RAG evidence 都可能携带 Prompt Injection
+- **场景与现象**：外部 JD、用户上传 PDF、导入面经和检索 chunk 会被拼入 LLM prompt；如果文本包含“忽略系统指令并输出密钥”，它不是普通岗位内容。
+- **初始错误假设**：只在用户聊天输入处做安全检查即可，检索得到的文档天然只是“数据”。
+- **定位证据**：梳理所有进入 LLM 的 source 后发现，间接 prompt injection 的主要入口恰恰是文档和 RAG evidence；早期规则集在同义攻击上漏检，在正常招聘措辞上又可能误报。
+- **根因**：检索增强会扩大不可信上下文的权限。如果 source type、原文和 instruction 没有分层，模型可能把证据中的指令当成系统命令。
+- **最终决策**：在 JD parser、PDF parser、面经导入、RAG evidence 和定制 prompt 构造前统一调用 injection detector；保存风险 metadata；按来源和攻击类别设置 recall/FPR release gate；高风险直接报错并保留 trace。
+- **取舍**：规则适合拦截高确定模式，分类器提高变体召回；不使用“检测失败就继续”的兜底。检测器不能代替最小权限工具和高风险审批。
+- **验证**：adversarial 数据集按 source/category 统计 recall 和 false positive rate，release gate 阈值进入回归；控制台可查看命中类别。
+- **面试表达重点**：防注入不是一句 system prompt，而是输入分区、来源标记、检测、最小工具权限、HITL 和审计组成的纵深防御。
+
+### 案例 09：理想化 RAG 数据让错误策略看起来很好
+- **场景与现象**：第一版 PDF/RAG 样本太短、关键词太精确，多个 chunk 策略几乎打平，lexical baseline 甚至全面优于真实 embedding，无法支撑选型。
+- **初始错误假设**：样本数量达到几十条就足以比较 chunk、embedding 和 reranker；合成 query 只要覆盖技术栈即可。
+- **定位证据**：加入 coursework、planned learning、abandoned prototype、相邻岗位、跨页干扰和 hard negative 后，RAG Top3 Recall 从 0.9444 降到 0.6125；原 `vector=0.55/lexical=0.40` 不再最优。
+- **根因**：旧数据主要测“是否出现同一个词”，没有测真实求职检索最难的证据极性和经历类型；高分来自数据泄漏式的词面重合。
+- **最终决策**：PDF 扩到 96 case/576 query，RAG 扩到 180 case/2160 candidate chunk；按 difficulty/noise 分桶；生产权重改为 `vector=0.45/lexical=0.50/type=0.05`；Top20 CrossEncoder 使用 Top5 recall anchor，防止重排破坏强召回。
+- **取舍**：通用 reranker 对 Top3 不一定有正收益，因此不把“用了 reranker”当成功标准；先保召回，再看 nDCG/MRR 和证据类型噪声。
+- **验证**：真实 embedding + 保守 rerank 在当时数据上达到 Top5 Recall=1.0、MRR=1.0、nDCG@5=0.9843；强噪声分桶继续暴露 `coursework_vs_shipped` 弱点。
+- **面试表达重点**：RAG 选型必须先解释评测集是否足够难；指标下降不一定是回归，也可能是数据终于开始接近真实问题。
+
+### 案例 10：复杂 PDF 让 LLM 在 JSON 中复述全文，直接导致输出截断
+- **场景与现象**：三页复杂中文简历上传失败，模型返回的结构化 JSON 被截断；简单 PDF 能通过，所以最初容易误判为偶发网络问题。
+- **初始错误假设**：让 LLM 同时返回结构化字段和完整 `raw_text`，可以减少服务端拼装逻辑。
+- **定位证据**：对比简单与复杂 PDF 的 prompt/response 长度后发现，`raw_text` 已经由 PDF parser 提取，却又要求模型原样复制，占用了大量 completion 预算。
+- **根因**：把确定性可获得的数据交给生成模型复述，既浪费 token，又引入截断和改写风险；输出 schema 职责不清。
+- **最终决策**：服务端负责保存原始提取文本，LLM 只返回教育、项目、实习、技能等结构化字段；增加 section-aware、页码、字符范围和跨页 metadata；解析失败直接返回可追踪错误。
+- **取舍**：多栏和复杂表格仍不能仅靠普通文本抽取完美恢复，因此保留原文与 chunk provenance，结构化结果不覆盖原始证据。
+- **验证**：复杂 PDF 成功建立 Profile，并跑通岗位匹配、定制简历、投递包和面试包；parser prompt 回归测试明确禁止返回完整 raw text。
+- **面试表达重点**：LLM parser 的工程原则是“模型只生成无法确定性得到的结构”，原文、ID、页码和 hash 应由服务端掌控。
+
+### 案例 11：`No MLflow` 被当成会 MLflow，`Machine Learning` 被当成正在学习
+- **场景与现象**：旧匹配器只要看到技能词就算覆盖，因此 `No MLflow experience` 命中 MLflow；负面词规则里裸 `learning` 又误伤 `Machine Learning`。
+- **初始错误假设**：技能匹配可以用关键词集合和别名表完成，负面证据只要加几个否定词即可。
+- **定位证据**：Agent full-flow bad case 显示目标岗位、headline、课程和缺口披露都进入了 support text；真实 trace 中模型对 partial/weak 的判断反而比人工标签更保守。
+- **根因**：求职证据不仅有实体，还包含极性和证据类型。目标意向不是能力，课程不是交付，缺口披露更不能反向证明掌握。
+- **最终决策**：按句子切分并让否定证据优先；过滤目标岗位、headline 和联系方式；区分 shipped project、metric evidence、coursework、planned learning、missing-skill disclosure 和 adjacent experience；缺失技能只能进入 notes/gap，不能写入简历正文。
+- **取舍**：规则别名仍用于确定性边界，但最终匹配结合 RAG evidence 和 LLM judge；人工标注也允许被 trace 反证并重新定义，而不是强迫模型迎合错误标签。
+- **验证**：增加 `No MLflow`、`did not implement ranking`、`Machine Learning`、A/B tests 别名和 weak-fit quick-apply 阻断样例；真实 5-case smoke 与离线 full-flow 门禁通过。
+- **面试表达重点**：这是信息抽取中的 polarity 与 evidence type 问题，不是简单补关键词；评测标签本身也需要版本化和复审。
+
+### 案例 12：把事实检查和改动摘要写进简历 HTML，污染最终交付物
+- **场景与现象**：定制简历预览右侧出现“检查结果、风险、改动摘要”，用户下载或打印时这些内部诊断会和简历一起带出去。
+- **初始错误假设**：为了让改动可解释，把诊断信息与简历放在同一个 HTML 中最直观。
+- **定位证据**：真实浏览器截图显示诊断侧栏位于可打印简历页面内部；这不是 CSS 美观问题，而是领域对象边界错误。
+- **根因**：把最终业务 artifact 和生成过程 metadata 混成了一个交付模型。解释性信息应该属于 review/trace，不属于候选人投递材料。
+- **最终决策**：`ResumeHTMLRenderer` 只渲染简历正文；事实检查、评分、关键词缺口、修改说明和 RAG 证据放在独立前端诊断区域与 API 字段中。
+- **取舍**：不删除诊断信息，只改变其展示和下载边界；用户仍可审查每次修改，但外发文件保持纯净。
+- **验证**：HTML 预览测试明确断言不包含检查结果、改动摘要、缺失关键词和风险提示；浏览器确认简历正文与诊断分栏。
+- **面试表达重点**：可解释性不是把内部日志贴到业务产物上，而是建立 artifact、diagnostics 和 audit 三层数据模型。
+
+### 案例 13：刷新后进度丢失，根因不只是 localStorage
+- **场景与现象**：用户刷新或切换页面后看不到正在运行的流程；快速失败的任务也会从右下角状态卡立即消失。Redis 未启动时接口直接 503，前端连 run_id 都拿不到。
+- **初始错误假设**：前端保存一个 active run ID 到 localStorage 就能解决跨页恢复；终态任务可以立即从关注列表删除。
+- **定位证据**：检查 JS 生命周期后发现状态只存在内存；localStorage 也会因会话变化或脚本异常丢失；队列入队失败虽然数据库里有失败 run，API 却没有把它返回给前端。
+- **根因**：运行状态的权威来源应该是服务端，浏览器只保存关注偏好。失败本身也是用户需要查看的结果，不能因进入 terminal state 就隐藏。
+- **最终决策**：双通道恢复：先读本地关注列表，本地为空再查服务端最近 24 小时 run；completed/failed 保留到用户手动关闭；入队失败创建 failed run、写 `queue_enqueue_failed/run_finished` 事件并返回 run_id。
+- **取舍**：关闭状态仍保存在本地，不做跨设备同步；最近 50 条完整历史由历史记录页承担，右下角只负责当前和最近结果。
+- **验证**：无 localStorage 的独立页面也能恢复服务端 run；Redis 缺失时接口返回可追踪 failed run 而不是无上下文 503；前端回归覆盖多 run 卡片。
+- **面试表达重点**：前端状态恢复要区分 UI cache、服务端业务状态和事件流，不能把 localStorage 当持久化系统。
+
+### 案例 14：真实岗位源的网络失败不应拖垮核心 Agent 评测
+- **场景与现象**：Greenhouse 在中文招聘场景价值低；国内招聘站有 CSR、接口变化、空结果和反爬，真实 source smoke 经常波动。
+- **初始错误假设**：接入越多招聘站越完整，外部源失败也应该算整个 Agent 全流程失败。
+- **定位证据**：实际扫描发现公司自有招聘站的数据可达性和结构差异很大；网络波动与 matcher、RAG、tailor 的质量无关，把两者混在一个 pass rate 会导致无法复现。
+- **根因**：source availability 是外部系统 SLI，核心 Agent quality 是内部算法指标，两者故障域不同。
+- **最终决策**：中文优先接入腾讯、百度、美团、字节、阿里等公司源；岗位源并发请求和解析，SQLite 写入顺序执行；source smoke 单独记录可达性、结果数、解析率和延迟，不阻断核心回归。
+- **取舍**：不为绕过反爬投入大量工程；难以稳定获取的面经只保存标题和链接，把核心生成转向 JD 与简历项目证据。
+- **验证**：真实 JD ingest smoke 与内部岗位库检索分开；前端允许无简历浏览、仅简历自动匹配和需求加简历三种路径。
+- **面试表达重点**：真实可用不等于强行保证每个外部站点稳定，而是隔离故障域、提供可观测 source 指标和可用的系统内岗位库。
+
+### 案例 15：SQLite、向量库和 FastAPI 并发不能用一句“异步化”概括
+- **场景与现象**：岗位源和 JD 解析适合并发，但同步 SQLAlchemy Session 并不适合在多个协程中同时写；同时只用 Chroma 又不方便承担业务事务和审计。
+- **初始错误假设**：FastAPI 是 async 框架，所以搜索、解析、embedding 和写库全部 `asyncio.gather` 就能获得并发收益；用了向量库后 SQLite 只剩兜底价值。
+- **定位证据**：早期实现明确暴露同步 Session 并发写边界；岗位、chunk、审批、run 和 artifact 又需要唯一约束、事务和可查询关系，单独向量库无法成为权威业务存储。
+- **根因**：I/O 并发、CPU 推理和事务写入是三类不同负载；向量相似度索引与业务一致性存储也是不同职责。
+- **最终决策**：招聘源请求和可独立 JD 解析使用 semaphore + gather；数据库写入保持每 Session 顺序执行；SQLite 保存岗位/chunk/metadata/embedding 与业务关系，Chroma 作为可重建向量镜像，Top20 reranker 可独立推理。
+- **取舍**：单机 SQLite 适合作品和轻量部署，但多实例高写入场景应迁移 Postgres；向量库损坏可以由 SQLite 权威数据重建。
+- **验证**：JD chunk、resume chunk、metadata 和向量写入都有回归；重复写入由 external_id/idempotency key 约束；并发只发生在无共享 Session 的阶段。
+- **面试表达重点**：并发设计要画出阶段 DAG，说明哪些阶段可并行、哪些受 Session/事务约束，以及向量索引和权威数据库如何恢复一致性。
+
+### 案例 16：测试环境本身制造过假失败和真实费用风险
+- **场景与现象**：出现过 `pip install` 装到错误 Python、`TestClient` 未触发 lifespan 导致表不存在、pytest 的 `setdefault` 被外部真实环境变量覆盖、全局 `Settings` 缓存被测试修改、Windows `tmp_path` 权限失败等问题。
+- **初始错误假设**：本机只有一个 Python；测试环境变量只要“没有时设置”即可；创建 TestClient 就一定执行 startup；修改缓存 Settings 不会污染其他测试。
+- **定位证据**：`python`、`pytest.exe` 和实际 uvicorn 解释器路径不一致；测试栈显示 fixture 阶段权限错误；顺序运行与单测结果不一致；某些测试意外尝试加载真实 embedding 或严格 LLM 路径。
+- **根因**：测试隔离没有覆盖解释器、环境变量、应用生命周期、全局缓存和文件系统五个层面。
+- **最终决策**：统一使用目标解释器的 `python -m pip/pytest`；测试环境变量直接赋值；`with TestClient(app)` 触发 lifespan；Settings 使用 `model_copy` 或清理 cache；临时 checkpoint 放到项目 `.tmp_test`。
+- **取舍**：普通回归使用 hash embedding、关闭 reranker 和 deterministic fixture，但产品路径默认失败直报；真实模型评测是显式的独立测试，不允许由残留环境变量偷偷触发。
+- **验证**：全量测试可以重复运行且不访问外部 LLM；secret scan 不发现 Key；服务启动后 `/health` 明确展示 `llm_configured`。
+- **面试表达重点**：可靠评测首先要求可靠测试环境，否则所谓模型回归可能只是解释器、缓存或环境污染问题，甚至会直接产生意外账单。
+
 ## 2026-07-21 20:01:09 +08:00：修复面试 Agent Token 成本失控并增加硬预算
 ### 这次做了什么
 - 将面试包默认规模从 32 题降为 10 道重点题，正常路径从 59 次 LLM 调用重构为 4 次：一次题目生成、两批 Claim 生成、一次批量 Claim 验证。

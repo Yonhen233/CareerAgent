@@ -174,7 +174,7 @@ CareerAgent/
 │   ├── AGENT_DESIGN.md                       # Agent/Skill/Tool/Context/Guardrail
 │   ├── API.md                                # HTTP 接口
 │   ├── DEVELOPMENT.md                        # 本地开发与运行
-│   ├── DEVELOPMENT_LOG.md                    # 倒序带时间开发日志
+│   ├── DEVELOPMENT_LOG.md                    # 倒序时间日志 + 面试级 bad case/设计取舍复盘
 │   ├── EVALUATION.md                         # 数据集、指标和真实结果
 │   ├── PDF_CHUNKING.md                       # PDF Chunk 策略
 │   ├── GOLDEN_DEMOS.md                       # 三条黄金演示
