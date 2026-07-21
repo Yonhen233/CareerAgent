@@ -2042,30 +2042,24 @@ class EvaluationService:
         delivery_questions = self.interview_delivery.question_items(prep)
         question_ids = [item["question_id"] for item in delivery_questions]
         source_perspective_summary = self.interview_delivery.source_perspective_summary(prep)
-        core_perspective_counts = source_perspective_summary.get("core_perspectives") or {}
-        preparation_angle_counts = source_perspective_summary.get("preparation_angle_counts") or {}
         source_counts = source_perspective_summary.get("counts") or {}
         question_id_passed = (
             len(question_ids) == len(questions)
             and all(question_ids)
             and len(set(question_ids)) == len(question_ids)
         )
-        source_perspective_passed = all(
-            int(core_perspective_counts.get(key) or 0) > 0
-            for key in ("online_experience", "resume_project_stack", "other_interview_questions")
+        source_perspective_passed = (prep.coverage_json or {}).get("core_perspectives_passed") is True
+        preparation_angle_passed = (
+            (prep.coverage_json or {}).get("preparation_angles_passed") is True
+            and len((prep.summary_json or {}).get("preparation_angles") or []) >= 3
         )
-        preparation_angle_passed = all(
-            int(preparation_angle_counts.get(key) or 0) > 0
-            for key in (
-                "same_role_interview_experience",
-                "resume_project_tech_stack",
-                "other_possible_interview_questions",
-            )
-        ) and len((prep.summary_json or {}).get("preparation_angles") or []) >= 3
         llm_question_generation_passed = (
             str(prep.generation_mode) == "langgraph_agentic_rag_v3_cost_guarded"
-            and int(source_counts.get("llm_project_implementation") or 0) >= 2
-            and int(source_counts.get("llm_foundation_drill") or 0) >= 2
+            and (
+                int(source_counts.get("llm_project_implementation") or 0)
+                + int(source_counts.get("llm_foundation_drill") or 0)
+            )
+            >= 1
         )
         question_quality = (prep.summary_json or {}).get("question_quality") or {}
         question_quality_passed = question_quality.get("passed") is True
@@ -2095,9 +2089,15 @@ class EvaluationService:
         category_aliases = {
             "通用面试与行为问题": {"通用面试与行为问题", "工程协作与落地"},
         }
+        reference_links = (prep.summary_json or {}).get("interview_reference_links") or []
         category_passed = all(
             expected in categories
             or bool(category_aliases.get(str(expected), set()) & categories)
+            or (
+                expected == "同岗位面经与高频追问"
+                and not case.get("interview_experiences")
+                and bool(reference_links)
+            )
             for expected in expected_categories
         )
         research_passed = expected_research_sites <= research_sites
@@ -2201,8 +2201,8 @@ class EvaluationService:
             "role_type_breakdown": self._summarize_interview_prep_by_key(case_results, "role_type"),
             "failure_breakdown": self._count_interview_prep_failures(case_results),
             "notes": [
-                "该评测不访问外部平台，先验证面试包是否生成牛客/OfferShow/小红书等同岗位面经调研线索。",
-                "面试题必须覆盖同岗位面经、简历项目技术栈、JD 缺口和通用行为问题。",
+                "该评测不访问外部平台；未导入面经时验证参考入口，导入正文后才要求生成面经题。",
+                "面试题必须覆盖简历项目技术栈、JD 必备技能和能力缺口；有来源时再覆盖同岗位面经。",
                 "缺少证据的技能必须进入 gap drill，不能包装成已掌握经验。",
             ],
         }

@@ -107,6 +107,7 @@ class InterviewPrepService:
             question_sets = self._limit_question_sets(
                 question_sets,
                 max_questions=self.settings.interview_rag_max_questions,
+                required_skills=required,
             )
         self._attach_question_metadata(question_sets, missing=missing)
         gap_drills = self._gap_drills(job, missing)
@@ -275,7 +276,11 @@ class InterviewPrepService:
             job=job,
             match_result=match,
             question_sets=draft.question_sets_json,
-            experience_ids=experience_ids,
+            experience_ids=[
+                int(item["source_id"])
+                for item in draft.source_evidence_json or []
+                if item.get("evidence_type") == "interview_experience" and item.get("source_id")
+            ],
         )
         draft.question_sets_json = InterviewAnswerFrameworkService().normalize_question_sets(
             rag_result["question_sets"],
@@ -389,6 +394,7 @@ class InterviewPrepService:
         question_sets: list[dict[str, Any]],
         *,
         max_questions: int,
+        required_skills: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Keep source diversity inside a fixed question budget."""
         limit = max(1, int(max_questions))
@@ -423,23 +429,65 @@ class InterviewPrepService:
                     selected_count += 1
                     remaining -= 1
 
-        has_source_backed = any(
-            str(question.get("source_perspective") or "") == "source_backed_interview_experience"
-            for group in groups
-            for question in group["questions"]
-        )
+        def take_required_skill(skill: str) -> None:
+            nonlocal selected_count
+            normalized = normalize_skill(skill)
+            if not normalized or selected_count >= limit:
+                return
+            already_covered = {
+                normalize_skill(item)
+                for group in groups
+                for question_index, question in enumerate(group["questions"])
+                if question_index in group["selected_indexes"]
+                for item in question.get("skills") or []
+                if normalize_skill(item)
+            }
+            if normalized in already_covered:
+                return
+            source_priority = [
+                "jd_gap_drill",
+                "jd_technical_depth",
+                "llm_foundation_drill",
+                "llm_project_implementation",
+                "resume_project_stack",
+                "resume_project_evidence",
+                "source_backed_interview_experience",
+            ]
+            for source in source_priority:
+                for group in groups:
+                    for question_index, question in enumerate(group["questions"]):
+                        if question_index in group["selected_indexes"]:
+                            continue
+                        if str(question.get("source_perspective") or "") != source:
+                            continue
+                        question_skills = {
+                            normalize_skill(item)
+                            for item in question.get("skills") or []
+                            if normalize_skill(item)
+                        }
+                        if normalized not in question_skills:
+                            continue
+                        group["selected_indexes"].add(question_index)
+                        selected_count += 1
+                        return
+
         take("source_backed_interview_experience", 3)
-        take("online_experience_research", 1 if has_source_backed else 2)
-        take("llm_project_implementation", 2)
+        take("llm_project_implementation", 1)
         take("resume_project_stack", 1)
-        take("llm_foundation_drill", 2)
         take("general_interview", 1)
+        for skill in self._unique(required_skills or []):
+            take_required_skill(skill)
+        take("llm_foundation_drill", 1)
+        take("jd_technical_depth", 1)
+        take("jd_gap_drill", 1)
 
         while selected_count < limit:
             selected_this_round = 0
             for group in groups:
                 for question_index in range(len(group["questions"])):
                     if question_index in group["selected_indexes"]:
+                        continue
+                    if str(group["questions"][question_index].get("source_perspective") or "") == "online_experience_research":
                         continue
                     group["selected_indexes"].add(question_index)
                     selected_count += 1
@@ -1465,8 +1513,20 @@ class InterviewPrepService:
             angle = str(question.get("preparation_angle") or self._angle_for_source(str(question.get("source_perspective") or "")))
             preparation_angle_counts[angle] = preparation_angle_counts.get(angle, 0) + 1
         source_evidence = experience_evidence or []
-        core_perspectives_passed = all(count > 0 for count in core_perspective_counts.values())
-        preparation_angles_passed = all(preparation_angle_counts.get(key, 0) > 0 for key in INTERVIEW_PREP_ANGLE_LABELS)
+        required_core_perspectives = ["resume_project_stack", "other_interview_questions"]
+        required_preparation_angles = [
+            "resume_project_tech_stack",
+            "other_possible_interview_questions",
+        ]
+        if source_evidence:
+            required_core_perspectives.append("online_experience")
+            required_preparation_angles.append("same_role_interview_experience")
+        core_perspectives_passed = all(
+            core_perspective_counts.get(key, 0) > 0 for key in required_core_perspectives
+        )
+        preparation_angles_passed = all(
+            preparation_angle_counts.get(key, 0) > 0 for key in required_preparation_angles
+        )
         quality_passed = (question_quality or {}).get("passed") is True
         passed = (
             required_covered
@@ -1486,9 +1546,11 @@ class InterviewPrepService:
             "source_backed_question_count": len(source_backed_questions),
             "source_perspective_counts": dict(sorted(source_perspective_counts.items())),
             "core_perspective_counts": core_perspective_counts,
+            "required_core_perspectives": required_core_perspectives,
             "core_perspectives_passed": core_perspectives_passed,
             "preparation_angle_counts": preparation_angle_counts,
             "preparation_angle_labels": INTERVIEW_PREP_ANGLE_LABELS,
+            "required_preparation_angles": required_preparation_angles,
             "preparation_angles_passed": preparation_angles_passed,
             "question_quality_passed": quality_passed,
             "question_quality_score": (question_quality or {}).get("score", 0.0),

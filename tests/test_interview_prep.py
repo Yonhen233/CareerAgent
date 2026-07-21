@@ -1,5 +1,6 @@
 import asyncio
 import json
+from collections import Counter
 
 import pytest
 
@@ -307,6 +308,20 @@ class MalformedThenRepairedJSONLLM:
         return '{"items":[{"id":"q1" "value":"保留原业务值"}]}'
 
 
+class StopOnFirstRepairLLM:
+    def __init__(self):
+        self.calls = []
+
+    @property
+    def available(self):
+        return True
+
+    async def generate_text(self, *, trace_name, **kwargs):
+        del kwargs
+        self.calls.append(trace_name)
+        raise RuntimeError("first repair batch stopped")
+
+
 class OnePrunableClaimLLM(FakeAgenticInterviewLLM):
     def _answer_payload(self, items):
         payload = json.loads(super()._answer_payload(items))
@@ -356,7 +371,7 @@ def _create_grounded_prep(db_session, *, profile, job, experience_ids=None):
     )
 
 
-def test_interview_default_flow_stays_within_four_llm_calls_and_context_budget(db_session):
+def test_interview_default_flow_uses_batched_verifier_within_context_budget(db_session):
     profile, job = _seed_profile_job(db_session)
     llm = FakeAgenticInterviewLLM()
 
@@ -374,17 +389,77 @@ def test_interview_default_flow_stays_within_four_llm_calls_and_context_budget(d
         for question in group.get("questions", [])
     ]
     assert len(questions) == 10
-    assert len(llm.calls) == 4
+    assert len(llm.calls) == 5
     assert [item["trace_name"] for item in llm.calls] == [
         "interview_prep.generate_interviewer_questions",
         "interview_agentic_rag.generate.1",
         "interview_agentic_rag.generate.2",
         "interview_agentic_rag.verify.1",
+        "interview_agentic_rag.verify.2",
     ]
     assert sum(item["prompt_chars"] for item in llm.calls) <= 60000
     assert sum(item["max_tokens"] for item in llm.calls) <= 18000
-    verify_call = next(item for item in llm.calls if item["trace_name"] == "interview_agentic_rag.verify.1")
-    assert verify_call["prompt_chars"] < 18000
+    verify_calls = [item for item in llm.calls if item["trace_name"].startswith("interview_agentic_rag.verify.")]
+    assert len(verify_calls) == 2
+    assert all(item["prompt_chars"] < 10000 for item in verify_calls)
+    assert all(item["max_tokens"] == 1800 for item in verify_calls)
+
+
+def test_interview_repair_batches_stop_sequentially_after_first_failure(db_session):
+    profile, job = _seed_profile_job(db_session)
+    llm = StopOnFirstRepairLLM()
+    service = InterviewAgenticRAGService(llm=llm)
+    questions = [
+        {
+            "question_id": f"q{index}",
+            "question": f"问题 {index}",
+            "intent": "修复不受支持的 claim",
+            "skills": ["RAG"],
+        }
+        for index in range(1, 7)
+    ]
+    plans = {
+        item["question_id"]: {"intent": item["intent"]}
+        for item in questions
+    }
+    evidence = {
+        item["question_id"]: [
+            {
+                "evidence_id": f"resume:{item['question_id']}",
+                "source_type": "resume",
+                "text": "候选人简历中的项目证据。",
+            }
+        ]
+        for item in questions
+    }
+    answers = {
+        item["question_id"]: {
+            "question_id": item["question_id"],
+            "claims": [],
+        }
+        for item in questions
+    }
+    errors = [
+        {"question_id": item["question_id"], "code": "claim_not_supported", "message": "测试"}
+        for item in questions
+    ]
+
+    with pytest.raises(RuntimeError, match="first repair batch stopped"):
+        asyncio.run(
+            service._repair_answers(
+                db_session,
+                profile=profile,
+                job=job,
+                questions=questions,
+                plans=plans,
+                evidence=evidence,
+                answers=answers,
+                errors=errors,
+                repair_round=1,
+            )
+        )
+
+    assert llm.calls == ["interview_agentic_rag.repair.round1.1"]
 
 
 def test_interview_prunes_one_bad_claim_without_rewriting_complete_answers(db_session):
@@ -404,7 +479,7 @@ def test_interview_prunes_one_bad_claim_without_rewriting_complete_answers(db_se
         for group in prep.question_sets_json
         for question in group.get("questions", [])
     ]
-    assert len(llm.calls) == 4
+    assert len(llm.calls) == 5
     assert not any("repair" in item["trace_name"] for item in llm.calls)
     assert prep.summary_json["agentic_rag"]["repair_attempts"] == 0
     assert prep.summary_json["agentic_rag"]["verification_warning_count"] == len(questions)
@@ -649,9 +724,7 @@ def test_claim_verifier_only_sends_cited_and_rebinding_evidence():
         ],
     )
 
-    assert selected == {"job:1", "resume:1", "project:1"}
-    assert "knowledge:1" not in selected
-    assert "interview:1" not in selected
+    assert selected == {"job:1", "resume:1", "project:1", "knowledge:1", "interview:1"}
 
 
 def _seed_profile_job(db_session):
@@ -715,7 +788,7 @@ def _seed_profile_job(db_session):
     return profile, job
 
 
-def test_interview_prep_covers_online_project_and_general_perspectives(db_session):
+def test_interview_prep_without_imported_experience_focuses_on_project_and_jd(db_session):
     profile, job = _seed_profile_job(db_session)
 
     prep = _create_grounded_prep(db_session, profile=profile, job=job)
@@ -723,7 +796,7 @@ def test_interview_prep_covers_online_project_and_general_perspectives(db_sessio
     categories = {group["category"] for group in prep.question_sets_json}
     questions = [question for group in prep.question_sets_json for question in group.get("questions", [])]
     preparation_angles = {item["angle"]: item for item in prep.summary_json["preparation_angles"]}
-    assert "同岗位面经与高频追问" in categories
+    assert "同岗位面经与高频追问" not in categories
     assert "LLM 项目实现追问" in categories
     assert "LLM 八股与基础追问" in categories
     assert len(questions) == 10
@@ -732,8 +805,13 @@ def test_interview_prep_covers_online_project_and_general_perspectives(db_sessio
         "resume_project_tech_stack",
         "other_possible_interview_questions",
     }
-    assert all(item["question_count"] > 0 for item in preparation_angles.values())
-    assert {question["preparation_angle"] for question in questions} >= set(preparation_angles)
+    assert preparation_angles["same_role_interview_experience"]["question_count"] == 0
+    assert preparation_angles["resume_project_tech_stack"]["question_count"] > 0
+    assert preparation_angles["other_possible_interview_questions"]["question_count"] > 0
+    assert {question["preparation_angle"] for question in questions} >= {
+        "resume_project_tech_stack",
+        "other_possible_interview_questions",
+    }
     assert prep.coverage_json["passed"] is True
     assert prep.coverage_json["preparation_angles_passed"] is True
     assert prep.coverage_json["question_quality_passed"] is True
@@ -862,7 +940,7 @@ def test_interview_prep_with_llm_generates_project_and_foundation_followups(db_s
     assert prep.summary_json["llm_question_generation"]["enabled"] is True
     assert {"llm_project_implementation", "llm_foundation_drill"} <= sources
     assert any(question.get("follow_ups") for question in questions)
-    assert prep.coverage_json["preparation_angle_counts"]["resume_project_tech_stack"] >= 3
+    assert prep.coverage_json["preparation_angle_counts"]["resume_project_tech_stack"] >= 2
     assert prep.coverage_json["preparation_angle_counts"]["other_possible_interview_questions"] >= 3
     assert "连续追问" in markdown
     assert "面经参考链接" in markdown
@@ -1017,6 +1095,45 @@ def test_interview_prep_uses_imported_source_backed_experience_questions(db_sess
     assert storage_question["claims"]
 
 
+def test_interview_prep_passes_auto_selected_experience_ids_into_rag(db_session):
+    profile, job = _seed_profile_job(db_session)
+    sibling_job = Job(
+        source="manual",
+        external_id="sibling-agent-interview-source",
+        title=job.title,
+        company=job.company,
+        location=job.location,
+        job_type="实习",
+        raw_jd_text=job.raw_jd_text,
+        structured_jd_json=job.structured_jd_json,
+    )
+    db_session.add(sibling_job)
+    db_session.commit()
+    db_session.refresh(sibling_job)
+    InterviewExperienceService().create_experience(
+        db_session,
+        job=sibling_job,
+        source_site="牛客网",
+        source_url="https://www.nowcoder.com/discuss/scoped-agent-interview",
+        title="腾讯 Agent 开发实习同岗面经",
+        raw_text="一面追问 RAG chunk 策略，二面追问 FastAPI 并发与 trace。",
+    )
+
+    prep = _create_grounded_prep(db_session, profile=profile, job=job)
+    source_questions = [
+        question
+        for group in prep.question_sets_json
+        for question in group.get("questions", [])
+        if question.get("source_perspective") == "source_backed_interview_experience"
+    ]
+
+    assert source_questions
+    assert all(
+        any(ref.get("source_type") == "interview_experience" for ref in question["evidence_refs"])
+        for question in source_questions
+    )
+
+
 def test_interview_answers_use_llm_plan_and_hybrid_retrieval_instead_of_keyword_router(db_session):
     service = InterviewAnswerFrameworkService()
     assert not hasattr(service, "_question_kind")
@@ -1079,12 +1196,14 @@ def test_interview_prep_delivery_exports_markdown_and_tracks_practice(db_session
     )
     assert all(len(item["reference_answer_basis"]) == 20 for item in questions)
     source_summary = delivery.source_perspective_summary(prep)
-    assert source_summary["core_perspectives"]["online_experience"] > 0
+    assert source_summary["core_perspectives"]["online_experience"] == 0
     assert source_summary["core_perspectives"]["resume_project_stack"] > 0
     assert source_summary["core_perspectives"]["other_interview_questions"] > 0
-    assert source_summary["preparation_angle_counts"]["same_role_interview_experience"] > 0
+    assert source_summary["preparation_angle_counts"].get("same_role_interview_experience", 0) == 0
     assert source_summary["preparation_angle_counts"]["resume_project_tech_stack"] > 0
     assert source_summary["preparation_angle_counts"]["other_possible_interview_questions"] > 0
+    assert prep.summary_json["interview_reference_links"]
+    assert all(item.get("url") for item in prep.summary_json["interview_reference_links"])
 
     first_question_id = questions[0]["question_id"]
     row = delivery.upsert_practice_item(
@@ -1108,7 +1227,7 @@ def test_interview_prep_delivery_exports_markdown_and_tracks_practice(db_session
     assert "面经参考链接" in markdown
     assert "准备角度" in markdown
     assert "网上同岗位面经" in markdown
-    assert "牛客/OfferShow/小红书调研" in markdown
+    assert "牛客网" in markdown
     assert "简历项目技术栈" in markdown
     assert "其他可能面试问题" in markdown
     assert "**参考回答**" in markdown
@@ -1242,6 +1361,96 @@ def test_interview_first_stage_preserves_planned_sources_before_top20():
 
     assert len(candidates) == 20
     assert {item["source_type"] for item in candidates} >= {"resume", "job", "project_document"}
+
+
+def test_interview_project_plan_reserves_multiple_project_evidence_slots(db_session):
+    service = InterviewAgenticRAGService(llm=FakeAgenticInterviewLLM())
+    profile, job = _seed_profile_job(db_session)
+    plans = service._build_retrieval_plans(
+        profile=profile,
+        job=job,
+        questions=[
+            {
+                "question_id": "q-project",
+                "question": "CareerAgent 的 RAG 链路如何实现？",
+                "intent": "验证项目实现细节",
+                "skills": ["RAG"],
+                "source_perspective": "llm_project_implementation",
+            }
+        ],
+        source_inventory={
+            "resume": 4,
+            "job": 3,
+            "interview_experience": 2,
+            "project_document": 4,
+            "technical_knowledge": 4,
+        },
+    )
+    plan = plans["q-project"]
+    assert plan["target_sources"] == ["resume", "project_document", "job"]
+    assert plan["source_quotas"] == {"resume": 2, "project_document": 2, "job": 1}
+
+    ranked = [
+        {
+            "evidence_id": f"{source}:{index}",
+            "source_type": source,
+            "retrieval_rank": rank,
+        }
+        for rank, (source, index) in enumerate(
+            [
+                ("interview_experience", 1),
+                ("technical_knowledge", 1),
+                ("resume", 1),
+                ("project_document", 1),
+                ("job", 1),
+                ("resume", 2),
+                ("project_document", 2),
+            ],
+            start=1,
+        )
+    ]
+    selected = service._source_diverse_top_k(
+        ranked,
+        target_sources=plan["target_sources"],
+        source_quotas=plan["source_quotas"],
+        top_k=5,
+    )
+    assert Counter(item["source_type"] for item in selected) == {
+        "resume": 2,
+        "project_document": 2,
+        "job": 1,
+    }
+
+
+def test_interview_foundation_plan_prefers_two_resume_evidence_slots(db_session):
+    service = InterviewAgenticRAGService(llm=FakeAgenticInterviewLLM())
+    profile, job = _seed_profile_job(db_session)
+    plans = service._build_retrieval_plans(
+        profile=profile,
+        job=job,
+        questions=[
+            {
+                "question_id": "q-foundation",
+                "question": "如何用 Python 构建 Agent 评测流程？",
+                "intent": "结合 JD 和项目解释 Python 工程能力",
+                "skills": ["Python", "Evaluation"],
+                "source_perspective": "llm_foundation_drill",
+            }
+        ],
+        source_inventory={
+            "resume": 4,
+            "job": 3,
+            "project_document": 4,
+            "technical_knowledge": 4,
+        },
+    )
+
+    assert plans["q-foundation"]["target_sources"] == ["technical_knowledge", "job", "resume"]
+    assert plans["q-foundation"]["source_quotas"] == {
+        "technical_knowledge": 2,
+        "job": 1,
+        "resume": 2,
+    }
 
 
 def test_interview_agentic_rag_does_not_silently_fallback_without_llm(db_session):

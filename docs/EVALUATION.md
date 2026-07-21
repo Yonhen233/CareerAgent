@@ -5,9 +5,9 @@
 面试评测不再只检查题目数量和回答长度，还检查完整链路契约：
 
 - 默认问题数是否等于 10；
-- 正常路径调用数是否不超过 4，含修复路径是否不超过 8；
+- 正常路径调用数是否等于 5，含修复路径是否不超过 7；
 - 累计 Prompt 字符和最大输出 token 预留是否低于工作流硬预算；
-- 本地 multi-query plan 与 source inventory 是否兼容；
+- 本地 multi-query plan、source inventory 与按题目视角设置的来源配额是否兼容；
 - citation integrity 与局部证据别名合法率；
 - claim type/source policy 覆盖率；
 - LLM entailment judge 对引用证据的支持判断；
@@ -15,9 +15,9 @@
 - repair error count 与 dirty question count 是否逐轮收敛；
 - release gate 失败时 InterviewPrep 是否保持不落库。
 
-真实 DeepSeek 旧包 `#44` 使用 59 次调用、1,490,670 Prompt 字符和 237,622 Response 字符，其中 verifier 占 37 次调用和 1,080,855 Prompt 字符。v3 对同一测试输入的离线调用契约为 10 题、4 次调用、57,220 Prompt 字符和 11,800 最大输出 token 预留：调用数下降约 93.2%，Prompt 字符下降约 96.2%。历史日志没有供应商 usage 字段，不能把字符数伪装成真实 token；v3 起保存 API 返回的 token usage，并把每次 HTTP 重试单独计入硬预算。
+真实 DeepSeek 旧包 `#44` 使用 59 次调用、1,490,670 Prompt 字符和 237,622 Response 字符，其中 verifier 占 37 次调用和 1,080,855 Prompt 字符。当前 v3 契约为 10 题、正常 5 次调用、最多 7 次尝试；2026-07-21 的同一真实 case 在正常 5 次路径使用 23,286 tokens，但因方案型 claim 被 verifier 误判而进入 repair，整轮实际使用 26,206 tokens 后失败。历史日志没有供应商 usage 字段，不能把字符数伪装成真实 token；v3 起保存 API 返回的 token usage，并把每次 HTTP 重试单独计入硬预算。
 
-本轮不会再使用用户 Key 做在线长跑。此前 DeepSeek 已返回 `HTTP 402 Insufficient Balance`；质量回归通过 fixture、预算测试和模拟 OpenAI usage 响应完成，余额恢复后也必须先经过调用预算门禁。
+最新 `answer_strategy` verifier 契约已经通过离线回归，但尚未再次使用真实 Key 验证，因此当前不能宣称真实面试生成链路已经通过。后续在线验证必须使用固定 case、独立 `workflow_run_id` 和调用预算门禁，不允许连续盲跑。
 
 离线评测中的 `DeterministicInterviewEvaluationLLM` 只在显式 `LLM_FALLBACK_ENABLED=true` 的评测 harness 使用，不进入产品路径；产品未配置 LLM 或 release gate 失败时直接报错。
 
