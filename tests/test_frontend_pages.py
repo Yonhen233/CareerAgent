@@ -565,7 +565,10 @@ def test_interview_prep_is_connected_to_job_context_and_direct_practice():
     assert "interview-followups" in main_js
     assert "question_generation_source_label" in main_js
     assert "answer_framework_source_label" in main_js
+    assert "reference_answer_source_label" in main_js
     assert "interview-answer-steps" in main_js
+    assert "查看可直接参考的回答" in main_js
+    assert "查看回答思路与证据" in main_js
     assert "可引用证据" in main_js
     assert "item.ref ||" not in main_js
     assert "const seen = new Set()" in main_js
@@ -580,4 +583,5 @@ def test_interview_prep_is_connected_to_job_context_and_direct_practice():
     assert "interview-plan-sidebar" in style_css
     assert "interview-question-workbench" in style_css
     assert "interview-framework-meta" in style_css
+    assert "interview-reference-answer" in style_css
     assert "interview-evidence-list" in style_css

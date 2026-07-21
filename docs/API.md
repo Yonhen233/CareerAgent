@@ -620,7 +620,9 @@ Content-Type: application/json
 }
 ```
 
-`status` 支持 `todo`、`practicing`、`ready` 和 `deferred`。`question_id` 必须来自 `GET /interview-prep/{prep_id}/questions`，不存在时直接返回 422，方便开发期通过 trace 排查数据问题。每道题分别返回 `question_generation_source(_label)` 与 `answer_framework_source(_label)`：前者说明题目来自 LLM、结构化规则还是已导入面经，后者说明回答框架由谁生成，不能用面试包级 `generation_mode=llm_augmented` 推断每道题都由 LLM 生成。`answer_framework` 使用 `section + guidance` 表示可直接练习的回答步骤，并通过 `evidence_refs.preview` 提供面经原题或简历项目证据；内部证据 ID 不在用户页面展示。`GET /interview-prep/{prep_id}/markdown` 返回可下载的 Markdown 面试包，包含基本信息、问题来源分布、练习状态、题组、回答框架、缺口 drill、外部调研清单和证据边界。
+`status` 支持 `todo`、`practicing`、`ready` 和 `deferred`。`question_id` 必须来自 `GET /interview-prep/{prep_id}/questions`，不存在时直接返回 422，方便开发期通过 trace 排查数据问题。每道题分别返回 `question_generation_source(_label)` 与 `answer_framework_source(_label)`：前者说明题目来自 LLM、结构化规则还是已导入面经，后者说明回答思路由谁生成，不能用面试包级 `generation_mode=llm_augmented` 推断每道题都由 LLM 生成。
+
+每道题还返回 `reference_answer`、`reference_answer_source(_label)`、`reference_answer_version` 和 `reference_answer_basis`。`reference_answer` 是结合当前题目、JD、简历项目与能力缺口生成的第一人称完整参考回答；前端把它作为主内容展示，`answer_framework` 与 `evidence_refs.preview` 折叠为辅助的“回答思路与证据”。答案指纹包含题型、题目、项目证据和岗位信息，分类规则或上下文变化后会重新生成，避免历史答案错误复用。参考答案只允许引用当前简历和项目记录，不会把待学习技能写成已交付经历。`GET /interview-prep/{prep_id}/markdown` 返回可下载的 Markdown 面试包，包含基本信息、问题来源分布、练习状态、完整参考答案、回答思路、缺口 drill、外部调研清单和证据边界。
 
 返回：
 

@@ -65,6 +65,11 @@ class InterviewPrepDeliveryService:
                         "answer_framework": question.get("answer_framework") or [],
                         "answer_framework_source": str(question.get("answer_framework_source") or ""),
                         "answer_framework_source_label": str(question.get("answer_framework_source_label") or ""),
+                        "reference_answer": str(question.get("reference_answer") or ""),
+                        "reference_answer_source": str(question.get("reference_answer_source") or ""),
+                        "reference_answer_source_label": str(question.get("reference_answer_source_label") or ""),
+                        "reference_answer_version": str(question.get("reference_answer_version") or ""),
+                        "reference_answer_basis": str(question.get("reference_answer_basis") or ""),
                         "question_generation_source": str(question.get("question_generation_source") or ""),
                         "question_generation_source_label": str(question.get("question_generation_source_label") or ""),
                         "risk_level": str(question.get("risk_level") or "low"),
@@ -293,6 +298,10 @@ class InterviewPrepDeliveryService:
                 if question.get("follow_ups"):
                     lines.append("- 连续追问：")
                     lines.extend(f"  - {item}" for item in question.get("follow_ups") or [])
+                if question.get("reference_answer_source_label"):
+                    lines.append(f"- 参考回答来源：{question.get('reference_answer_source_label')}")
+                if question.get("reference_answer"):
+                    lines.extend(["", "**参考回答**", "", str(question.get("reference_answer")), ""])
                 if question.get("answer_framework_source_label"):
                     lines.append(f"- 回答框架来源：{question.get('answer_framework_source_label')}")
                 if question.get("answer_framework"):

@@ -474,7 +474,7 @@ POST /evaluations/interview-prep
 - 检查缺口技能是否进入 `gap_drills_json`，避免把 `没有 MLflow`、`没有 Kubernetes 集群维护经验` 这类缺口披露误写成已掌握。
 - 检查每道题是否有唯一 `question_id`，并且 `source_perspective` 覆盖同岗位面经/面经调研、简历项目技术栈和其他可能面试问题。
 - 检查每道题是否带有 `preparation_angle`，且 `summary_json.preparation_angles` 和 `coverage_json.preparation_angle_counts` 显式覆盖网上同岗位面经、简历项目技术栈、其他可能面试问题三类准备角度。
-- 检查 `summary_json.question_quality`：本地可解释 judge 会衡量 JD 贴合、连续追问深度、缺口诚实边界、项目绑定、证据可追溯、回答框架行动性和重复率。`heuristic_v2_answer_framework` 不再把“存在两条回答要点”视为行动性通过；每题至少需要 4 个结构化步骤，并同时覆盖项目证据、评测/验证和失败或事实边界，release 阈值要求 `actionability >= 0.9`。
+- 检查 `summary_json.question_quality`：本地可解释 judge 会衡量 JD 贴合、连续追问深度、缺口诚实边界、项目绑定、证据可追溯、回答框架行动性、参考答案可用性和重复率。`heuristic_v3_reference_answer` 要求每题至少有 4 个结构化思路步骤，并同时覆盖项目证据、评测/验证和失败或事实边界；`reference_answer` 还必须达到 120 字、包含至少两句完整陈述、使用第一人称且不能含开发占位语。release 阈值要求 `actionability >= 0.9` 且 `reference_answer_usability >= 0.9`。
 - 检查 `summary_json.interview_reference_links` 和 Markdown 是否包含面经参考标题/链接或搜索入口；外部平台正文难以获取时，不把抓正文作为核心通过条件。
 - 检查 Markdown 交付包是否可渲染，且包含问题来源分布、准备角度、面经参考链接、连续追问、外部调研清单和证据边界。
 

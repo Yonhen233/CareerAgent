@@ -973,7 +973,7 @@ class InterviewPrepService:
         questions = [question for group in question_sets for question in group.get("questions", [])]
         if not questions:
             return {
-                "mode": "heuristic_v2_answer_framework",
+                "mode": "heuristic_v3_reference_answer",
                 "passed": False,
                 "score": 0.0,
                 "rates": {},
@@ -998,6 +998,7 @@ class InterviewPrepService:
             "project_binding": 0,
             "evidence_traceability": 0,
             "actionability": 0,
+            "reference_answer_usability": 0,
         }
         denominators = {
             "jd_alignment": len(questions),
@@ -1006,6 +1007,7 @@ class InterviewPrepService:
             "project_binding": 0,
             "evidence_traceability": 0,
             "actionability": len(questions),
+            "reference_answer_usability": len(questions),
         }
         issue_counts: dict[str, int] = {}
         sample_issues: list[str] = []
@@ -1047,6 +1049,13 @@ class InterviewPrepService:
                 and has_verification_step
                 and len(str(question.get("question") or "")) >= 10
             )
+            reference_answer = str(question.get("reference_answer") or "").strip()
+            reference_answer_usability = (
+                len(reference_answer) >= 120
+                and reference_answer.count("。") >= 2
+                and "我" in reference_answer
+                and not any(marker in reference_answer for marker in ("先标注来源", "请自行补充", "TODO"))
+            )
 
             results = {
                 "jd_alignment": (jd_aligned, True),
@@ -1055,6 +1064,7 @@ class InterviewPrepService:
                 "project_binding": (project_binding, project_question),
                 "evidence_traceability": (evidence_traceability, evidence_required),
                 "actionability": (actionability, True),
+                "reference_answer_usability": (reference_answer_usability, True),
             }
             for name, (passed, applicable) in results.items():
                 if not applicable:
@@ -1079,12 +1089,13 @@ class InterviewPrepService:
         rates["duplicate_rate"] = duplicate_rate
         rates["evidence_signal_rate"] = round(len(evidence) / max(len(questions), 1), 4)
         score = round(
-            0.25 * rates["jd_alignment"]
-            + 0.2 * rates["follow_up_depth"]
-            + 0.2 * rates["gap_boundary"]
-            + 0.15 * rates["project_binding"]
+            0.2 * rates["jd_alignment"]
+            + 0.15 * rates["follow_up_depth"]
+            + 0.15 * rates["gap_boundary"]
+            + 0.1 * rates["project_binding"]
             + 0.1 * rates["evidence_traceability"]
             + 0.1 * rates["actionability"]
+            + 0.2 * rates["reference_answer_usability"]
             - min(duplicate_rate * 0.15, 0.15),
             4,
         )
@@ -1096,6 +1107,7 @@ class InterviewPrepService:
             "project_binding": 0.8,
             "evidence_traceability": 1.0,
             "actionability": 0.9,
+            "reference_answer_usability": 0.9,
             "duplicate_rate_max": 0.08,
         }
         passed = (
@@ -1106,10 +1118,11 @@ class InterviewPrepService:
             and rates["project_binding"] >= thresholds["project_binding"]
             and rates["evidence_traceability"] >= thresholds["evidence_traceability"]
             and rates["actionability"] >= thresholds["actionability"]
+            and rates["reference_answer_usability"] >= thresholds["reference_answer_usability"]
             and duplicate_rate <= thresholds["duplicate_rate_max"]
         )
         return {
-            "mode": "heuristic_v2_answer_framework",
+            "mode": "heuristic_v3_reference_answer",
             "passed": passed,
             "score": score,
             "thresholds": thresholds,
@@ -1472,6 +1485,7 @@ class InterviewPrepService:
         ]
         values.extend(str(item) for item in question.get("follow_ups") or [])
         values.extend(str(item) for item in question.get("answer_points") or [])
+        values.append(str(question.get("reference_answer") or ""))
         values.extend(str(item) for item in question.get("skills") or [])
         return "\n".join(values).lower()
 

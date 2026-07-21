@@ -841,6 +841,52 @@ a {
   font-weight: 700;
 }
 
+.interview-reference-answer {
+  margin-top: 10px;
+  padding: 14px 16px;
+  border-left: 4px solid var(--blue);
+  background: #f7faff;
+}
+
+.interview-reference-answer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.interview-reference-answer-head strong {
+  font-size: 16px;
+}
+
+.interview-reference-answer-head span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.interview-reference-answer p {
+  margin: 0 0 9px;
+  color: #1d2c3d;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.interview-reference-answer p:last-child {
+  margin-bottom: 0;
+}
+
+.interview-answer-notes {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+}
+
+.interview-answer-notes > summary {
+  color: var(--muted);
+  font-weight: 600;
+}
+
 .interview-framework-meta {
   display: flex;
   flex-wrap: wrap;

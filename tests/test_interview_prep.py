@@ -5,6 +5,7 @@ from app.agents.orchestrator import AgentOrchestrator
 from app.api.interview_prep import _interview_prep_response, list_interview_preps
 from app.models.entities import Job, Profile
 from app.models.schemas import AgentRunRequest
+from app.services.interview_answer_framework import InterviewAnswerFrameworkService
 from app.services.interview_delivery import InterviewPrepDeliveryService
 from app.services.interview_experience import InterviewExperienceService
 from app.services.interview_prep import InterviewPrepService
@@ -99,6 +100,8 @@ def test_interview_prep_covers_online_project_and_general_perspectives(db_sessio
     assert prep.summary_json["question_quality"]["score"] >= 0.82
     assert prep.coverage_json["required_skill_coverage_rate"] == 1.0
     assert prep.coverage_json["missing_skill_drill_rate"] == 1.0
+    assert prep.summary_json["question_quality"]["rates"]["reference_answer_usability"] == 1.0
+    assert all(len(str(question.get("reference_answer") or "")) >= 120 for question in questions)
     assert {item["site"] for item in prep.research_checklist_json} >= {"牛客网", "OfferShow", "小红书"}
     assert any(item["skill"] == "MLflow" for item in prep.gap_drills_json)
     assert "不能包装成已交付经验" in prep.summary_json["boundary"]
@@ -140,6 +143,7 @@ def test_interview_prep_quality_judge_flags_weak_questions(db_session):
     assert quality["score"] < quality["thresholds"]["score"]
     assert quality["issue_counts"]["jd_alignment"] >= 1
     assert quality["issue_counts"]["follow_up_depth"] >= 1
+    assert quality["issue_counts"]["reference_answer_usability"] >= 1
 
 
 def test_interview_prep_dedupes_questions_before_quality_gate(db_session):
@@ -424,7 +428,7 @@ def test_interview_prep_uses_imported_source_backed_experience_questions(db_sess
         raw_text=(
             "一面：面试官问 RAG 的 chunk 切分策略怎么选？"
             "追问：FastAPI 并发接口如何记录 trace？"
-            "二面：如果 MLflow 没有生产经验，你怎么诚实说明？"
+            "二面：SQLite 存 JD chunk 和向量元数据有什么边界？"
         ),
     )
 
@@ -454,6 +458,48 @@ def test_interview_prep_uses_imported_source_backed_experience_questions(db_sess
     assert "CareerAgent" in first_question["answer_framework"][2]["guidance"]
     assert "先标注来源" not in " ".join(first_question["answer_points"])
     assert any(ref.get("source_type") == "resume_project" for ref in first_question["evidence_refs"])
+    storage_question = next(question for question in source_questions if "SQLite 存 JD chunk" in question["question"])
+    assert storage_question["answer_framework"][0]["section"] == "先划分职责"
+    assert "job_chunks" in storage_question["reference_answer"]
+    assert "Chroma 只是可重建的检索镜像" in storage_question["reference_answer"]
+    assert "固定长度" not in storage_question["reference_answer"]
+
+
+def test_reference_answer_question_routing_uses_question_intent_instead_of_tags():
+    service = InterviewAnswerFrameworkService()
+
+    assert service._question_kind(
+        {
+            "question": "RAG 评测实验台比较了不同 chunk 策略，你如何定义指标并保证实验可复现？",
+            "skills": ["RAG", "chunk"],
+            "risk_level": "low",
+            "source_perspective": "llm_project_implementation",
+        }
+    ) == "evaluation"
+    assert service._question_kind(
+        {
+            "question": "在 CareerAgent 中，LangGraph 如何编排检索、定制和投递审批节点？",
+            "skills": ["LangGraph", "Agent"],
+            "risk_level": "high",
+            "source_perspective": "llm_project_implementation",
+        }
+    ) == "agent_workflow"
+    assert service._question_kind(
+        {
+            "question": "JD 要求 Workflow，但简历中未明确体现，请诚实说明边界和补齐计划。",
+            "skills": ["Workflow"],
+            "risk_level": "high",
+            "source_perspective": "llm_foundation_drill",
+        }
+    ) == "skill_gap"
+    assert service._question_kind(
+        {
+            "question": "参考链接反复出现 FastAPI 和 RAG，你准备用哪个简历项目作为回答主线？",
+            "skills": ["FastAPI", "RAG"],
+            "risk_level": "medium",
+            "source_perspective": "online_experience_research",
+        }
+    ) == "project_overview"
 
 
 def test_legacy_answer_framework_is_upgraded_on_api_read(db_session):
@@ -484,6 +530,8 @@ def test_legacy_answer_framework_is_upgraded_on_api_read(db_session):
     assert upgraded["answer_framework_source_label"] == "系统根据 JD、简历证据和题目类型生成"
     assert upgraded["answer_framework"][0]["section"] == "先给结论"
     assert upgraded["answer_framework"][3]["section"] == "用评测做决定"
+    assert upgraded["reference_answer_source"] == "grounded_rule_composer"
+    assert "Recall@K" in upgraded["reference_answer"]
     assert "source_url" not in upgraded["evidence_refs"][0]
     assert upgraded["evidence_refs"][0]["preview"] == "RAG 的 chunk 切分策略怎么选？"
 
@@ -496,6 +544,8 @@ def test_interview_prep_delivery_exports_markdown_and_tracks_practice(db_session
 
     assert questions
     assert all(item["question_id"] for item in questions)
+    assert all(item["reference_answer_version"] == "grounded_reference_answer_v2" for item in questions)
+    assert all(len(item["reference_answer_basis"]) == 20 for item in questions)
     source_summary = delivery.source_perspective_summary(prep)
     assert source_summary["core_perspectives"]["online_experience"] > 0
     assert source_summary["core_perspectives"]["resume_project_stack"] > 0
@@ -529,6 +579,7 @@ def test_interview_prep_delivery_exports_markdown_and_tracks_practice(db_session
     assert "牛客/OfferShow/小红书调研" in markdown
     assert "简历项目技术栈" in markdown
     assert "其他可能面试问题" in markdown
+    assert "**参考回答**" in markdown
     assert "证据边界" in markdown
 
     updated = delivery.upsert_practice_item(
