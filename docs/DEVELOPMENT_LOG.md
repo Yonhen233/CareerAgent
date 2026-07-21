@@ -1,5 +1,66 @@
 # 开发日志
 
+## 2026-07-21 19:18:01 +08:00：面试模块迁移到 Agentic RAG v2 与真实 LLM 全链路硬化
+### 这次做了什么
+- 删除基于 `_question_kind` 关键词路由和规则模板拼接答案的旧实现。旧面试包不再在读取时静默升级为“新答案”，而是标记 `requires_regeneration`。
+- 新增 `InterviewAgenticRAGService` LangGraph 子图：检索规划、多源检索、claim 生成、citation linker/classifier/entailment、verified-claim renderer、claim coverage、repair/finalize。
+- 检索覆盖简历 chunk、当前 JD、用户导入面经、CareerAgent 项目文档和审核后的技术知识库；采用 exact/BM25/真实 embedding/RRF/Top20 CrossEncoder reranker/来源多样化 TopK。
+- LLM planner 根据题意生成 multi-query、目标来源、必需证据、禁止声明和置信度；代码只校验 schema、来源库存和证据权限，不再用关键词硬编码题型。
+- verifier 可在每题局部 `E1...E8` 中重新绑定证据，服务端再映射真实 ID 并执行来源策略。增加 Answer-to-Claim Coverage Judge，防止正文藏入未声明事实。
+- 最终自然语言答案由 Verified Claim Renderer 只根据已验证 claims 生成。repair 最多 3 轮，判否 claim 会先从状态删除，验证只处理 dirty questions。
+- 答案 batch 从 6 降到 3，verifier 按 claim 数量分批；增加可追踪 JSON repair。CrossEncoder 改为一次批量推理后按题拆分。
+- 契约升级为 `interview_agentic_rag_v2`。旧 v1 包要求重新生成；`question_quality` 或 `coverage` 未通过时禁止持久化。
+- 新增 `docs/interview/TECHNICAL_KNOWLEDGE_BASE.md`，明确技术原理证据不能证明候选人经历。
+
+### 发现的问题
+- 旧分类器会因 `chunk/Agent/SQLite` 等词把题目路由到错误模板，规则回答也无法证明每个事实。
+- DeepSeek 长 JSON 在约 15K 字符附近多次出现语法错误；单纯重试或 JSON repair 不能稳定解决。
+- 早期 verifier 只看生成器已选引用，能判错但不能改绑；JD `keywords` 碎片还会被误当成证据。
+- repair 删除真实 ID 后未保留局部别名，产生 unbound claim；pre-verifier 又在 linker 之前拦截空引用，让 linker 无法补绑。
+- verifier 判否的 claims 仍进入下一轮，repair 被旧答案锚定后重复错误说法。
+- 校验阶段存在全局短路：任意题失败会让其他题跳过 linker/来源校验，却不进入 dirty set。开发期包 `#45` 因而出现项目实现错引 JD。
+- 旧 release gate 只计算 `passed`，即使为 false 仍写库。
+- 自由正文会写入 claims 没覆盖的实现细节，例如 middleware trace ID、异步日志和降级算法；只检查 claims 不足以保证正文可信。
+- 每轮重验全部 32 题导致 94 次 LLM 调用和约 641 秒墙钟耗时。
+- LLM 未配置时，面试入口仍先执行匹配、embedding 和 reranker，API 请求超过 20 秒才可能报错，用户会误以为任务卡死。
+- 新增测试最初直接修改缓存的全局 `Settings`，污染了后续 JD 测试，暴露出测试配置对象的顺序依赖。
+- 最终在线 v2 验收时 DeepSeek 返回 `HTTP 402 Insufficient Balance`。
+
+### 怎么修复
+- 用 LLM planner 做语义理解，source inventory 修复不可用来源；低置信度、漏题、重复题和越权来源直接报错。
+- 排除 `job_chunks.keywords` 作为最终引用证据；每题来源多样化 TopK 从 6 增至 8。
+- citation linker 从全部 TopK 中选最小证据集合，服务端校验别名、claim type 和来源权限。
+- 按 claim 数切 verifier batch，按 3 题切生成 batch；JSON repair 仍失败时直接报错。
+- 校验改为逐题推进，结构、entailment、来源策略、renderer、coverage 只阻断当前题，错误合并为 dirty set。
+- 判否 claims 在 repair 前删除；repair 只接收 verified claims、错误原因和证据，不接收旧参考答案。
+- verified-claim renderer 重新生成正文，coverage judge 再检查所有具体事实是否已声明。
+- 增量校验只重验改写题目。真实 v1 包的调用从 94 降至 59，墙钟从约 641 秒降至约 504 秒。
+- 并发 gather 完整回收 coroutine 后再抛首个异常，不再产生未 await 警告。
+- 写库前同时检查 `question_quality.passed` 与 `coverage.passed`；v2 失败不生成 InterviewPrep。
+- 把 LLM 可用性校验前置到匹配和检索之前；API 对配置缺失返回明确的 503。测试使用 `Settings.model_copy`，不再修改全局缓存对象。
+
+### 验证结果
+- 定向面试/RAG/reranker 回归 `32 passed`，覆盖 JSON repair、批量 reranker、计划库存修复、引用重绑定、判否 claim 清理、正文 claim coverage、renderer 质量错误和 release gate 不落库。
+- 完整回归 `179 passed in 79.47s`；Python 编译、JavaScript 语法和 `git diff --check` 通过。
+- 真实 DeepSeek v1：面试包 `#43`，32 题，质量分 `0.9841`，94 次调用，约 641 秒；面试包 `#44` 启用增量验证后质量分 `0.9947`，59 次调用，约 504 秒。
+- `#44` 的验证题数按 `32 -> 21 -> 5 -> 1` 收敛，最终 citation integrity 和 source policy coverage 均为 1.0。
+- v2 多轮真实测试验证了 JSON repair、citation linker、claim coverage、renderer、逐题阶段隔离和失败不落库；API 余额耗尽后数据库 InterviewPrep 数量保持 `45 -> 45`。
+- Chromium 桌面端 `1440x1000` 与移动端 `390x844` 真实页面 smoke 均返回 200：加载 45 条历史计划和 32 道题，无横向溢出、控制台错误或失败请求；旧 v1 题目全部显示“需要重新生成”。
+- 未配置 LLM 的生成请求在约 `691 ms` 内返回 503，InterviewPrep 数量保持 `45 -> 45`；页面同步显示完整中文警告。
+- API key 未写入配置、数据库、日志或 Git；LLMCallLog 只保存模型、base URL、trace、字符数、耗时和截断预览。
+
+### 未修复的问题
+- DeepSeek 账户余额不足，无法提供 v2 最终落库成功的在线证据；没有切换旧 key 或伪造成功结果。
+- Codex 内置浏览器连接器因本机 kernel assets 路径初始化失败，本轮改用同机 Playwright Chromium 完成页面验收；这是开发工具连接问题，不是 CareerAgent 页面错误。
+- 32 题完整包在 CPU reranker 和多阶段 judge 下仍需数分钟，应使用后台队列和流式进度，不适合同步等待。
+- 开发期 v1 包 `#43-#45` 仍在本地数据库中，但 v2 读取契约会要求重新生成。
+- claim coverage 与 entailment 是 LLM judge，仍需人工标注集统计召回率、误报率和答案可用率。
+
+### 下一步
+- API 余额恢复后重跑 Profile `#159` + Job `#218`，要求 v2 两层 passed、落库和浏览器抽检同时通过。
+- 将 CrossEncoder 部署到 GPU/独立推理 worker，并支持按用户选择的题组增量生成。
+- 为 claim coverage 建人工标注集，评测漏声明事实召回率、无事实句误报率、citation linker 准确率和最终回答可用率。
+
 ## 2026-07-21 11:47:26 +08:00：面试题改为可直接参考的完整回答
 ### 这次做了什么
 - 为每道面试题新增第一人称 `reference_answer`，覆盖 PDF Chunk、SQLite 与向量索引边界、FastAPI 并发和依赖注入、RAG、LangGraph、评测、Python 工程、LLM API、项目介绍、求职动机、行为题和能力缺口等题型。

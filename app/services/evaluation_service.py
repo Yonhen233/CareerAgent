@@ -18,6 +18,7 @@ from app.services.context_compressor import ContextCompressor
 from app.services.application_guardrails import ApplicationPacketGuardrail
 from app.services.guardrails import ResumeGuardrailService
 from app.services.interview_delivery import InterviewPrepDeliveryService
+from app.services.interview_evaluation_fixture import DeterministicInterviewEvaluationLLM
 from app.services.interview_sources import InterviewExperienceSearchResult, InterviewExperienceSourceRegistry
 from app.services.interview_prep import InterviewPrepService
 from app.services.jd_parser import JDParserService
@@ -142,7 +143,12 @@ class EvaluationService:
         self.reranker = RerankerService(settings=self.settings)
         self.context_compressor = ContextCompressor()
         self.application_guardrail = ApplicationPacketGuardrail()
-        self.interview_prep_service = InterviewPrepService(matcher=self.matcher)
+        interview_llm = self.llm
+        self.interview_evaluation_llm_mode = "real_llm"
+        if not self.llm.available and self.settings.llm_fallback_enabled:
+            interview_llm = DeterministicInterviewEvaluationLLM()
+            self.interview_evaluation_llm_mode = "synthetic_eval_fixture"
+        self.interview_prep_service = InterviewPrepService(matcher=self.matcher, llm=interview_llm)
         self.interview_delivery = InterviewPrepDeliveryService()
         self.jd_parser = JDParserService()
         self.job_search_service = JobSearchService()
@@ -2057,7 +2063,7 @@ class EvaluationService:
             )
         ) and len((prep.summary_json or {}).get("preparation_angles") or []) >= 3
         llm_question_generation_passed = (
-            str(prep.generation_mode).startswith("llm_augmented")
+            str(prep.generation_mode) == "langgraph_agentic_rag_v2"
             and int(source_counts.get("llm_project_implementation") or 0) >= 2
             and int(source_counts.get("llm_foundation_drill") or 0) >= 2
         )
@@ -2130,6 +2136,7 @@ class EvaluationService:
             "question_quality_passed": question_quality_passed,
             "question_quality_score": question_quality.get("score", 0.0),
             "question_quality": question_quality,
+            "agentic_rag": (prep.summary_json or {}).get("agentic_rag") or {},
             "markdown_export_passed": markdown_export_passed,
             "source_perspective_summary": source_perspective_summary,
             "category_passed": category_passed,
@@ -2159,6 +2166,7 @@ class EvaluationService:
             "status": "completed" if all(item.get("case_passed") for item in case_results) else "completed_with_quality_failures",
             "dataset": dataset_path.name,
             "case_count": len(case_results),
+            "llm_mode": self.interview_evaluation_llm_mode,
             "pass_rate": round(sum(1 for item in case_results if item.get("case_passed")) / count, 4),
             "avg_question_count": self._avg_number(case_results, "question_count"),
             "avg_gap_drill_count": self._avg_number(case_results, "gap_drill_count"),

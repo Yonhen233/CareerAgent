@@ -24,6 +24,18 @@ class Settings(BaseSettings):
     llm_context_compression_enabled: bool = True
     llm_context_max_chars: int = 9000
     llm_evidence_max_chars: int = 3600
+    interview_rag_plan_batch_size: int = 12
+    interview_rag_answer_batch_size: int = 3
+    interview_rag_llm_concurrency: int = 3
+    interview_rag_verify_claim_batch_size: int = 6
+    interview_rag_json_repair_attempts: int = 1
+    interview_rag_retrieval_top_n: int = 20
+    interview_rag_evidence_top_k: int = 8
+    interview_rag_evidence_chars: int = 520
+    interview_rag_rrf_k: int = 60
+    interview_rag_min_plan_confidence: float = 0.55
+    interview_rag_min_answer_chars: int = 120
+    interview_rag_answer_repair_attempts: int = 3
 
     openai_api_key: str | None = None
     openai_base_url: str | None = None

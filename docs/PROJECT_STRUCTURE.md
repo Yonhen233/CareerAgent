@@ -66,9 +66,11 @@ CareerAgent/
 │   │   │
 │   │   ├── interview_experience.py           # 用户导入面经的结构化处理
 │   │   ├── interview_sources.py              # 牛客/OfferShow/小红书来源 smoke
-│   │   ├── interview_prep.py                 # JD + 项目 + 缺口的面试问题生成
+│   │   ├── interview_prep.py                 # 面试题组、质量门禁与持久化事务边界
+│   │   ├── interview_agentic_rag.py          # LangGraph 多源检索、claim 校验、renderer 与 repair
+│   │   ├── interview_evaluation_fixture.py   # 仅离线评测使用的确定性 LLM fixture
 │   │   ├── interview_delivery.py             # 面试包 Markdown 和练习状态
-│   │   ├── interview_answer_framework.py     # 面试题参考答案、回答思路、证据绑定和旧数据升级
+│   │   ├── interview_answer_framework.py     # v2 交付规范化与旧版重新生成标记
 │   │   │
 │   │   ├── trace_service.py                  # Run/Step/Artifact/Event Trace
 │   │   ├── run_business_summary.py           # 路由/过程/结果/副作用四层业务摘要
@@ -225,6 +227,7 @@ Evals/Tests -> API/Agents/Services
 | 增加 Tool | `app/agents/tools.py` | 对应 service、Skill `allowed_tools`、审批和测试 |
 | 修改 PDF Chunk | `app/services/text_splitter.py` | `evals/pdf_chunk_cases.json`、`docs/PDF_CHUNKING.md` |
 | 修改 RAG | `vector_index.py`、`reranker.py` | RAG 评测、embedding 配置和 Trace |
+| 修改面试 Agentic RAG | `interview_agentic_rag.py` | `interview_prep.py`、面试评测、来源权限和前端 |
 | 修改简历定制 | `resume_tailor.py` | Guardrail、Skill、LLM workflow 评测 |
 | 增加高风险外发动作 | `high_risk_action_tools.py` | Tool Policy、approval、audit、RBAC、smoke |
 | 修改后台执行 | `task_queue.py`、worker scripts | heartbeat、recovery、DLQ、运维页面 |

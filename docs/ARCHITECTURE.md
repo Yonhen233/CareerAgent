@@ -58,6 +58,33 @@ Agent 主编排已经迁移到 LangGraph。`app/agents/orchestrator.py` 只保�
 
 `agent_events` 保存两类进度：一类来自 `TraceService` 的 run/step/artifact 事件，另一类来自 LangGraph `astream_events` 的 graph/node/interrupt 事件。`/agent/runs/{run_id}/events/stream` 以 SSE 输出这些事件，历史记录和长流程状态卡消费该事件流。普通岗位浏览使用独立搜索会话，不需要创建 AgentRun。
 
+### 面试 Agentic RAG v2
+
+面试模块不再使用关键词题型分类器或规则答案模板。语义规划由 LLM 完成，确定性代码只负责数据域、schema、权限和 release gate。
+
+```mermaid
+flowchart LR
+    A["JD、简历、面经与问题"] --> B["LLM Retrieval Planner"]
+    B --> C["Exact + BM25 + Vector + RRF"]
+    C --> D["Top20 CrossEncoder Reranker"]
+    D --> E["Source-diverse TopK Evidence"]
+    E --> F["LLM Draft Claims"]
+    F --> G["Claim Classifier + Citation Linker + Entailment"]
+    G --> H["Source Policy Gate"]
+    H --> I["Verified Claim Renderer"]
+    I --> J["Answer-to-Claim Coverage Judge"]
+    J -->|"通过"| K["Quality/Coverage Release Gate"]
+    J -->|"失败题"| L["Bounded Repair"]
+    L --> G
+```
+
+- 来源包括 `resume/job/interview_experience/project_document/technical_knowledge`，各来源只能支持白名单中的 claim type。
+- JD 不能证明候选人做过，面经不能证明公司固定题库，技术知识不能证明候选人经历，项目文档不能单独证明候选人所有权。
+- LLM 只接触每题局部 `E1...E8`，服务端映射真实 evidence ID；无效别名、越权 claim type 和空引用都会失败。
+- renderer 只接收 verified claims，不接收旧正文和原始证据，避免把检索片段扩写成未经声明的实现细节。
+- repair 最多 3 轮，state 只保留 verified claims 和 dirty question IDs；已通过题目不重复验证。
+- 旧 `interview_agentic_rag_v1` 面试包不会读取时静默升级，必须重新生成 v2。
+
 ### 岗位发现
 
 岗位发现是独立于长 Agent 工作流的用户业务域：

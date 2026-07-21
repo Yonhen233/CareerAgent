@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.llm import LLMClient, LLMConfigurationError, extract_json_object, format_exception
 from app.models.entities import InterviewPrep, Job, MatchResult, Profile
+from app.services.interview_agentic_rag import InterviewAgenticRAGError, InterviewAgenticRAGService
 from app.services.interview_answer_framework import InterviewAnswerFrameworkService
 from app.services.interview_experience import InterviewExperienceService
 from app.services.interview_references import InterviewReferenceService
@@ -43,11 +44,13 @@ class InterviewPrepService:
         matcher: MatcherService | None = None,
         experience_service: InterviewExperienceService | None = None,
         llm: LLMClient | None = None,
+        agentic_rag: InterviewAgenticRAGService | None = None,
     ) -> None:
         self.settings = get_settings()
         self.matcher = matcher or MatcherService()
         self.experience_service = experience_service or InterviewExperienceService()
         self.llm = llm or LLMClient()
+        self.agentic_rag = agentic_rag or InterviewAgenticRAGService(llm=self.llm)
 
     def create_interview_prep(
         self,
@@ -58,7 +61,8 @@ class InterviewPrepService:
         match_result: MatchResult | None = None,
         experience_ids: list[int] | None = None,
         llm_question_sets: list[dict[str, Any]] | None = None,
-        generation_mode: str = "structured_rules_v3_preparation_angles",
+        generation_mode: str = "questions_only_v1",
+        persist: bool = True,
     ) -> InterviewPrep:
         match = match_result or self.matcher.create_match_result(db, profile, job)
         evidence = self._evidence(match)
@@ -91,11 +95,6 @@ class InterviewPrepService:
         question_sets = [item for item in question_sets if item["questions"]]
         question_sets = self._dedupe_question_sets(question_sets)
         self._attach_question_metadata(question_sets, missing=missing)
-        question_sets = InterviewAnswerFrameworkService().normalize_question_sets(
-            question_sets,
-            profile=profile,
-            job=job,
-        )
         gap_drills = self._gap_drills(job, missing)
         research_checklist = self._research_checklist(job, required, missing)
         question_quality = self._question_quality_judge(
@@ -156,6 +155,10 @@ class InterviewPrepService:
                 "question_set_count": len(llm_question_sets or []),
                 "mode": "llm_augmented" if llm_question_sets else "structured_rules",
             },
+            "agentic_rag": {
+                "status": "not_run",
+                "message": "题目已生成，但尚未执行 LLM 检索规划、混合检索和引用校验。",
+            },
         }
         prep = InterviewPrep(
             profile_id=profile.id,
@@ -170,9 +173,10 @@ class InterviewPrepService:
             coverage_json=coverage,
             generation_mode=generation_mode,
         )
-        db.add(prep)
-        db.commit()
-        db.refresh(prep)
+        if persist:
+            db.add(prep)
+            db.commit()
+            db.refresh(prep)
         return prep
 
     async def create_interview_prep_with_llm(
@@ -184,6 +188,10 @@ class InterviewPrepService:
         match_result: MatchResult | None = None,
         experience_ids: list[int] | None = None,
     ) -> InterviewPrep:
+        if not self.llm.available and not self.settings.llm_fallback_enabled:
+            raise LLMConfigurationError(
+                "LLM is required for interview preparation. Configure LLM_API_KEY before starting the workflow."
+            )
         match = match_result or self.matcher.create_match_result(db, profile, job)
         evidence = self._evidence(match)
         required = self._skills(job, "required_skills")
@@ -202,15 +210,74 @@ class InterviewPrepService:
             preferred=preferred,
             keywords=keywords,
         )
-        return self.create_interview_prep(
+        draft = self.create_interview_prep(
             db,
             profile=profile,
             job=job,
             match_result=match,
             experience_ids=experience_ids,
             llm_question_sets=llm_question_sets,
-            generation_mode="llm_augmented_v1_jd_project_questions",
+            generation_mode="interview_agentic_rag_generating",
+            persist=False,
         )
+        rag_result = await self.agentic_rag.run(
+            db,
+            profile=profile,
+            job=job,
+            match_result=match,
+            question_sets=draft.question_sets_json,
+            experience_ids=experience_ids,
+        )
+        draft.question_sets_json = InterviewAnswerFrameworkService().normalize_question_sets(
+            rag_result["question_sets"],
+            profile=profile,
+            job=job,
+        )
+        question_quality = self._question_quality_judge(
+            profile=profile,
+            job=job,
+            question_sets=draft.question_sets_json,
+            required=required,
+            preferred=preferred,
+            keywords=keywords,
+            missing=missing,
+            evidence=evidence,
+        )
+        experience_evidence = [
+            item
+            for item in draft.source_evidence_json or []
+            if item.get("evidence_type") == "interview_experience"
+        ]
+        draft.coverage_json = self._coverage(
+            required=required,
+            matched=matched,
+            missing=missing,
+            question_sets=draft.question_sets_json,
+            gap_drills=draft.gap_drills_json,
+            evidence=evidence,
+            experience_evidence=experience_evidence,
+            question_quality=question_quality,
+        )
+        summary = dict(draft.summary_json or {})
+        summary["question_quality"] = question_quality
+        summary["agentic_rag"] = {"status": "completed", **(rag_result.get("summary") or {})}
+        draft.summary_json = summary
+        draft.generation_mode = "langgraph_agentic_rag_v2"
+        if not question_quality.get("passed") or not draft.coverage_json.get("passed"):
+            raise InterviewAgenticRAGError(
+                "Interview preparation release gate failed: "
+                + json.dumps(
+                    {
+                        "question_quality": question_quality,
+                        "coverage": draft.coverage_json,
+                    },
+                    ensure_ascii=False,
+                )
+            )
+        db.add(draft)
+        db.commit()
+        db.refresh(draft)
+        return draft
 
     def _attach_question_metadata(self, question_sets: list[dict[str, Any]], *, missing: list[str] | None = None) -> None:
         missing_norm = {normalize_skill(item) for item in missing or [] if normalize_skill(item)}
@@ -973,7 +1040,7 @@ class InterviewPrepService:
         questions = [question for group in question_sets for question in group.get("questions", [])]
         if not questions:
             return {
-                "mode": "heuristic_v3_reference_answer",
+                "mode": "agentic_rag_contract_v2",
                 "passed": False,
                 "score": 0.0,
                 "rates": {},
@@ -999,6 +1066,9 @@ class InterviewPrepService:
             "evidence_traceability": 0,
             "actionability": 0,
             "reference_answer_usability": 0,
+            "retrieval_plan_validity": 0,
+            "citation_integrity": 0,
+            "source_policy_coverage": 0,
         }
         denominators = {
             "jd_alignment": len(questions),
@@ -1008,6 +1078,9 @@ class InterviewPrepService:
             "evidence_traceability": 0,
             "actionability": len(questions),
             "reference_answer_usability": len(questions),
+            "retrieval_plan_validity": len(questions),
+            "citation_integrity": len(questions),
+            "source_policy_coverage": len(questions),
         }
         issue_counts: dict[str, int] = {}
         sample_issues: list[str] = []
@@ -1038,15 +1111,14 @@ class InterviewPrepService:
                 denominators["evidence_traceability"] += 1
             evidence_traceability = (not evidence_required) or bool(question.get("evidence_refs"))
             framework = question.get("answer_framework") or []
-            framework_sections = {str(item.get("section") or "") for item in framework if isinstance(item, dict)}
-            has_evidence_step = "绑定项目证据" in framework_sections
-            has_boundary_step = any("边界" in section or "失败" in section for section in framework_sections)
-            has_verification_step = any("评测" in section or "验证" in section or "可观测" in section for section in framework_sections)
             actionability = (
-                len(framework) >= 4
-                and has_evidence_step
-                and has_boundary_step
-                and has_verification_step
+                len(framework) >= 3
+                and all(
+                    isinstance(item, dict)
+                    and str(item.get("section") or "").strip()
+                    and str(item.get("guidance") or "").strip()
+                    for item in framework
+                )
                 and len(str(question.get("question") or "")) >= 10
             )
             reference_answer = str(question.get("reference_answer") or "").strip()
@@ -1055,6 +1127,38 @@ class InterviewPrepService:
                 and reference_answer.count("。") >= 2
                 and "我" in reference_answer
                 and not any(marker in reference_answer for marker in ("先标注来源", "请自行补充", "TODO"))
+            )
+            retrieval_plan = question.get("retrieval_plan") or {}
+            retrieval_plan_validity = (
+                isinstance(retrieval_plan, dict)
+                and bool(retrieval_plan.get("intent"))
+                and bool(retrieval_plan.get("search_queries"))
+                and bool(retrieval_plan.get("target_sources"))
+                and bool(retrieval_plan.get("required_evidence"))
+                and float(retrieval_plan.get("confidence") or 0) >= self.settings.interview_rag_min_plan_confidence
+            )
+            refs = question.get("evidence_refs") or []
+            evidence_by_id = {
+                str(item.get("evidence_id") or item.get("ref") or ""): item
+                for item in refs
+                if isinstance(item, dict)
+            }
+            citations = question.get("citations") or []
+            citation_integrity = bool(citations) and all(
+                isinstance(item, dict) and str(item.get("evidence_id") or "") in evidence_by_id
+                for item in citations
+            )
+            claims = question.get("claims") or []
+            source_policy_coverage = bool(claims) and all(
+                isinstance(claim, dict)
+                and bool(claim.get("text"))
+                and bool(claim.get("evidence_ids"))
+                and all(
+                    str(claim.get("claim_type") or "")
+                    in set((evidence_by_id.get(str(evidence_id)) or {}).get("allowed_claim_types") or [])
+                    for evidence_id in claim.get("evidence_ids") or []
+                )
+                for claim in claims
             )
 
             results = {
@@ -1065,6 +1169,9 @@ class InterviewPrepService:
                 "evidence_traceability": (evidence_traceability, evidence_required),
                 "actionability": (actionability, True),
                 "reference_answer_usability": (reference_answer_usability, True),
+                "retrieval_plan_validity": (retrieval_plan_validity, True),
+                "citation_integrity": (citation_integrity, True),
+                "source_policy_coverage": (source_policy_coverage, True),
             }
             for name, (passed, applicable) in results.items():
                 if not applicable:
@@ -1089,13 +1196,16 @@ class InterviewPrepService:
         rates["duplicate_rate"] = duplicate_rate
         rates["evidence_signal_rate"] = round(len(evidence) / max(len(questions), 1), 4)
         score = round(
-            0.2 * rates["jd_alignment"]
-            + 0.15 * rates["follow_up_depth"]
-            + 0.15 * rates["gap_boundary"]
-            + 0.1 * rates["project_binding"]
-            + 0.1 * rates["evidence_traceability"]
-            + 0.1 * rates["actionability"]
-            + 0.2 * rates["reference_answer_usability"]
+            0.12 * rates["jd_alignment"]
+            + 0.08 * rates["follow_up_depth"]
+            + 0.08 * rates["gap_boundary"]
+            + 0.07 * rates["project_binding"]
+            + 0.05 * rates["evidence_traceability"]
+            + 0.08 * rates["actionability"]
+            + 0.17 * rates["reference_answer_usability"]
+            + 0.12 * rates["retrieval_plan_validity"]
+            + 0.12 * rates["citation_integrity"]
+            + 0.11 * rates["source_policy_coverage"]
             - min(duplicate_rate * 0.15, 0.15),
             4,
         )
@@ -1108,6 +1218,9 @@ class InterviewPrepService:
             "evidence_traceability": 1.0,
             "actionability": 0.9,
             "reference_answer_usability": 0.9,
+            "retrieval_plan_validity": 1.0,
+            "citation_integrity": 1.0,
+            "source_policy_coverage": 1.0,
             "duplicate_rate_max": 0.08,
         }
         passed = (
@@ -1119,17 +1232,20 @@ class InterviewPrepService:
             and rates["evidence_traceability"] >= thresholds["evidence_traceability"]
             and rates["actionability"] >= thresholds["actionability"]
             and rates["reference_answer_usability"] >= thresholds["reference_answer_usability"]
+            and rates["retrieval_plan_validity"] >= thresholds["retrieval_plan_validity"]
+            and rates["citation_integrity"] >= thresholds["citation_integrity"]
+            and rates["source_policy_coverage"] >= thresholds["source_policy_coverage"]
             and duplicate_rate <= thresholds["duplicate_rate_max"]
         )
         return {
-            "mode": "heuristic_v3_reference_answer",
+            "mode": "agentic_rag_contract_v2",
             "passed": passed,
             "score": score,
             "thresholds": thresholds,
             "rates": rates,
             "issue_counts": issue_counts,
             "sample_issues": sample_issues,
-            "design_reason": "使用可解释本地 judge 作为生成质量门禁，避免为每个面试包额外调用 LLM 带来成本、延迟和不稳定性；后续可叠加 LLM-as-judge 做抽检。",
+            "design_reason": "本地门禁只校验结构、检索计划、引用完整性和来源权限；语义理解与回答由 LLM 完成，避免再次引入关键词题型路由。",
         }
 
     def _research_checklist(self, job: Job, required: list[str], missing: list[str]) -> list[dict[str, Any]]:

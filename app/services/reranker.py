@@ -70,6 +70,82 @@ class RerankerService:
         texts = [str(candidate.get("text") or "") for candidate in candidates]
         chunk_types = [str(candidate.get("chunk_type") or "") for candidate in candidates]
         raw_scores, info = self._score_pairs(query, texts, chunk_types)
+        return self._rerank_dicts_with_scores(candidates, raw_scores, info=info, top_k=top_k)
+
+    def rerank_dict_groups(
+        self,
+        groups: list[tuple[str, list[dict[str, Any]], int]],
+    ) -> list[list[dict[str, Any]]]:
+        """Rerank multiple query groups with one CrossEncoder predict call."""
+        if not groups:
+            return []
+        if not self.enabled:
+            return [candidates[:top_k] for _, candidates, top_k in groups]
+
+        if self.provider in {"cross_encoder", "cross-encoder", "sentence_transformers"}:
+            try:
+                model = self._load_cross_encoder()
+                pairs = [
+                    (query, str(candidate.get("text") or ""))
+                    for query, candidates, _ in groups
+                    for candidate in candidates
+                ]
+                flat_scores = [
+                    float(score)
+                    for score in model.predict(
+                        pairs,
+                        batch_size=self.settings.reranker_batch_size,
+                        show_progress_bar=False,
+                    )
+                ]
+                info = {
+                    "reranker_provider": "cross_encoder",
+                    "reranker_model": self.model_name,
+                    "batched_query_count": len(groups),
+                    "batched_pair_count": len(pairs),
+                }
+                output: list[list[dict[str, Any]]] = []
+                offset = 0
+                for _, candidates, top_k in groups:
+                    size = len(candidates)
+                    output.append(
+                        self._rerank_dicts_with_scores(
+                            candidates,
+                            flat_scores[offset : offset + size],
+                            info=info,
+                            top_k=top_k,
+                        )
+                    )
+                    offset += size
+                return output
+            except Exception as exc:  # noqa: BLE001
+                if self.settings.reranker_provider_fallback.lower() != "heuristic":
+                    raise
+                fallback_reason = f"{self.provider}:{self.model_name} unavailable: {exc}"
+                return [
+                    self._rerank_dicts_with_scores(
+                        candidates,
+                        *self._heuristic_scores(
+                            query,
+                            [str(candidate.get("text") or "") for candidate in candidates],
+                            [str(candidate.get("chunk_type") or "") for candidate in candidates],
+                            fallback_reason=fallback_reason,
+                        ),
+                        top_k=top_k,
+                    )
+                    for query, candidates, top_k in groups
+                ]
+
+        return [self.rerank_dicts(query, candidates, top_k=top_k) for query, candidates, top_k in groups]
+
+    def _rerank_dicts_with_scores(
+        self,
+        candidates: list[dict[str, Any]],
+        raw_scores: list[float],
+        info: dict[str, Any],
+        *,
+        top_k: int,
+    ) -> list[dict[str, Any]]:
         normalized = self._normalize_scores(raw_scores)
         reranked: list[dict[str, Any]] = []
         for candidate, raw_score, norm_score in zip(candidates, raw_scores, normalized, strict=False):
@@ -145,16 +221,7 @@ class RerankerService:
             from sentence_transformers import CrossEncoder  # type: ignore
 
             self.settings.embedding_cache_path.mkdir(parents=True, exist_ok=True)
-            try:
-                model = CrossEncoder(
-                    self.model_name,
-                    model_kwargs={"cache_dir": str(self.settings.embedding_cache_path)},
-                )
-            except TypeError:
-                model = CrossEncoder(
-                    self.model_name,
-                    automodel_args={"cache_dir": str(self.settings.embedding_cache_path)},
-                )
+            model = CrossEncoder(self.model_name)
             _RERANKER_MODEL_CACHE[cache_key] = model
             return model
         except Exception as exc:  # noqa: BLE001

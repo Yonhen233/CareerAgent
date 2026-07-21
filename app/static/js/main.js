@@ -1929,6 +1929,8 @@ function renderInterviewQuestion(question, prepId, practiceByQuestion) {
   const referenceAnswer = String(question.reference_answer || "").trim();
   const referenceAnswerParagraphs = referenceAnswer ? referenceAnswer.split(/\n\s*\n/).filter(Boolean) : [];
   const evidenceRefs = Array.isArray(question.evidence_refs) ? question.evidence_refs : [];
+  const retrievalPlan = question.retrieval_plan || {};
+  const requiresRegeneration = Boolean(question.requires_regeneration);
   return `
     <article class="interview-question-card" data-question-id="${escapeHtml(questionId)}">
       <div class="interview-question-head">
@@ -1946,8 +1948,8 @@ function renderInterviewQuestion(question, prepId, practiceByQuestion) {
           <ul>${followUps.slice(0, 3).map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>
         </div>
       ` : ""}
-      <details class="interview-answer-outline">
-        <summary>查看可直接参考的回答</summary>
+      <details class="interview-answer-outline" ${requiresRegeneration ? "open" : ""}>
+        <summary>${requiresRegeneration ? "旧版内容需要重新生成" : "查看可直接参考的回答"}</summary>
         <div class="interview-reference-answer">
           <div class="interview-reference-answer-head">
             <strong>参考回答</strong>
@@ -1955,15 +1957,16 @@ function renderInterviewQuestion(question, prepId, practiceByQuestion) {
           </div>
           ${referenceAnswerParagraphs.length
             ? referenceAnswerParagraphs.map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join("")
-            : `<p>当前还没有可直接参考的答案，请重新生成面试包或检查简历证据。</p>`}
+            : `<p>${requiresRegeneration ? "这份面试包由旧版规则生成，未经过多来源检索和引用校验。请回到面试页重新生成，系统不会在读取页面时临时拼接答案。" : "当前没有通过引用校验的参考答案，请重新生成面试包并查看运行错误。"}</p>`}
         </div>
-        <details class="interview-answer-notes">
+        ${requiresRegeneration ? "" : `<details class="interview-answer-notes">
           <summary>查看回答思路与证据</summary>
           <div class="interview-framework-meta">
             <span>${escapeHtml(question.question_generation_source_label || "由系统根据岗位与简历生成题目")}</span>
             <span>${escapeHtml(question.answer_framework_source_label || "回答思路来源未标注")}</span>
           </div>
           ${question.intent ? `<div class="interview-question-intent"><strong>考察点</strong><span>${escapeHtml(question.intent)}</span></div>` : ""}
+          ${retrievalPlan.intent ? `<div class="interview-question-intent"><strong>检索意图</strong><span>${escapeHtml(retrievalPlan.intent)}</span></div>` : ""}
           ${answerFramework.length ? `
             <ol class="interview-answer-steps">
               ${answerFramework.slice(0, 6).map((item, index) => `
@@ -1988,7 +1991,7 @@ function renderInterviewQuestion(question, prepId, practiceByQuestion) {
               `).join("")}
             </div>
           ` : `<p class="interview-evidence-empty">当前没有可直接引用的简历证据，回答时请明确说明经验边界。</p>`}
-        </details>
+        </details>`}
       </details>
       <div class="interview-practice-control">
         <span>练习状态</span>

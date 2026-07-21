@@ -1,5 +1,22 @@
 # 量化评测方案
 
+## 面试 Agentic RAG v2
+
+面试评测不再只检查题目数量和回答长度，还检查完整链路契约：
+
+- retrieval plan 完整率与 source inventory 兼容性；
+- citation integrity 与局部证据别名合法率；
+- claim type/source policy 覆盖率；
+- LLM entailment judge 对引用证据的支持判断；
+- Answer-to-Claim Coverage Judge 对正文隐藏事实的检出；
+- verified-claim renderer 的回答长度、复盘结构和用户可用性；
+- repair error count 与 dirty question count 是否逐轮收敛；
+- release gate 失败时 InterviewPrep 是否保持不落库。
+
+真实 DeepSeek 调试中，v1 完整包从 94 次调用、约 641 秒优化到 59 次调用、约 504 秒，验证题数按 `32 -> 21 -> 5 -> 1` 收敛。v2 增加正文 claim coverage 后发现 middleware trace ID、降级算法、Playwright 选型理由等未声明事实，推动架构改为“先验证 claims，再渲染正文”。最终 v2 在线完成因 API 返回 `HTTP 402 Insufficient Balance` 阻塞，失败未落库。离线完整回归为 `179 passed`。
+
+离线评测中的 `DeterministicInterviewEvaluationLLM` 只在显式 `LLM_FALLBACK_ENABLED=true` 的评测 harness 使用，不进入产品路径；产品未配置 LLM 或 release gate 失败时直接报错。
+
 CareerAgent 的评测分为九类：
 
 - 基础匹配评测：Profile/JD 匹配质量。

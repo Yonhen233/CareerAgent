@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
+from app.core.llm import LLMConfigurationError
 from app.models.entities import InterviewExperience, InterviewPrep, Job, Profile
 from app.models.schemas import (
     InterviewExperienceCreateRequest,
@@ -38,8 +39,10 @@ async def create_interview_prep(
             job=job,
             experience_ids=payload.experience_ids,
         )
+    except LLMConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Interview prep LLM generation failed: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"Interview Agentic RAG generation failed: {exc}") from exc
     return _interview_prep_response(prep)
 
 
