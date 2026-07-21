@@ -67,10 +67,10 @@ CareerAgent/
 │   │   ├── interview_experience.py           # 用户导入面经的结构化处理
 │   │   ├── interview_sources.py              # 牛客/OfferShow/小红书来源 smoke
 │   │   ├── interview_prep.py                 # 面试题组、质量门禁与持久化事务边界
-│   │   ├── interview_agentic_rag.py          # LangGraph 多源检索、claim 校验、renderer 与 repair
+│   │   ├── interview_agentic_rag.py          # 成本受控 LangGraph 多源检索、批量 claim 校验与 repair
 │   │   ├── interview_evaluation_fixture.py   # 仅离线评测使用的确定性 LLM fixture
 │   │   ├── interview_delivery.py             # 面试包 Markdown 和练习状态
-│   │   ├── interview_answer_framework.py     # v2 交付规范化与旧版重新生成标记
+│   │   ├── interview_answer_framework.py     # v3 交付规范化与旧版重新生成标记
 │   │   │
 │   │   ├── trace_service.py                  # Run/Step/Artifact/Event Trace
 │   │   ├── run_business_summary.py           # 路由/过程/结果/副作用四层业务摘要

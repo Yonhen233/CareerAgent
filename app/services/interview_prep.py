@@ -8,7 +8,14 @@ from urllib.parse import quote_plus
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.llm import LLMClient, LLMConfigurationError, extract_json_object, format_exception
+from app.core.llm import (
+    LLMCallBudget,
+    LLMClient,
+    LLMConfigurationError,
+    extract_json_object,
+    format_exception,
+    llm_call_budget,
+)
 from app.models.entities import InterviewPrep, Job, MatchResult, Profile
 from app.services.interview_agentic_rag import InterviewAgenticRAGError, InterviewAgenticRAGService
 from app.services.interview_answer_framework import InterviewAnswerFrameworkService
@@ -94,6 +101,11 @@ class InterviewPrepService:
         ]
         question_sets = [item for item in question_sets if item["questions"]]
         question_sets = self._dedupe_question_sets(question_sets)
+        if llm_question_sets:
+            question_sets = self._limit_question_sets(
+                question_sets,
+                max_questions=self.settings.interview_rag_max_questions,
+            )
         self._attach_question_metadata(question_sets, missing=missing)
         gap_drills = self._gap_drills(job, missing)
         research_checklist = self._research_checklist(job, required, missing)
@@ -192,6 +204,32 @@ class InterviewPrepService:
             raise LLMConfigurationError(
                 "LLM is required for interview preparation. Configure LLM_API_KEY before starting the workflow."
             )
+        budget = LLMCallBudget(
+            name="interview_agentic_rag",
+            max_calls=self.settings.interview_rag_max_llm_calls,
+            max_prompt_chars=self.settings.interview_rag_max_prompt_chars,
+            max_completion_tokens=self.settings.interview_rag_max_completion_tokens,
+        )
+        with llm_call_budget(budget):
+            return await self._create_interview_prep_with_llm_budgeted(
+                db,
+                profile=profile,
+                job=job,
+                match_result=match_result,
+                experience_ids=experience_ids,
+                budget=budget,
+            )
+
+    async def _create_interview_prep_with_llm_budgeted(
+        self,
+        db: Session,
+        *,
+        profile: Profile,
+        job: Job,
+        match_result: MatchResult | None,
+        experience_ids: list[int] | None,
+        budget: LLMCallBudget,
+    ) -> InterviewPrep:
         match = match_result or self.matcher.create_match_result(db, profile, job)
         evidence = self._evidence(match)
         required = self._skills(job, "required_skills")
@@ -261,8 +299,9 @@ class InterviewPrepService:
         summary = dict(draft.summary_json or {})
         summary["question_quality"] = question_quality
         summary["agentic_rag"] = {"status": "completed", **(rag_result.get("summary") or {})}
+        summary["llm_budget"] = budget.to_dict()
         draft.summary_json = summary
-        draft.generation_mode = "langgraph_agentic_rag_v2"
+        draft.generation_mode = "langgraph_agentic_rag_v3_cost_guarded"
         if not question_quality.get("passed") or not draft.coverage_json.get("passed"):
             raise InterviewAgenticRAGError(
                 "Interview preparation release gate failed: "
@@ -332,6 +371,85 @@ class InterviewPrepService:
                 new_group["questions"] = unique_questions
                 deduped_sets.append(new_group)
         return deduped_sets
+
+    def _limit_question_sets(
+        self,
+        question_sets: list[dict[str, Any]],
+        *,
+        max_questions: int,
+    ) -> list[dict[str, Any]]:
+        """Keep source diversity inside a fixed question budget."""
+        limit = max(1, int(max_questions))
+        groups: list[dict[str, Any]] = []
+        for group_index, group in enumerate(question_sets):
+            questions = list(group.get("questions") or [])
+            if not questions:
+                continue
+            groups.append(
+                {
+                    "index": group_index,
+                    "category": group.get("category"),
+                    "questions": questions,
+                    "selected_indexes": set(),
+                }
+            )
+
+        selected_count = 0
+
+        def take(source: str, count: int) -> None:
+            nonlocal selected_count
+            remaining = max(0, count)
+            for group in groups:
+                for question_index, question in enumerate(group["questions"]):
+                    if remaining <= 0 or selected_count >= limit:
+                        return
+                    if question_index in group["selected_indexes"]:
+                        continue
+                    if str(question.get("source_perspective") or "") != source:
+                        continue
+                    group["selected_indexes"].add(question_index)
+                    selected_count += 1
+                    remaining -= 1
+
+        has_source_backed = any(
+            str(question.get("source_perspective") or "") == "source_backed_interview_experience"
+            for group in groups
+            for question in group["questions"]
+        )
+        take("source_backed_interview_experience", 3)
+        take("online_experience_research", 1 if has_source_backed else 2)
+        take("llm_project_implementation", 2)
+        take("resume_project_stack", 1)
+        take("llm_foundation_drill", 2)
+        take("general_interview", 1)
+
+        while selected_count < limit:
+            selected_this_round = 0
+            for group in groups:
+                for question_index in range(len(group["questions"])):
+                    if question_index in group["selected_indexes"]:
+                        continue
+                    group["selected_indexes"].add(question_index)
+                    selected_count += 1
+                    selected_this_round += 1
+                    break
+                if selected_count >= limit:
+                    break
+            if selected_this_round == 0:
+                break
+
+        return [
+            {
+                "category": group["category"],
+                "questions": [
+                    question
+                    for question_index, question in enumerate(group["questions"])
+                    if question_index in group["selected_indexes"]
+                ],
+            }
+            for group in groups
+            if group["selected_indexes"]
+        ]
 
     def _source_backed_experience_questions(
         self,
@@ -487,7 +605,7 @@ class InterviewPrepService:
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     temperature=0.35,
-                    max_tokens=1200,
+                    max_tokens=2600,
                     response_format={"type": "json_object"},
                     db=db,
                     trace_name=trace_name,
@@ -565,8 +683,8 @@ class InterviewPrepService:
             "\"skills\":[string],\"risk_level\":\"low|medium|high\"}],"
             "\"foundation_questions\":[{\"question\":string,\"follow_ups\":[string,string],"
             "\"skills\":[string],\"risk_level\":\"low|medium|high\"}]}\n"
-            "project_questions 只生成 2 题，围绕简历项目架构、数据流、日志指标、失败边界和本人贡献。\n"
-            "foundation_questions 只生成 2 题，围绕 JD 技能八股、底层原理、工程取舍和缺口诚实披露。\n"
+            "project_questions 生成 5 题，围绕简历项目架构、数据流、日志指标、失败边界和本人贡献。\n"
+            "foundation_questions 生成 5 题，覆盖 JD 技能原理、工程取舍、能力缺口、求职动机和行为问题。\n"
             "每个字符串少于 60 个中文字符。不要 Markdown，不要额外字段。"
             "如果某技能在 missing_skills 里，问题必须要求候选人诚实说明边界和补齐计划，不能假设已经做过。\n\n"
             f"上下文：\n{json.dumps(context, ensure_ascii=False, indent=2)}"
@@ -587,7 +705,7 @@ class InterviewPrepService:
             '"skills":[string],"risk_level":"low|medium|high"}],'
             '"foundation_questions":[{"question":string,"follow_ups":[string,string],'
             '"skills":[string],"risk_level":"low|medium|high"}]}\n'
-            "约束：每组最多 2 题；每个字符串少于 60 个中文字符。\n"
+            "约束：每组最多 5 题；每个字符串少于 60 个中文字符。\n"
             f"解析错误：{parse_error}\n"
             f"原始输出：\n{raw_text[:5000]}"
         )
@@ -691,7 +809,7 @@ class InterviewPrepService:
             raw_questions = payload.get(key)
             if not isinstance(raw_questions, list):
                 continue
-            for raw_question in raw_questions[:3]:
+            for raw_question in raw_questions[:5]:
                 if not isinstance(raw_question, dict):
                     continue
                 question_text = str(raw_question.get("question") or "").strip()
@@ -747,8 +865,8 @@ class InterviewPrepService:
             elif "project" in haystack or "项目" in haystack or "实现" in haystack:
                 project_questions.append(obj)
         return {
-            "project_questions": project_questions[:2],
-            "foundation_questions": foundation_questions[:2],
+            "project_questions": project_questions[:5],
+            "foundation_questions": foundation_questions[:5],
         }
 
     def _heuristic_llm_question_sets(
@@ -1040,7 +1158,7 @@ class InterviewPrepService:
         questions = [question for group in question_sets for question in group.get("questions", [])]
         if not questions:
             return {
-                "mode": "agentic_rag_contract_v2",
+                "mode": "agentic_rag_contract_v3_cost_guarded",
                 "passed": False,
                 "score": 0.0,
                 "rates": {},
@@ -1135,7 +1253,7 @@ class InterviewPrepService:
                 and bool(retrieval_plan.get("search_queries"))
                 and bool(retrieval_plan.get("target_sources"))
                 and bool(retrieval_plan.get("required_evidence"))
-                and float(retrieval_plan.get("confidence") or 0) >= self.settings.interview_rag_min_plan_confidence
+                and float(retrieval_plan.get("confidence") or 0) > 0
             )
             refs = question.get("evidence_refs") or []
             evidence_by_id = {
@@ -1238,7 +1356,7 @@ class InterviewPrepService:
             and duplicate_rate <= thresholds["duplicate_rate_max"]
         )
         return {
-            "mode": "agentic_rag_contract_v2",
+            "mode": "agentic_rag_contract_v3_cost_guarded",
             "passed": passed,
             "score": score,
             "thresholds": thresholds,
@@ -1301,7 +1419,12 @@ class InterviewPrepService:
         required_norm = {normalize_skill(skill) for skill in required if normalize_skill(skill)}
         missing_norm = {normalize_skill(skill) for skill in missing if normalize_skill(skill)}
         drill_norm = {normalize_skill(item.get("skill", "")) for item in gap_drills}
-        required_covered = required_norm <= (covered_skills | drill_norm) if required_norm else True
+        required_skill_coverage_rate = (
+            len(required_norm & (covered_skills | drill_norm)) / max(len(required_norm), 1)
+            if required_norm
+            else 1.0
+        )
+        required_covered = required_skill_coverage_rate >= 0.8
         missing_covered = missing_norm <= drill_norm if missing_norm else True
         evidence_backed = [question for question in questions if question.get("evidence_refs")]
         high_risk_questions = [question for question in questions if question.get("risk_level") == "high"]
@@ -1370,10 +1493,8 @@ class InterviewPrepService:
                 "jd_gap_drill",
                 "general_interview",
             ],
-            "required_skill_coverage_rate": round(
-                len(required_norm & (covered_skills | drill_norm)) / max(len(required_norm), 1),
-                4,
-            ),
+            "required_skill_coverage_rate": round(required_skill_coverage_rate, 4),
+            "required_skill_coverage_threshold": 0.8,
             "missing_skill_drill_rate": round(len(missing_norm & drill_norm) / max(len(missing_norm), 1), 4)
             if missing_norm
             else 1.0,

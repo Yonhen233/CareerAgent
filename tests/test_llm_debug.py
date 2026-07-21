@@ -1,9 +1,15 @@
 import time
 import asyncio
 import httpx
+import pytest
 
-from app.core.llm import LLMClient
-from app.core.llm import llm_trace_context
+from app.core.llm import (
+    LLMCallBudget,
+    LLMBudgetExceededError,
+    LLMClient,
+    llm_call_budget,
+    llm_trace_context,
+)
 from app.api.llm_debug import list_llm_logs
 from app.models.entities import LLMCallLog
 
@@ -31,6 +37,76 @@ def test_llm_call_log_records_debug_metadata(db_session):
     assert row.prompt_chars == 10
     assert row.response_chars == 2
     assert row.context_json == {}
+
+
+def test_llm_budget_blocks_call_before_limit_is_exceeded():
+    budget = LLMCallBudget(
+        name="unit-test",
+        max_calls=1,
+        max_prompt_chars=20,
+        max_completion_tokens=10,
+    )
+    budget.reserve(trace_name="first", prompt_chars=10, max_tokens=5)
+
+    with pytest.raises(LLMBudgetExceededError, match="max_calls=1"):
+        budget.reserve(trace_name="second", prompt_chars=1, max_tokens=1)
+
+
+def test_llm_client_records_provider_token_usage_and_budget(monkeypatch, db_session):
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.deepseek.com")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+
+    class FakeResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 3, "total_tokens": 14},
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, headers, json):
+            return FakeResponse()
+
+    monkeypatch.setattr("app.core.llm.httpx.AsyncClient", FakeAsyncClient)
+    budget = LLMCallBudget(
+        name="usage-test",
+        max_calls=2,
+        max_prompt_chars=100,
+        max_completion_tokens=20,
+    )
+    client = LLMClient()
+    with llm_call_budget(budget):
+        result = asyncio.run(
+            client.generate_text(
+                system_prompt="system",
+                user_prompt="user",
+                max_tokens=10,
+                db=db_session,
+                trace_name="unit_test.token_usage",
+            )
+        )
+
+    row = db_session.query(LLMCallLog).filter(LLMCallLog.trace_name == "unit_test.token_usage").one()
+    assert result == "ok"
+    assert (row.prompt_tokens, row.completion_tokens, row.total_tokens) == (11, 3, 14)
+    assert budget.to_dict()["actual"]["total_tokens"] == 14
+    assert budget.to_dict()["reserved"]["calls"] == 1
+    get_settings.cache_clear()
 
 
 def test_llm_call_log_records_trace_context(db_session):
@@ -190,15 +266,23 @@ def test_llm_client_retries_transient_transport_errors(monkeypatch, db_session):
 
     monkeypatch.setattr("app.core.llm.httpx.AsyncClient", FakeAsyncClient)
     client = LLMClient()
-
-    text = asyncio.run(
-        client.generate_text(
-            system_prompt="system",
-            user_prompt="user",
-            db=db_session,
-            trace_name="unit_test.retry",
-        )
+    budget = LLMCallBudget(
+        name="retry-test",
+        max_calls=2,
+        max_prompt_chars=100,
+        max_completion_tokens=20,
     )
+
+    with llm_call_budget(budget):
+        text = asyncio.run(
+            client.generate_text(
+                system_prompt="system",
+                user_prompt="user",
+                max_tokens=10,
+                db=db_session,
+                trace_name="unit_test.retry",
+            )
+        )
 
     rows = (
         db_session.query(LLMCallLog)
@@ -211,4 +295,63 @@ def test_llm_client_retries_transient_transport_errors(monkeypatch, db_session):
     assert [row.status for row in rows] == ["retryable_failed", "completed"]
     assert rows[0].prompt_preview_json["attempt"] == 1
     assert rows[1].prompt_preview_json["attempt"] == 2
+    assert budget.calls == 2
+    assert budget.traces == ["unit_test.retry#attempt1", "unit_test.retry#attempt2"]
+    get_settings.cache_clear()
+
+
+def test_llm_budget_blocks_retry_before_second_http_request(monkeypatch, db_session):
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.deepseek.com")
+    monkeypatch.setenv("LLM_RETRY_ATTEMPTS", "1")
+    monkeypatch.setenv("LLM_RETRY_BACKOFF_SECONDS", "0")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+
+    class FailingAsyncClient:
+        calls = 0
+
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, headers, json):
+            FailingAsyncClient.calls += 1
+            raise httpx.ConnectError("temporary disconnect")
+
+    monkeypatch.setattr("app.core.llm.httpx.AsyncClient", FailingAsyncClient)
+    budget = LLMCallBudget(
+        name="retry-hard-stop",
+        max_calls=1,
+        max_prompt_chars=100,
+        max_completion_tokens=10,
+    )
+
+    with llm_call_budget(budget), pytest.raises(LLMBudgetExceededError, match="max_calls=1"):
+        asyncio.run(
+            LLMClient().generate_text(
+                system_prompt="system",
+                user_prompt="user",
+                max_tokens=10,
+                db=db_session,
+                trace_name="unit_test.retry_hard_stop",
+            )
+        )
+
+    assert FailingAsyncClient.calls == 1
+    assert budget.calls == 1
+    rows = (
+        db_session.query(LLMCallLog)
+        .filter(LLMCallLog.trace_name == "unit_test.retry_hard_stop")
+        .order_by(LLMCallLog.id.asc())
+        .all()
+    )
+    assert [row.status for row in rows] == ["retryable_failed", "budget_exceeded"]
+    assert rows[-1].prompt_preview_json["attempt"] == 2
     get_settings.cache_clear()

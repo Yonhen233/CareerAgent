@@ -1,5 +1,54 @@
 # 开发日志
 
+## 2026-07-21 20:01:09 +08:00：修复面试 Agent Token 成本失控并增加硬预算
+### 这次做了什么
+- 将面试包默认规模从 32 题降为 10 道重点题，正常路径从 59 次 LLM 调用重构为 4 次：一次题目生成、两批 Claim 生成、一次批量 Claim 验证。
+- 删除运行路径中的 LLM Retrieval Planner、Verified Claim Renderer 和 Answer-to-Claim Coverage Judge 调用。检索 Query 由题目、JD 和简历摘要直接构造，不做关键词题型分类；正文只由已验证 claims 本地组合。
+- 彻底删除上述三个旧 LLM 节点、planner repair 及其旧测试，不保留可被误接回工作流的高成本死代码。
+- verifier Prompt 改为按题组织，每题 evidence 只发送一次；旧实现会对每个 claim 重复发送同一组 evidence。
+- 默认每题只保留 Top5 evidence，每段最多 240 字；并发降为 2，repair 从最多 3 轮降为最多 1 轮。
+- 新增工作流级 `LLMCallBudget`：最多 8 次调用、60,000 Prompt 字符、18,000 最大输出 token 预留，任一项超限都会在下一次网络请求前报错。
+- 预算改为按每次真实 HTTP 尝试预留，网络重试不再被算作同一次免费调用；重试会超限时，在下一次 HTTP 请求发出前阻断。
+- `llm_call_logs` 新增 `prompt_tokens`、`completion_tokens` 和 `total_tokens`，直接保存 OpenAI 兼容 API 返回的 usage；SQLite 启动迁移会为旧库补列。
+- 面试页面明确显示默认题数和调用边界；控制台 LLM 日志显示总 token 与输入/输出 token。
+- 契约升级为 `interview_agentic_rag_v3_cost_guarded`，旧 v1/v2 面试包需要重新生成。
+
+### 发现的问题
+- 成功面试包 `#44` 实际调用 59 次，Prompt 字符合计 `1,490,670`，Response 字符合计 `237,622`；其中 verifier 单独调用 37 次、占 `1,080,855` Prompt 字符。
+- v2 把 LLM 同时当成题目生成器、检索规划器、答案生成器、Claim 分类器、引用校验器、正文编辑器和覆盖检查器，职责拆得过细，导致同一证据被反复发送。
+- verifier 以 claim 为批次，每个 claim 都重复携带该题全部 evidence，这是 Prompt 膨胀的主要来源。
+- 系统只有调用日志，没有供应商 token usage，也没有工作流级预算；因此错误架构可以在没有任何拦截的情况下持续消耗余额。
+- 第一版预算只在逻辑调用入口预留一次，`LLMClient` 内部网络重试没有单独计数；这仍可能让实际请求数超过工作流统计。
+- 固定 10 题后，旧评测仍要求至少 12/14 题，并用单一中文题组标题做精确匹配，导致低成本方案被旧标注误判失败。
+- “多一层 LLM Judge 更安全”并不总成立。若正文完全由已验证 claims 组合，renderer 和 coverage judge 都可以删除，同时减少新的幻觉入口。
+
+### 怎么修复
+- 把语义能力集中到必要位置：LLM 生成问题、生成 claims、批量判断 claim 与证据的蕴含关系；检索、来源权限和输出组装全部确定化。
+- 按问题批量验证 claims，evidence 在每题只出现一次；10 题默认只需一个 verifier 请求。
+- 用来源配额限制问题数量，不做关键词题型分类：优先保留已导入真实面经，同时确保同岗面经、项目技术栈、基础/行为问题都进入 10 题预算。
+- 在每次 `LLMClient` HTTP 尝试前预留调用数、Prompt 字符和最大输出 token；超预算直接抛出 `LLMBudgetExceededError`。
+- 成功响应后读取 API `usage` 并写入数据库；历史记录缺少 usage 时保持 0，不用字符数伪装成 token。
+- 10 题质量门禁要求 JD 必备技能覆盖率至少 80%，但所有明确缺口仍必须 100% 进入诚实披露 drill；评测将“工程协作与落地”视为“通用面试与行为问题”的等价细分类别。
+
+### 验证结果
+- 同一离线 Profile/Job 输入：10 题、4 次调用、`57,220` Prompt 字符、`11,800` 最大输出 token 预留；相对 `#44`，调用数下降约 93.2%，Prompt 字符下降约 96.2%。
+- 面试离线评测 9 个 case 全部通过：平均 10 题，`pass_rate=1.0000`、`avg_required_skill_coverage_rate=0.9778`，明确缺口覆盖率保持 1.0。
+- 删除旧节点并补齐预算 trace 后，全量回归 `180 passed in 72.87s`；Python 编译和 JavaScript 语法检查通过。
+- 预算测试覆盖调用次数超限时在网络请求前失败；模拟 OpenAI usage 响应验证 `11 input + 3 output = 14 total` 正确写库并进入工作流预算统计。
+- 集成测试验证首次 HTTP 连接失败后，第二次重试若超过预算会在请求发出前停止，实际网络调用次数保持为 1。
+- 预算阻断会写入 `LLMCallLog.status=budget_exceeded` 和对应 attempt，控制台可以区分供应商失败与本地费用门禁。
+- repair prompt 与 v3 claims-only 输出契约对齐，每题要求 3-4 条可验证 claim，避免生成已废弃正文结构或因 claim 太少再次失败。
+- 本轮没有再次使用用户 API Key，也没有发起任何真实 LLM 请求。
+
+### 未修复的问题
+- 历史调用日志只保存字符数，无法还原供应商真实 token；文档只报告可审计字符数，不换算成伪精确 token。
+- v3 尚未在余额恢复后的真实模型上运行，但即使恢复余额也会先受 8 次调用、Prompt 字符和输出 token 三层硬门禁限制。
+- 当前预算按 `max_tokens` 预留输出上限，通常高于实际 completion token；这是为了优先避免超支。
+
+### 下一步
+- 增加用户可见的单次运行 usage 汇总，并按模型价格配置估算费用区间。
+- 建立 10 题人工可用性标注，确认缩减题量后 JD、项目、八股和行为问题的覆盖质量。
+
 ## 2026-07-21 19:18:01 +08:00：面试模块迁移到 Agentic RAG v2 与真实 LLM 全链路硬化
 ### 这次做了什么
 - 删除基于 `_question_kind` 关键词路由和规则模板拼接答案的旧实现。旧面试包不再在读取时静默升级为“新答案”，而是标记 `requires_regeneration`。

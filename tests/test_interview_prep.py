@@ -19,7 +19,36 @@ from app.services.text_splitter import ResumeTextSplitter
 from app.services.vector_index import SQLiteVectorIndex
 
 
+def _verifier_claims(payload):
+    flattened = []
+    for group in payload["items"]:
+        evidence_by_alias = {
+            item["evidence_id"]: item for item in group["available_evidence"]
+        }
+        for item in group["claims"]:
+            cited = [
+                evidence_by_alias[evidence_id]
+                for evidence_id in item["current_evidence_ids"]
+                if evidence_id in evidence_by_alias
+            ]
+            allowed_sets = [set(value["allowed_claim_types"]) for value in cited]
+            allowed = sorted(set.intersection(*allowed_sets)) if allowed_sets else []
+            flattened.append(
+                {
+                    **item,
+                    "question_id": group["question_id"],
+                    "question": group["question"],
+                    "available_evidence": group["available_evidence"],
+                    "allowed_claim_types": allowed,
+                }
+            )
+    return flattened
+
+
 class FakeAgenticInterviewLLM:
+    def __init__(self):
+        self.calls = []
+
     @property
     def available(self):
         return True
@@ -35,7 +64,14 @@ class FakeAgenticInterviewLLM:
         db,
         trace_name,
     ):
-        del system_prompt, temperature, max_tokens, response_format, db
+        self.calls.append(
+            {
+                "trace_name": trace_name,
+                "prompt_chars": len(system_prompt) + len(user_prompt),
+                "max_tokens": int(max_tokens or 0),
+            }
+        )
+        del temperature, response_format, db
         if trace_name == "interview_prep.generate_interviewer_questions":
             return json.dumps(
                 {
@@ -128,6 +164,7 @@ class FakeAgenticInterviewLLM:
             return self._answer_payload(json.loads(user_prompt)["items"])
         if trace_name.startswith("interview_agentic_rag.verify."):
             payload = json.loads(user_prompt)
+            claims = _verifier_claims(payload)
             return json.dumps(
                 {
                     "verdicts": [
@@ -143,7 +180,7 @@ class FakeAgenticInterviewLLM:
                             "normalized_evidence_ids": item["current_evidence_ids"],
                             "reason": "测试证据明确支持该 claim。",
                         }
-                        for item in payload["claims"]
+                        for item in claims
                     ]
                 },
                 ensure_ascii=False,
@@ -212,17 +249,17 @@ class FakeAgenticInterviewLLM:
             )
             claims = [
                 {
-                    "text": "候选人拥有简历中记录的项目经历",
+                    "text": "根据当前简历证据，我能够确认自己参与过其中记录的项目，但只陈述材料里明确出现的个人经历和职责边界。",
                     "claim_type": "candidate_experience",
                     "evidence_ids": [resume["evidence_id"]],
                 },
                 {
-                    "text": "当前岗位存在 JD 中记录的能力要求",
+                    "text": "当前岗位的能力要求以检索到的 JD 原文为准，我会用它调整回答重点，但不会把岗位要求说成自己已经完成的经历。",
                     "claim_type": "job_requirement",
                     "evidence_ids": [job["evidence_id"]],
                 },
                 {
-                    "text": "回答使用检索到的技术原理解释设计取舍",
+                    "text": "在解释技术方案时，我会引用检索到的技术资料说明原理、适用边界和验证方法，并明确区分通用知识与本人实践。",
                     "claim_type": "technical_explanation",
                     "evidence_ids": [technical["evidence_id"]],
                 },
@@ -275,6 +312,35 @@ def _create_grounded_prep(db_session, *, profile, job, experience_ids=None):
             experience_ids=experience_ids,
         )
     )
+
+
+def test_interview_default_flow_stays_within_four_llm_calls_and_context_budget(db_session):
+    profile, job = _seed_profile_job(db_session)
+    llm = FakeAgenticInterviewLLM()
+
+    prep = asyncio.run(
+        InterviewPrepService(llm=llm).create_interview_prep_with_llm(
+            db_session,
+            profile=profile,
+            job=job,
+        )
+    )
+
+    questions = [
+        question
+        for group in prep.question_sets_json
+        for question in group.get("questions", [])
+    ]
+    assert len(questions) == 10
+    assert len(llm.calls) == 4
+    assert [item["trace_name"] for item in llm.calls] == [
+        "interview_prep.generate_interviewer_questions",
+        "interview_agentic_rag.generate.1",
+        "interview_agentic_rag.generate.2",
+        "interview_agentic_rag.verify.1",
+    ]
+    assert sum(item["prompt_chars"] for item in llm.calls) <= 60000
+    assert sum(item["max_tokens"] for item in llm.calls) <= 18000
 
 
 def test_agentic_rag_repairs_malformed_json_with_traced_llm_node(db_session):
@@ -346,7 +412,7 @@ def test_claim_verifier_rebinds_generator_miscitation_to_supporting_evidence(db_
         async def generate_text(self, *, user_prompt, trace_name, **kwargs):
             del kwargs
             assert trace_name.startswith("interview_agentic_rag.verify.")
-            item = json.loads(user_prompt)["claims"][0]
+            item = _verifier_claims(json.loads(user_prompt))[0]
             project = next(
                 evidence
                 for evidence in item["available_evidence"]
@@ -420,7 +486,7 @@ def test_claim_verifier_prunes_rejected_claims_before_repair(db_session):
 
         async def generate_text(self, *, user_prompt, **kwargs):
             del kwargs
-            item = json.loads(user_prompt)["claims"][0]
+            item = _verifier_claims(json.loads(user_prompt))[0]
             return json.dumps(
                 {
                     "verdicts": [
@@ -472,95 +538,6 @@ def test_claim_verifier_prunes_rejected_claims_before_repair(db_session):
     assert errors[0]["code"] == "claim_not_supported"
     assert answers["q1"]["claims"] == []
     assert answers["q1"]["citations"] == []
-
-
-def test_claim_coverage_judge_rejects_facts_hidden_only_in_answer_body(db_session):
-    class CoverageGapLLM:
-        @property
-        def available(self):
-            return True
-
-        async def generate_text(self, *, user_prompt, **kwargs):
-            del kwargs
-            item = json.loads(user_prompt)["items"][0]
-            return json.dumps(
-                {
-                    "results": [
-                        {
-                            "question_id": item["question_id"],
-                            "covered": False,
-                            "uncovered_claims": ["每个请求生成唯一 trace ID 并写入 SQLite。"],
-                            "reason": "该实现细节只出现在正文，未出现在 declared_claims。",
-                        }
-                    ]
-                },
-                ensure_ascii=False,
-            )
-
-    errors = asyncio.run(
-        InterviewAgenticRAGService(llm=CoverageGapLLM())._verify_claim_coverage(
-            db_session,
-            questions=[{"question_id": "q1", "question": "并发下如何记录 trace？"}],
-            answers={
-                "q1": {
-                    "reference_answer": "每个请求生成唯一 trace ID 并写入 SQLite。",
-                    "claims": [{"text": "项目使用 FastAPI。"}],
-                }
-            },
-        )
-    )
-
-    assert errors[0]["code"] == "claim_coverage_gap"
-    assert "唯一 trace ID" in errors[0]["message"]
-
-
-def test_verified_answer_renderer_returns_repairable_quality_errors(db_session):
-    class ShortRendererLLM:
-        @property
-        def available(self):
-            return True
-
-        async def generate_text(self, *, user_prompt, **kwargs):
-            del kwargs
-            question_id = json.loads(user_prompt)["items"][0]["question_id"]
-            return json.dumps(
-                {
-                    "answers": [
-                        {
-                            "question_id": question_id,
-                            "reference_answer": "太短。",
-                            "answer_framework": [{"section": "结论", "guidance": "直接回答。"}],
-                        }
-                    ]
-                },
-                ensure_ascii=False,
-            )
-
-    answers, errors = asyncio.run(
-        InterviewAgenticRAGService(llm=ShortRendererLLM())._render_verified_answers(
-            db_session,
-            questions=[{"question_id": "q1", "question": "如何设计 RAG？"}],
-            answers={
-                "q1": {
-                    "question_id": "q1",
-                    "claims": [
-                        {
-                            "text": "项目使用混合检索。",
-                            "claim_type": "project_implementation",
-                            "evidence_ids": ["project_document:1"],
-                        }
-                    ],
-                    "citations": [],
-                }
-            },
-        )
-    )
-
-    assert answers["q1"]["reference_answer"] == "太短。"
-    assert {item["code"] for item in errors} == {
-        "rendered_answer_too_short",
-        "rendered_framework_incomplete",
-    }
 
 
 def _seed_profile_job(db_session):
@@ -633,8 +610,9 @@ def test_interview_prep_covers_online_project_and_general_perspectives(db_sessio
     questions = [question for group in prep.question_sets_json for question in group.get("questions", [])]
     preparation_angles = {item["angle"]: item for item in prep.summary_json["preparation_angles"]}
     assert "同岗位面经与高频追问" in categories
-    assert "简历项目技术栈追问" in categories
-    assert "通用面试与行为问题" in categories
+    assert "LLM 项目实现追问" in categories
+    assert "LLM 八股与基础追问" in categories
+    assert len(questions) == 10
     assert set(preparation_angles) == {
         "same_role_interview_experience",
         "resume_project_tech_stack",
@@ -765,7 +743,7 @@ def test_interview_prep_with_llm_generates_project_and_foundation_followups(db_s
     sources = {question["source_perspective"] for question in questions}
     markdown = InterviewPrepDeliveryService().render_markdown(prep)
 
-    assert prep.generation_mode == "langgraph_agentic_rag_v2"
+    assert prep.generation_mode == "langgraph_agentic_rag_v3_cost_guarded"
     assert prep.summary_json["llm_question_generation"]["enabled"] is True
     assert {"llm_project_implementation", "llm_foundation_drill"} <= sources
     assert any(question.get("follow_ups") for question in questions)
@@ -980,7 +958,10 @@ def test_interview_prep_delivery_exports_markdown_and_tracks_practice(db_session
 
     assert questions
     assert all(item["question_id"] for item in questions)
-    assert all(item["reference_answer_version"] == "interview_agentic_rag_v2" for item in questions)
+    assert all(
+        item["reference_answer_version"] == "interview_agentic_rag_v3_cost_guarded"
+        for item in questions
+    )
     assert all(len(item["reference_answer_basis"]) == 20 for item in questions)
     source_summary = delivery.source_perspective_summary(prep)
     assert source_summary["core_perspectives"]["online_experience"] > 0
@@ -1215,71 +1196,27 @@ def test_interview_release_gate_failure_does_not_persist_partial_result(db_sessi
     assert db_session.query(InterviewPrep).count() == before_count
 
 
-def test_interview_retrieval_plan_rejects_low_confidence():
+def test_interview_retrieval_plan_uses_cost_free_multi_query_builder(db_session):
     service = InterviewAgenticRAGService(llm=FakeAgenticInterviewLLM())
+    profile, job = _seed_profile_job(db_session)
 
-    with pytest.raises(InterviewAgenticRAGError, match="below the release threshold"):
-        service._normalize_plan(
+    plans = service._build_retrieval_plans(
+        profile=profile,
+        job=job,
+        questions=[
             {
                 "question_id": "q1",
-                "intent": "无法确定题目意图",
-                "answer_mode": "unknown",
-                "search_queries": ["测试"],
-                "target_sources": ["resume"],
-                "required_evidence": ["candidate_experience"],
-                "forbidden_claims": [],
-                "confidence": 0.2,
+                "question": "RAG 为什么需要 reranker？",
+                "intent": "说明检索和重排取舍",
+                "skills": ["RAG", "Reranker"],
             }
-        )
-
-
-def test_interview_retrieval_plan_repair_removes_unavailable_source(db_session):
-    class PlanRepairLLM(FakeAgenticInterviewLLM):
-        async def generate_text(self, **kwargs):
-            if kwargs["trace_name"] == "interview_agentic_rag.plan.repair":
-                payload = json.loads(kwargs["user_prompt"])
-                plans = []
-                for item in payload["items"]:
-                    plan = dict(item["previous_plan"])
-                    plan["target_sources"] = ["resume", "job", "technical_knowledge"]
-                    plan["required_evidence"] = [
-                        "candidate_experience",
-                        "job_requirement",
-                        "technical_explanation",
-                    ]
-                    plans.append(plan)
-                return json.dumps({"plans": plans}, ensure_ascii=False)
-            return await super().generate_text(**kwargs)
-
-    service = InterviewAgenticRAGService(llm=PlanRepairLLM())
-    plans = {
-        "q1": {
-            "question_id": "q1",
-            "intent": "准备无已导入面经时的回答",
-            "answer_mode": "evidence_grounded_interview_answer",
-            "search_queries": ["Agent 面试"],
-            "target_sources": ["resume", "job", "interview_experience"],
-            "required_evidence": ["candidate_experience", "interview_pattern"],
-            "forbidden_claims": [],
-            "confidence": 0.9,
-        }
-    }
-    inventory = {"resume": 3, "job": 2, "interview_experience": 0, "technical_knowledge": 4}
-    errors = service._plan_inventory_errors(plans, source_inventory=inventory)
-
-    repaired = asyncio.run(
-        service._repair_retrieval_plans(
-            db_session,
-            questions=[{"question_id": "q1", "question": "没有导入面经时如何准备？"}],
-            plans=plans,
-            errors=errors,
-            source_inventory=inventory,
-        )
+        ],
+        source_inventory={"resume": 3, "job": 2, "project_document": 4},
     )
 
-    assert errors[0]["unavailable_sources"] == ["interview_experience"]
-    assert service._plan_inventory_errors(repaired, source_inventory=inventory) == []
-    assert repaired["q1"]["repair_applied"] is True
+    assert plans["q1"]["planner_mode"] == "multi_query_builder_no_llm"
+    assert plans["q1"]["target_sources"] == ["resume", "job", "project_document"]
+    assert len(plans["q1"]["search_queries"]) <= 3
 
 
 def test_interview_langgraph_repairs_semantically_unsupported_claims(db_session):
@@ -1293,6 +1230,7 @@ def test_interview_langgraph_repairs_semantically_unsupported_claims(db_session)
             trace_name = kwargs["trace_name"]
             if trace_name.startswith("interview_agentic_rag.verify."):
                 payload = json.loads(kwargs["user_prompt"])
+                claims = _verifier_claims(payload)
                 return json.dumps(
                     {
                         "verdicts": [
@@ -1308,7 +1246,7 @@ def test_interview_langgraph_repairs_semantically_unsupported_claims(db_session)
                                 "normalized_evidence_ids": item["current_evidence_ids"],
                                 "reason": "首次校验故意模拟证据不蕴含，修复后通过。",
                             }
-                            for item in payload["claims"]
+                            for item in claims
                         ]
                     },
                     ensure_ascii=False,

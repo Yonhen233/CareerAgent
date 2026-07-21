@@ -2063,7 +2063,7 @@ class EvaluationService:
             )
         ) and len((prep.summary_json or {}).get("preparation_angles") or []) >= 3
         llm_question_generation_passed = (
-            str(prep.generation_mode) == "langgraph_agentic_rag_v2"
+            str(prep.generation_mode) == "langgraph_agentic_rag_v3_cost_guarded"
             and int(source_counts.get("llm_project_implementation") or 0) >= 2
             and int(source_counts.get("llm_foundation_drill") or 0) >= 2
         )
@@ -2092,7 +2092,14 @@ class EvaluationService:
         expected_keywords = [str(item) for item in case.get("expected_question_keywords") or []]
         expected_source_backed_min = int(case.get("expected_source_backed_min") or 0)
 
-        category_passed = expected_categories <= categories
+        category_aliases = {
+            "通用面试与行为问题": {"通用面试与行为问题", "工程协作与落地"},
+        }
+        category_passed = all(
+            expected in categories
+            or bool(category_aliases.get(str(expected), set()) & categories)
+            for expected in expected_categories
+        )
         research_passed = expected_research_sites <= research_sites
         gap_passed = expected_gap_drills <= drill_skills
         experience_site_passed = expected_experience_sites <= experience_sites

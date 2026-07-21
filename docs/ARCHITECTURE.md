@@ -58,32 +58,34 @@ Agent 主编排已经迁移到 LangGraph。`app/agents/orchestrator.py` 只保�
 
 `agent_events` 保存两类进度：一类来自 `TraceService` 的 run/step/artifact 事件，另一类来自 LangGraph `astream_events` 的 graph/node/interrupt 事件。`/agent/runs/{run_id}/events/stream` 以 SSE 输出这些事件，历史记录和长流程状态卡消费该事件流。普通岗位浏览使用独立搜索会话，不需要创建 AgentRun。
 
-### 面试 Agentic RAG v2
+### 面试 Agentic RAG v3：成本受控默认流程
 
-面试模块不再使用关键词题型分类器或规则答案模板。语义规划由 LLM 完成，确定性代码只负责数据域、schema、权限和 release gate。
+面试模块不使用关键词题型分类器或规则答案模板。LLM 只负责题目生成、证据 Claim 生成和批量语义校验；检索 Query 构造、混合检索、来源权限、答案组合和 release gate 都在本地执行。
 
 ```mermaid
 flowchart LR
-    A["JD、简历、面经与问题"] --> B["LLM Retrieval Planner"]
-    B --> C["Exact + BM25 + Vector + RRF"]
-    C --> D["Top20 CrossEncoder Reranker"]
-    D --> E["Source-diverse TopK Evidence"]
-    E --> F["LLM Draft Claims"]
-    F --> G["Claim Classifier + Citation Linker + Entailment"]
-    G --> H["Source Policy Gate"]
-    H --> I["Verified Claim Renderer"]
-    I --> J["Answer-to-Claim Coverage Judge"]
+    A["JD、简历与面经"] --> B["LLM 一次生成 10 道重点题"]
+    B --> C["本地 Multi-query Builder"]
+    C --> D["Exact + BM25 + Vector + RRF"]
+    D --> E["Top20 CrossEncoder Reranker"]
+    E --> F["每题 Top5 Evidence"]
+    F --> G["LLM 两批生成 Claims"]
+    G --> H["LLM 一批验证全部 Claims"]
+    H --> I["本地 Source Policy Gate"]
+    I --> J["本地 Verified Claim Composer"]
     J -->|"通过"| K["Quality/Coverage Release Gate"]
-    J -->|"失败题"| L["Bounded Repair"]
-    L --> G
+    J -->|"失败题"| L["最多一轮批量 Repair"]
+    L --> H
 ```
 
 - 来源包括 `resume/job/interview_experience/project_document/technical_knowledge`，各来源只能支持白名单中的 claim type。
 - JD 不能证明候选人做过，面经不能证明公司固定题库，技术知识不能证明候选人经历，项目文档不能单独证明候选人所有权。
-- LLM 只接触每题局部 `E1...E8`，服务端映射真实 evidence ID；无效别名、越权 claim type 和空引用都会失败。
-- renderer 只接收 verified claims，不接收旧正文和原始证据，避免把检索片段扩写成未经声明的实现细节。
-- repair 最多 3 轮，state 只保留 verified claims 和 dirty question IDs；已通过题目不重复验证。
-- 旧 `interview_agentic_rag_v1` 面试包不会读取时静默升级，必须重新生成 v2。
+- 默认只生成 10 题，正常路径固定为 4 次 LLM 调用；不再为每题单独规划或验证。
+- verifier 按题组织 Prompt，每题 evidence 只出现一次，不再为每个 claim 重复整段证据。
+- LLM 生成自然、按回答顺序排列的 claims；服务端只用已验证 claims 组合正文，因此无需 renderer 和 coverage judge 再次调用模型。
+- 工作流硬限制为 8 次 HTTP 调用尝试、60,000 Prompt 字符和 18,000 最大输出 token 预留；网络重试也单独计费，达到任一上限会在下一次请求前报错。
+- `llm_call_logs` 保存供应商返回的 `prompt_tokens/completion_tokens/total_tokens`；旧日志没有 usage 时保持 0，不做虚构估算。
+- repair 最多 1 轮，只处理失败题；旧 v1/v2 面试包不会读取时静默升级，必须重新生成 v3。
 
 ### 岗位发现
 

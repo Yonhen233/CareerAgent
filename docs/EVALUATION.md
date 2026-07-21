@@ -1,19 +1,23 @@
 # 量化评测方案
 
-## 面试 Agentic RAG v2
+## 面试 Agentic RAG v3 成本与质量门禁
 
 面试评测不再只检查题目数量和回答长度，还检查完整链路契约：
 
-- retrieval plan 完整率与 source inventory 兼容性；
+- 默认问题数是否等于 10；
+- 正常路径调用数是否不超过 4，含修复路径是否不超过 8；
+- 累计 Prompt 字符和最大输出 token 预留是否低于工作流硬预算；
+- 本地 multi-query plan 与 source inventory 是否兼容；
 - citation integrity 与局部证据别名合法率；
 - claim type/source policy 覆盖率；
 - LLM entailment judge 对引用证据的支持判断；
-- Answer-to-Claim Coverage Judge 对正文隐藏事实的检出；
-- verified-claim renderer 的回答长度、复盘结构和用户可用性；
+- verified claims 本地组合后的回答长度、复盘结构和用户可用性；
 - repair error count 与 dirty question count 是否逐轮收敛；
 - release gate 失败时 InterviewPrep 是否保持不落库。
 
-真实 DeepSeek 调试中，v1 完整包从 94 次调用、约 641 秒优化到 59 次调用、约 504 秒，验证题数按 `32 -> 21 -> 5 -> 1` 收敛。v2 增加正文 claim coverage 后发现 middleware trace ID、降级算法、Playwright 选型理由等未声明事实，推动架构改为“先验证 claims，再渲染正文”。最终 v2 在线完成因 API 返回 `HTTP 402 Insufficient Balance` 阻塞，失败未落库。离线完整回归为 `179 passed`。
+真实 DeepSeek 旧包 `#44` 使用 59 次调用、1,490,670 Prompt 字符和 237,622 Response 字符，其中 verifier 占 37 次调用和 1,080,855 Prompt 字符。v3 对同一测试输入的离线调用契约为 10 题、4 次调用、57,220 Prompt 字符和 11,800 最大输出 token 预留：调用数下降约 93.2%，Prompt 字符下降约 96.2%。历史日志没有供应商 usage 字段，不能把字符数伪装成真实 token；v3 起保存 API 返回的 token usage，并把每次 HTTP 重试单独计入硬预算。
+
+本轮不会再使用用户 Key 做在线长跑。此前 DeepSeek 已返回 `HTTP 402 Insufficient Balance`；质量回归通过 fixture、预算测试和模拟 OpenAI usage 响应完成，余额恢复后也必须先经过调用预算门禁。
 
 离线评测中的 `DeterministicInterviewEvaluationLLM` 只在显式 `LLM_FALLBACK_ENABLED=true` 的评测 harness 使用，不进入产品路径；产品未配置 LLM 或 release gate 失败时直接报错。
 
@@ -530,15 +534,15 @@ POST /evaluations/interview-prep
 | preparation_angle_pass_rate | 1.0000 |
 | llm_question_generation_pass_rate | 1.0000 |
 | question_quality_pass_rate | 1.0000 |
-| avg_question_quality_score | 0.9990 |
+| avg_question_quality_score | 1.0000 |
 | markdown_export_pass_rate | 1.0000 |
-| avg_question_count | 35.7778 |
+| avg_question_count | 10.0000 |
 | avg_research_item_count | 4.0000 |
 | avg_source_backed_experience_count | 0.1111 |
 | avg_source_backed_question_count | 0.3333 |
-| avg_required_skill_coverage_rate | 1.0000 |
+| avg_required_skill_coverage_rate | 0.9778 |
 
-本轮质量 judge 使用本地可解释规则，而不是每次都调用 LLM-as-judge。选型理由：面试包生成已经调用 LLM，质量门禁需要稳定、低成本、可离线回归；LLM-as-judge 更适合作为后续抽检层。首次实现时暴露了两个生产边界：第一，非适用项不能计入通过数，否则质量分会超过 1；第二，调研线索或技术深挖题如果命中缺口技能，也必须带“诚实说明边界/最小补齐任务”的追问。修复后 `question_quality_pass_rate=1.0000`，`avg_question_quality_score=0.9990`。
+本轮质量门禁使用本地可解释契约，而不是再增加一次 LLM-as-judge。面试语义验证已经由批量 entailment 调用完成，release gate 需要稳定、低成本、可离线回归。10 题模式要求 JD 必备技能覆盖率至少 80%，明确缺口必须 100% 进入诚实披露 drill；题组标签允许“工程协作与落地”作为“通用面试与行为问题”的细分类别。修复后 `question_quality_pass_rate=1.0000`，`avg_question_quality_score=1.0000`。
 
 历史暴露并修复的问题：中文句号没有参与句子切分时，`没有 MLflow 生产经验` 会和前一句“构建 CareerAgent”粘在一起；同时“没有 Kubernetes 集群维护经验”会同时命中否定词“没有”和正向词“维护”。修复后 matcher 使用中文/英文标点切分句子，并让否定证据优先级高于正向动作词。
 

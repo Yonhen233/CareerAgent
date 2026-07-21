@@ -36,7 +36,7 @@
     "expected_research_sites": ["牛客网", "OfferShow", "小红书"],
     "expected_gap_drills": ["MLflow"],
     "expected_question_keywords": ["Agent", "RAG", "FastAPI", "MLflow"],
-    "min_question_count": 12
+    "min_question_count": 10
   },
   {
     "name": "frontend_intern_accessibility_gap",
@@ -75,7 +75,7 @@
     "expected_research_sites": ["牛客网", "OfferShow", "小红书"],
     "expected_gap_drills": ["Accessibility"],
     "expected_question_keywords": ["React", "TypeScript", "Accessibility"],
-    "min_question_count": 12
+    "min_question_count": 10
   },
   {
     "name": "data_engineering_airflow_gap",
@@ -114,7 +114,7 @@
     "expected_research_sites": ["牛客网", "OfferShow", "小红书"],
     "expected_gap_drills": ["Airflow"],
     "expected_question_keywords": ["SQL", "Airflow", "Data Quality"],
-    "min_question_count": 12
+    "min_question_count": 10
   },
   {
     "name": "recommendation_intern_feature_store_gap",
@@ -153,7 +153,7 @@
     "expected_research_sites": ["牛客网", "OfferShow", "小红书"],
     "expected_gap_drills": ["Feature Store"],
     "expected_question_keywords": ["Ranking", "Feature Store", "CTR"],
-    "min_question_count": 12
+    "min_question_count": 10
   },
   {
     "name": "ai_product_agent_role",
@@ -192,7 +192,7 @@
     "expected_research_sites": ["牛客网", "OfferShow", "小红书"],
     "expected_gap_drills": ["A/B Testing"],
     "expected_question_keywords": ["PRD", "Prompt", "A/B Testing"],
-    "min_question_count": 12
+    "min_question_count": 10
   },
   {
     "name": "ml_platform_k8s_gap",
@@ -231,7 +231,7 @@
     "expected_research_sites": ["牛客网", "OfferShow", "小红书"],
     "expected_gap_drills": ["Kubernetes", "MLflow"],
     "expected_question_keywords": ["Docker", "Kubernetes", "MLflow"],
-    "min_question_count": 12
+    "min_question_count": 10
   },
   {
     "name": "weak_agent_only_coursework",
@@ -270,7 +270,7 @@
     "expected_research_sites": ["牛客网", "OfferShow", "小红书"],
     "expected_gap_drills": ["RAG", "Tool Calling", "FastAPI", "Evaluation"],
     "expected_question_keywords": ["Tool Calling", "RAG", "FastAPI"],
-    "min_question_count": 12
+    "min_question_count": 10
   },
   {
     "name": "english_auxiliary_agent_role",
@@ -309,7 +309,7 @@
     "expected_research_sites": ["牛客网", "OfferShow", "小红书"],
     "expected_gap_drills": ["LangGraph", "Tool Calling"],
     "expected_question_keywords": ["RAG", "LangGraph", "Tool Calling"],
-    "min_question_count": 12
+    "min_question_count": 10
   }
 ,
   {
@@ -358,6 +358,6 @@
     "expected_source_backed_min": 3,
     "expected_gap_drills": ["MLflow"],
     "expected_question_keywords": ["RAG", "FastAPI", "SQLite", "MLflow"],
-    "min_question_count": 14
+    "min_question_count": 10
   }
 ]

@@ -2463,7 +2463,7 @@ function renderOpsLogs(logs) {
         <span>${escapeHtml(row.trace_name)}</span>
         <span class="status-pill ${statusClass(row.status)}">${escapeHtml(row.status)}</span>
       </div>
-      <div class="meta">${escapeHtml(row.model)} / ${escapeHtml(row.latency_ms)}ms / stage=${escapeHtml(row.context_json?.stage || "-")}</div>
+      <div class="meta">${escapeHtml(row.model)} / ${escapeHtml(row.latency_ms)}ms / tokens=${escapeHtml(row.total_tokens || "-")} (${escapeHtml(row.prompt_tokens || 0)} in / ${escapeHtml(row.completion_tokens || 0)} out) / stage=${escapeHtml(row.context_json?.stage || "-")}</div>
       ${row.error_message ? `<div class="message-preview">${escapeHtml(row.error_message)}</div>` : ""}
       ${row.response_preview ? `<details class="details-block"><summary>响应预览</summary><pre>${escapeHtml(row.response_preview)}</pre></details>` : ""}
     </article>

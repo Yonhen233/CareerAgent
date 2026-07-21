@@ -60,6 +60,11 @@ def _ensure_sqlite_columns() -> None:
         llm_log_columns = {column["name"] for column in inspector.get_columns("llm_call_logs")}
         if "context_json" not in llm_log_columns:
             statements.append("ALTER TABLE llm_call_logs ADD COLUMN context_json JSON NOT NULL DEFAULT '{}'")
+        for column_name in ["prompt_tokens", "completion_tokens", "total_tokens"]:
+            if column_name not in llm_log_columns:
+                statements.append(
+                    f"ALTER TABLE llm_call_logs ADD COLUMN {column_name} INTEGER NOT NULL DEFAULT 0"
+                )
     for table_name in ["profiles", "jobs", "agent_runs"]:
         if table_name in tables:
             columns = {column["name"] for column in inspector.get_columns(table_name)}

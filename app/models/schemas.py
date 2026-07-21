@@ -499,6 +499,9 @@ class LLMCallLogResponse(BaseModel):
     latency_ms: int
     prompt_chars: int
     response_chars: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
     context_json: dict[str, Any]
     created_at: datetime
 

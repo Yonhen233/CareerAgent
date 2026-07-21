@@ -126,7 +126,7 @@ def test_interview_prep_evaluation_covers_sources_stack_and_gap_drills(db_sessio
     assert run.summary_json["avg_question_quality_score"] >= 0.82
     assert run.summary_json["markdown_export_pass_rate"] == 1.0
     assert run.summary_json["avg_source_backed_question_count"] > 0
-    assert run.summary_json["avg_question_count"] >= 12
+    assert run.summary_json["avg_question_count"] == 10
     assert "agent_development" in run.summary_json["role_type_breakdown"]
 
 

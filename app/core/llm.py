@@ -4,6 +4,7 @@ import re
 import time
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 from typing import Any
 
@@ -23,11 +24,83 @@ class LLMResponseError(RuntimeError):
     """Raised when the LLM endpoint returns an unusable response."""
 
 
+class LLMBudgetExceededError(RuntimeError):
+    """Raised before an LLM call would exceed the active workflow budget."""
+
+
 class _RetryableLLMResponseError(LLMResponseError):
     """Raised for transient LLM HTTP responses that are worth retrying."""
 
 
 _LLM_TRACE_CONTEXT: ContextVar[dict[str, Any]] = ContextVar("llm_trace_context", default={})
+_LLM_CALL_BUDGET: ContextVar["LLMCallBudget | None"] = ContextVar("llm_call_budget", default=None)
+
+
+@dataclass
+class LLMCallBudget:
+    name: str
+    max_calls: int
+    max_prompt_chars: int
+    max_completion_tokens: int
+    calls: int = 0
+    prompt_chars: int = 0
+    reserved_completion_tokens: int = 0
+    actual_prompt_tokens: int = 0
+    actual_completion_tokens: int = 0
+    actual_total_tokens: int = 0
+    traces: list[str] = field(default_factory=list)
+
+    def reserve(self, *, trace_name: str, prompt_chars: int, max_tokens: int | None) -> None:
+        completion_tokens = max(0, int(max_tokens or 0))
+        if self.calls + 1 > self.max_calls:
+            raise LLMBudgetExceededError(
+                f"LLM budget {self.name} exceeds max_calls={self.max_calls} before {trace_name}."
+            )
+        if self.prompt_chars + prompt_chars > self.max_prompt_chars:
+            raise LLMBudgetExceededError(
+                f"LLM budget {self.name} exceeds max_prompt_chars={self.max_prompt_chars} before {trace_name}."
+            )
+        if self.reserved_completion_tokens + completion_tokens > self.max_completion_tokens:
+            raise LLMBudgetExceededError(
+                "LLM budget "
+                f"{self.name} exceeds max_completion_tokens={self.max_completion_tokens} before {trace_name}."
+            )
+        self.calls += 1
+        self.prompt_chars += prompt_chars
+        self.reserved_completion_tokens += completion_tokens
+        self.traces.append(trace_name)
+
+    def record_usage(
+        self,
+        *,
+        prompt_tokens: int,
+        completion_tokens: int,
+        total_tokens: int,
+    ) -> None:
+        self.actual_prompt_tokens += max(0, prompt_tokens)
+        self.actual_completion_tokens += max(0, completion_tokens)
+        self.actual_total_tokens += max(0, total_tokens)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "limits": {
+                "max_calls": self.max_calls,
+                "max_prompt_chars": self.max_prompt_chars,
+                "max_completion_tokens": self.max_completion_tokens,
+            },
+            "reserved": {
+                "calls": self.calls,
+                "prompt_chars": self.prompt_chars,
+                "completion_tokens": self.reserved_completion_tokens,
+            },
+            "actual": {
+                "prompt_tokens": self.actual_prompt_tokens,
+                "completion_tokens": self.actual_completion_tokens,
+                "total_tokens": self.actual_total_tokens,
+            },
+            "traces": list(self.traces),
+        }
 
 
 @contextmanager
@@ -39,6 +112,15 @@ def llm_trace_context(**metadata: Any):
         yield
     finally:
         _LLM_TRACE_CONTEXT.reset(token)
+
+
+@contextmanager
+def llm_call_budget(budget: LLMCallBudget):
+    token = _LLM_CALL_BUDGET.set(budget)
+    try:
+        yield budget
+    finally:
+        _LLM_CALL_BUDGET.reset(token)
 
 
 def format_exception(exc: Exception) -> str:
@@ -113,6 +195,10 @@ class LLMClient:
             )
             raise LLMConfigurationError(error)
 
+        active_budget = _LLM_CALL_BUDGET.get()
+        prompt_chars = int(prompt_preview.get("system_chars", 0)) + int(
+            prompt_preview.get("user_chars", 0)
+        )
         headers = {
             "Authorization": f"Bearer {self.settings.effective_llm_api_key}",
             "Content-Type": "application/json",
@@ -134,6 +220,24 @@ class LLMClient:
         max_attempts = max(1, int(self.settings.llm_retry_attempts or 0) + 1)
         for attempt in range(1, max_attempts + 1):
             attempt_preview = {**prompt_preview, "attempt": attempt, "max_attempts": max_attempts}
+            if active_budget is not None:
+                try:
+                    active_budget.reserve(
+                        trace_name=f"{trace_name}#attempt{attempt}",
+                        prompt_chars=prompt_chars,
+                        max_tokens=max_tokens,
+                    )
+                except LLMBudgetExceededError as exc:
+                    self._record_llm_call(
+                        db,
+                        trace_name=trace_name,
+                        status="budget_exceeded",
+                        prompt_preview=attempt_preview,
+                        response_preview=None,
+                        error_message=format_exception(exc),
+                        started_at=started,
+                    )
+                    raise
             try:
                 async with httpx.AsyncClient(timeout=self.settings.llm_timeout_seconds) as client:
                     response = await client.post(self._chat_url(), headers=headers, json=payload)
@@ -161,6 +265,19 @@ class LLMClient:
                         f"thinking_mode={self.settings.llm_thinking_mode})."
                     )
                 content = content.strip()
+                usage = body.get("usage") if isinstance(body, dict) else None
+                usage = usage if isinstance(usage, dict) else {}
+                prompt_tokens = self._usage_int(usage, "prompt_tokens", "input_tokens")
+                completion_tokens = self._usage_int(usage, "completion_tokens", "output_tokens")
+                total_tokens = self._usage_int(usage, "total_tokens")
+                if total_tokens <= 0:
+                    total_tokens = prompt_tokens + completion_tokens
+                if active_budget is not None:
+                    active_budget.record_usage(
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        total_tokens=total_tokens,
+                    )
                 self._record_llm_call(
                     db,
                     trace_name=trace_name,
@@ -168,6 +285,9 @@ class LLMClient:
                     prompt_preview=attempt_preview,
                     response_preview=content[:1200],
                     response_chars=len(content),
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
                     error_message=None,
                     started_at=started,
                 )
@@ -191,6 +311,17 @@ class LLMClient:
                 raise
 
         raise LLMResponseError("LLM request exhausted without producing a response.")
+
+    @staticmethod
+    def _usage_int(usage: dict[str, Any], *keys: str) -> int:
+        for key in keys:
+            try:
+                value = int(usage.get(key) or 0)
+            except (TypeError, ValueError):
+                continue
+            if value >= 0:
+                return value
+        return 0
 
     async def generate_json(
         self,
@@ -263,6 +394,9 @@ class LLMClient:
         error_message: str | None,
         started_at: float,
         response_chars: int | None = None,
+        prompt_tokens: int = 0,
+        completion_tokens: int = 0,
+        total_tokens: int = 0,
     ) -> None:
         if db is None:
             return
@@ -282,6 +416,9 @@ class LLMClient:
                     prompt_chars=int(prompt_preview.get("system_chars", 0))
                     + int(prompt_preview.get("user_chars", 0)),
                     response_chars=response_chars if response_chars is not None else len(response_preview or ""),
+                    prompt_tokens=max(0, int(prompt_tokens or 0)),
+                    completion_tokens=max(0, int(completion_tokens or 0)),
+                    total_tokens=max(0, int(total_tokens or 0)),
                     context_json=dict(_LLM_TRACE_CONTEXT.get() or {}),
                 )
             )

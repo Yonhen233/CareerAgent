@@ -29,6 +29,7 @@ class DeterministicInterviewEvaluationLLM:
             return json.dumps(self._answer_payload(json.loads(user_prompt)["items"]), ensure_ascii=False)
         if trace_name.startswith("interview_agentic_rag.verify."):
             payload = json.loads(user_prompt)
+            claims = self._verifier_claims(payload)
             return json.dumps(
                 {
                     "verdicts": [
@@ -44,7 +45,7 @@ class DeterministicInterviewEvaluationLLM:
                             "normalized_evidence_ids": item["current_evidence_ids"],
                             "reason": "离线评测 fixture 的 claim 与引用证据按构造契约一致。",
                         }
-                        for item in payload["claims"]
+                        for item in claims
                     ]
                 },
                 ensure_ascii=False,
@@ -95,6 +96,29 @@ class DeterministicInterviewEvaluationLLM:
             payload = json.loads(user_prompt)
             return json.dumps(self._answer_payload(payload["generation_input"]["items"]), ensure_ascii=False)
         raise AssertionError(f"Unsupported interview evaluation trace: {trace_name}")
+
+    def _verifier_claims(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        flattened: list[dict[str, Any]] = []
+        for group in payload["items"]:
+            evidence_by_alias = {
+                item["evidence_id"]: item for item in group["available_evidence"]
+            }
+            for claim in group["claims"]:
+                cited = [
+                    evidence_by_alias[evidence_id]
+                    for evidence_id in claim["current_evidence_ids"]
+                    if evidence_id in evidence_by_alias
+                ]
+                allowed_sets = [set(item["allowed_claim_types"]) for item in cited]
+                allowed = sorted(set.intersection(*allowed_sets)) if allowed_sets else []
+                flattened.append(
+                    {
+                        **claim,
+                        "question_id": group["question_id"],
+                        "allowed_claim_types": allowed,
+                    }
+                )
+        return flattened
 
     def _question_payload(self) -> dict[str, Any]:
         return {
@@ -184,17 +208,17 @@ class DeterministicInterviewEvaluationLLM:
             technical = by_source.get("technical_knowledge") or by_source["project_document"]
             claims = [
                 {
-                    "text": "候选人的项目经历以简历证据为准",
+                    "text": "根据当前简历证据，我能够确认自己参与过其中记录的项目，但只陈述材料里明确出现的个人经历和职责边界。",
                     "claim_type": "candidate_experience",
                     "evidence_ids": [resume["evidence_id"]],
                 },
                 {
-                    "text": "目标岗位要求以当前 JD 证据为准",
+                    "text": "目标岗位的能力要求以当前 JD 证据为准，我会据此调整回答重点，但不会把岗位要求包装成自己的经历。",
                     "claim_type": "job_requirement",
                     "evidence_ids": [job["evidence_id"]],
                 },
                 {
-                    "text": "技术解释使用审核后的知识或项目文档",
+                    "text": "技术解释会使用审核后的知识或项目文档说明原理、取舍和验证方式，同时明确区分通用知识与本人实践。",
                     "claim_type": "technical_explanation",
                     "evidence_ids": [technical["evidence_id"]],
                 },

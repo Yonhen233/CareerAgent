@@ -10,7 +10,7 @@ from app.services.interview_references import InterviewReferenceService
 class InterviewAnswerFrameworkService:
     """Normalize persisted interview answers without generating semantic content at read time."""
 
-    CURRENT_VERSION = "interview_agentic_rag_v2"
+    CURRENT_VERSION = "interview_agentic_rag_v3_cost_guarded"
 
     def normalize_question_sets(
         self,

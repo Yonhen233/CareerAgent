@@ -445,6 +445,9 @@ class LLMCallLog(Base):
     latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     prompt_chars: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     response_chars: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     context_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
