@@ -35,8 +35,24 @@ async def run_agent_full_flow_evaluation(db: Session = Depends(get_db)) -> Evalu
 
 
 @router.post("/jd-parser", response_model=EvaluationRunResponse, status_code=status.HTTP_201_CREATED)
-async def run_jd_parser_evaluation(db: Session = Depends(get_db)) -> EvaluationRunResponse:
-    run = await EvaluationService().run_jd_parser_evaluation(db)
+async def run_jd_parser_evaluation(
+    case_limit: int | None = Query(default=None, ge=1, le=30),
+    db: Session = Depends(get_db),
+) -> EvaluationRunResponse:
+    run = await EvaluationService().run_jd_parser_evaluation(db, case_limit=case_limit)
+    return EvaluationRunResponse.model_validate(run)
+
+
+@router.post(
+    "/natural-language-plan",
+    response_model=EvaluationRunResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def run_natural_language_plan_evaluation(
+    case_limit: int | None = Query(default=None, ge=1, le=30),
+    db: Session = Depends(get_db),
+) -> EvaluationRunResponse:
+    run = await EvaluationService().run_natural_language_plan_evaluation(db, case_limit=case_limit)
     return EvaluationRunResponse.model_validate(run)
 
 
@@ -130,7 +146,7 @@ async def run_real_job_ingest_smoke(
 
 @router.post("/llm-workflow", response_model=EvaluationRunResponse, status_code=status.HTTP_201_CREATED)
 async def run_llm_workflow_evaluation(
-    case_limit: int | None = Query(default=None, ge=1, le=18),
+    case_limit: int | None = Query(default=None, ge=1, le=30),
     resume_from_last_completed: bool = Query(default=False),
     db: Session = Depends(get_db),
 ) -> EvaluationRunResponse:

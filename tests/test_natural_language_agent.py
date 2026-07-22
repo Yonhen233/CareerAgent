@@ -176,6 +176,55 @@ def test_natural_language_agent_fails_empty_job_search_after_repair(db_session, 
     assert "岗位搜索没有返回可推荐岗位" in run.error_message
 
 
+def test_natural_language_agent_browses_jobs_without_resume(db_session, monkeypatch):
+    service = NaturalLanguageAgentService()
+    job = SimpleNamespace(id=77, title="Agent 开发实习生", company="DemoAI", location="北京")
+
+    async def search_plan(db, request):
+        return {
+            "intent": "search_jobs",
+            "query": "Agent RAG 实习",
+            "profile": None,
+            "job": None,
+            "needs_profile": False,
+            "needs_job": False,
+            "actions": ["search_jobs"],
+            "reason": "不使用简历浏览岗位。",
+        }
+
+    async def fake_discover(db, payload, tenant_id=None):
+        return SimpleNamespace(
+            id=12,
+            results=[
+                SimpleNamespace(
+                    job_id=job.id,
+                    match_result_id=None,
+                    rank=1,
+                    retrieval_score=91.0,
+                    match_score=None,
+                    final_score=91.0,
+                    reason_json={"relevance_reasons": ["Agent", "RAG"]},
+                    job=job,
+                )
+            ],
+        )
+
+    monkeypatch.setattr(service, "_build_plan", search_plan)
+    monkeypatch.setattr(service.job_discovery, "discover", fake_discover)
+
+    run = asyncio.run(
+        service.run(
+            db_session,
+            NaturalLanguageAgentRequest(instruction="我没有简历，只想先浏览 Agent 和 RAG 实习。"),
+        )
+    )
+
+    assert run.status == "completed"
+    assert run.output_json["result_json"]["job_search_session_id"] == 12
+    assert run.output_json["result_json"]["matches"][0]["job_id"] == 77
+    assert run.output_json["result_json"]["matches"][0]["match_score"] is None
+
+
 def test_natural_language_agent_respects_selected_actions_and_profile_context(db_session, monkeypatch):
     job = Job(
         source="manual",

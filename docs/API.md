@@ -670,6 +670,8 @@ POST /evaluations/run
 POST /evaluations/pdf-chunk-strategies
 ```
 
+返回 `selected_metrics` 和 `release_gate`。门禁同时约束 Top3 关键词/页码/上下文命中、Top1 平均字符数和平均 chunk 数，防止用过长 chunk 虚增召回。
+
 运行 RAG 策略评测：
 
 ```http
@@ -682,15 +684,25 @@ POST /evaluations/rag-strategies
 POST /evaluations/agent-full-flow
 ```
 
-该评测覆盖 `find_jobs_for_profile`、`tailor_resume_for_job`、`quick_apply`、`fit_gate`、Trace 和 Artifact。弱匹配 case 期望 `quick_apply` 失败并在 step trace 中记录阻断原因。
+该评测覆盖 `find_jobs_for_profile`、`tailor_resume_for_job`、`quick_apply`、`fit_gate`、Trace、Artifact 和 LangGraph event。release gate 要求流程、Top1、分数、Trace、Artifact 与 LangGraph 完整率全部通过，并至少正确阻断一个弱匹配投递。
 
 运行 JD Parser 标注集评测：
 
 ```http
 POST /evaluations/jd-parser
+POST /evaluations/jd-parser?case_limit=4
 ```
 
-该评测使用 `evals/jd_parser_cases.json`，单独衡量 JD parser 的结构化质量。返回的 `summary_json` 包含 `completed_rate`、`pass_rate`、`avg_required_skill_recall`、`avg_keyword_hit_rate`、`job_type_accuracy`、`responsibility_min_pass_rate`、`qualification_min_pass_rate`、`absent_required_skill_violation_count`、`parser_mode_counts`、`failure_breakdown`、`difficulty_breakdown` 和 `noise_breakdown`。`case_results_json` 会保留每个 JD 的 parsed required/preferred skills、missing required skills、负向技能误抽取和失败检查项。
+该评测使用 `evals/jd_parser_cases.json`，单独衡量 JD parser 的结构化质量。返回的 `summary_json` 包含 `completed_rate`、`pass_rate`、required skill 的 recall/precision/F1、`job_type_accuracy`、职责/要求最小覆盖、语句 grounding、`absent_required_skill_violation_count`、分桶指标和 `release_gate`。`case_results_json` 会保留 parsed required/preferred skills、误抽/漏抽技能、grounding 报告和失败检查项。`case_limit` 用于低成本真实 LLM smoke，完整离线集为 30 case。
+
+运行自然语言规划评测：
+
+```http
+POST /evaluations/natural-language-plan
+POST /evaluations/natural-language-plan?case_limit=6
+```
+
+该评测使用 20 个中文为主 case，检查 intent、action precision/recall、required/forbidden actions、`needs_profile`、`needs_job` 和实体关键词。显式禁止的动作违反一次即计入失败；`needs_profile`/`needs_job` 表示完成计划是否依赖实体，不表示请求中当前是否已经提供。真实调用写入 LLM trace，并由 `release_gate` 给出是否可以发布当前规划策略。
 
 运行中文岗位排序标注集评测：
 
@@ -698,7 +710,7 @@ POST /evaluations/jd-parser
 POST /evaluations/job-relevance
 ```
 
-该评测使用 `evals/job_relevance_cases.json`，不访问外部招聘站，也不调用 LLM，只衡量 source 层中文岗位相关性排序。数据集包含 13 个中文为主 query、130 个候选岗位，每个候选使用 0-4 级相关性标注。返回的 `summary_json` 包含 `pass_rate`、`top1_accuracy`、`avg_top3_recall`、`avg_top5_recall`、`avg_mrr`、`avg_ndcg_at_5`、`low_grade_above_strong_count`、`intent_breakdown`、`difficulty_breakdown` 和 `noise_breakdown`。`case_results_json` 会保留每个候选岗位的排序名次、人工 grade、排序分和 `relevance_reasons`。
+该评测使用 `evals/job_relevance_cases.json`，不访问外部招聘站，也不调用 LLM，只衡量 source 层中文岗位相关性排序。数据集包含 13 个中文为主 query、130 个候选岗位，每个候选使用 0-4 级相关性标注。返回的 `summary_json` 包含 `pass_rate`、`top1_accuracy`、`avg_top3_recall`、`avg_top5_recall`、`avg_mrr`、`avg_ndcg_at_5`、`low_grade_above_strong_count`、分桶指标和 `release_gate`；门禁要求关键排序指标不低于 0.90 且不允许低相关岗位压过强相关岗位。
 
 运行投递包 Guardrail 评测：
 
@@ -706,7 +718,7 @@ POST /evaluations/job-relevance
 POST /evaluations/application-packet
 ```
 
-该评测使用 `evals/application_packet_cases.json`，不访问外部招聘站，也不调用 LLM，只验证投递包质量校验。返回的 `summary_json` 包含 `high_risk_recall`、`false_block_count`、`missed_high_risk_count`、`issue_code_hit_rate`、`risk_level_counts`、`difficulty_breakdown` 和 `noise_breakdown`。`case_results_json` 会保留每个 case 的 `actual_issue_codes`、`warning_codes` 和完整 validation 结果。
+该评测使用 `evals/application_packet_cases.json` 的 26 个 case，不访问外部招聘站，也不调用 LLM，只验证投递包质量校验。返回的 `summary_json` 包含 `high_risk_recall`、`false_block_rate`、`missed_high_risk_rate`、`issue_code_hit_rate`、`risk_level_counts`、分桶指标和 `release_gate`。case 覆盖技能/经历/数字编造、负面披露、双语改写、目标岗位作用域与人工确认边界；`case_results_json` 保留完整 validation 与命中的 issue/warning code。
 
 运行 Prompt Injection Guard 对抗评测：
 
@@ -759,14 +771,14 @@ POST /evaluations/llm-workflow?case_limit=3
 POST /evaluations/llm-workflow?case_limit=3&resume_from_last_completed=true
 ```
 
-`case_limit` 用于真实 LLM smoke 评测。`resume_from_last_completed=true` 时，服务默认读取 `data/runtime/llm_workflow_trace_latest.jsonl`，跳过 trace 中连续完成的 case，从第一个缺失 case 继续运行。返回的 `case_results_json` 中，每个 case 都包含 `stage_trace`，用于检查简历解析、JD 解析、RAG 证据、fit judge、tailor 和 Guardrail 的中间结果。新 trace 事件会写入完整 `case_result`，便于长跑中断后继续。
+`case_limit` 用于真实 LLM smoke 评测。`resume_from_last_completed=true` 时，服务默认读取 `data/runtime/llm_workflow_trace_latest.jsonl`，跳过 trace 中连续完成的 case，从第一个缺失 case 继续运行。返回的 `case_results_json` 中，每个 case 都包含 `stage_trace`，用于检查简历字段 grounding、JD 语句/技能 grounding、RAG Top3/Top5 与负向证据、fit 标签/分数/引用、tailor 语义 claim 和 Guardrail。fit judge 的模型原始用户文案保存在 `raw_message_to_candidate`；实际发布的 `message_to_candidate` 只由通过验证的 `matched_evidence` 与 `gaps` 组合。新 trace 事件会写入完整 `case_result`，便于长跑中断后继续。
 
-`/ui/quality` 提供该接口的轻量运行入口，会展示最新 LLM workflow 的 summary、逐 case stage trace、失败阶段、fit label/score 和当前 `evaluation_run_id` 关联的 LLM 调用日志、retry/repair 计数。旧路径 `/ui/evaluations` 仍兼容。18-case 长跑也可以使用 `scripts/run_llm_workflow_eval.py` 写入 JSONL checkpoint。
+`/ui/quality` 提供该接口的轻量运行入口，会展示最新 LLM workflow 的 summary、逐 case stage trace、失败阶段、fit label/score 和当前 `evaluation_run_id` 关联的 LLM 调用日志、retry/repair 计数。旧路径 `/ui/evaluations` 仍兼容。当前 24-case 长跑也可以使用 `scripts/run_llm_workflow_eval.py` 写入 JSONL checkpoint。
 
 后台运行真实 LLM workflow：
 
 ```http
-POST /tasks/llm-workflow?case_limit=18&trace_path=data/runtime/llm_workflow_trace_latest.jsonl
+POST /tasks/llm-workflow?case_limit=24&trace_path=data/runtime/llm_workflow_trace_latest.jsonl
 GET /tasks
 GET /tasks/{task_id}
 ```

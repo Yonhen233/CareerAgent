@@ -26,6 +26,8 @@ def test_pdf_chunk_strategy_evaluation_selects_strategy(db_session):
     assert len(run.summary_json["strategy_results"]) >= 4
     assert "difficulty_breakdown" in run.summary_json["strategy_results"][0]
     assert "noise_breakdown" in run.summary_json["strategy_results"][0]
+    assert isinstance(run.summary_json["release_gate"]["passed"], bool)
+    assert len(run.summary_json["release_gate"]["checks"]) == 5
 
 
 def test_rag_strategy_evaluation_selects_strategy(db_session):
@@ -39,6 +41,11 @@ def test_rag_strategy_evaluation_selects_strategy(db_session):
     assert len(run.summary_json["strategy_results"]) >= 4
     assert any(item["uses_reranker"] for item in run.summary_json["strategy_results"])
     assert "difficulty_breakdown" in run.summary_json["strategy_results"][0]
+    gate_checks = {item["metric"]: item for item in run.summary_json["release_gate"]["checks"]}
+    assert "selected_metrics.actual_embedding_providers" in gate_checks
+    assert "selected_metrics.actual_reranker_providers" in gate_checks
+    assert isinstance(run.summary_json["release_gate"]["passed"], bool)
+    assert "理论上限" in run.summary_json["release_gate_basis"]
 
 
 def test_agent_full_flow_evaluation_covers_orchestrator_components(db_session):
@@ -55,6 +62,7 @@ def test_agent_full_flow_evaluation_covers_orchestrator_components(db_session):
     assert run.summary_json["artifact_pass_rate"] == 1.0
     assert run.summary_json["langgraph_pass_rate"] == 1.0
     assert run.summary_json["fit_gate_block_count"] >= 3
+    assert run.summary_json["release_gate"]["passed"] is True
     assert any(item.get("fit_gate_blocked") for item in run.case_results_json)
     assert all(item.get("run_trace") for item in run.case_results_json)
     assert all(item.get("langgraph_passed") for item in run.case_results_json)
@@ -68,11 +76,15 @@ def test_jd_parser_evaluation_covers_noisy_realistic_cases(db_session):
     assert run.summary_json["completed_rate"] == 1.0
     assert run.summary_json["pass_rate"] >= 0.9
     assert run.summary_json["avg_required_skill_recall"] >= 0.85
+    assert run.summary_json["avg_required_skill_precision"] >= 0.9
+    assert run.summary_json["avg_required_skill_f1"] >= 0.85
+    assert run.summary_json["grounding_quality_gate_pass_rate"] >= 0.95
     assert run.summary_json["avg_keyword_hit_rate"] >= 0.85
     assert run.summary_json["absent_required_skill_violation_count"] == 0
     assert "difficulty_breakdown" in run.summary_json
     assert "noise_breakdown" in run.summary_json
     assert {"easy", "medium", "hard", "adversarial"} <= set(run.summary_json["difficulty_breakdown"])
+    assert run.summary_json["release_gate"]["passed"] is True
 
 
 def test_job_relevance_evaluation_quantifies_chinese_ranking_quality(db_session):
@@ -87,6 +99,7 @@ def test_job_relevance_evaluation_quantifies_chinese_ranking_quality(db_session)
     assert run.summary_json["avg_mrr"] >= 0.9
     assert run.summary_json["avg_ndcg_at_5"] >= 0.9
     assert run.summary_json["low_grade_above_strong_count"] == 0
+    assert run.summary_json["release_gate"]["passed"] is True
     assert "agent_dev_intern" in run.summary_json["intent_breakdown"]
     assert any("实习" in item["query"] for item in run.case_results_json)
     assert all(item["ranked_jobs"][0]["grade"] >= 3 for item in run.case_results_json)
@@ -97,16 +110,57 @@ def test_application_packet_evaluation_catches_fabrication_and_boundary_risks(db
     run = EvaluationService().run_application_packet_evaluation(db_session)
 
     assert run.summary_json["evaluation_type"] == "application_packet_guardrail"
-    assert run.summary_json["case_count"] >= 20
+    assert run.summary_json["case_count"] >= 26
     assert run.summary_json["pass_rate"] == 1.0
     assert run.summary_json["high_risk_recall"] == 1.0
     assert run.summary_json["false_block_count"] == 0
     assert run.summary_json["missed_high_risk_count"] == 0
+    assert run.summary_json["false_block_rate"] == 0
+    assert run.summary_json["missed_high_risk_rate"] == 0
     assert run.summary_json["issue_code_hit_rate"] == 1.0
+    assert run.summary_json["release_gate"]["passed"] is True
     assert "unsupported_claims" in {
         code for item in run.case_results_json for code in item.get("actual_issue_codes", [])
     }
     assert any("missing_apply_url" in item.get("warning_codes", []) for item in run.case_results_json)
+
+
+def test_natural_language_plan_evaluation_checks_actions_and_negations(db_session):
+    dataset = Path(__file__).parent / "fixtures" / "natural_language_plan_cases.json"
+
+    class FakePlannerLLM:
+        available = True
+
+        async def generate_json(self, **kwargs):
+            if "没有简历" in kwargs["user_prompt"]:
+                return {
+                    "intent": "search_jobs",
+                    "query": "Agent RAG 实习",
+                    "profile": None,
+                    "job": None,
+                    "needs_profile": False,
+                    "needs_job": False,
+                    "actions": ["search_jobs"],
+                    "reason": "先浏览岗位",
+                }
+            return {
+                "intent": "quick_apply",
+                "query": "Agent 开发实习生",
+                "profile": None,
+                "job": None,
+                "needs_profile": True,
+                "needs_job": True,
+                "actions": ["quick_apply"],
+                "reason": "错误地选择了投递",
+            }
+
+    service = EvaluationService()
+    service.llm = FakePlannerLLM()
+    run = asyncio.run(service.run_natural_language_plan_evaluation(db_session, dataset_path=dataset))
+
+    assert run.summary_json["pass_rate"] == 1.0
+    assert run.summary_json["forbidden_action_violation_count"] == 0
+    assert run.summary_json["intent_accuracy"] == 1.0
 
 
 def test_interview_prep_evaluation_covers_sources_stack_and_gap_drills(db_session):
@@ -262,6 +316,37 @@ def test_jd_parser_llm_merge_preserves_heuristic_skills():
     assert merged["required_skills"].count("Python") == 1
 
 
+def test_jd_parser_canonicalizes_chinese_aliases_and_job_type():
+    from app.services.jd_parser import JDParserService
+
+    parsed = JDParserService()._canonicalize_structured_jd(
+        {
+            "job_type": "实习",
+            "required_skills": ["大语言模型", "LLM", "提示词工程", "模型评测"],
+            "preferred_skills": ["Prompt Engineering", "A/B实验"],
+        }
+    )
+
+    assert parsed["job_type"] == "internship"
+    assert parsed["required_skills"] == ["LLM", "Prompt Engineering", "Model Evaluation"]
+    assert parsed["preferred_skills"] == ["A/B Testing"]
+
+
+def test_fit_message_is_composed_only_from_verified_structured_facts():
+    message, facts = EvaluationService._publish_grounded_fit_message(
+        {
+            "matched_evidence": ["使用 FastAPI 构建异步接口", "完成 RAG 召回评测"],
+            "gaps": ["岗位要求 Redis worker 经验"],
+            "message_to_candidate": "你没有生产级经验，因此不建议投递。",
+        }
+    )
+
+    assert "使用 FastAPI 构建异步接口" in message
+    assert "岗位要求 Redis worker 经验" in message
+    assert "没有生产级经验" not in message
+    assert facts == ["使用 FastAPI 构建异步接口", "完成 RAG 召回评测", "岗位要求 Redis worker 经验"]
+
+
 def test_jd_parser_llm_merge_demotes_soft_requirement_skills():
     from app.services.jd_parser import JDParserService
 
@@ -376,8 +461,9 @@ def test_jd_parser_repairs_truncated_json_response():
     service.llm = fake_llm
 
     parsed = asyncio.run(
-        service.parse_jd(
-            "Frontend Design System Intern. Requirements: React, TypeScript, CSS.",
+            service.parse_jd(
+                "Frontend Design System Intern. Responsibilities: Build React components and CSS token systems. "
+                "Requirements: React, TypeScript, CSS.",
             title="Frontend Design System Intern",
             company="Demo UI",
         )
@@ -421,8 +507,9 @@ def test_jd_parser_allows_two_transient_retries():
     service.llm = fake_llm
 
     parsed = asyncio.run(
-        service.parse_jd(
-            "LLM Evaluation Intern. Requirements: Python, SQL, evaluation.",
+            service.parse_jd(
+                "LLM Evaluation Intern. Responsibilities: Build model quality evaluation workflows. "
+                "Requirements: Python, SQL, evaluation.",
             title="LLM Evaluation Intern",
         )
     )

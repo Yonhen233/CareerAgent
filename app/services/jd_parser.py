@@ -3,10 +3,12 @@ import re
 from app.core.config import get_settings
 from app.core.llm import LLMClient
 from app.core.llm import LLMConfigurationError
+from app.core.llm import LLMResponseError
 from app.core.llm import extract_json_object
 from app.core.llm import format_exception
 from app.models.schemas import JDStructured
 from app.services.prompt_injection_guard import PromptInjectionGuard
+from app.services.evidence_grounding import EvidenceGroundingService
 from app.services.resume_parser import KNOWN_SKILLS
 
 
@@ -43,12 +45,45 @@ JD_SKILL_ALIASES: dict[str, list[str]] = {
     "Computer Vision": [r"\bcomputer vision\b", "计算机视觉", "图像识别"],
 }
 
+JD_EXACT_SKILL_CANONICAL = {
+    "智能体": "Agent",
+    "大语言模型": "LLM",
+    "大模型": "LLM",
+    "向量数据库": "Vector Database",
+    "向量检索": "Vector Database",
+    "工具调用": "Tool Calling",
+    "工作流": "Workflow",
+    "安全护栏": "Guardrail",
+    "安全策略": "Guardrail",
+    "提示词工程": "Prompt Engineering",
+    "提示词注入": "Prompt Injection",
+    "模型评测": "Model Evaluation",
+    "模型评估": "Model Evaluation",
+    "模型质量评测": "Model Evaluation",
+    "A/B实验": "A/B Testing",
+    "A/B 实验": "A/B Testing",
+    "AB实验": "A/B Testing",
+    "AB 实验": "A/B Testing",
+    "重排序": "Reranker",
+    "检索增强生成": "RAG",
+}
+
+JD_JOB_TYPE_CANONICAL = {
+    "实习": "internship",
+    "实习生": "internship",
+    "校招": "internship",
+    "全职": "full-time",
+    "兼职": "part-time",
+    "远程": "remote",
+}
+
 
 class JDParserService:
     def __init__(self) -> None:
         self.settings = get_settings()
         self.llm = LLMClient()
         self.injection_guard = PromptInjectionGuard()
+        self.grounding = EvidenceGroundingService()
 
     async def parse_jd(
         self,
@@ -65,6 +100,11 @@ class JDParserService:
         if not self.llm.available:
             if not self.settings.llm_fallback_enabled:
                 raise LLMConfigurationError("LLM is required for JD parsing. Set LLM_FALLBACK_ENABLED=true for tests.")
+            heuristic["quality_gate"] = self.grounding.evaluate_jd(
+                raw_text,
+                heuristic,
+                allowed_values=[title, company, location],
+            )
             return heuristic
 
         system_prompt = "You parse job descriptions. Return strict JSON only."
@@ -100,11 +140,30 @@ JD:
             )
             merged = self._merge_llm_parse(heuristic, parsed, raw_text=safe_text or raw_text)
             merged["prompt_injection"] = injection.model_dump()
-            return JDStructured.model_validate(merged).model_dump()
+            normalized = JDStructured.model_validate(merged).model_dump()
+            normalized = self._canonicalize_structured_jd(normalized)
+            quality_gate = self.grounding.evaluate_jd(
+                raw_text,
+                normalized,
+                allowed_values=[title, company, location],
+            )
+            normalized["quality_gate"] = quality_gate
+            if not quality_gate["passed"]:
+                raise LLMResponseError(
+                    "JD parser quality gate rejected unsupported structured fields: "
+                    f"skills={quality_gate['unsupported_skills'][:6]}, "
+                    f"statements={quality_gate['unsupported_statements'][:3]}"
+                )
+            return normalized
         except Exception:
             if not self.settings.llm_fallback_enabled:
                 raise
             heuristic["prompt_injection"] = self.injection_guard.detect(raw_text, source="jd").model_dump()
+            heuristic["quality_gate"] = self.grounding.evaluate_jd(
+                raw_text,
+                heuristic,
+                allowed_values=[title, company, location],
+            )
             return heuristic
 
     def parse_jd_for_search(
@@ -124,6 +183,11 @@ JD:
             location=location,
         )
         parsed["prompt_injection"] = injection.model_dump()
+        parsed["quality_gate"] = self.grounding.evaluate_jd(
+            raw_text,
+            parsed,
+            allowed_values=[title, company, location],
+        )
         return JDStructured.model_validate(parsed).model_dump()
 
     async def _generate_jd_json_with_retry(
@@ -234,7 +298,37 @@ JD:
             merged[field] = self._merge_ordered_lists(parsed.get(field), heuristic.get(field))
         for field in ["title", "company", "location", "job_type", "seniority"]:
             merged[field] = parsed.get(field) or heuristic.get(field)
-        return self._normalize_requirement_strength(merged, heuristic=heuristic, raw_text=raw_text)
+        normalized = self._normalize_requirement_strength(merged, heuristic=heuristic, raw_text=raw_text)
+        return self._canonicalize_structured_jd(normalized)
+
+    def _canonicalize_structured_jd(self, parsed: dict) -> dict:
+        output = dict(parsed)
+
+        def canonicalize_skills(values: object) -> list[str]:
+            items = values if isinstance(values, list) else ([] if values is None else [values])
+            canonical: list[str] = []
+            seen: set[str] = set()
+            for item in items:
+                value = str(item).strip()
+                normalized_value = re.sub(r"\s+", " ", value.lower())
+                mapped = JD_EXACT_SKILL_CANONICAL.get(value, value)
+                mapped = JD_EXACT_SKILL_CANONICAL.get(normalized_value, mapped)
+                key = mapped.lower()
+                if mapped and key not in seen:
+                    seen.add(key)
+                    canonical.append(mapped)
+            return canonical
+
+        required = canonicalize_skills(output.get("required_skills"))
+        preferred = canonicalize_skills(output.get("preferred_skills"))
+        required_keys = {item.lower() for item in required}
+        output["required_skills"] = required
+        output["preferred_skills"] = [item for item in preferred if item.lower() not in required_keys]
+        raw_job_type = str(output.get("job_type") or "").strip()
+        output["job_type"] = JD_JOB_TYPE_CANONICAL.get(raw_job_type.lower(), raw_job_type or None)
+        if output["job_type"] == "internship" and not output.get("seniority"):
+            output["seniority"] = "intern"
+        return output
 
     def _normalize_requirement_strength(
         self,

@@ -300,12 +300,14 @@ Reranker：
 
 ## Guardrails
 
-简历定制后会做规则校验：
+门控按产物生命周期分层，而不是只在最后检查几个关键词：
 
-- 检测源简历中不存在的新增数字指标。
-- 检测过多长 token 新增事实。
-- 计算 JD required skill 覆盖率。
-- 计算 RAG 证据覆盖率。
+- 简历解析检查身份、技能、项目/经历技术栈和教育字段能否回指原 PDF/文本；关键字段或技能无来源时拒绝结构化结果。
+- JD 解析检查 required/preferred skill、职责、任职要求和元数据 grounding，并统一中英文技能与 job type，避免重复和口径漂移。
+- RAG release gate 同时约束 Top1、Recall@3/5、MRR、nDCG@5、真实 embedding/reranker provider 和 fallback；证据条目必须有稳定 chunk ID 与正文。
+- 岗位适配检查标签/分数一致性、候选人匹配证据、JD 差距和负向证据。模型自由生成的用户说明只进 trace，发布文本由已验证的结构化证据组合。
+- 简历定制检查未支持数字、语义成果 claim、JD 覆盖和 RAG 证据；高风险时最多执行一次有 trace 的 ReAct repair。
+- 投递材料检查技能/经历/数字 claim、目标岗位、人工确认与外部执行边界；高风险动作还必须经过独立 approval table。
 
 输出风险等级：
 
@@ -315,15 +317,6 @@ Reranker：
 
 ## 评测闭环
 
-评测样例位于 `evals/sample_cases.json`，运行后写入 `evaluation_runs`。
+评测数据位于 `evals/`，运行后写入 `evaluation_runs`；真实 LLM 调用另外写入 `llm_call_logs`，并通过 `evaluation_run_id/case/stage` 关联。当前闭环覆盖 PDF chunk、真实 embedding + reranker RAG、JD parser、自然语言规划、LLM workflow、岗位排序、Agent 全流程、投递 Guardrail、Prompt Injection、面试包和外部 source smoke。
 
-指标包括：
-
-- required skill precision。
-- required skill recall。
-- missing skill precision。
-- evidence hit rate。
-- pass rate。
-- avg overall score。
-
-这使项目可以用量化指标描述“匹配与检索质量”，而不是只说“看起来还行”。
+每类评测都区分完成率、人工标注质量、证据 grounding 和发布阈值。只有 `release_gate.passed=true` 才能说明当前样本达到发布标准；HTTP 200、合法 JSON 或工作流完成不能单独作为“功能正常”的证据。真实模型全量成本高时使用分层抽样与失败 case 定向复测，并在文档中明确它不等于全量发布认证。

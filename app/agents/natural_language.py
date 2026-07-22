@@ -15,7 +15,13 @@ from app.agents.orchestrator import AgentOrchestrator
 from app.core.config import get_settings
 from app.core.llm import LLMClient, llm_trace_context
 from app.models.entities import AgentArtifact, Job, Profile
-from app.models.schemas import AgentRunRequest, GuidedProfileRequest, NaturalLanguageAgentRequest
+from app.models.schemas import (
+    AgentRunRequest,
+    GuidedProfileRequest,
+    JobDiscoveryRequest,
+    NaturalLanguageAgentRequest,
+)
+from app.services.job_discovery import JobDiscoveryService
 from app.services.jd_parser import JDParserService
 from app.services.resume_parser import ResumeParserService
 from app.services.text_splitter import ResumeTextSplitter
@@ -69,6 +75,7 @@ class NaturalLanguageAgentService:
         self.jd_parser = JDParserService()
         self.splitter = ResumeTextSplitter()
         self.vector_index = SQLiteVectorIndex()
+        self.job_discovery = JobDiscoveryService()
         self.settings = get_settings()
         self._runtime_dbs: dict[int, Session] = {}
         self._checkpoint_conn = None
@@ -372,7 +379,7 @@ class NaturalLanguageAgentService:
 可选 intent:
 - create_profile: 根据用户自然语言生成简历档案
 - update_profile: 修改已有简历档案并生成新档案
-- search_jobs: 根据简历搜索岗位
+- search_jobs: 按求职偏好浏览岗位；简历可选，有简历时增加匹配分析
 - tailor_resume: 根据岗位/JD 定制简历
 - quick_apply: 生成投递包
 - interview_prep: 生成面试准备包
@@ -425,6 +432,7 @@ profile_context={json.dumps(request.profile_context or {}, ensure_ascii=False)}
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 temperature=0.05,
+                max_tokens=1200,
                 db=db,
                 trace_name="natural_language.plan",
             )
@@ -467,6 +475,7 @@ query={request.query}
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 temperature=0.05,
+                max_tokens=1200,
                 db=db,
                 trace_name="natural_language.repair_plan",
             )
@@ -501,21 +510,50 @@ query={request.query}
             return result
 
         if intent == "search_jobs":
-            profile = self._require_profile(profile)
-            run = await self.orchestrator.run(
+            if profile is not None:
+                run = await self.orchestrator.run(
+                    db,
+                    AgentRunRequest(
+                        task_type="find_jobs_for_profile",
+                        profile_id=profile.id,
+                        query=plan.get("query") or request.query,
+                        location=request.location,
+                        limit=request.limit,
+                    ),
+                )
+                self._assert_run_completed(run, "岗位搜索")
+                result["agent_runs"].append(self._run_payload(run))
+                result["matches"] = (run.output_json or {}).get("matches", [])
+                self._assert_search_has_matches(run)
+                return result
+            discovery = await self.job_discovery.discover(
                 db,
-                AgentRunRequest(
-                    task_type="find_jobs_for_profile",
-                    profile_id=profile.id,
-                    query=plan.get("query") or request.query,
+                JobDiscoveryRequest(
+                    preference_text=plan.get("query") or request.query,
+                    profile_id=profile.id if profile else None,
                     location=request.location,
                     limit=request.limit,
+                    source_mode="hybrid",
                 ),
             )
-            self._assert_run_completed(run, "岗位搜索")
-            result["agent_runs"].append(self._run_payload(run))
-            result["matches"] = (run.output_json or {}).get("matches", [])
-            self._assert_search_has_matches(run)
+            result["job_search_session_id"] = discovery.id
+            result["matches"] = [
+                {
+                    "job_id": item.job_id,
+                    "match_result_id": item.match_result_id,
+                    "rank": item.rank,
+                    "retrieval_score": item.retrieval_score,
+                    "match_score": item.match_score,
+                    "final_score": item.final_score,
+                    "title": item.job.title,
+                    "company": item.job.company,
+                    "location": item.job.location,
+                    "reason": item.reason_json or {},
+                }
+                for item in discovery.results
+            ]
+            if not result["matches"]:
+                raise ValueError("岗位搜索没有返回结果，请调整求职偏好或岗位来源。")
             return result
 
         selected_actions = {self._canonical_action(action) for action in (plan.get("actions") or [])}
@@ -682,6 +720,19 @@ query={request.query}
                 normalized["needs_job"] = False
         if request.jd_text:
             normalized["job"] = {**(normalized["job"] or {}), "jd_text": request.jd_text}
+        normalized_actions = set(normalized["actions"])
+        has_profile_input = bool(request.profile_id or request.profile_context or normalized.get("profile"))
+        profile_dependent = bool(
+            normalized_actions.intersection({"tailor_resume", "quick_apply", "interview_prep", "full_flow"})
+            or normalized["intent"] in {"update_profile", "tailor_resume", "quick_apply", "interview_prep", "full_flow"}
+            or (normalized["intent"] == "search_jobs" and has_profile_input)
+        )
+        job_dependent = bool(
+            normalized_actions.intersection({"tailor_resume", "quick_apply", "interview_prep"})
+            or normalized["intent"] in {"tailor_resume", "quick_apply", "interview_prep"}
+        )
+        normalized["needs_profile"] = profile_dependent
+        normalized["needs_job"] = job_dependent
         return normalized
 
     def _canonical_action(self, action: Any) -> str:

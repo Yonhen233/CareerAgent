@@ -95,3 +95,29 @@ def test_guardrail_accepts_common_skill_aliases_from_source():
 
     assert result["passed"] is True
     assert "a/b testing" in result["covered_required_skills"]
+
+
+def test_guardrail_rejects_unsupported_semantic_achievement():
+    profile = Profile(
+        name="Li Ming",
+        source_type="guided",
+        raw_resume_text="使用 Python 和 FastAPI 构建 CareerAgent。",
+        structured_profile_json={"skills": ["Python", "FastAPI"]},
+    )
+    job = Job(
+        source="manual",
+        external_id="agent-platform",
+        title="Agent 开发实习生",
+        raw_jd_text="负责 Agent 平台开发。",
+        structured_jd_json={"required_skills": ["Python", "FastAPI"]},
+    )
+
+    result = ResumeGuardrailService().verify(
+        profile=profile,
+        job=job,
+        resume_markdown="使用 Python 和 FastAPI。主导跨地域容灾系统并完成生产切换。",
+        evidence=[],
+    )
+
+    assert result["passed"] is False
+    assert any(issue["type"] == "unsupported_semantic_claim" for issue in result["issues"])

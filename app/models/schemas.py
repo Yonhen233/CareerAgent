@@ -74,6 +74,7 @@ class ProfileStructured(BaseModel):
     languages: list[str] = Field(default_factory=list)
     portfolio_links: list[str] = Field(default_factory=list)
     prompt_injection: dict[str, Any] = Field(default_factory=dict)
+    quality_gate: dict[str, Any] = Field(default_factory=dict)
     raw_text: str = ""
 
     _normalize_raw_text = field_validator("raw_text", mode="before")(empty_string_when_missing)
@@ -179,6 +180,7 @@ class JDStructured(BaseModel):
     keywords: list[str] = Field(default_factory=list)
     seniority: str | None = None
     prompt_injection: dict[str, Any] = Field(default_factory=dict)
+    quality_gate: dict[str, Any] = Field(default_factory=dict)
 
     _normalize_lists = field_validator(
         "required_skills",

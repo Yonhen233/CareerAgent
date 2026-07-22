@@ -150,3 +150,73 @@ def test_application_service_fails_when_llm_fabricates_claims(db_session, monkey
                 resume_version=None,
             )
         )
+
+
+def test_application_guardrail_rejects_unknown_semantic_achievement():
+    profile = Profile(
+        name="Li Ming",
+        source_type="guided",
+        raw_resume_text="使用 Python 和 FastAPI 构建 CareerAgent。",
+        structured_profile_json={"skills": ["Python", "FastAPI"]},
+    )
+    job = Job(
+        source="manual",
+        external_id="agent-intern",
+        title="Agent 开发实习生",
+        company="Example AI",
+        raw_jd_text="负责 Agent 平台开发。",
+        structured_jd_json={"required_skills": ["Python", "FastAPI"]},
+        apply_url="https://example.com/apply",
+    )
+
+    validation = ApplicationPacketGuardrail().validate(
+        profile=profile,
+        job=job,
+        resume_version=None,
+        cover_letter=(
+            "您好，我希望申请 Example AI 的 Agent 开发实习生。"
+            "我主导跨地域容灾系统并完成生产切换，希望将相关经验用于该岗位。"
+        ),
+        outreach_message="您好，我关注到 Example AI 的 Agent 开发实习生岗位，希望交流。",
+        checklist=_checklist(),
+        automation_result=_manual_automation(),
+    )
+
+    assert validation["passed"] is False
+    assert "unsupported_evidence_claims" in {item["code"] for item in validation["issues"]}
+
+
+def test_application_guardrail_does_not_treat_target_role_as_candidate_skill():
+    profile = Profile(
+        name="Chen Hang",
+        source_type="guided",
+        raw_resume_text="使用 Python 和 FastAPI 完成课程版知识库问答。",
+        structured_profile_json={"skills": ["Python", "FastAPI"]},
+    )
+    job = Job(
+        source="manual",
+        external_id="agent-target-only",
+        title="Agent 开发实习生",
+        company="Example AI",
+        raw_jd_text="负责 Agent 平台开发。",
+        structured_jd_json={"required_skills": ["Agent", "Python"]},
+        apply_url="https://example.com/apply",
+    )
+
+    validation = ApplicationPacketGuardrail().validate(
+        profile=profile,
+        job=job,
+        resume_version=None,
+        cover_letter=(
+            "您好，我希望申请 Example AI 的 Agent 开发实习生。"
+            "我使用 Python 和 FastAPI 完成课程版知识库问答。"
+        ),
+        outreach_message=(
+            "您好，我关注到 Example AI 的 Agent 开发实习生岗位。"
+            "已有 Python 和 FastAPI 相关经历，希望交流。"
+        ),
+        checklist=_checklist(),
+        automation_result=_manual_automation(),
+    )
+
+    assert validation["passed"] is True

@@ -1,8 +1,10 @@
 import re
+import json
 from typing import Any
 
 from app.models.entities import Job, Profile
 from app.services.vector_index import tokenize
+from app.services.evidence_grounding import EvidenceGroundingService
 
 
 NUMBER_RE = re.compile(r"\b\d+(?:\.\d+)?%?\b")
@@ -44,6 +46,7 @@ SKILL_ALIASES = {
 
 class ResumeGuardrailService:
     def verify(self, *, profile: Profile, job: Job, resume_markdown: str, evidence: list[dict[str, Any]]) -> dict[str, Any]:
+        grounding = EvidenceGroundingService()
         source_text = f"{profile.raw_resume_text}\n{profile.structured_profile_json}".lower()
         resume_text = resume_markdown.lower()
         unsupported_numbers = [
@@ -75,6 +78,14 @@ class ResumeGuardrailService:
         ]
         keyword_coverage = len(covered) / max(len(required), 1)
         evidence_coverage = min(1.0, len(evidence) / 6.0)
+        semantic_grounding = grounding.evaluate_generated_claims(
+            resume_markdown,
+            [
+                profile.raw_resume_text,
+                json.dumps(profile.structured_profile_json or {}, ensure_ascii=False),
+                *[item.get("text") for item in evidence if isinstance(item, dict)],
+            ],
+        )
 
         issues = []
         if unsupported_numbers:
@@ -109,9 +120,25 @@ class ResumeGuardrailService:
                     "items": unsupported_gap_skill_mentions,
                 }
             )
+        if not semantic_grounding.get("passed"):
+            issues.append(
+                {
+                    "type": "unsupported_semantic_claim",
+                    "message": "Generated resume contains factual statements that cannot be grounded in resume evidence.",
+                    "items": [
+                        item.get("claim") for item in semantic_grounding.get("unsupported_claims") or []
+                    ],
+                }
+            )
 
         risk_level = "low"
-        if unsupported_numbers or len(long_new_tokens) >= 12 or unsupported_required_skill_claims or unsupported_gap_skill_mentions:
+        if (
+            unsupported_numbers
+            or len(long_new_tokens) >= 12
+            or unsupported_required_skill_claims
+            or unsupported_gap_skill_mentions
+            or not semantic_grounding.get("passed")
+        ):
             risk_level = "high"
         elif issues or keyword_coverage < 0.35:
             risk_level = "medium"
@@ -120,10 +147,15 @@ class ResumeGuardrailService:
             "passed": risk_level != "high",
             "risk_level": risk_level,
             "issues": issues,
-            "hallucination_count": len(unsupported_numbers) + max(0, len(long_new_tokens) - 8),
+            "hallucination_count": (
+                len(unsupported_numbers)
+                + max(0, len(long_new_tokens) - 8)
+                + len(semantic_grounding.get("unsupported_claims") or [])
+            ),
             "jd_keyword_coverage_score": round(keyword_coverage * 100, 2),
             "evidence_coverage_score": round(evidence_coverage * 100, 2),
             "covered_required_skills": covered,
+            "semantic_claim_grounding": semantic_grounding,
         }
 
     def _has_positive_or_neutral_skill_context(self, text: str, skill: str) -> bool:

@@ -8,11 +8,13 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.llm import LLMClient
 from app.core.llm import LLMConfigurationError
+from app.core.llm import LLMResponseError
 from app.core.llm import extract_json_object
 from app.core.llm import format_exception
 from app.models.entities import Profile
 from app.models.schemas import GuidedProfileRequest, ProfileStructured
 from app.services.prompt_injection_guard import PromptInjectionGuard
+from app.services.evidence_grounding import EvidenceGroundingService
 from app.services.text_splitter import PDFPageText, ResumeTextSplitter
 from app.services.vector_index import SQLiteVectorIndex
 
@@ -78,6 +80,7 @@ class ResumeParserService:
         self.splitter = ResumeTextSplitter(self.settings.chunk_size, self.settings.chunk_overlap)
         self.vector_index = SQLiteVectorIndex()
         self.injection_guard = PromptInjectionGuard()
+        self.grounding = EvidenceGroundingService()
         self.settings.upload_path.mkdir(parents=True, exist_ok=True)
 
     async def create_profile_from_pdf(self, db: Session, *, filename: str, file_bytes: bytes) -> Profile:
@@ -127,6 +130,7 @@ class ResumeParserService:
                 raise LLMConfigurationError(
                     "LLM is required for resume parsing. Set LLM_FALLBACK_ENABLED=true for tests."
                 )
+            heuristic["quality_gate"] = self.grounding.evaluate_resume(raw_text, heuristic)
             return heuristic
 
         system_prompt = (
@@ -174,11 +178,22 @@ Resume:
             )
             parsed["raw_text"] = raw_text
             parsed["prompt_injection"] = injection.model_dump()
-            return ProfileStructured.model_validate(self._merge_parsed_with_heuristic(heuristic, parsed)).model_dump()
+            normalized = ProfileStructured.model_validate(
+                self._merge_parsed_with_heuristic(heuristic, parsed)
+            ).model_dump()
+            quality_gate = self.grounding.evaluate_resume(raw_text, normalized)
+            normalized["quality_gate"] = quality_gate
+            if not quality_gate["passed"]:
+                raise LLMResponseError(
+                    "Resume parser quality gate rejected unsupported structured fields: "
+                    f"{quality_gate['unsupported_fields'][:6]}"
+                )
+            return normalized
         except Exception:
             if not self.settings.llm_fallback_enabled:
                 raise
             heuristic["prompt_injection"] = injection.model_dump()
+            heuristic["quality_gate"] = self.grounding.evaluate_resume(raw_text, heuristic)
             return heuristic
 
     async def _generate_resume_json_with_retry(

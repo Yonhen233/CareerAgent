@@ -10,10 +10,11 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.agents.natural_language import NaturalLanguageAgentService
 from app.agents.orchestrator import AgentOrchestrator
 from app.core.config import get_settings
 from app.models.entities import AgentArtifact, AgentStep, EvaluationRun, Job, JobChunk, Profile
-from app.models.schemas import AgentRunRequest, GuidedProfileRequest
+from app.models.schemas import AgentRunRequest, GuidedProfileRequest, NaturalLanguageAgentRequest
 from app.services.context_compressor import ContextCompressor
 from app.services.application_guardrails import ApplicationPacketGuardrail
 from app.services.guardrails import ResumeGuardrailService
@@ -36,6 +37,7 @@ from app.services.job_sources import JobPosting, JobSourceRegistry
 from app.services.resume_tailor import ResumeTailorService
 from app.core.llm import LLMClient, LLMConfigurationError, format_exception, llm_trace_context
 from app.services.embedding_service import EmbeddingService
+from app.services.evidence_grounding import EvidenceGroundingService
 from app.services.matcher import MatcherService
 from app.services.reranker import RerankerService
 from app.services.resume_parser import ResumeParserService
@@ -142,6 +144,7 @@ class EvaluationService:
         self.hash_embedding_service = EmbeddingService(settings=self.settings, provider="hash")
         self.reranker = RerankerService(settings=self.settings)
         self.context_compressor = ContextCompressor()
+        self.grounding = EvidenceGroundingService()
         self.application_guardrail = ApplicationPacketGuardrail()
         interview_llm = self.llm
         self.interview_evaluation_llm_mode = "real_llm"
@@ -277,6 +280,7 @@ class EvaluationService:
             case_results.extend({"strategy": strategy_name, **item} for item in per_query)
 
         selected = self._select_pdf_strategy(strategy_results)
+        selected_metrics = next(item for item in strategy_results if item["strategy"] == selected["strategy"])
         summary = {
             "evaluation_type": "pdf_chunk_strategy",
             "dataset": str(path.name),
@@ -284,6 +288,7 @@ class EvaluationService:
             "query_count": sum(len(case["queries"]) for case in cases),
             "selected_strategy": selected["strategy"],
             "selection_reason": selected["reason"],
+            "selected_metrics": selected_metrics,
             "embedding_model_selection": {
                 "configured_provider": self.settings.embedding_provider,
                 "configured_model": self.settings.embedding_model_name,
@@ -292,6 +297,16 @@ class EvaluationService:
             },
             "strategy_results": strategy_results,
         }
+        summary["release_gate"] = self._quality_release_gate(
+            summary,
+            [
+                ("selected_metrics.top3_keyword_hit_rate", ">=", 0.9),
+                ("selected_metrics.top3_page_hit_rate", ">=", 0.8),
+                ("selected_metrics.top3_context_hit_rate", ">=", 0.75),
+                ("selected_metrics.avg_top1_chars", "<=", 950),
+                ("selected_metrics.avg_chunk_count", "<=", 14),
+            ],
+        )
         run = EvaluationRun(
             name="pdf_chunk_strategy_evaluation",
             summary_json=summary,
@@ -428,12 +443,14 @@ class EvaluationService:
             case_results.extend({"strategy": strategy_name, **item} for item in per_case)
 
         selected = self._select_rag_strategy(strategy_results)
+        selected_metrics = next(item for item in strategy_results if item["strategy"] == selected["strategy"])
         summary = {
             "evaluation_type": "rag_strategy",
             "dataset": str(path.name),
             "case_count": len(cases),
             "selected_strategy": selected["strategy"],
             "selection_reason": selected["reason"],
+            "selected_metrics": selected_metrics,
             "embedding_model_selection": {
                 "configured_provider": self.settings.embedding_provider,
                 "configured_model": self.settings.embedding_model_name,
@@ -463,6 +480,47 @@ class EvaluationService:
             },
             "strategy_results": strategy_results,
         }
+        summary["release_gate"] = self._quality_release_gate(
+            summary,
+            [
+                ("selected_metrics.avg_top3_recall", ">=", 0.6),
+                ("selected_metrics.avg_top5_recall", ">=", 0.7),
+                ("selected_metrics.avg_mrr", ">=", 0.85),
+                ("selected_metrics.avg_ndcg_at_5", ">=", 0.75),
+                ("selected_metrics.top1_accuracy", ">=", 0.8),
+            ],
+        )
+        provider_checks = [
+            {
+                "metric": "selected_metrics.actual_embedding_providers",
+                "actual": selected_metrics.get("actual_embedding_providers") or [],
+                "operator": "contains",
+                "threshold": "sentence_transformers",
+                "passed": "sentence_transformers" in (selected_metrics.get("actual_embedding_providers") or []),
+            },
+            {
+                "metric": "selected_metrics.actual_reranker_providers",
+                "actual": selected_metrics.get("actual_reranker_providers") or [],
+                "operator": "contains",
+                "threshold": "cross_encoder",
+                "passed": "cross_encoder" in (selected_metrics.get("actual_reranker_providers") or []),
+            },
+            {
+                "metric": "selected_metrics.fallback_reasons",
+                "actual": selected_metrics.get("fallback_reasons") or [],
+                "operator": "==",
+                "threshold": [],
+                "passed": not selected_metrics.get("fallback_reasons"),
+            },
+        ]
+        summary["release_gate"]["checks"].extend(provider_checks)
+        summary["release_gate"]["passed"] = summary["release_gate"]["passed"] and all(
+            item["passed"] for item in provider_checks
+        )
+        summary["release_gate_basis"] = (
+            "每个 query 标注 4 个相关 chunk，因此 Recall@3 理论上限为 0.75；门槛 0.60 表示至少达到理论上限的 80%。"
+            "同时要求 Recall@5、MRR、nDCG、Top1、真实多语言 embedding、cross-encoder reranker 和零 fallback。"
+        )
         run = EvaluationRun(
             name="rag_strategy_evaluation",
             summary_json=summary,
@@ -492,13 +550,49 @@ class EvaluationService:
         db.refresh(run)
         return run
 
-    async def run_jd_parser_evaluation(self, db: Session, *, dataset_path: Path | None = None) -> EvaluationRun:
+    async def run_jd_parser_evaluation(
+        self,
+        db: Session,
+        *,
+        dataset_path: Path | None = None,
+        case_limit: int | None = None,
+        case_indexes: list[int] | None = None,
+    ) -> EvaluationRun:
         path = dataset_path or self.settings.base_path / "evals" / "jd_parser_cases.json"
-        cases = json.loads(path.read_text(encoding="utf-8"))
+        all_cases = json.loads(path.read_text(encoding="utf-8"))
+        cases = self._select_llm_cases(all_cases, case_limit=case_limit, case_indexes=case_indexes)
         case_results = [await self._run_jd_parser_case(db, case) for case in cases]
         summary = self._summarize_jd_parser(case_results, path)
         run = EvaluationRun(
             name="jd_parser_evaluation",
+            summary_json=summary,
+            case_results_json=case_results,
+        )
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        return run
+
+    async def run_natural_language_plan_evaluation(
+        self,
+        db: Session,
+        *,
+        dataset_path: Path | None = None,
+        case_limit: int | None = None,
+        case_indexes: list[int] | None = None,
+    ) -> EvaluationRun:
+        if not self.llm.available:
+            raise LLMConfigurationError("LLM_API_KEY/LLM_BASE_URL 未配置，无法进行自然语言规划评测。")
+        path = dataset_path or self.settings.base_path / "evals" / "natural_language_plan_cases.json"
+        all_cases = json.loads(path.read_text(encoding="utf-8"))
+        cases = self._select_llm_cases(all_cases, case_limit=case_limit, case_indexes=case_indexes)
+        agent = NaturalLanguageAgentService(llm=self.llm)
+        case_results = []
+        for case in cases:
+            case_results.append(await self._run_natural_language_plan_case(db, agent, case))
+        summary = self._summarize_natural_language_plan(case_results, path)
+        run = EvaluationRun(
+            name="natural_language_plan_evaluation",
             summary_json=summary,
             case_results_json=case_results,
         )
@@ -1162,6 +1256,10 @@ class EvaluationService:
             profile_text = json.dumps(profile_json, ensure_ascii=False)
             profile_skill_recall = self._keyword_hit_rate(profile_text, case.get("expected_profile_skills", []))
             profile_keyword_hit_rate = self._keyword_hit_rate(profile_text, case.get("expected_profile_keywords", []))
+            profile_quality_gate = profile_json.get("quality_gate") or self.grounding.evaluate_resume(
+                case["resume_raw_text"],
+                profile_json,
+            )
             profile = Profile(
                 name=profile_json.get("name") or case["name"],
                 email=profile_json.get("email"),
@@ -1184,6 +1282,9 @@ class EvaluationService:
                     "profile_skill_recall": profile_skill_recall,
                     "profile_keyword_hit_rate": profile_keyword_hit_rate,
                     "profile_chunk_count": profile_chunk_count,
+                    "profile_quality_gate_passed": bool(profile_quality_gate.get("passed")),
+                    "profile_field_grounding_rate": profile_quality_gate.get("grounding_rate", 0),
+                    "profile_unsupported_field_count": profile_quality_gate.get("unsupported_field_count", 0),
                 }
             )
             self._record_stage(
@@ -1198,6 +1299,9 @@ class EvaluationService:
                     "profile_skill_recall": profile_skill_recall,
                     "profile_keyword_hit_rate": profile_keyword_hit_rate,
                     "profile_chunk_count": profile_chunk_count,
+                    "quality_gate_passed": bool(profile_quality_gate.get("passed")),
+                    "field_grounding_rate": profile_quality_gate.get("grounding_rate", 0),
+                    "unsupported_fields": profile_quality_gate.get("unsupported_fields", [])[:8],
                 },
             )
 
@@ -1213,6 +1317,11 @@ class EvaluationService:
                 )
             jd_text = json.dumps(jd, ensure_ascii=False)
             jd_skill_recall = self._keyword_hit_rate(jd_text, case.get("expected_jd_skills", []))
+            jd_quality_gate = jd.get("quality_gate") or self.grounding.evaluate_jd(
+                job_payload["jd_text"],
+                jd,
+                allowed_values=[job_payload.get("title"), job_payload.get("company")],
+            )
             job = Job(
                 source="llm_eval",
                 external_id=f"llm_eval:{case['name']}:{profile.id}",
@@ -1233,6 +1342,9 @@ class EvaluationService:
                     "jd_parse_success": True,
                     "jd_skill_recall": jd_skill_recall,
                     "job_chunk_count": job_chunk_count,
+                    "jd_quality_gate_passed": bool(jd_quality_gate.get("passed")),
+                    "jd_statement_grounding_rate": jd_quality_gate.get("statement_grounding_rate", 0),
+                    "jd_unsupported_skill_count": len(jd_quality_gate.get("unsupported_skills") or []),
                 }
             )
             self._record_stage(
@@ -1246,6 +1358,9 @@ class EvaluationService:
                     "required_skills": jd.get("required_skills", [])[:12],
                     "jd_skill_recall": jd_skill_recall,
                     "job_chunk_count": job_chunk_count,
+                    "quality_gate_passed": bool(jd_quality_gate.get("passed")),
+                    "statement_grounding_rate": jd_quality_gate.get("statement_grounding_rate", 0),
+                    "unsupported_skills": jd_quality_gate.get("unsupported_skills", [])[:8],
                 },
             )
 
@@ -1259,11 +1374,33 @@ class EvaluationService:
             )
             evidence_text = json.dumps(match.relevant_evidence_json, ensure_ascii=False)
             evidence_hit_rate = self._keyword_hit_rate(evidence_text, expected_evidence_keywords)
+            top3_evidence_hit_rate = self._keyword_hit_rate(
+                json.dumps((match.relevant_evidence_json or [])[:3], ensure_ascii=False),
+                expected_evidence_keywords,
+            )
+            top5_evidence_hit_rate = self._keyword_hit_rate(
+                json.dumps((match.relevant_evidence_json or [])[:5], ensure_ascii=False),
+                expected_evidence_keywords,
+            )
+            negative_expected = case.get("expected_negative_evidence_keywords") or [
+                item
+                for item in case.get("expected_profile_keywords", [])
+                if any(cue in str(item).lower() for cue in ["did not", "no ", "没有", "未实现", "未交付"])
+            ]
+            negative_evidence_hit_rate = self._keyword_hit_rate(evidence_text, negative_expected)
+            evidence_integrity_passed = bool(match.relevant_evidence_json) and all(
+                str(item.get("chunk_uid") or "").strip() and str(item.get("text") or "").strip()
+                for item in match.relevant_evidence_json or []
+            )
             result.update(
                 {
                     "match_result_id": match.id,
                     "matcher_overall_score": match.overall_score,
                     "matcher_evidence_hit_rate": evidence_hit_rate,
+                    "matcher_top3_evidence_hit_rate": top3_evidence_hit_rate,
+                    "matcher_top5_evidence_hit_rate": top5_evidence_hit_rate,
+                    "negative_evidence_hit_rate": negative_evidence_hit_rate,
+                    "evidence_integrity_passed": evidence_integrity_passed,
                 }
             )
             self._record_stage(
@@ -1276,6 +1413,10 @@ class EvaluationService:
                     "matched_skills": match.matched_skills_json,
                     "missing_skills": match.missing_skills_json,
                     "evidence_hit_rate": evidence_hit_rate,
+                    "top3_evidence_hit_rate": top3_evidence_hit_rate,
+                    "top5_evidence_hit_rate": top5_evidence_hit_rate,
+                    "negative_evidence_hit_rate": negative_evidence_hit_rate,
+                    "evidence_integrity_passed": evidence_integrity_passed,
                     "top_evidence": [
                         {
                             "chunk_uid": item.get("chunk_uid"),
@@ -1298,6 +1439,51 @@ class EvaluationService:
             predicted_label = str(suitability.get("fit_label") or "").strip()
             fit_score = self._coerce_float(suitability.get("fit_score"))
             range_error = self._score_range_error(fit_score, case.get("expected_fit_score_range"))
+            profile_sources = [
+                case["resume_raw_text"],
+                json.dumps(profile_json, ensure_ascii=False),
+            ]
+            fit_evidence_grounding = self.grounding.evaluate_citations(
+                suitability.get("matched_evidence") or [],
+                profile_sources,
+                threshold=0.5,
+                require_positive=True,
+            )
+            if predicted_label == "weak_fit" and not suitability.get("matched_evidence"):
+                fit_evidence_grounding = {**fit_evidence_grounding, "passed": True, "grounding_rate": 1.0}
+            fit_gap_grounding = self.grounding.evaluate_citations(
+                suitability.get("gaps") or [],
+                [job.raw_jd_text, json.dumps(job.structured_jd_json or {}, ensure_ascii=False)],
+                threshold=0.32,
+                require_positive=False,
+            )
+            if predicted_label == "strong_fit" and not suitability.get("gaps"):
+                fit_gap_grounding = {**fit_gap_grounding, "passed": True, "grounding_rate": 1.0}
+            label_score_consistent = (
+                (predicted_label == "strong_fit" and 85 <= fit_score <= 100)
+                or (predicted_label == "partial_fit" and 55 <= fit_score < 85)
+                or (predicted_label == "weak_fit" and 0 <= fit_score < 55)
+            )
+            raw_message_to_candidate = str(suitability.get("message_to_candidate") or "").strip()
+            published_message, published_message_facts = self._publish_grounded_fit_message(suitability)
+            suitability["raw_message_to_candidate"] = raw_message_to_candidate
+            suitability["message_to_candidate"] = published_message
+            suitability["message_policy"] = "compose_from_verified_matched_evidence_and_gaps"
+            fit_message_grounding = self.grounding.evaluate_citations(
+                published_message_facts,
+                [
+                    *(suitability.get("matched_evidence") or []),
+                    *(suitability.get("gaps") or []),
+                ],
+                threshold=0.95,
+                require_positive=False,
+            )
+            fit_explanation_passed = (
+                bool(fit_evidence_grounding.get("passed"))
+                and bool(fit_gap_grounding.get("passed"))
+                and bool(fit_message_grounding.get("passed"))
+                and label_score_consistent
+            )
             result.update(
                 {
                     "fit_judge_success": True,
@@ -1308,6 +1494,12 @@ class EvaluationService:
                     "fit_score_in_expected_range": range_error == 0,
                     "fit_context_compression": fit_context_compression,
                     "suitability": suitability,
+                    "fit_evidence_grounding": fit_evidence_grounding,
+                    "fit_gap_grounding": fit_gap_grounding,
+                    "fit_message_grounding": fit_message_grounding,
+                    "fit_message_grounding_passed": bool(fit_message_grounding.get("passed")),
+                    "label_score_consistent": label_score_consistent,
+                    "fit_explanation_passed": fit_explanation_passed,
                 }
             )
             self._record_stage(
@@ -1322,6 +1514,12 @@ class EvaluationService:
                     "fit_score_range_error": range_error,
                     "message_preview": str(suitability.get("message_to_candidate") or "")[:240],
                     "context_compression": self._compact_context_summary(fit_context_compression),
+                    "evidence_grounding_rate": fit_evidence_grounding.get("grounding_rate", 0),
+                    "gap_grounding_rate": fit_gap_grounding.get("grounding_rate", 0),
+                    "message_grounding_rate": fit_message_grounding.get("grounding_rate", 0),
+                    "raw_message_preview": raw_message_to_candidate[:240],
+                    "label_score_consistent": label_score_consistent,
+                    "fit_explanation_passed": fit_explanation_passed,
                 },
             )
 
@@ -1363,6 +1561,15 @@ class EvaluationService:
                         "guardrail_passed": bool(verification.get("passed")),
                         "tailored_risk_level": verification.get("risk_level"),
                         "hallucination_count": verification.get("hallucination_count", 0),
+                        "tailor_semantic_grounding_passed": bool(
+                            (verification.get("semantic_claim_grounding") or {}).get("passed")
+                        ),
+                        "tailor_semantic_grounding_rate": (
+                            verification.get("semantic_claim_grounding") or {}
+                        ).get("grounding_rate", 0),
+                        "tailor_unsupported_semantic_claim_count": len(
+                            (verification.get("semantic_claim_grounding") or {}).get("unsupported_claims") or []
+                        ),
                         "jd_keyword_coverage_score": verification.get("jd_keyword_coverage_score", 0),
                         "tailor_context_compression": keyword_alignment.get("context_compression"),
                         "tailor_react_repair": react_repair,
@@ -1380,6 +1587,12 @@ class EvaluationService:
                         "guardrail_passed": bool(verification.get("passed")),
                         "risk_level": verification.get("risk_level"),
                         "hallucination_count": verification.get("hallucination_count", 0),
+                        "semantic_grounding_rate": (
+                            verification.get("semantic_claim_grounding") or {}
+                        ).get("grounding_rate", 0),
+                        "unsupported_semantic_claims": (
+                            verification.get("semantic_claim_grounding") or {}
+                        ).get("unsupported_claims", [])[:5],
                         "context_compression": self._compact_context_summary(
                             keyword_alignment.get("context_compression")
                         ),
@@ -1397,6 +1610,9 @@ class EvaluationService:
                         "forbidden_claim_free": None,
                         "guardrail_passed": None,
                         "hallucination_count": None,
+                        "tailor_semantic_grounding_passed": None,
+                        "tailor_semantic_grounding_rate": None,
+                        "tailor_unsupported_semantic_claim_count": None,
                     }
                 )
                 self._record_stage(stage_trace, "tailor_resume", "skipped", {"reason": "case.run_tailor=false"})
@@ -1506,7 +1722,7 @@ class EvaluationService:
         quick_cases = [item for item in case_results if item.get("quick_apply_passed") is not None]
         packet_cases = [item for item in case_results if item.get("application_packet_passed") is not None]
         blocked_cases = [item for item in case_results if item.get("fit_gate_blocked") is True]
-        return {
+        summary = {
             "evaluation_type": "agent_full_flow",
             "dataset": dataset_path.name,
             "case_count": len(case_results),
@@ -1531,6 +1747,20 @@ class EvaluationService:
                 "低匹配 quick_apply 应被 fit_gate 阻断，失败直接写入 Agent step trace。",
             ],
         }
+        summary["release_gate"] = self._quality_release_gate(
+            summary,
+            [
+                ("pass_rate", ">=", 1.0),
+                ("completed_rate", ">=", 1.0),
+                ("top_job_accuracy", ">=", 1.0),
+                ("score_gate_accuracy", ">=", 1.0),
+                ("trace_pass_rate", ">=", 1.0),
+                ("artifact_pass_rate", ">=", 1.0),
+                ("langgraph_pass_rate", ">=", 1.0),
+                ("fit_gate_block_count", ">=", 1.0),
+            ],
+        )
+        return summary
 
     def _run_uses_langgraph(self, run) -> bool:
         output = run.output_json or {}
@@ -1683,12 +1913,180 @@ class EvaluationService:
             ],
         }
 
+    async def _run_natural_language_plan_case(
+        self,
+        db: Session,
+        agent: NaturalLanguageAgentService,
+        case: dict[str, Any],
+    ) -> dict[str, Any]:
+        started = time.perf_counter()
+        request = NaturalLanguageAgentRequest.model_validate(case["request"])
+        expected_intents = {
+            str(item) for item in case.get("expected_intents") or [case.get("expected_intent")]
+            if str(item or "").strip()
+        }
+        expected_actions = {str(item) for item in case.get("expected_actions") or []}
+        required_actions = {str(item) for item in case.get("required_actions") or expected_actions}
+        forbidden_actions = {str(item) for item in case.get("forbidden_actions") or []}
+        try:
+            with llm_trace_context(case_name=case["name"], stage="natural_language_plan"):
+                plan = await agent._build_plan(db, request)
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            return {
+                "name": case["name"],
+                "difficulty": case.get("difficulty", "unknown"),
+                "noise_profile": case.get("noise_profile", "unknown"),
+                "status": "failed",
+                "case_passed": False,
+                "error": format_exception(exc),
+                "latency_ms": int((time.perf_counter() - started) * 1000),
+            }
+
+        actual_actions = {str(item) for item in plan.get("actions") or []}
+        intent_passed = not expected_intents or str(plan.get("intent")) in expected_intents
+        required_actions_passed = required_actions <= actual_actions
+        forbidden_actions_hit = sorted(forbidden_actions & actual_actions)
+        exact_actions_passed = True
+        if case.get("require_exact_actions"):
+            exact_actions_passed = actual_actions == expected_actions
+        needs_profile_passed = (
+            "expected_needs_profile" not in case
+            or bool(plan.get("needs_profile")) == bool(case.get("expected_needs_profile"))
+        )
+        needs_job_passed = (
+            "expected_needs_job" not in case
+            or bool(plan.get("needs_job")) == bool(case.get("expected_needs_job"))
+        )
+        query_hit_rate = self._keyword_hit_rate(str(plan.get("query") or ""), case.get("expected_query_keywords", []))
+        profile_hit_rate = self._keyword_hit_rate(
+            json.dumps(plan.get("profile") or {}, ensure_ascii=False),
+            case.get("expected_profile_keywords", []),
+        )
+        job_hit_rate = self._keyword_hit_rate(
+            json.dumps(plan.get("job") or {}, ensure_ascii=False),
+            case.get("expected_job_keywords", []),
+        )
+        action_precision = self._precision(actual_actions, expected_actions) if expected_actions else 1.0
+        action_recall = self._recall(actual_actions, expected_actions) if expected_actions else 1.0
+        case_passed = (
+            intent_passed
+            and required_actions_passed
+            and not forbidden_actions_hit
+            and exact_actions_passed
+            and needs_profile_passed
+            and needs_job_passed
+            and query_hit_rate == 1.0
+            and profile_hit_rate == 1.0
+            and job_hit_rate == 1.0
+        )
+        return {
+            "name": case["name"],
+            "difficulty": case.get("difficulty", "unknown"),
+            "noise_profile": case.get("noise_profile", "unknown"),
+            "status": "completed",
+            "case_passed": case_passed,
+            "expected_intents": sorted(expected_intents),
+            "actual_intent": plan.get("intent"),
+            "intent_passed": intent_passed,
+            "expected_actions": sorted(expected_actions),
+            "actual_actions": sorted(actual_actions),
+            "action_precision": action_precision,
+            "action_recall": action_recall,
+            "required_actions_passed": required_actions_passed,
+            "forbidden_actions_hit": forbidden_actions_hit,
+            "exact_actions_passed": exact_actions_passed,
+            "needs_profile_passed": needs_profile_passed,
+            "needs_job_passed": needs_job_passed,
+            "query_keyword_hit_rate": query_hit_rate,
+            "profile_keyword_hit_rate": profile_hit_rate,
+            "job_keyword_hit_rate": job_hit_rate,
+            "plan": plan,
+            "latency_ms": int((time.perf_counter() - started) * 1000),
+        }
+
+    def _summarize_natural_language_plan(
+        self,
+        case_results: list[dict[str, Any]],
+        dataset_path: Path,
+    ) -> dict[str, Any]:
+        count = max(len(case_results), 1)
+        completed = [item for item in case_results if item.get("status") == "completed"]
+        forbidden_hits = sum(len(item.get("forbidden_actions_hit") or []) for item in completed)
+        summary = {
+            "evaluation_type": "natural_language_plan",
+            "status": (
+                "completed"
+                if len(completed) == len(case_results) and all(item.get("case_passed") for item in completed)
+                else "completed_with_quality_failures"
+            ),
+            "dataset": dataset_path.name,
+            "case_count": len(case_results),
+            "completed_rate": round(len(completed) / count, 4),
+            "pass_rate": round(sum(1 for item in case_results if item.get("case_passed")) / count, 4),
+            "intent_accuracy": self._avg_bool(completed, "intent_passed"),
+            "avg_action_precision": self._avg_number(completed, "action_precision"),
+            "avg_action_recall": self._avg_number(completed, "action_recall"),
+            "required_action_pass_rate": self._avg_bool(completed, "required_actions_passed"),
+            "exact_action_set_rate": self._avg_bool(completed, "exact_actions_passed"),
+            "forbidden_action_violation_count": forbidden_hits,
+            "forbidden_action_violation_rate": round(
+                sum(1 for item in completed if item.get("forbidden_actions_hit")) / max(len(completed), 1),
+                4,
+            ),
+            "needs_profile_accuracy": self._avg_bool(completed, "needs_profile_passed"),
+            "needs_job_accuracy": self._avg_bool(completed, "needs_job_passed"),
+            "avg_query_keyword_hit_rate": self._avg_number(completed, "query_keyword_hit_rate"),
+            "avg_profile_keyword_hit_rate": self._avg_number(completed, "profile_keyword_hit_rate"),
+            "avg_job_keyword_hit_rate": self._avg_number(completed, "job_keyword_hit_rate"),
+            "difficulty_breakdown": self._summarize_plan_by_key(completed, "difficulty"),
+            "noise_breakdown": self._summarize_plan_by_key(completed, "noise_profile"),
+            "notes": [
+                "只评估 LLM 规划和确定性安全归一化，不执行后续耗时工具，因此可单独定位意图与动作选择错误。",
+                "门控同时检查 intent、动作召回/精确率、必需动作、禁止动作、依赖字段和关键实体抽取。",
+                "用户显式勾选项和否定指令属于不可由模型覆盖的产品约束。",
+            ],
+        }
+        summary["release_gate"] = self._quality_release_gate(
+            summary,
+            [
+                ("completed_rate", ">=", 1.0),
+                ("intent_accuracy", ">=", 0.9),
+                ("avg_action_precision", ">=", 0.85),
+                ("avg_action_recall", ">=", 0.9),
+                ("forbidden_action_violation_rate", "<=", 0.0),
+                ("needs_profile_accuracy", ">=", 0.9),
+                ("needs_job_accuracy", ">=", 0.9),
+            ],
+        )
+        return summary
+
+    def _summarize_plan_by_key(self, rows: list[dict[str, Any]], key: str) -> dict[str, Any]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            grouped.setdefault(str(row.get(key) or "unknown"), []).append(row)
+        return {
+            group: {
+                "case_count": len(items),
+                "pass_rate": self._avg_bool(items, "case_passed"),
+                "intent_accuracy": self._avg_bool(items, "intent_passed"),
+                "avg_action_precision": self._avg_number(items, "action_precision"),
+                "avg_action_recall": self._avg_number(items, "action_recall"),
+                "forbidden_action_violation_rate": round(
+                    sum(1 for item in items if item.get("forbidden_actions_hit")) / max(len(items), 1),
+                    4,
+                ),
+            }
+            for group, items in sorted(grouped.items())
+        }
+
     async def _run_jd_parser_case(self, db: Session, case: dict[str, Any]) -> dict[str, Any]:
         started = time.perf_counter()
         expected_required = [str(item) for item in case.get("expected_required_skills", [])]
         expected_keywords = [str(item) for item in case.get("expected_keywords", [])]
         expected_absent = [str(item) for item in case.get("expected_absent_required_skills", [])]
         min_required_recall = float(case.get("min_required_skill_recall", 0.75))
+        min_required_precision = float(case.get("min_required_skill_precision", 0.7))
         min_keyword_hit = float(case.get("min_keyword_hit_rate", 0.7))
         min_responsibility_count = int(case.get("min_responsibility_count", 1))
         min_qualification_count = int(case.get("min_qualification_count", 1))
@@ -1732,7 +2130,17 @@ class EvaluationService:
             {self._normalize_eval_term(item) for item in parsed_required},
             {self._normalize_eval_term(item) for item in expected_required},
         )
+        required_skill_precision = self._precision(
+            {self._normalize_eval_term(item) for item in parsed_required},
+            {self._normalize_eval_term(item) for item in expected_required},
+        )
+        required_skill_f1 = self._f1(required_skill_precision, required_skill_recall)
         keyword_hit_rate = self._keyword_hit_rate(parsed_text, expected_keywords)
+        quality_gate = parsed.get("quality_gate") or self.grounding.evaluate_jd(
+            case["jd_text"],
+            parsed,
+            allowed_values=[case.get("title"), case.get("company"), case.get("location")],
+        )
         absent_violations = [
             item
             for item in expected_absent
@@ -1748,6 +2156,8 @@ class EvaluationService:
         failed_checks = []
         if required_skill_recall < min_required_recall:
             failed_checks.append("required_skill_recall")
+        if required_skill_precision < min_required_precision:
+            failed_checks.append("required_skill_precision")
         if keyword_hit_rate < min_keyword_hit:
             failed_checks.append("keyword_hit_rate")
         if not job_type_passed:
@@ -1758,6 +2168,8 @@ class EvaluationService:
             failed_checks.append("qualification_count")
         if absent_violations:
             failed_checks.append("absent_required_skill_violation")
+        if not quality_gate.get("passed"):
+            failed_checks.append("grounding_quality_gate")
         result.update(
             {
                 "status": "completed",
@@ -1771,6 +2183,8 @@ class EvaluationService:
                 "parsed_preferred_skills": parsed_preferred,
                 "parsed_keywords_preview": (parsed.get("keywords") or [])[:16],
                 "required_skill_recall": required_skill_recall,
+                "required_skill_precision": required_skill_precision,
+                "required_skill_f1": required_skill_f1,
                 "required_skill_hits": required_hits,
                 "missing_required_skills": [
                     item
@@ -1784,6 +2198,10 @@ class EvaluationService:
                 "qualification_count": qualification_count,
                 "responsibility_min_passed": responsibility_min_passed,
                 "qualification_min_passed": qualification_min_passed,
+                "grounding_quality_gate_passed": bool(quality_gate.get("passed")),
+                "statement_grounding_rate": quality_gate.get("statement_grounding_rate", 0),
+                "unsupported_extracted_skill_count": len(quality_gate.get("unsupported_skills") or []),
+                "unsupported_statement_count": quality_gate.get("unsupported_statement_count", 0),
             }
         )
         return result
@@ -1806,7 +2224,7 @@ class EvaluationService:
             status = "completed_with_quality_failures"
         else:
             status = "completed"
-        return {
+        summary = {
             "evaluation_type": "jd_parser",
             "status": status,
             "dataset": dataset_path.name,
@@ -1814,7 +2232,14 @@ class EvaluationService:
             "completed_rate": round(len(completed) / count, 4),
             "pass_rate": round(sum(1 for item in case_results if item.get("case_passed")) / count, 4),
             "avg_required_skill_recall": self._avg_number(case_results, "required_skill_recall"),
+            "avg_required_skill_precision": self._avg_number(case_results, "required_skill_precision"),
+            "avg_required_skill_f1": self._avg_number(case_results, "required_skill_f1"),
             "avg_keyword_hit_rate": self._avg_number(case_results, "keyword_hit_rate"),
+            "grounding_quality_gate_pass_rate": self._avg_bool(completed, "grounding_quality_gate_passed"),
+            "avg_statement_grounding_rate": self._avg_number(completed, "statement_grounding_rate"),
+            "unsupported_extracted_skill_count": sum(
+                int(item.get("unsupported_extracted_skill_count") or 0) for item in completed
+            ),
             "job_type_accuracy": self._avg_bool(completed, "job_type_passed"),
             "responsibility_min_pass_rate": self._avg_bool(completed, "responsibility_min_passed"),
             "qualification_min_pass_rate": self._avg_bool(completed, "qualification_min_passed"),
@@ -1830,9 +2255,22 @@ class EvaluationService:
             "notes": [
                 "该评测独立衡量 JD parser 的结构化质量，避免真实 JD ingest 只看到 parse_success 却漏掉核心技能。",
                 "case 同时检查 required skill recall、关键词命中、岗位类型、职责/要求覆盖和负向技能误抽取。",
+                "新增 required skill precision/F1 与运行时 grounding gate，避免把原文没有的技能或职责填进合法 JSON。",
                 "生产配置下 LLM 不可用且未显式开启 fallback 时会记录 parse_error；测试环境可显式用 heuristic_fallback 做离线回归。",
             ],
         }
+        summary["release_gate"] = self._quality_release_gate(
+            summary,
+            [
+                ("completed_rate", ">=", 1.0),
+                ("pass_rate", ">=", 0.9),
+                ("avg_required_skill_precision", ">=", 0.9),
+                ("avg_required_skill_f1", ">=", 0.85),
+                ("grounding_quality_gate_pass_rate", ">=", 0.95),
+                ("absent_required_skill_violation_count", "<=", 0.0),
+            ],
+        )
+        return summary
 
     def _normalized_hits(self, predicted: list[str], expected: list[str]) -> list[str]:
         predicted_terms = {self._normalize_eval_term(item) for item in predicted}
@@ -1844,6 +2282,7 @@ class EvaluationService:
             "retrieval augmented generation": "rag",
             "large language model": "llm",
             "large language models": "llm",
+            "model evaluation": "evaluation",
             "vector store": "vector database",
             "vector search": "vector database",
             "ab testing": "a b testing",
@@ -1884,7 +2323,10 @@ class EvaluationService:
                     4,
                 ),
                 "avg_required_skill_recall": self._avg_number(items, "required_skill_recall"),
+                "avg_required_skill_precision": self._avg_number(items, "required_skill_precision"),
+                "avg_required_skill_f1": self._avg_number(items, "required_skill_f1"),
                 "avg_keyword_hit_rate": self._avg_number(items, "keyword_hit_rate"),
+                "grounding_quality_gate_pass_rate": self._avg_bool(items, "grounding_quality_gate_passed"),
                 "absent_required_skill_violation_count": sum(
                     len(item.get("absent_required_skill_violations") or []) for item in items
                 ),
@@ -1953,7 +2395,7 @@ class EvaluationService:
         false_blocks = [item for item in expected_pass if not item.get("actual_passed")]
         missed_blocks = [item for item in expected_block if item.get("actual_passed")]
         issue_expectations = [item for item in expected_block if item.get("expected_issue_codes")]
-        return {
+        summary = {
             "evaluation_type": "application_packet_guardrail",
             "status": "completed" if all(item.get("case_passed") for item in case_results) else "completed_with_quality_failures",
             "dataset": dataset_path.name,
@@ -1984,6 +2426,18 @@ class EvaluationService:
                 "missing_apply_url 和短外联文案目前作为 warning，不直接阻断投递包生成。",
             ],
         }
+        summary["false_block_rate"] = round(len(false_blocks) / max(len(expected_pass), 1), 4)
+        summary["missed_high_risk_rate"] = round(len(missed_blocks) / max(len(expected_block), 1), 4)
+        summary["release_gate"] = self._quality_release_gate(
+            summary,
+            [
+                ("high_risk_recall", ">=", 0.95),
+                ("false_block_rate", "<=", 0.05),
+                ("missed_high_risk_rate", "<=", 0.05),
+                ("issue_code_hit_rate", ">=", 0.9),
+            ],
+        )
+        return summary
 
     def _run_interview_prep_case(self, db: Session, case: dict[str, Any], *, namespace: str) -> dict[str, Any]:
         profile_data = case["profile"]
@@ -2358,7 +2812,7 @@ class EvaluationService:
     def _summarize_job_relevance(self, case_results: list[dict[str, Any]], dataset_path: Path) -> dict[str, Any]:
         count = max(len(case_results), 1)
         failed = [item for item in case_results if not item.get("case_passed")]
-        return {
+        summary = {
             "evaluation_type": "job_relevance_ranking",
             "status": "completed" if not failed else "completed_with_quality_failures",
             "dataset": dataset_path.name,
@@ -2383,6 +2837,18 @@ class EvaluationService:
                 "指标优先关注 top1_accuracy、Top3 strong recall、MRR 和 nDCG@5；low_grade_above_strong 用来暴露产品/销售/运营噪声排到强匹配前面的风险。",
             ],
         }
+        summary["release_gate"] = self._quality_release_gate(
+            summary,
+            [
+                ("pass_rate", ">=", 0.9),
+                ("top1_accuracy", ">=", 0.9),
+                ("avg_top3_recall", ">=", 0.9),
+                ("avg_mrr", ">=", 0.9),
+                ("avg_ndcg_at_5", ">=", 0.9),
+                ("low_grade_above_strong_count", "<=", 0.0),
+            ],
+        )
+        return summary
 
     def _summarize_job_relevance_by_key(self, rows: list[dict[str, Any]], key: str) -> dict[str, Any]:
         grouped: dict[str, list[dict[str, Any]]] = {}
@@ -2907,15 +3373,38 @@ class EvaluationService:
                 "failed_stage",
             ),
             "resume_parse_success_rate": self._avg_bool(case_results, "resume_parse_success"),
+            "profile_grounding_gate_pass_rate": self._avg_bool(completed, "profile_quality_gate_passed"),
+            "avg_profile_field_grounding_rate": self._avg_number(completed, "profile_field_grounding_rate"),
+            "profile_unsupported_field_count": sum(
+                int(item.get("profile_unsupported_field_count") or 0) for item in completed
+            ),
             "avg_profile_skill_recall": self._avg_number(case_results, "profile_skill_recall"),
             "avg_profile_keyword_hit_rate": self._avg_number(case_results, "profile_keyword_hit_rate"),
             "jd_parse_success_rate": self._avg_bool(case_results, "jd_parse_success"),
+            "jd_grounding_gate_pass_rate": self._avg_bool(completed, "jd_quality_gate_passed"),
+            "avg_jd_statement_grounding_rate": self._avg_number(completed, "jd_statement_grounding_rate"),
+            "jd_unsupported_skill_count": sum(
+                int(item.get("jd_unsupported_skill_count") or 0) for item in completed
+            ),
             "avg_jd_skill_recall": self._avg_number(case_results, "jd_skill_recall"),
             "fit_judge_success_rate": self._avg_bool(case_results, "fit_judge_success"),
             "fit_label_accuracy": self._avg_bool(fit_cases, "label_passed"),
             "fit_score_in_range_rate": self._avg_bool(fit_cases, "fit_score_in_expected_range"),
             "avg_fit_score_range_error": self._avg_number(fit_cases, "fit_score_range_error"),
             "avg_matcher_evidence_hit_rate": self._avg_number(case_results, "matcher_evidence_hit_rate"),
+            "avg_matcher_top3_evidence_hit_rate": self._avg_number(case_results, "matcher_top3_evidence_hit_rate"),
+            "avg_matcher_top5_evidence_hit_rate": self._avg_number(case_results, "matcher_top5_evidence_hit_rate"),
+            "avg_negative_evidence_hit_rate": self._avg_number(case_results, "negative_evidence_hit_rate"),
+            "evidence_integrity_pass_rate": self._avg_bool(completed, "evidence_integrity_passed"),
+            "fit_explanation_grounding_pass_rate": self._avg_bool(fit_cases, "fit_explanation_passed"),
+            "avg_fit_evidence_grounding_rate": self._avg_nested_number(
+                fit_cases, "fit_evidence_grounding", "grounding_rate"
+            ),
+            "avg_fit_gap_grounding_rate": self._avg_nested_number(
+                fit_cases, "fit_gap_grounding", "grounding_rate"
+            ),
+            "fit_message_grounding_pass_rate": self._avg_bool(fit_cases, "fit_message_grounding_passed"),
+            "fit_label_score_consistency_rate": self._avg_bool(fit_cases, "label_score_consistent"),
             "tailor_case_count": len(tailor_cases),
             "tailor_success_rate": self._avg_bool(tailor_cases, "tailor_success"),
             "tailor_pass_rate": self._avg_bool(tailor_cases, "tailor_passed"),
@@ -2923,6 +3412,15 @@ class EvaluationService:
             "guardrail_pass_rate": self._avg_bool(tailor_cases, "guardrail_passed"),
             "forbidden_claim_free_rate": self._avg_bool(tailor_cases, "forbidden_claim_free"),
             "avg_hallucination_count": self._avg_number(tailor_cases, "hallucination_count"),
+            "tailor_semantic_grounding_pass_rate": self._avg_bool(
+                tailor_cases, "tailor_semantic_grounding_passed"
+            ),
+            "avg_tailor_semantic_grounding_rate": self._avg_number(
+                tailor_cases, "tailor_semantic_grounding_rate"
+            ),
+            "tailor_unsupported_semantic_claim_count": sum(
+                int(item.get("tailor_unsupported_semantic_claim_count") or 0) for item in tailor_cases
+            ),
             "context_compression": {
                 "fit_context_count": len(fit_contexts),
                 "tailor_context_count": len(tailor_contexts),
@@ -2936,10 +3434,26 @@ class EvaluationService:
             "difficulty_breakdown": self._summarize_llm_by_key(case_results, "difficulty"),
             "notes": [
                 "每个 case 跑真实链路：简历解析、JD 解析、RAG 证据、fit judge、可选简历定制和 Guardrail。",
+                "端到端通过还要求解析字段可回指原文、Top5 证据覆盖、fit 理由/差距有引用且标签与分数一致。",
                 "每个 case 写入 stage_trace；评测运行会逐 case 更新 EvaluationRun，避免长跑中断后丢失中间结果。",
                 "LLM/embedding/reranker 默认失败直报；失败记录 failed_stage 和异常，不做静默修复。",
             ],
         }
+        summary["release_gate"] = self._quality_release_gate(
+            summary,
+            [
+                ("completed_rate", ">=", 1.0),
+                ("profile_grounding_gate_pass_rate", ">=", 0.95),
+                ("jd_grounding_gate_pass_rate", ">=", 0.95),
+                ("evidence_integrity_pass_rate", ">=", 1.0),
+                ("fit_explanation_grounding_pass_rate", ">=", 0.9),
+                ("fit_message_grounding_pass_rate", ">=", 1.0),
+                ("fit_label_accuracy", ">=", 0.8),
+                ("fit_score_in_range_rate", ">=", 0.8),
+                ("tailor_pass_rate", ">=", 0.8),
+                ("forbidden_claim_free_rate", ">=", 1.0),
+            ],
+        )
         return summary
 
     def _keyword_hit_rate(self, text: str, expected_keywords: list[str]) -> float:
@@ -3009,6 +3523,20 @@ class EvaluationService:
             return 0.0
         return round(min(abs(score - low), abs(score - high)), 4)
 
+    @staticmethod
+    def _publish_grounded_fit_message(suitability: dict[str, Any]) -> tuple[str, list[str]]:
+        matched = [str(item).strip() for item in suitability.get("matched_evidence") or [] if str(item).strip()]
+        gaps = [str(item).strip() for item in suitability.get("gaps") or [] if str(item).strip()]
+        facts = [*matched[:3], *gaps[:3]]
+        sections: list[str] = []
+        if matched:
+            sections.append(f"可确认的匹配证据：{'；'.join(matched[:3])}。")
+        if gaps:
+            sections.append(f"需要补齐或进一步核实：{'；'.join(gaps[:3])}。")
+        if not sections:
+            sections.append("当前没有足够的已验证证据形成岗位适配结论。")
+        return "".join(sections), facts
+
     def _llm_case_passed(self, result: dict[str, Any]) -> bool:
         if result.get("status") != "completed":
             return False
@@ -3016,10 +3544,15 @@ class EvaluationService:
             bool(result.get("resume_parse_success"))
             and bool(result.get("jd_parse_success"))
             and bool(result.get("fit_judge_success"))
+            and bool(result.get("profile_quality_gate_passed"))
+            and bool(result.get("jd_quality_gate_passed"))
+            and bool(result.get("evidence_integrity_passed"))
+            and bool(result.get("fit_explanation_passed"))
             and bool(result.get("label_passed"))
             and bool(result.get("fit_score_in_expected_range"))
             and self._coerce_float(result.get("profile_skill_recall")) >= 0.5
             and self._coerce_float(result.get("jd_skill_recall")) >= 0.5
+            and self._coerce_float(result.get("matcher_top5_evidence_hit_rate")) >= 0.5
         )
         if not base_passed:
             return False
@@ -3045,6 +3578,46 @@ class EvaluationService:
         if not values:
             return 0.0
         return round(sum(values) / len(values), 4)
+
+    def _avg_nested_number(self, rows: list[dict[str, Any]], parent: str, key: str) -> float:
+        values = []
+        for item in rows:
+            value = (item.get(parent) or {}).get(key)
+            if value is None or isinstance(value, bool):
+                continue
+            try:
+                values.append(float(value))
+            except (TypeError, ValueError):
+                continue
+        if not values:
+            return 0.0
+        return round(sum(values) / len(values), 4)
+
+    def _quality_release_gate(
+        self,
+        summary: dict[str, Any],
+        checks: list[tuple[str, str, float]],
+    ) -> dict[str, Any]:
+        results = []
+        for metric, operator, threshold in checks:
+            value: Any = summary
+            for part in metric.split("."):
+                value = value.get(part) if isinstance(value, dict) else None
+            actual = self._coerce_float(value)
+            passed = actual >= threshold if operator == ">=" else actual <= threshold
+            results.append(
+                {
+                    "metric": metric,
+                    "actual": actual,
+                    "operator": operator,
+                    "threshold": threshold,
+                    "passed": passed,
+                }
+            )
+        return {
+            "passed": all(item["passed"] for item in results),
+            "checks": results,
+        }
 
     def _avg_context_metric(self, rows: list[dict[str, Any]], key: str) -> float:
         values = []
@@ -3384,6 +3957,12 @@ class EvaluationService:
             return 1.0 if not expected else 0.0
         return round(len(predicted & expected) / len(predicted), 4)
 
+    @staticmethod
+    def _f1(precision: float, recall: float) -> float:
+        if precision + recall == 0:
+            return 0.0
+        return round(2 * precision * recall / (precision + recall), 4)
+
     def _recall(self, predicted: set[str], expected: set[str]) -> float:
         if not expected:
             return 1.0
@@ -3423,6 +4002,8 @@ Rules:
 - Treat "planned to learn", "read about", "coursework only", "no shipped project" and "did not build" as gaps, not evidence.
 - matched_evidence should cite concrete phrases from the candidate profile.
 - gaps should cite important missing job requirements.
+- Every gap must quote or closely paraphrase a concrete JD requirement. Do not infer missing internship,
+  production, traffic, scale or deployment experience unless the profile explicitly says it is missing.
 
 Compressed context:
 {json.dumps(compressed_context, ensure_ascii=False)}
@@ -3433,6 +4014,7 @@ Compressed context:
             db=db,
             trace_name="evaluation.llm_judge_suitability",
             temperature=0,
+            max_tokens=1000,
         )
         result["_context_compression"] = compressed_context.get("context_compression")
         return result

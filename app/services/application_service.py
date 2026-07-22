@@ -82,10 +82,15 @@ class ApplicationService:
                     "LLM is required for cover letter generation. Set LLM_FALLBACK_ENABLED=true for tests."
                 )
             return fallback
-        system_prompt = "You write concise Chinese job application letters. Return plain text only."
+        system_prompt = (
+            "You write concise Chinese job application letters. Return plain text only. "
+            "Every candidate experience or achievement sentence must be a close paraphrase of the supplied profile."
+        )
         user_prompt = f"""
 Write a concise cover letter in Chinese.
 Do not fabricate facts. Use the resume version if available.
+Do not mention planned learning, missing skills, or unsupported JD requirements.
+Every candidate claim must be a close paraphrase of the profile or resume version.
 
 Profile:
 {json.dumps(profile.structured_profile_json, ensure_ascii=False)}
@@ -109,6 +114,7 @@ Resume version:
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     temperature=0.25,
+                    max_tokens=900,
                     db=db,
                     trace_name="application.cover_letter",
                 )
@@ -123,7 +129,7 @@ Resume version:
         target_role = (profile.target_roles_json or [job.title])[0] if profile.target_roles_json else job.title
         return (
             f"您好，我关注到 {job.company or '贵司'} 的 {job.title} 岗位。"
-            f"我正在寻找 {target_role} 相关机会，已有 {skill_text} 等相关经历，"
+            f"我正在寻找 {target_role} 相关机会。已有 {skill_text} 等相关经历，"
             "希望有机会进一步交流。"
         )
 

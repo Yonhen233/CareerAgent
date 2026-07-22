@@ -23,14 +23,17 @@
 
 离线评测中的 `DeterministicInterviewEvaluationLLM` 只在显式 `LLM_FALLBACK_ENABLED=true` 的评测 harness 使用，不进入产品路径；产品未配置 LLM 或 release gate 失败时直接报错。
 
-CareerAgent 的评测分为九类：
+CareerAgent 的评测分为十二类：
 
 - 基础匹配评测：Profile/JD 匹配质量。
 - PDF Chunk 策略评测：不同 PDF 切分方案对证据召回的影响。
 - RAG 策略评测：不同检索排序策略对证据召回的影响。
 - JD Parser 评测：衡量真实 JD 结构化解析质量，避免核心技能漏抽或把可选技能误写成 required。
+- 自然语言规划评测：衡量意图、动作依赖、显式禁止动作和实体抽取，避免关键词命中覆盖用户否定意图。
 - LLM 实景流程评测：真实调用 LLM 判断岗位适配度并按 JD 改写简历。
 - Agent 全流程评测：覆盖岗位搜索、匹配排序、简历定制、一键投递门禁、Trace 和 Artifact。
+- 投递材料 Guardrail 评测：衡量事实支持、高风险召回、误拦截、漏拦截和人工确认边界。
+- Prompt Injection 对抗评测：按来源与攻击类别衡量召回率、误报率和发布阈值。
 - 面试准备包评测：衡量网上同岗位面经、简历项目技术栈、其他可能面试问题三类准备角度，以及同岗面经调研线索、缺口 drill 和通用问题覆盖。
 - 真实岗位源 Smoke：只评测招聘源可达性、结果数量和岗位质量，不参与核心 Agent 回归 pass rate。
 - 真实 JD Ingest Smoke：只评测真实 JD 解析、SQLite 入库、JD chunk、embedding/reranker 和检索 probe，不参与核心 Agent 回归 pass rate。
@@ -113,8 +116,8 @@ evals/llm_workflow_cases.json
 
 规模：
 
-- 18 个端到端 LLM 流程案例，不再只评测 3 条岗位适配标签。
-- 13 个案例会进入简历定制流程。
+- 24 个端到端 LLM 流程案例，不再只评测 3 条岗位适配标签。
+- 17 个案例会进入简历定制流程。
 - 覆盖 `strong_fit`、`partial_fit`、`weak_fit` 三类标签。
 - 覆盖 `easy`、`medium`、`hard`、`adversarial` 四类难度。
 
@@ -123,6 +126,23 @@ evals/llm_workflow_cases.json
 - 覆盖 Agent/RAG、LLM Eval、后端、前端、数据工程、ML、AI 安全、移动 AI、推荐、分析、DevOps、CV 等岗位。
 - 每个 case 包含原始简历文本、期望 Profile 技能、期望 Profile 关键词、JD、期望 JD 技能、期望 fit label、期望 fit score 区间、定制简历关键词和禁止编造 claim。
 - hard/adversarial case 明确加入 `did not build`、`No shipped project`、相邻岗位经验等反例，测试模型是否把“读过/计划学习/课程提到”误判成真实交付经验。
+- 新增中文 PDF 版式噪声、Prompt Injection 文本、观测性技术栈、课程/计划学习边界与相邻 Agent 岗位等样本。
+
+### 自然语言规划评测数据
+
+```text
+evals/natural_language_plan_cases.json
+```
+
+规模：20 个中文为主 case。覆盖无简历浏览、已有档案、自然语言建档/更新、粘贴 JD、多动作、显式禁止投递、UI 显式选项以及少量英文和中英混合输入。标注 intent、required/forbidden actions、`needs_profile`、`needs_job` 与实体关键词；`needs_profile` 表示完成计划是否依赖简历，不表示当前请求里是否已经上传简历。
+
+### 投递材料 Guardrail 数据
+
+```text
+evals/application_packet_cases.json
+```
+
+规模：26 个 case。除技能名编造外，还覆盖非技能经历编造、不支持/支持的数字指标、负面能力披露、双语近义改写、目标岗位 claim scope、缺少投递链接和自动提交边界。
 
 ### Agent 全流程数据
 
@@ -199,6 +219,11 @@ POST /evaluations/pdf-chunk-strategies
 POST /evaluations/rag-strategies
 POST /evaluations/agent-full-flow
 POST /evaluations/jd-parser
+POST /evaluations/natural-language-plan
+POST /evaluations/job-relevance
+POST /evaluations/application-packet
+POST /evaluations/prompt-injection
+POST /evaluations/interview-prep
 POST /evaluations/real-job-source-smoke
 POST /evaluations/real-job-ingest-smoke
 POST /evaluations/llm-workflow
@@ -220,18 +245,22 @@ POST /evaluations/jd-parser
 | case_count | 30 |
 | completed_rate | 1.0000 |
 | pass_rate | 1.0000 |
-| avg_required_skill_recall | 0.9972 |
+| avg_required_skill_recall | 1.0000 |
+| avg_required_skill_precision | 0.9769 |
+| avg_required_skill_f1 | 0.9876 |
 | avg_keyword_hit_rate | 1.0000 |
 | job_type_accuracy | 1.0000 |
 | responsibility_min_pass_rate | 1.0000 |
 | qualification_min_pass_rate | 1.0000 |
+| grounding_quality_gate_pass_rate | 1.0000 |
 | absent_required_skill_violation_count | 0 |
+| release_gate.passed | true |
 
 说明：
 
-- 这次结果运行在测试环境的 `heuristic_fallback` parser mode，用于离线、可重复地验证规则路径；生产配置中 LLM 可用时仍会调用真实 JD parser LLM 链路。
+- 这次结果是离线 `heuristic_fallback` 全量基线 `#62`，用于可重复验证 30 条标注和 release gate；生产配置中 LLM 可用时仍调用真实 JD parser LLM 链路。
 - 本轮评测先暴露了两个问题：`Tool Calling`、`A/B Testing` 被后续负向句误判为不要求；`internal tools` 被 `intern` 子串误判成实习岗位。
-- 修复后，负向语境只在当前行/句内判断，preferred 技能单独抽取；job_type 使用词边界匹配 `intern`，并把 `location=Remote` 和常规工程岗位标题纳入推断。
+- 新的真实 Flash 分层评测又暴露了 `实习`/`internship` 口径不一致和中英文技能重复。修复后统一 job type 与技能别名，负向语境只在当前行/句内判断，preferred 技能单独抽取；precision、F1 和 grounding 与 recall 一起进入 release gate。
 - 该评测不会替代真实 JD ingest smoke；它负责 parser 质量，ingest smoke 负责 source posting 进入 SQLite、chunk、embedding/reranker 和 retrieval probe 的链路健康。
 
 ## PDF Chunk 策略评测
@@ -251,6 +280,8 @@ POST /evaluations/jd-parser
 | paragraph_page_900_overlap160 | 0.9479 | 0.8299 | 0.7760 | 772.77 | 10.00 |
 | paragraph_page_1200_overlap200 | 0.9358 | 0.8403 | 0.8316 | 1054.09 | 9.00 |
 | section_aware_700_overlap120 | 0.9479 | 0.8281 | 0.7865 | 534.33 | 16.57 |
+
+评测 `#65` 使用真实多语言 embedding 完整运行 96 份简历、576 条查询，release gate 通过。门槛为 Top3 关键词 >=0.90、页码 >=0.80、上下文 >=0.75，同时限制 Top1 平均长度 <=950 字符、平均 chunk 数 <=14，防止只靠放大 chunk 获得更高命中。
 
 选择：
 
@@ -327,13 +358,20 @@ real_embedding_top20_rerank
 | hard | 1.0000 | 0.5833 | 0.7500 | 1.0000 | 0.7968 |
 | adversarial | 1.0000 | 0.6167 | 0.6667 | 1.0000 | 0.7512 |
 
+发布门禁：
+
+- `Recall@3 >= 0.60`。每题人工标注 4 个相关 chunk，而 Top3 最多容纳 3 个，因此理论上限是 0.75；0.60 对应达到理论上限的 80%。
+- `Recall@5 >= 0.70`、`MRR >= 0.85`、`nDCG@5 >= 0.75`、`Top1 >= 0.80`。
+- 实际 provider 必须包含 `sentence_transformers` 和 `cross_encoder`，`fallback_reasons` 必须为空，不能用 hash/词法兜底结果冒充真实向量评测。
+- 2026-07-22 的 180-case 完整重跑满足上述所有条件，`release_gate.passed=true`；对抗桶 Recall@5=0.6667 仍单独列为改进项。
+
 调试发现：
 
 - 第一轮真实评测中，裸 CrossEncoder 权重过高，会把强关键词证据推出 Top3，Top3 Recall 从 0.9444 降到 0.8889。
 - 修复方式是采用保守融合：一阶段分数为主，rerank 分数为辅，并设置 Top5 recall anchor。
 - 依赖调试中发现 `transformers 5.x` 与当前 SentenceTransformers 加载不稳定，已在 `requirements.txt` 中约束 `transformers<5.0.0`、`huggingface-hub<1.0`。
 - 强噪声数据集把 Top3 Recall 从原来的 0.9444 拉低到 0.6125，这是有意为之：新数据更接近真实简历里的课程噪声、计划学习和相邻项目干扰。
-- 后续优化重点不再是继续调 embedding 权重。本轮已经加入规则版 evidence classifier 来区分“真实交付证据”和“仅提及/计划学习/缺口披露”，下一步更适合用真实人工标注数据校准规则权重，或增加 LLM verifier 做抽检。
+- 后续优化重点不再是继续调 embedding 权重。本轮已有证据类型分类与负向证据降权；下一步应补充真实人工脱敏 JD/简历 pair，并对对抗桶做错误分析，必要时再引入小模型 classifier 或抽样 LLM verifier，而不是继续在合成集上调权重。
 
 ## RAG 向量库选型
 
@@ -387,8 +425,12 @@ POST /evaluations/agent-full-flow
 | fit_gate_block_count | 3 |
 | trace_pass_rate | 1.0000 |
 | artifact_pass_rate | 1.0000 |
+| langgraph_pass_rate | 1.0000 |
 | avg_top_job_score | 57.3650 |
 | avg_ranking_margin | 29.8817 |
+| release_gate.passed | true |
+
+全流程发布门禁要求 pass/completed、Top1、分数、Trace、Artifact 和 LangGraph 完整率全部为 1.0，并且至少有一个弱匹配 case 被 fit gate 正确阻断。这样“六条流程都跑完”不能掩盖审批或可观测性缺失。
 
 本轮暴露并修复的问题：
 
@@ -436,6 +478,9 @@ POST /evaluations/job-relevance
 | avg_mrr | 1.0000 |
 | avg_ndcg_at_5 | 0.9495 |
 | low_grade_above_strong_count | 0 |
+| release_gate.passed | true |
+
+排序发布门禁要求 pass/top1/Top3/MRR 均 >=0.90、nDCG@5 >=0.90，并且不允许低相关岗位排在强相关岗位前。
 
 本轮首次运行暴露出 `推荐算法实习生` case 的 `top3_recall=0.5000`：`排序模型实习生` 是强相关同义岗位，但旧规则把“开发/工程”这种泛技术信号排得过高，导致 `数据开发实习生`、`Agent开发实习生` 这类低相关岗位压过强相关岗位。修复方式是在 source 排序中加入领域意图 boost，包括算法/推荐、后端/API、数据开发、安全、评测和 Prompt；修复后该 case 的 `top3_recall=1.0000`、`nDCG@5=0.9698`，整体评测状态为 `completed`。
 
@@ -449,9 +494,9 @@ POST /evaluations/application-packet
 
 评测内容：
 
-- 使用 `evals/application_packet_cases.json`，覆盖 20 个中文投递包 case。
+- 使用 `evals/application_packet_cases.json`，覆盖 26 个中文为主投递包 case。
 - 正例包括 Agent、前端、数据、产品等非单一岗位投递包，验证动态 fallback 不再硬编码 Agent/RAG/FastAPI/SQLite。
-- 反例包括编造 MLflow/Kubernetes、非 Agent 岗位硬写 Agent 经验、缺少目标岗位、越过人工确认边界。
+- 反例包括编造 MLflow/Kubernetes、非技能经历和数字指标，非 Agent 岗位硬写 Agent 经验、缺少目标岗位、负面披露误判以及越过人工确认边界。
 - 缺少投递链接和外联文案过短当前作为 warning，不直接阻断。
 - 不调用外部招聘站，也不调用 LLM，只验证投递包最后一公里的事实校验和自动化边界。
 
@@ -461,7 +506,9 @@ POST /evaluations/application-packet
 | --- | --- |
 | `high_risk_recall` | 应阻断的高风险投递包被正确阻断的比例。 |
 | `false_block_count` | 正常投递包被误拦截的数量。 |
+| `false_block_rate` | 正常投递包被误拦截的比例。 |
 | `missed_high_risk_count` | 高风险投递包漏拦截的数量。 |
+| `missed_high_risk_rate` | 高风险投递包漏拦截的比例。 |
 | `issue_code_hit_rate` | 期望 issue code 是否被正确命中。 |
 | `avg_warning_count` | 每个 case 平均 warning 数量。 |
 
@@ -469,15 +516,17 @@ POST /evaluations/application-packet
 
 | 指标 | 结果 |
 | --- | ---: |
-| case_count | 20 |
+| case_count | 26 |
 | pass_rate | 1.0000 |
 | high_risk_recall | 1.0000 |
 | false_block_count | 0 |
+| false_block_rate | 0.0000 |
 | missed_high_risk_count | 0 |
+| missed_high_risk_rate | 0.0000 |
 | issue_code_hit_rate | 1.0000 |
-| avg_warning_count | 0.5000 |
+| release_gate.passed | true |
 
-本轮暴露并修复的问题：旧 fallback 求职信和外联文案总是强调 Agent/RAG/FastAPI/SQLite，即使候选人申请的是前端或数据岗位，也会产生不符合简历证据的能力声明。修复后 fallback 会根据 Profile skills、项目和目标 Job 动态生成；`ApplicationPacketGuardrail` 会把 unsupported claims、缺目标岗位和自动提交边界问题标为 high risk 并阻断创建。
+本轮暴露并修复的问题：句级 claim 检查会把“申请 Agent 岗位，我有 Python 经验”中的目标岗位 `Agent` 也当成候选人自述能力，造成误拦截。当前按子句识别 claim scope，并把目标岗位与技能证据分句生成；`ApplicationPacketGuardrail` 同时检查语义经历、数字来源、缺目标岗位和自动提交边界。最新离线全量为评测 `#63`。
 
 ## 面试准备包评测
 
@@ -734,7 +783,9 @@ POST /evaluations/llm-workflow
 - 基于 SQLite chunk 和 RAG 证据做岗位匹配与 evidence retrieval。
 - 真实调用 LLM 判断岗位适配度，要求返回 strict JSON。
 - 对标记为 `run_tailor=true` 的案例真实调用简历定制流程。
-- 使用 Guardrail 验证是否引入未支持数字、过多新 claim、禁止 claim。
+- 简历与 JD parser 分别执行字段/语句 grounding；RAG 检查 Top3/Top5、负向证据和 chunk 引用完整性。
+- fit judge 校验标签/分数一致性、候选人证据、JD 差距和用户消息。用户消息只由已验证的 `matched_evidence` 与 `gaps` 组合，模型原话保留在 trace。
+- 使用 Guardrail 验证是否引入未支持数字、语义 claim 和禁止 claim；高风险定制最多执行一次可追踪 ReAct repair。
 - 不做静默 fallback；失败 case 记录 `failed_stage` 和异常类型，LLM 调用日志记录 prompt/response/error trace。
 - Resume parser 和 JD parser 在真实 LLM 评测中会把空返回/超时/服务端断连记录为 `.retry_1`、`.retry_2`；JD 截断或非法 JSON 会记录 `jd_parser.parse_jd.repair_json`，便于区分模型波动、输出格式损坏和业务解析失败。
 - `EvaluationRun` 会在评测开始时创建，之后每完成一个 case 就更新 `summary_json` 和 `case_results_json`。
@@ -751,21 +802,42 @@ POST /evaluations/llm-workflow
 | `completed_rate` | 端到端流程完成率。 |
 | `end_to_end_pass_rate` | 全流程验收通过率。 |
 | `resume_parse_success_rate` | 简历结构化解析成功率。 |
+| `profile_grounding_gate_pass_rate` | 简历字段能否回指原始简历。 |
+| `avg_profile_field_grounding_rate` | 简历已评估字段的平均支持率。 |
 | `avg_profile_skill_recall` | 结构化 Profile 对期望技能的召回。 |
 | `jd_parse_success_rate` | JD 结构化解析成功率。 |
+| `jd_grounding_gate_pass_rate` | JD 技能、语句和元数据 grounding 通过率。 |
 | `avg_jd_skill_recall` | 结构化 JD 对期望技能的召回。 |
 | `fit_label_accuracy` | LLM 适配度标签准确率。 |
 | `fit_score_in_range_rate` | LLM 分数是否落入人工期望区间。 |
 | `avg_fit_score_range_error` | 分数超出期望区间时的平均偏差。 |
-| `avg_matcher_evidence_hit_rate` | 匹配/RAG 证据是否覆盖期望关键词。 |
+| `avg_matcher_top3_evidence_hit_rate` / `avg_matcher_top5_evidence_hit_rate` | 前 K 条证据是否覆盖人工标注关键词。 |
+| `avg_negative_evidence_hit_rate` | “未实现/课程/计划学习”等负向证据是否被召回。 |
+| `evidence_integrity_pass_rate` | 每条检索证据是否有稳定 chunk ID 和正文。 |
+| `fit_explanation_grounding_pass_rate` | 匹配证据、JD 差距、发布消息与标签分数是否共同通过。 |
+| `fit_message_grounding_pass_rate` | 面向用户发布的适配说明是否只来自已验证结构化事实。 |
 | `tailor_success_rate` | 简历定制调用成功率。 |
 | `tailor_pass_rate` | 定制简历同时通过 Guardrail、关键词覆盖和禁止 claim 检查的比例。 |
 | `guardrail_pass_rate` | Guardrail 通过率。 |
 | `forbidden_claim_free_rate` | 没有出现禁止 claim 的比例。 |
+| `tailor_semantic_grounding_pass_rate` | 定制简历的语义成果 claim 是否能回指原简历。 |
 | `context_compression` | fit judge 与 tailor 阶段的压缩上下文数量、平均压缩率和保留证据数。 |
 | `difficulty_breakdown` | 按 easy/medium/hard/adversarial 分桶的指标。 |
 
-最新 DeepSeek V4 18-case 全量真实长跑结果：
+### 2026-07-22 新门控的真实分层结果
+
+这轮先按风险与失败类型分层取样，再只复测失败 case；它证明门控有效并证明修复后的样本通过，但不等于 24-case Flash 全量发布认证。
+
+| 评测 | 首轮 | 修复后定向复测 | 关键结论 |
+| --- | --- | --- | --- |
+| 自然语言规划 | `#56`：6 case，pass=0.6667，intent/action=1.0，needs_profile=0.6667 | `#59`：2/2，release gate 通过 | 修正动作依赖语义，不再把“是否已上传”混作“流程是否需要”。 |
+| JD Parser | `#57`：4 case，pass=0.5，precision=0.8422 | `#60`：2/2，precision/recall/F1/grounding=1.0 | 中英文技能和 job type 已统一归一化。 |
+| LLM workflow | `#58`：2 case，端到端=0.5，fit grounding=0.5 | `#61`：1/1，端到端和 release gate 均通过 | 修正错误 gold，禁止从 JD 外推“缺少生产/规模/实习经验”；定制一次 repair 后通过。 |
+| 真实投递材料 | 首次被 `unsupported_claims` 阻断 | Application `#25` 为 ready、low risk、语义 grounding=1.0 | 修正目标岗位与能力 claim 的子句作用域，并禁止在求职信加入计划学习。 |
+
+本轮真实日志 `#1288-#1317` 共 30 次完成调用，输入 25,897、输出 6,680、合计 32,577 tokens，provider latency 累计 112.145 秒。当前 24-case 全量数据仍应通过 checkpoint 分批执行，不能把上述分层复测写成全量成功。
+
+### 历史 DeepSeek V4 Pro 18-case 全量基线
 
 | 指标 | 结果 |
 | --- | ---: |

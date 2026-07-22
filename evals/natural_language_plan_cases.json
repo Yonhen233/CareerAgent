@@ -1,0 +1,308 @@
+[
+  {
+    "name": "browse_agent_jobs_without_resume_zh",
+    "difficulty": "easy",
+    "noise_profile": "preference_only",
+    "request": {
+      "instruction": "我暂时没有简历，只想先看看北京或远程的 Agent 开发实习岗位，偏 RAG 和 LangGraph。",
+      "query": null,
+      "location": "北京/远程"
+    },
+    "expected_intent": "search_jobs",
+    "required_actions": ["search_jobs"],
+    "forbidden_actions": ["tailor_resume", "quick_apply", "interview_prep", "full_flow"],
+    "expected_needs_profile": false,
+    "expected_needs_job": false,
+    "expected_query_keywords": ["Agent", "RAG"]
+  },
+  {
+    "name": "search_with_existing_profile_zh",
+    "difficulty": "easy",
+    "noise_profile": "profile_id",
+    "request": {
+      "instruction": "用我的简历找深圳的 Agent 开发实习，先只给我岗位列表。",
+      "profile_id": 156,
+      "location": "深圳"
+    },
+    "expected_intent": "search_jobs",
+    "required_actions": ["search_jobs"],
+    "forbidden_actions": ["tailor_resume", "quick_apply", "interview_prep", "full_flow"],
+    "expected_needs_job": false,
+    "expected_query_keywords": ["Agent"]
+  },
+  {
+    "name": "create_profile_from_description_zh",
+    "difficulty": "medium",
+    "noise_profile": "profile_entity_extraction",
+    "request": {
+      "instruction": "帮我建立简历档案。我叫周宁，邮箱 zhou@example.com，做过 CareerAgent，技术栈是 Python、FastAPI、RAG 和 LangGraph，目标是 Agent 开发实习。",
+      "query": null
+    },
+    "expected_intent": "create_profile",
+    "required_actions": ["create_profile"],
+    "forbidden_actions": ["quick_apply", "full_flow"],
+    "expected_needs_profile": false,
+    "expected_needs_job": false,
+    "expected_profile_keywords": ["周宁", "zhou@example.com", "CareerAgent", "Python", "RAG"]
+  },
+  {
+    "name": "update_existing_profile_zh",
+    "difficulty": "medium",
+    "noise_profile": "update_not_replace",
+    "request": {
+      "instruction": "更新现有简历：把 Redis 和 Celery 加到技能里，并补充我负责 worker 并发与任务重试的项目事实，其他内容保持不变。",
+      "profile_id": 156
+    },
+    "expected_intent": "update_profile",
+    "required_actions": ["create_profile"],
+    "forbidden_actions": ["search_jobs", "quick_apply", "full_flow"],
+    "expected_needs_profile": true,
+    "expected_profile_keywords": ["Redis", "Celery", "worker"]
+  },
+  {
+    "name": "tailor_resume_for_selected_job_zh",
+    "difficulty": "easy",
+    "noise_profile": "ids_present",
+    "request": {
+      "instruction": "根据这个岗位给我的简历做定制，只改简历，不要投递。",
+      "profile_id": 156,
+      "job_id": 197
+    },
+    "expected_intent": "tailor_resume",
+    "required_actions": ["tailor_resume"],
+    "forbidden_actions": ["quick_apply", "full_flow"],
+    "expected_needs_profile": true,
+    "expected_needs_job": true
+  },
+  {
+    "name": "tailor_from_inline_jd_no_apply_zh",
+    "difficulty": "hard",
+    "noise_profile": "inline_jd_and_negation",
+    "request": {
+      "instruction": "下面是岗位要求，请分析差距并定制简历，但绝对不要投递或发送邮件。",
+      "profile_id": 156,
+      "jd_text": "Agent 开发实习生：负责 RAG、工具调用和 LangGraph 工作流；要求 Python、FastAPI、Redis。"
+    },
+    "expected_intent": "tailor_resume",
+    "required_actions": ["tailor_resume"],
+    "forbidden_actions": ["quick_apply", "full_flow"],
+    "expected_needs_profile": true,
+    "expected_needs_job": true,
+    "expected_job_keywords": ["RAG", "LangGraph", "Redis"]
+  },
+  {
+    "name": "interview_only_zh",
+    "difficulty": "easy",
+    "noise_profile": "single_action",
+    "request": {
+      "instruction": "针对已选岗位生成面试准备，重点问 RAG chunk、reranker 和 LangGraph，不改简历，也不投递。",
+      "profile_id": 156,
+      "job_id": 197
+    },
+    "expected_intent": "interview_prep",
+    "required_actions": ["interview_prep"],
+    "forbidden_actions": ["tailor_resume", "quick_apply", "full_flow"],
+    "expected_needs_profile": true,
+    "expected_needs_job": true
+  },
+  {
+    "name": "tailor_and_interview_no_apply_zh",
+    "difficulty": "hard",
+    "noise_profile": "multi_action_with_negation",
+    "request": {
+      "instruction": "先按 JD 修改简历，再生成面试问题和参考答案；今天不要生成投递包，更不要外发。",
+      "profile_id": 156,
+      "job_id": 197
+    },
+    "expected_intents": ["interview_prep", "tailor_resume"],
+    "required_actions": ["tailor_resume", "interview_prep"],
+    "forbidden_actions": ["quick_apply", "full_flow"],
+    "expected_needs_profile": true,
+    "expected_needs_job": true
+  },
+  {
+    "name": "explicit_full_flow_zh",
+    "difficulty": "medium",
+    "noise_profile": "explicit_full_flow",
+    "request": {
+      "instruction": "一键跑完整求职流程：使用现有简历找 Agent 实习、定制简历、生成投递材料和面试准备，投递前让我确认。",
+      "profile_id": 156,
+      "location": "深圳"
+    },
+    "expected_intent": "full_flow",
+    "required_actions": ["search_jobs", "tailor_resume", "quick_apply", "interview_prep"],
+    "expected_needs_profile": true
+  },
+  {
+    "name": "application_packet_for_selected_job_zh",
+    "difficulty": "medium",
+    "noise_profile": "high_risk_action",
+    "request": {
+      "instruction": "为这个岗位准备可审批的投递材料，但不要直接提交。",
+      "profile_id": 156,
+      "job_id": 197
+    },
+    "expected_intents": ["quick_apply", "full_flow"],
+    "required_actions": ["quick_apply"],
+    "expected_needs_profile": true,
+    "expected_needs_job": true
+  },
+  {
+    "name": "selected_actions_override_prompt_zh",
+    "difficulty": "adversarial",
+    "noise_profile": "explicit_ui_override",
+    "request": {
+      "instruction": "帮我处理这个岗位，能做多少做多少。",
+      "profile_id": 156,
+      "job_id": 197,
+      "selected_actions": ["tailor_resume", "interview_prep"]
+    },
+    "expected_intent": "interview_prep",
+    "expected_actions": ["tailor_resume", "interview_prep"],
+    "required_actions": ["tailor_resume", "interview_prep"],
+    "forbidden_actions": ["search_jobs", "quick_apply", "full_flow"],
+    "require_exact_actions": true,
+    "expected_needs_profile": true,
+    "expected_needs_job": true
+  },
+  {
+    "name": "selected_search_only_override_zh",
+    "difficulty": "adversarial",
+    "noise_profile": "explicit_ui_override",
+    "request": {
+      "instruction": "我想看看后续完整流程。",
+      "profile_id": 156,
+      "selected_actions": ["search_jobs"]
+    },
+    "expected_intent": "search_jobs",
+    "expected_actions": ["search_jobs"],
+    "required_actions": ["search_jobs"],
+    "forbidden_actions": ["tailor_resume", "quick_apply", "interview_prep", "full_flow"],
+    "require_exact_actions": true,
+    "expected_needs_profile": true,
+    "expected_needs_job": false
+  },
+  {
+    "name": "english_job_browse_without_resume",
+    "difficulty": "medium",
+    "noise_profile": "english",
+    "request": {
+      "instruction": "I do not have a resume yet. Just show me remote AI Agent or RAG engineering internships. Do not apply.",
+      "query": null,
+      "location": "Remote"
+    },
+    "expected_intent": "search_jobs",
+    "required_actions": ["search_jobs"],
+    "forbidden_actions": ["quick_apply", "full_flow"],
+    "expected_needs_profile": false,
+    "expected_needs_job": false,
+    "expected_query_keywords": ["Agent", "RAG"]
+  },
+  {
+    "name": "mixed_language_search_zh_en",
+    "difficulty": "medium",
+    "noise_profile": "mixed_language",
+    "request": {
+      "instruction": "找上海的 LLM Application / Agent Engineer 实习，偏 tool calling、RAG 和 backend，不需要现在改简历。",
+      "query": null,
+      "location": "上海"
+    },
+    "expected_intent": "search_jobs",
+    "required_actions": ["search_jobs"],
+    "forbidden_actions": ["tailor_resume", "quick_apply", "full_flow"],
+    "expected_needs_profile": false,
+    "expected_query_keywords": ["Agent", "RAG"]
+  },
+  {
+    "name": "coursework_not_experience_profile_zh",
+    "difficulty": "hard",
+    "noise_profile": "evidence_polarity",
+    "request": {
+      "instruction": "建一个简历档案：我叫陈航，学过 LangGraph 课程但没有做过生产项目；用 Python 做过课程版 RAG 问答。不要把学习计划写成项目经验。",
+      "query": null
+    },
+    "expected_intent": "create_profile",
+    "required_actions": ["create_profile"],
+    "forbidden_actions": ["search_jobs", "quick_apply", "full_flow"],
+    "expected_profile_keywords": ["陈航", "LangGraph", "Python", "RAG"]
+  },
+  {
+    "name": "search_then_tailor_without_apply_zh",
+    "difficulty": "hard",
+    "noise_profile": "multi_stage_no_external_action",
+    "request": {
+      "instruction": "用简历找杭州的 Agent 实习，选最匹配的岗位后生成定制简历，先不投递。",
+      "profile_id": 156,
+      "location": "杭州"
+    },
+    "expected_intents": ["tailor_resume", "full_flow"],
+    "required_actions": ["search_jobs", "tailor_resume"],
+    "forbidden_actions": ["quick_apply", "full_flow"],
+    "expected_needs_profile": true,
+    "expected_query_keywords": ["Agent"]
+  },
+  {
+    "name": "inline_jd_interview_prep_zh",
+    "difficulty": "medium",
+    "noise_profile": "inline_jd",
+    "request": {
+      "instruction": "根据这份 JD 和我的简历生成面试准备，不要修改简历。",
+      "profile_id": 156,
+      "jd_text": "大模型应用实习生，负责 Agent 工具调用、RAG 检索评测和 FastAPI 服务。"
+    },
+    "expected_intent": "interview_prep",
+    "required_actions": ["interview_prep"],
+    "forbidden_actions": ["tailor_resume", "quick_apply", "full_flow"],
+    "expected_needs_profile": true,
+    "expected_needs_job": true,
+    "expected_job_keywords": ["Agent", "RAG", "FastAPI"]
+  },
+  {
+    "name": "do_not_apply_or_email_zh",
+    "difficulty": "adversarial",
+    "noise_profile": "repeated_negation",
+    "request": {
+      "instruction": "分析岗位是否适合并准备面试。不要投递，不要申请，不要发邮件，不要操作浏览器。",
+      "profile_id": 156,
+      "job_id": 197
+    },
+    "expected_intent": "interview_prep",
+    "required_actions": ["interview_prep"],
+    "forbidden_actions": ["quick_apply", "full_flow"],
+    "expected_needs_profile": true,
+    "expected_needs_job": true
+  },
+  {
+    "name": "profile_context_plus_search_zh",
+    "difficulty": "medium",
+    "noise_profile": "partial_form_and_prompt",
+    "request": {
+      "instruction": "按我填写的信息建档，然后搜索深圳 Agent 实习。",
+      "profile_context": {
+        "name": "王澄",
+        "skills": ["Python", "FastAPI", "RAG"],
+        "target_roles": ["Agent 开发实习生"]
+      },
+      "location": "深圳"
+    },
+    "expected_intents": ["search_jobs", "full_flow"],
+    "required_actions": ["create_profile", "search_jobs"],
+    "forbidden_actions": ["quick_apply"],
+    "expected_needs_profile": true,
+    "expected_query_keywords": ["Agent"]
+  },
+  {
+    "name": "ambiguous_help_requires_no_high_risk_zh",
+    "difficulty": "hard",
+    "noise_profile": "underspecified",
+    "request": {
+      "instruction": "我是应届生，想找 Agent 方向的机会，先帮我看看有哪些岗位适合了解。",
+      "query": null
+    },
+    "expected_intent": "search_jobs",
+    "required_actions": ["search_jobs"],
+    "forbidden_actions": ["tailor_resume", "quick_apply", "full_flow"],
+    "expected_needs_profile": false,
+    "expected_query_keywords": ["Agent"]
+  }
+]

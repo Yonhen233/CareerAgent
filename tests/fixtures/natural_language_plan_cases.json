@@ -1,0 +1,28 @@
+[
+  {
+    "name": "browse",
+    "request": {
+      "instruction": "没有简历，只看看 Agent 和 RAG 实习岗位",
+      "query": null
+    },
+    "expected_intent": "search_jobs",
+    "required_actions": ["search_jobs"],
+    "forbidden_actions": ["quick_apply"],
+    "expected_needs_profile": false,
+    "expected_needs_job": false,
+    "expected_query_keywords": ["Agent", "RAG"]
+  },
+  {
+    "name": "tailor_no_apply",
+    "request": {
+      "instruction": "修改简历但不要投递",
+      "profile_id": 1,
+      "job_id": 2
+    },
+    "expected_intent": "tailor_resume",
+    "required_actions": ["tailor_resume"],
+    "forbidden_actions": ["quick_apply", "full_flow"],
+    "expected_needs_profile": true,
+    "expected_needs_job": true
+  }
+]

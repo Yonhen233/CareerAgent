@@ -1,5 +1,55 @@
 # 开发日志
 
+## 2026-07-22 10:22:55 +08:00：把“接口跑通”升级为分层质量门控，重新校准简历、JD、RAG、适配、定制、规划和投递结论
+### 为什么要做这轮改造
+- 上一轮把简历/JD 解析、RAG 匹配、适配判断、简历定制、自然语言规划和投递材料描述为“运行正常”，这个结论过宽。它主要证明 HTTP/Schema/持久化链路没有报错，只有面试模块具备较强的答案相关性和证据发布门禁；其他环节仍可能在返回 200 的同时漏字段、错误归一化、引用无依据或生成未支持事实。
+- 本轮不再把“得到 JSON”当成正确，而是逐层回答四个问题：结果是否完成、是否符合人工标注、是否能回指输入证据、是否达到可发布阈值。真实 LLM 先跑分层 smoke 暴露问题，修复后只重跑失败 case，避免再次用大量 Token 盲跑全数据集。
+
+### 新增或加强的质量契约
+- **简历解析：** 新增字段级 grounding。姓名、邮箱、电话、地点、技能、项目/经历技术栈、成果描述和教育字段都纳入原文回指；关键身份、技能或成果 claim 无来源，或者总体字段支持率低于 90% 时直接拒绝 LLM 解析结果。`ProfileStructured.quality_gate` 和 stage trace 保存不支持字段。
+- **JD 解析：** 在 required skill recall 之外增加 precision、F1、职责/要求语句 grounding、元数据 grounding 和 absent-skill violation；中文/英文别名与 `实习 -> internship` 做统一归一化，避免同一技能重复计数或类型口径不一致。
+- **RAG：** 180 个 case、每题 12 个候选 chunk 和 4 个相关 chunk，要求真实多语言 sentence-transformers embedding、Top20 cross-encoder reranker、零 fallback，并对 Top1、Recall@3/5、MRR、nDCG@5 设置发布阈值。Recall@3 理论上限是 `3/4=0.75`，因此门槛设为 0.60，即达到理论上限的 80%，而不是设置不可能达到的 0.90。
+- **适配判断：** 同时校验标签、分数区间、候选人匹配证据、JD 差距、负向证据和 Top3/Top5 检索命中。模型的自然语言结论不再直接发布，系统只使用已验证的 `matched_evidence` 与 `gaps` 组合用户消息，原始模型文案留在 trace；这堵住了“结构化数组正确，但 message 又多推断一句”的漏洞。
+- **简历定制：** Guardrail 从数字和关键词检查扩展到语义 claim grounding；每条成果必须由原简历近似支持。高风险时只允许一次 ReAct repair，修复前后风险、问题和上下文都写入 trace。
+- **自然语言规划：** 新增 20 个中文为主 case，覆盖无简历浏览、已有档案、建档/更新、粘贴 JD、多动作、显式禁止投递、UI 勾选动作和中英混合。指标包含 intent、action precision/recall、required/forbidden actions、`needs_profile`/`needs_job` 和实体抽取。
+- **投递材料：** 数据集从 20 扩展到 26 个 case，增加非数字经历编造、支持/不支持指标、负面披露、双语改写和自动提交边界；新增语义 claim 与数字来源门禁，发布阈值同时约束高风险召回、误拦截、漏拦截和 issue code 命中。
+- **失败策略：** 真实 LLM parser 和生产生成链路不静默 fallback。每个失败保留 `evaluation_run_id -> case -> stage -> llm_call_log`；离线 heuristic 只在显式测试配置中使用，并在结果里标出 provider。
+
+### 第一轮真实 DeepSeek V4 Flash 门控暴露的问题
+| 评测 | 首轮结果 | 以前为什么可能被误判成“正常” | 暴露的问题 |
+| --- | ---: | --- | --- |
+| 自然语言规划 `#56` | 6 case 完成率 1.0、intent/action 均 1.0，但 pass rate 0.6667 | 动作列表看起来正确 | 两个 case 的 `needs_profile` 含义混用“当前是否已给简历”和“后续工作流是否依赖简历”。 |
+| JD Parser `#57` | 4 case 完成率 1.0、recall 0.9792，但 pass rate 0.5、precision 0.8422 | 只看召回会认为核心技能都抽到了 | `实习` 未归一化为 `internship`，中英文技能别名重复进入 required skills，制造假阳性。 |
+| LLM workflow `#58` | 2 case 全部完成，但端到端通过率 0.5 | parser、RAG、tailor 都返回了结果 | 一例标签标注与既定 rubric 冲突；模型还把 JD 未明确要求的“生产/实习经验”推断为缺口，fit explanation grounding 只有 0.5。 |
+| 真实投递材料首次尝试 | LLM 正常返回，但 Guardrail 阻断 | 文案流畅且包含岗位名和技能 | 同一句里同时出现目标岗位 `Agent` 与“已有 Python 经验”，句级 claim scope 把岗位名误判成候选人能力；求职信还加入了未来学习计划。 |
+| 首次定制简历草稿 | 生成成功但触发一次 repair | 关键词覆盖和格式都正常 | 模型把技能列表里的 RAG 与项目里的向量检索拼成“基于 RAG 架构”，属于跨证据推导的新事实。 |
+
+### 如何修复，而不是调整指标掩盖失败
+- 把 `needs_profile`/`needs_job` 定义为“完成计划是否依赖该实体”，并在 LLM 计划后按 action dependency 确定性归一化；这不是为某条 prompt 写特判。
+- 对 JD 技能和 job type 增加统一 canonicalization，并补充 `A/B实验 -> A/B Testing` 回归。precision 和 F1 与 recall 一起进入 release gate，重复/误抽不能再被高召回掩盖。
+- 按现有标注规则复核弱候选人 case：只有课程和计划学习且缺少核心交付应标为 `weak_fit`，将错误 gold 从 partial 改为 weak；同时禁止模型把 JD 没写的生产、流量、规模、部署或实习经历推断为差距。
+- 投递材料按子句而不是整句识别技能 claim，并把目标岗位句与候选人技能句分开；Prompt 明确禁止把 planned learning 写入求职信。修复的是 claim scope，而不是把 `Agent` 加入例外表。
+- 定制简历继续保留一次 repair，但 repair Prompt 要求每条 bullet 近似改写一个来源，不得把独立技能列表和项目片段拼接成新架构事实。
+- fit 用户消息改成 verified-structure composer：模型原文只进 trace，发布文本只引用已通过 grounding 的匹配证据与 JD 差距，不增加第二次 LLM 调用。
+
+### 修复后复测证据与 Token
+- 真实定向复测：自然语言规划 `#59` 为 2/2、JD Parser `#60` 为 2/2、LLM workflow `#61` 为 1/1，三个 release gate 均通过。workflow case 的 Profile/JD grounding、Top5 evidence、负向证据、fit explanation、定制语义 grounding 和 Guardrail 均为 1.0；该 case 触发一次有效 ReAct repair。
+- 真实投递材料复测生成 Application `#25`，状态 `ready`，风险 `low`，语义 grounding 1.0，无 unsupported number；首次错误阻断和修复后的放行都保留了 LLM trace。
+- 本轮真实日志 `#1288-#1317` 共 30 次调用，全部收到完成响应：输入 25,897、输出 6,680、合计 32,577 tokens，provider latency 累计 112.145 秒。没有再次运行高成本面试工作流。
+- 真实 RAG 完整重跑 180 case：`real_embedding_top20_rerank` 的 Top1=1.0000、Recall@3=0.6125、Recall@5=0.7292、MRR=1.0000、nDCG@5=0.7862；embedding provider 为 sentence-transformers，reranker 为 cross-encoder，fallback 为空，release gate 通过。对抗桶 Recall@5=0.6667，仍是下一轮重点。
+- 最新离线全量：JD Parser `#64` 共 30 case，pass=1.0000、precision=0.9769、F1=0.9876、grounding gate=1.0000；投递 Guardrail `#63` 共 26 case，pass/high-risk recall/issue-code hit 均为 1.0000，false-block 和 missed-risk 均为 0。
+- PDF 数据保持 96 份五页噪声简历、576 条查询；当前 `paragraph_page_900_overlap160` 是在证据命中、页码、上下文完整度、chunk 数量和噪声之间的评测选择，不是经验拍脑袋参数。
+- PDF 真实 embedding 评测 `#65` 的 Top3 关键词/页码/上下文命中分别为 0.9479/0.8299/0.7760，Top1 平均 772.77 字符、平均 10 个 chunk，新增 release gate 通过；岗位排序和 Agent 全流程也新增了独立发布门禁。
+- parser grounding 最终覆盖项目 description/impact、工作/校园 details、教育 details、证书、奖项、语言、链接和 JD keywords；离线重放本轮三个真实 Flash Profile 均保持 grounding=1.0，另增“技能真实但项目虚构降低故障率 80%”反例并被正确拒绝。
+- 完整 pytest 回归为 `220 passed in 92.77s`。第一次回归有 1 条测试失败：pytest 明确使用 hash embedding/关闭 reranker，测试却错误要求生产 RAG release gate 通过；这不是降低门槛，而是修正测试契约，使离线环境验证门控会拒绝 fallback，真实 180-case 运行单独证明生产 provider 门控通过。
+
+### 当前可以和不可以得出的结论
+- 可以说：这些环节现在不只“能调用”，而是已有分层指标、逐 case trace 和 release gate；本轮真实分层样本与完整离线 JD/RAG/投递数据集通过门控，且门控确实先拦出了错误结果。
+- 不能说：20 个自然语言 case、30 个 JD case 和 24 个 LLM workflow case 已全部使用真实 Flash 通过。受余额约束，本轮真实调用采用分层抽样和失败 case 复测；完整真实集仍需按 checkpoint 分批执行。
+- 不能把 lexical/alias grounding 描述成通用语义 NLI。它是高精度、低成本的第一层；语义复杂的简历 claim 由生成约束、证据分类、一次 repair 和对抗 case 共同治理。
+- RAG 总体门禁通过不等于所有分桶都优秀。对抗桶 Recall@5 只有 0.6667；下一步应补真实人工脱敏 JD/简历 pair，重点分析 planned learning、课程、否定事实和相邻项目之间的误召回。
+- 定制简历本次 1 个真实 case 需要 repair 才通过，说明安全性已被门控保护，但首稿通过率与 repair Token 成本仍需作为后续独立指标。
+
 ## 2026-07-22 09:24:59 +08:00：完成 DeepSeek V4 Flash 全链路替换实验，确认不能直接全局替换 Pro
 ### 本轮目标与测试边界
 - 用户要求把真实 LLM 测试模型统一替换为 `deepseek-v4-flash`，验证简历解析、JD 解析、岗位匹配、简历定制、自然语言入口、简历评估、投递审批和面试准备是否仍能实际运行。测试使用 DeepSeek 官方 OpenAI-compatible 接口，`LLM_FALLBACK_ENABLED=false`，任何模型、Schema、预算或发布门禁失败均直接记录错误，没有静默降级。

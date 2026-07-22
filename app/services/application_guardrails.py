@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.models.entities import Job, Profile, ResumeVersion
+from app.services.evidence_grounding import EvidenceGroundingService
 
 
 @dataclass(frozen=True)
@@ -94,6 +95,12 @@ class ApplicationPacketGuardrail:
         supported_terms = self._supported_terms(profile, resume_version)
         text = "\n".join([cover_letter or "", outreach_message or ""])
         unsupported_claims = self._unsupported_claims(text, supported_terms)
+        support_sources = [self._profile_support_text(profile)]
+        if resume_version is not None:
+            support_sources.append(resume_version.tailored_resume_markdown or "")
+        grounding = EvidenceGroundingService()
+        semantic_grounding = grounding.evaluate_generated_claims(text, support_sources, threshold=0.12)
+        unsupported_numbers = grounding.unsupported_numbers(text, support_sources)
         issues: list[dict[str, Any]] = []
         warnings: list[dict[str, Any]] = []
 
@@ -103,6 +110,24 @@ class ApplicationPacketGuardrail:
                     "code": "unsupported_claims",
                     "message": "投递文案包含候选人材料中没有证据支持的能力声明。",
                     "terms": unsupported_claims,
+                }
+            )
+        if not semantic_grounding.get("passed"):
+            issues.append(
+                {
+                    "code": "unsupported_evidence_claims",
+                    "message": "投递文案包含无法回指到候选人材料的事实性陈述。",
+                    "claims": [
+                        item.get("claim") for item in semantic_grounding.get("unsupported_claims") or []
+                    ],
+                }
+            )
+        if unsupported_numbers:
+            issues.append(
+                {
+                    "code": "unsupported_metrics",
+                    "message": "投递文案包含候选人材料中没有出现的数字或指标。",
+                    "numbers": unsupported_numbers,
                 }
             )
         if not self._mentions_job(cover_letter, job):
@@ -140,6 +165,8 @@ class ApplicationPacketGuardrail:
             "issues": issues,
             "warnings": warnings,
             "supported_claim_terms": sorted(supported_terms),
+            "semantic_claim_grounding": semantic_grounding,
+            "unsupported_numbers": unsupported_numbers,
             "checked_fields": ["cover_letter", "outreach_message", "checklist", "automation_result"],
         }
 
@@ -164,13 +191,21 @@ class ApplicationPacketGuardrail:
     def _unsupported_claims(self, text: str, supported_terms: set[str]) -> list[str]:
         unsupported: list[str] = []
         for sentence in self._sentences(text):
-            if not self._has_claim_verb(sentence):
-                continue
-            for term in CLAIM_TERMS:
-                if term.name in supported_terms:
+            clauses = [
+                item.strip()
+                for item in re.split(r"[,，]|(?:\band\b)|并且|同时|以及", sentence)
+                if item.strip()
+            ]
+            for clause in clauses:
+                if not self._has_claim_verb(clause):
                     continue
-                if self._contains_any_pattern(sentence, term.patterns):
-                    unsupported.append(term.name)
+                for term in CLAIM_TERMS:
+                    if term.name in supported_terms:
+                        continue
+                    if self._contains_any_pattern(clause, term.patterns):
+                        if self._contains_any_pattern(clause, NEGATIVE_SUPPORT_PATTERNS):
+                            continue
+                        unsupported.append(term.name)
         return sorted(set(unsupported))
 
     def _has_positive_support(self, support_text: str, term: ClaimTerm) -> bool:

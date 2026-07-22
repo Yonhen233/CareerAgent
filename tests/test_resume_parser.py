@@ -1,6 +1,9 @@
 import asyncio
 import json
 
+import pytest
+
+from app.core.llm import LLMResponseError
 from app.services.resume_parser import ResumeParserService
 
 
@@ -69,7 +72,10 @@ def test_resume_parser_keeps_heuristic_name_when_llm_returns_null(monkeypatch):
     service.llm = FakeLLM()
     parsed = asyncio.run(
         service.parse_structured_resume(
-            "Li Ming - Agent Development Intern Candidate\nEmail: liming@example.com\nProject: CareerAgent"
+            "Li Ming - Agent Development Intern Candidate\n"
+            "Email: liming@example.com\n"
+            "Skills: Python, FastAPI, RAG\n"
+            "Project: CareerAgent"
         )
     )
 
@@ -127,7 +133,9 @@ def test_resume_parser_retries_transient_llm_error(monkeypatch):
 
     parsed = asyncio.run(
         service.parse_structured_resume(
-            "Tang Wei\ntangwei@example.com\nSkills: SQL, Python, Metrics\nProjects\nMetricStudio"
+            "Tang Wei\ntangwei@example.com\nSkills: SQL, Python, Metrics\nProjects\n"
+            "MetricStudio: Built funnel dashboards and experiment analysis notebooks with SQL and Python. "
+            "Defined metrics."
         )
     )
 
@@ -180,7 +188,11 @@ def test_resume_parser_omits_raw_text_from_llm_schema_and_refills_server_side(mo
     service = ResumeParserService()
     fake_llm = FakeLLM()
     service.llm = fake_llm
-    raw_text = "Lin Zhiyuan\nlin@example.com\nProject: CareerAgent with FastAPI and RAG."
+    raw_text = (
+        "Lin Zhiyuan\nlin@example.com\n13800180626\n"
+        "Agent Development Intern Candidate\nTarget role: Agent Development Intern\n"
+        "Skills: Python, FastAPI, RAG\nProject: CareerAgent with FastAPI and RAG."
+    )
 
     parsed = asyncio.run(service.parse_structured_resume(raw_text))
 
@@ -188,4 +200,32 @@ def test_resume_parser_omits_raw_text_from_llm_schema_and_refills_server_side(mo
     assert '"raw_text"' not in fake_llm.user_prompts[0]
     assert "Do not include raw_text" in fake_llm.user_prompts[0]
     assert fake_llm.max_tokens == [3600]
+    get_settings.cache_clear()
+
+
+def test_resume_parser_rejects_llm_skill_not_present_in_source(monkeypatch):
+    monkeypatch.setenv("LLM_FALLBACK_ENABLED", "false")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+
+    class FakeLLM:
+        available = True
+
+        async def generate_text(self, **kwargs):
+            return json.dumps(
+                {
+                    "name": "Li Ming",
+                    "email": "liming@example.com",
+                    "skills": ["Python", "Kubernetes"],
+                    "projects": [],
+                    "work_experience": [],
+                    "education": [],
+                }
+            )
+
+    service = ResumeParserService()
+    service.llm = FakeLLM()
+    with pytest.raises(LLMResponseError, match="quality gate rejected"):
+        asyncio.run(service.parse_structured_resume("Li Ming\nliming@example.com\nSkills: Python"))
     get_settings.cache_clear()

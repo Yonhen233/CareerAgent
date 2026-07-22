@@ -192,6 +192,8 @@ Output JSON:
 Hard rules:
 - Use only facts present in source profile or evidence chunks.
 - You may reorder, summarize, and emphasize; do not invent metrics or claims.
+- Keep each project bullet a close paraphrase of one source evidence statement. Do not combine a skill-list item
+  with a project sentence to infer that the project used that architecture or technology.
 - Do not add missing JD requirements to tailored_resume_markdown, even as "eager to learn", "seeking exposure", or future intent.
 - Put missing or weakly supported JD requirements only in keyword_alignment.missing/notes, not in the resume body.
 - If evidence says the candidate did not build or lacks a skill, do not present that skill as covered in the resume.
@@ -206,6 +208,7 @@ Compressed context:
             return await self.llm.generate_json(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
+                max_tokens=2400,
                 db=db,
                 trace_name="resume_tailor.tailor_resume",
             )
@@ -263,6 +266,7 @@ Repair context:
                 db=db,
                 trace_name="resume_tailor.repair_resume",
                 temperature=0,
+                max_tokens=1800,
             )
         except Exception:
             if not self.settings.llm_fallback_enabled:

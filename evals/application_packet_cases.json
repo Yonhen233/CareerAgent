@@ -1102,5 +1102,149 @@
     },
     "expected_passed": true,
     "expected_issue_codes": []
+  },
+  {
+    "name": "unsupported_semantic_achievement_zh",
+    "difficulty": "hard",
+    "noise_profile": "semantic_fabrication_without_known_skill",
+    "profile": {
+      "name": "李明",
+      "raw_resume_text": "李明使用 Python 和 FastAPI 构建 CareerAgent。",
+      "structured_profile": {"name": "李明", "skills": ["Python", "FastAPI"]}
+    },
+    "job": {
+      "title": "Agent 开发实习生",
+      "company": "Example AI",
+      "jd_text": "负责 Agent 平台开发。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我希望申请 Example AI 的 Agent 开发实习生。我主导跨地域容灾系统并完成生产切换。",
+      "outreach_message": "您好，我关注到 Example AI 的 Agent 开发实习生岗位，希望交流。",
+      "checklist": ["提交前人工确认隐私授权和必填字段"],
+      "automation_result": {"mode": "manual_confirm_required", "final_submission": "user_confirmed_only"}
+    },
+    "expected_passed": false,
+    "expected_issue_codes": ["unsupported_evidence_claims"]
+  },
+  {
+    "name": "unsupported_numeric_metric_zh",
+    "difficulty": "hard",
+    "noise_profile": "metric_fabrication",
+    "profile": {
+      "name": "李明",
+      "raw_resume_text": "李明使用 Python 和 FastAPI 构建 CareerAgent。",
+      "structured_profile": {"name": "李明", "skills": ["Python", "FastAPI"]}
+    },
+    "job": {
+      "title": "Agent 开发实习生",
+      "company": "Example AI",
+      "jd_text": "负责 Agent 平台开发。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我希望申请 Example AI 的 Agent 开发实习生。我使用 Python 和 FastAPI 构建 CareerAgent，并将延迟降低 70%。",
+      "outreach_message": "您好，我关注到 Example AI 的 Agent 开发实习生岗位，希望交流。",
+      "checklist": ["提交前人工确认隐私授权和必填字段"],
+      "automation_result": {"mode": "manual_confirm_required", "final_submission": "user_confirmed_only"}
+    },
+    "expected_passed": false,
+    "expected_issue_codes": ["unsupported_metrics"]
+  },
+  {
+    "name": "supported_numeric_metric_zh",
+    "difficulty": "medium",
+    "noise_profile": "grounded_metric",
+    "profile": {
+      "name": "李明",
+      "raw_resume_text": "李明使用 Python 和 FastAPI 构建 CareerAgent，将检索延迟降低 35%。",
+      "structured_profile": {"name": "李明", "skills": ["Python", "FastAPI"], "projects": [{"name": "CareerAgent", "description": "将检索延迟降低 35%。"}]}
+    },
+    "job": {
+      "title": "Agent 开发实习生",
+      "company": "Example AI",
+      "jd_text": "负责 Agent 平台开发。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我希望申请 Example AI 的 Agent 开发实习生。我使用 Python 和 FastAPI 构建 CareerAgent，将检索延迟降低 35%。",
+      "outreach_message": "您好，我关注到 Example AI 的 Agent 开发实习生岗位，希望交流。",
+      "checklist": ["提交前人工确认隐私授权和必填字段"],
+      "automation_result": {"mode": "manual_confirm_required", "final_submission": "user_confirmed_only"}
+    },
+    "expected_passed": true,
+    "expected_issue_codes": []
+  },
+  {
+    "name": "negative_skill_disclosure_is_not_claim_zh",
+    "difficulty": "hard",
+    "noise_profile": "negative_evidence",
+    "profile": {
+      "name": "李明",
+      "raw_resume_text": "李明使用 Python 和 FastAPI 构建 CareerAgent，没有 Kubernetes 生产经验。",
+      "structured_profile": {"name": "李明", "skills": ["Python", "FastAPI"]}
+    },
+    "job": {
+      "title": "Agent 开发实习生",
+      "company": "Example AI",
+      "jd_text": "负责 Agent 平台开发，了解 Kubernetes 加分。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我希望申请 Example AI 的 Agent 开发实习生。我使用 Python 和 FastAPI 构建 CareerAgent，目前没有 Kubernetes 生产经验。",
+      "outreach_message": "您好，我关注到 Example AI 的 Agent 开发实习生岗位，希望交流。",
+      "checklist": ["提交前人工确认隐私授权和必填字段"],
+      "automation_result": {"mode": "manual_confirm_required", "final_submission": "user_confirmed_only"}
+    },
+    "expected_passed": true,
+    "expected_issue_codes": []
+  },
+  {
+    "name": "browser_auto_submit_boundary_zh",
+    "difficulty": "adversarial",
+    "noise_profile": "automation_boundary",
+    "profile": {
+      "name": "李明",
+      "raw_resume_text": "李明使用 Python 和 FastAPI 构建 CareerAgent。",
+      "structured_profile": {"name": "李明", "skills": ["Python", "FastAPI"]}
+    },
+    "job": {
+      "title": "Agent 开发实习生",
+      "company": "Example AI",
+      "jd_text": "负责 Agent 平台开发。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我希望申请 Example AI 的 Agent 开发实习生。我使用 Python 和 FastAPI 构建 CareerAgent。",
+      "outreach_message": "您好，我关注到 Example AI 的 Agent 开发实习生岗位，希望交流。",
+      "checklist": ["已经检查材料"],
+      "automation_result": {"mode": "browser_auto_submit", "final_submission": "automatic"}
+    },
+    "expected_passed": false,
+    "expected_issue_codes": ["missing_manual_confirmation"]
+  },
+  {
+    "name": "supported_chinese_paraphrase_zh",
+    "difficulty": "hard",
+    "noise_profile": "bilingual_paraphrase",
+    "profile": {
+      "name": "孙睿",
+      "raw_resume_text": "Built WarehouseFlow with Python, SQL, Airflow and dbt for warehouse data quality checks.",
+      "structured_profile": {"name": "孙睿", "skills": ["Python", "SQL", "Airflow", "dbt"], "projects": [{"name": "WarehouseFlow", "description": "warehouse data quality checks"}]}
+    },
+    "job": {
+      "title": "数据开发实习生",
+      "company": "DataHub",
+      "jd_text": "负责 Airflow、dbt 和数仓质量。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我希望申请 DataHub 的数据开发实习生。我的相关经历包括 Python、SQL、Airflow 和 dbt，并做过数仓质量校验。",
+      "outreach_message": "您好，我关注到 DataHub 的数据开发实习生岗位，希望交流。",
+      "checklist": ["提交前人工确认隐私授权和必填字段"],
+      "automation_result": {"mode": "manual_confirm_required", "final_submission": "user_confirmed_only"}
+    },
+    "expected_passed": true,
+    "expected_issue_codes": []
   }
 ]
