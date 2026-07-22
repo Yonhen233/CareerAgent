@@ -389,6 +389,10 @@ class NaturalLanguageAgentService:
 - 如果用户明确说“不要投递 / 不投递 / 不要申请 / 只改简历 / 只生成面试准备”，不要选择 quick_apply 或 full_flow。
 - 如果用户同时要求“改简历”和“面试准备”，intent 可选 interview_prep，并在 actions 中同时写入 tailor_resume 与 interview_prep。
 - full_flow 只用于用户明确要求一键完整流程或包含投递材料。
+- actions 用于表达 intent 之外还要串联执行的步骤；intent 自身对应的动作可以同时写入 actions。
+- “搜索后再定制”可使用 search_jobs 作为主 intent，并在 actions 中写入 search_jobs、tailor_resume。
+- update_profile 的修改内容必须写入 profile；不能只在 reason 中复述。
+- quick_apply 表示生成待审批投递材料，不等于直接外发；用户明确要求准备投递材料时应选择它。
 
 返回 JSON schema:
 {{

@@ -123,19 +123,22 @@ class ResumeParserService:
 
     async def parse_structured_resume(self, raw_text: str, db=None) -> dict:
         safe_text, injection = self.injection_guard.sanitize_for_llm(raw_text, source="resume_pdf")
-        heuristic = self._heuristic_parse(raw_text)
+        grounding_source = safe_text or raw_text
+        heuristic = self._heuristic_parse(grounding_source)
         heuristic["prompt_injection"] = injection.model_dump()
         if not self.llm.available:
             if not self.settings.llm_fallback_enabled:
                 raise LLMConfigurationError(
                     "LLM is required for resume parsing. Set LLM_FALLBACK_ENABLED=true for tests."
                 )
-            heuristic["quality_gate"] = self.grounding.evaluate_resume(raw_text, heuristic)
+            heuristic["quality_gate"] = self.grounding.evaluate_resume(grounding_source, heuristic)
             return heuristic
 
         system_prompt = (
             "You are a careful resume parser. Return strict JSON only. "
-            "Never infer unsupported facts."
+            "Never infer unsupported facts. A project name or technology mention is not a target role. "
+            "Only populate target_roles when the resume explicitly states a job objective, desired role, "
+            "target role, or candidate headline. Planned learning and reading do not count as skills."
         )
         user_prompt = f"""
 Parse the resume into this JSON schema:
@@ -164,6 +167,8 @@ Parse the resume into this JSON schema:
 Rules:
 - Use null or [] when unknown.
 - Keep all facts grounded in the original text.
+- target_roles must be [] unless the resume explicitly states a desired role or candidate headline.
+- Exclude skills that only occur in negated experience, reading, coursework-only, current-learning, or future plans.
 - Do not include raw_text in the JSON output. The service will store the original text separately.
 
 Resume:
@@ -181,7 +186,13 @@ Resume:
             normalized = ProfileStructured.model_validate(
                 self._merge_parsed_with_heuristic(heuristic, parsed)
             ).model_dump()
-            quality_gate = self.grounding.evaluate_resume(raw_text, normalized)
+            normalized, rejected_fields = self._remove_unsupported_taxonomy_fields(
+                grounding_source,
+                normalized,
+            )
+            quality_gate = self.grounding.evaluate_resume(grounding_source, normalized)
+            quality_gate["rejected_optional_fields"] = rejected_fields
+            quality_gate["rejected_optional_field_count"] = len(rejected_fields)
             normalized["quality_gate"] = quality_gate
             if not quality_gate["passed"]:
                 raise LLMResponseError(
@@ -193,7 +204,7 @@ Resume:
             if not self.settings.llm_fallback_enabled:
                 raise
             heuristic["prompt_injection"] = injection.model_dump()
-            heuristic["quality_gate"] = self.grounding.evaluate_resume(raw_text, heuristic)
+            heuristic["quality_gate"] = self.grounding.evaluate_resume(grounding_source, heuristic)
             return heuristic
 
     async def _generate_resume_json_with_retry(
@@ -293,7 +304,7 @@ Resume:
             headline=self._guess_headline(lines),
             self_summary="\n".join(sections.get("summary", [])[:4]) or None,
             enabled_sections=[],
-            target_roles=["Agent 开发实习生"] if "agent" in raw_text.lower() else [],
+            target_roles=[],
             education=self._parse_loose_items(sections.get("education", []), "education"),
             skills=skills,
             projects=self._parse_loose_items(sections.get("projects", []), "project"),
@@ -347,6 +358,33 @@ Resume:
             if skill.lower() in lowered:
                 found.append(skill)
         return sorted(set(found), key=lambda x: x.lower())
+
+    def _remove_unsupported_taxonomy_fields(
+        self,
+        grounding_source: str,
+        parsed: dict,
+    ) -> tuple[dict, list[dict[str, str]]]:
+        """Reject optional inferred taxonomy values before they enter the profile."""
+
+        output = dict(parsed)
+        rejected: list[dict[str, str]] = []
+        target_roles = []
+        for value in output.get("target_roles") or []:
+            clean = str(value or "").strip()
+            if clean and self.grounding.value_supported(clean, grounding_source):
+                target_roles.append(clean)
+            elif clean:
+                rejected.append({"field": "target_roles", "value": clean})
+        skills = []
+        for value in output.get("skills") or []:
+            clean = str(value or "").strip()
+            if clean and self.grounding.has_positive_support(clean, grounding_source):
+                skills.append(clean)
+            elif clean:
+                rejected.append({"field": "skills", "value": clean})
+        output["target_roles"] = target_roles
+        output["skills"] = skills
+        return output, rejected
 
     def _guess_headline(self, lines: list[str]) -> str | None:
         for line in lines[:8]:

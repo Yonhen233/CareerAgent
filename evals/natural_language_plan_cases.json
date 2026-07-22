@@ -235,7 +235,7 @@
       "profile_id": 156,
       "location": "杭州"
     },
-    "expected_intents": ["tailor_resume", "full_flow"],
+    "expected_intents": ["search_jobs", "tailor_resume"],
     "required_actions": ["search_jobs", "tailor_resume"],
     "forbidden_actions": ["quick_apply", "full_flow"],
     "expected_needs_profile": true,

@@ -1,6 +1,17 @@
 from app.services.evidence_grounding import EvidenceGroundingService
 
 
+def test_support_score_ignores_terminal_period_tokenization_noise():
+    service = EvidenceGroundingService()
+
+    score = service.support_score(
+        "Developed Terraform modules.",
+        "Built Kubernetes templates, Terraform modules and Prometheus alert rules.",
+    )
+
+    assert score >= 0.6
+
+
 def test_resume_grounding_rejects_skill_absent_from_source():
     result = EvidenceGroundingService().evaluate_resume(
         "李明，使用 Python 和 FastAPI 构建 CareerAgent。",

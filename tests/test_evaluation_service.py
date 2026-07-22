@@ -338,6 +338,18 @@ def test_jd_parser_canonicalizes_chinese_aliases_and_job_type():
     assert english_job_type["job_type"] == "internship"
 
 
+def test_jd_parser_distinguishes_prompt_regression_from_prompt_engineering():
+    from app.services.jd_parser import JDParserService
+
+    parsed = JDParserService().heuristic_parse(
+        "Requirements: Python, SQL, prompt regression and model quality analysis.",
+        title="LLM Evaluation Intern",
+    )
+
+    assert "Prompt Regression" in parsed["required_skills"]
+    assert "Prompt Engineering" not in parsed["required_skills"]
+
+
 def test_fit_message_is_composed_only_from_verified_structured_facts():
     message, facts = EvaluationService._publish_grounded_fit_message(
         {

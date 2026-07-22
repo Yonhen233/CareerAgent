@@ -67,7 +67,13 @@ def test_llm_client_records_provider_token_usage_and_budget(monkeypatch, db_sess
         def json(self):
             return {
                 "choices": [{"message": {"content": "ok"}}],
-                "usage": {"prompt_tokens": 11, "completion_tokens": 3, "total_tokens": 14},
+                "usage": {
+                    "prompt_tokens": 11,
+                    "completion_tokens": 3,
+                    "total_tokens": 14,
+                    "prompt_cache_hit_tokens": 7,
+                    "prompt_cache_miss_tokens": 4,
+                },
             }
 
     class FakeAsyncClient:
@@ -105,6 +111,10 @@ def test_llm_client_records_provider_token_usage_and_budget(monkeypatch, db_sess
     row = db_session.query(LLMCallLog).filter(LLMCallLog.trace_name == "unit_test.token_usage").one()
     assert result == "ok"
     assert (row.prompt_tokens, row.completion_tokens, row.total_tokens) == (11, 3, 14)
+    assert row.context_json["provider_usage"] == {
+        "prompt_cache_hit_tokens": 7,
+        "prompt_cache_miss_tokens": 4,
+    }
     assert budget.to_dict()["actual"]["total_tokens"] == 14
     assert budget.to_dict()["reserved"]["calls"] == 1
     get_settings.cache_clear()
@@ -266,12 +276,14 @@ def test_llm_router_assigns_flash_and_pro_by_trace(monkeypatch):
     planner = client.resolve_route("natural_language.plan")
     resume_review = client.resolve_route("resume_review.enhance_suggestions")
     interview = client.resolve_route("interview_agentic_rag.generate.1")
+    claim_verifier = client.resolve_route("evaluation.interview_claim_verifier.1")
     unknown = client.resolve_route("future_workflow.unclassified")
 
     assert (planner.name, planner.model) == ("flash_economy", "deepseek-v4-flash")
     assert client.effective_max_tokens(1000, planner) == 1150
     assert (resume_review.name, resume_review.model) == ("pro_quality", "deepseek-v4-pro")
     assert (interview.name, interview.model) == ("pro_quality", "deepseek-v4-pro")
+    assert (claim_verifier.name, claim_verifier.model) == ("pro_quality", "deepseek-v4-pro")
     assert (unknown.name, unknown.model) == ("configured_default", "custom-default")
     get_settings.cache_clear()
 

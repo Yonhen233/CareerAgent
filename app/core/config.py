@@ -22,7 +22,9 @@ class Settings(BaseSettings):
         "natural_language.,resume_parser.,jd_parser.,evaluation.llm_judge_suitability,"
         "resume_tailor.,application."
     )
-    llm_pro_trace_prefixes: str = "resume_review.,interview_prep.,interview_agentic_rag."
+    llm_pro_trace_prefixes: str = (
+        "resume_review.,interview_prep.,interview_agentic_rag.,evaluation.interview_claim_verifier."
+    )
     llm_flash_max_tokens_multiplier: float = Field(default=1.15, ge=1.0, le=1.5)
     llm_timeout_seconds: float = 120.0
     llm_retry_attempts: int = 1
@@ -46,7 +48,7 @@ class Settings(BaseSettings):
     interview_rag_min_answer_chars: int = 120
     interview_rag_answer_repair_attempts: int = 1
     interview_rag_max_llm_calls: int = 5
-    interview_rag_max_prompt_chars: int = 60000
+    interview_rag_max_prompt_chars: int = 70000
     interview_rag_max_completion_tokens: int = 15000
 
     openai_api_key: str | None = None

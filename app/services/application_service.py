@@ -85,10 +85,12 @@ class ApplicationService:
         system_prompt = (
             "You write concise Chinese job application letters. Return plain text only. "
             "Every candidate experience or achievement sentence must be a close paraphrase of the supplied profile. "
-            "Do not add causal outcomes such as ensuring reliability or improving performance unless the source says so."
+            "Do not add causal outcomes such as ensuring reliability or improving performance unless the source says so. "
+            "The first line must preserve the supplied company and job title exactly, without translation."
         )
         user_prompt = f"""
 Write a concise cover letter in Chinese.
+The first line must be exactly: 申请目标：{job.company or '未提供公司'} | {job.title}
 Do not fabricate facts. Use the resume version if available.
 Do not mention planned learning, missing skills, or unsupported JD requirements.
 Every candidate claim must be a close paraphrase of the profile or resume version.
@@ -111,7 +113,7 @@ Resume version:
                 profile_id=profile.id,
                 job_id=job.id,
             ):
-                return await self.llm.generate_text(
+                generated = await self.llm.generate_text(
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     temperature=0.25,
@@ -119,6 +121,7 @@ Resume version:
                     db=db,
                     trace_name="application.cover_letter",
                 )
+                return self._ensure_job_target(generated, job)
         except Exception:
             if not self.settings.llm_fallback_enabled:
                 raise
@@ -148,11 +151,19 @@ Resume version:
         skill_text = "、".join(skills[:6]) if skills else "岗位相关技能"
         resume_note = "我已基于该岗位准备了定制简历，" if resume_version else ""
         return (
+            f"申请目标：{job.company or '未提供公司'} | {job.title}\n"
             f"您好，我是{profile.name or '候选人'}，希望申请 {job.company or '贵司'} 的 {job.title}。"
             f"{resume_note}我的相关经历包括 {skill_text}。"
             f"在 {project_name} 中，{project_desc}。"
             "如果岗位需要更多材料，我可以继续补充项目细节和可验证成果。期待进一步沟通。"
         )
+
+    def _ensure_job_target(self, text: str, job: Job) -> str:
+        target = f"申请目标：{job.company or '未提供公司'} | {job.title}"
+        clean = (text or "").strip()
+        if clean.startswith(target):
+            return clean
+        return f"{target}\n{clean}".strip()
 
     def _profile_skills(self, profile: Profile) -> list[str]:
         skills = (profile.structured_profile_json or {}).get("skills") or []

@@ -238,6 +238,60 @@ def test_application_guardrail_accepts_grounded_cross_language_project_paraphras
     assert semantic["results"][0]["support_method"] == "multilingual_embedding"
 
 
+def test_application_guardrail_does_not_treat_accessibility_as_chinese_negation():
+    class CrossLanguageEmbeddingStub:
+        def embed_texts(self, texts):
+            return EmbeddingBatch(
+                vectors=[[1.0, 0.0] for _ in texts],
+                provider="cross_language_test",
+                model="controlled",
+                dimensions=2,
+            )
+
+    profile = Profile(
+        name="Zhao Lin",
+        source_type="guided",
+        raw_resume_text="Built Playwright visual tests and accessibility checks.",
+        structured_profile_json={"skills": ["Playwright", "Accessibility"]},
+    )
+    job = Job(
+        source="manual",
+        external_id="frontend-accessibility",
+        title="Frontend Engineering Intern",
+        company="DesignOps",
+        raw_jd_text="Build accessible frontend components.",
+        structured_jd_json={"required_skills": ["Playwright", "Accessibility"]},
+        apply_url="https://example.com/apply",
+    )
+
+    validation = ApplicationPacketGuardrail(
+        embedding_service=CrossLanguageEmbeddingStub()
+    ).validate(
+        profile=profile,
+        job=job,
+        resume_version=None,
+        cover_letter=(
+            "我申请 DesignOps 的 Frontend Engineering Intern。"
+            "我实现了 Playwright 视觉测试和无障碍检查。"
+        ),
+        outreach_message="您好，我关注 DesignOps 的 Frontend Engineering Intern，希望交流。",
+        checklist=_checklist(),
+        automation_result=_manual_automation(),
+    )
+
+    assert validation["passed"] is True
+    assert ApplicationPacketGuardrail()._is_negative_claim("我实现了无障碍检查") is False
+
+
+def test_application_service_preserves_exact_english_job_target():
+    job = Job(title="Frontend Engineering Intern", company="DesignOps")
+    service = ApplicationService()
+
+    output = service._ensure_job_target("尊敬的招聘团队：\n我申请前端开发实习生。", job)
+
+    assert output.startswith("申请目标：DesignOps | Frontend Engineering Intern\n")
+
+
 def test_application_guardrail_embedding_does_not_reverse_negative_evidence():
     class SimilarityStub:
         def embed_texts(self, texts):

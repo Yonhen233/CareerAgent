@@ -27,7 +27,7 @@ JD_SKILL_ALIASES: dict[str, list[str]] = {
     "Tool Calling": [r"\btool calling\b", r"\bfunction calling\b", "工具调用"],
     "Workflow": [r"\bworkflows?\b", r"\borchestration\b", "工作流", "编排"],
     "Guardrail": [r"\bguardrails?\b", "安全护栏", "风控策略", "安全策略"],
-    "Prompt Engineering": [r"\bprompt engineering\b", r"\bprompts?\b", "提示词工程", "提示词"],
+    "Prompt Engineering": [r"\bprompt engineering\b", "提示词工程"],
     "Prompt Regression": [r"\bprompt regression\b", "提示词回归"],
     "Prompt Injection": [r"\bprompt injection\b", "提示词注入"],
     "Model Evaluation": [r"\bmodel quality\b", r"\bmodel eval(uation)?\b", "模型质量", "模型评测"],

@@ -436,8 +436,16 @@ class EvidenceGroundingService:
             return 0.0
         if normalized_claim in normalized_source:
             return 1.0
-        claim_tokens = {token for token in tokenize(normalized_claim) if len(token) > 1}
-        source_tokens = {token for token in tokenize(normalized_source) if len(token) > 1}
+        claim_tokens = {
+            clean
+            for token in tokenize(normalized_claim)
+            if len(clean := token.strip(".")) > 1
+        }
+        source_tokens = {
+            clean
+            for token in tokenize(normalized_source)
+            if len(clean := token.strip(".")) > 1
+        }
         token_overlap = len(claim_tokens & source_tokens) / max(len(claim_tokens), 1)
         longest = SequenceMatcher(None, normalized_claim, normalized_source).find_longest_match()
         sequence_coverage = longest.size / max(len(normalized_claim), 1)

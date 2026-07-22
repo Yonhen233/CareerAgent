@@ -319,6 +319,7 @@ class LLMClient:
                 prompt_tokens = self._usage_int(usage, "prompt_tokens", "input_tokens")
                 completion_tokens = self._usage_int(usage, "completion_tokens", "output_tokens")
                 total_tokens = self._usage_int(usage, "total_tokens")
+                provider_usage = self._provider_usage_details(usage)
                 if total_tokens <= 0:
                     total_tokens = prompt_tokens + completion_tokens
                 if active_budget is not None:
@@ -337,6 +338,7 @@ class LLMClient:
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
                     total_tokens=total_tokens,
+                    provider_usage=provider_usage,
                     error_message=None,
                     started_at=started,
                     model=route.model,
@@ -375,6 +377,25 @@ class LLMClient:
             if value >= 0:
                 return value
         return 0
+
+    @classmethod
+    def _provider_usage_details(cls, usage: dict[str, Any]) -> dict[str, int]:
+        aliases = {
+            "prompt_cache_hit_tokens": ("prompt_cache_hit_tokens", "cache_read_input_tokens"),
+            "prompt_cache_miss_tokens": ("prompt_cache_miss_tokens", "cache_creation_input_tokens"),
+            "reasoning_tokens": ("reasoning_tokens",),
+        }
+        details: dict[str, int] = {}
+        for target, keys in aliases.items():
+            value = cls._usage_int(usage, *keys)
+            if value > 0:
+                details[target] = value
+        completion_details = usage.get("completion_tokens_details")
+        if isinstance(completion_details, dict):
+            reasoning_tokens = cls._usage_int(completion_details, "reasoning_tokens")
+            if reasoning_tokens > 0:
+                details["reasoning_tokens"] = reasoning_tokens
+        return details
 
     async def generate_json(
         self,
@@ -450,6 +471,7 @@ class LLMClient:
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
         total_tokens: int = 0,
+        provider_usage: dict[str, int] | None = None,
         model: str | None = None,
         route_name: str | None = None,
     ) -> None:
@@ -463,6 +485,8 @@ class LLMClient:
                 context["model_route"] = route_name
             if model:
                 context["routed_model"] = model
+            if provider_usage:
+                context["provider_usage"] = dict(provider_usage)
             db.add(
                 LLMCallLog(
                     trace_name=trace_name,

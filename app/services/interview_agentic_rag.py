@@ -1324,6 +1324,8 @@ project_implementation/technical_explanation；technical_knowledge 用于 techni
         system_prompt = """你是独立的 RAG Claim Verifier、claim classifier 与 citation linker。
 对每个 claim 查看该题全部 available_evidence，选择能直接支持它的最小证据集合；不能默认沿用生成器的 current_evidence_ids。
 再判断 claim 是否被所选证据明确支持，并选择唯一最准确的 normalized_claim_type。
+supported 只表示证据蕴含，与该 claim 是否回答 question 完全独立。即使 claim 与问题无关，
+只要证据直接支持它，supported 仍必须为 true；是否跑题只能由 answer_checks.answered=false 表达。
 最后只使用 supported=true 的 claims 检查回答是否正面覆盖 question 的核心要求和并列子问题；
 “事实都是真的”不等于“回答了问题”。例如问题要求说明架构位置、选型理由和替代方案，只介绍评测数据集必须判 answered=false。
 问题要求“画出架构”时，claim 中清晰的节点和箭头式文本数据流可以视为已回答，不得强制要求图片或 Mermaid。

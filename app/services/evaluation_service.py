@@ -1954,8 +1954,19 @@ class EvaluationService:
             }
 
         actual_actions = {str(item) for item in plan.get("actions") or []}
+        implicit_action = {
+            "create_profile": "create_profile",
+            "update_profile": "create_profile",
+            "search_jobs": "search_jobs",
+            "tailor_resume": "tailor_resume",
+            "quick_apply": "quick_apply",
+            "interview_prep": "interview_prep",
+        }.get(str(plan.get("intent") or ""))
+        effective_actions = set(actual_actions)
+        if implicit_action:
+            effective_actions.add(implicit_action)
         intent_passed = not expected_intents or str(plan.get("intent")) in expected_intents
-        required_actions_passed = required_actions <= actual_actions
+        required_actions_passed = required_actions <= effective_actions
         forbidden_actions_hit = sorted(forbidden_actions & actual_actions)
         exact_actions_passed = True
         if case.get("require_exact_actions"):
@@ -2000,7 +2011,9 @@ class EvaluationService:
             "actual_intent": plan.get("intent"),
             "intent_passed": intent_passed,
             "expected_actions": sorted(expected_actions),
+            "required_actions": sorted(required_actions),
             "actual_actions": sorted(actual_actions),
+            "effective_actions": sorted(effective_actions),
             "action_precision": action_precision,
             "action_recall": action_recall,
             "required_actions_passed": required_actions_passed,
@@ -2061,6 +2074,7 @@ class EvaluationService:
             summary,
             [
                 ("completed_rate", ">=", 1.0),
+                ("pass_rate", ">=", 0.9),
                 ("intent_accuracy", ">=", 0.9),
                 ("avg_action_precision", ">=", 0.85),
                 ("avg_action_recall", ">=", 0.9),

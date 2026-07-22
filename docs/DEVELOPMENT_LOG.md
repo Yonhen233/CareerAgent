@@ -1,5 +1,57 @@
 # 开发日志
 
+## 2026-07-22 22:12:17 +08:00：建立分层 Agent 系统评测，完成真实全链路运行并暴露规划、证据门禁与续跑记账问题
+
+### 这次为什么不能再用“功能可以运行”作为结论
+- 之前各模块分别有测试，但缺少一个统一实验把 PDF Chunk、岗位 RAG、LLM 解析、自然语言规划、LangGraph trajectory、业务终态、安全、可靠性、延迟和费用放在同一发布判断里。“接口返回 200”只能证明链路没有崩溃，不能证明 Agent 选对工具、使用了真实证据，也不能证明相同任务重复运行稳定。
+- 本轮按 OpenAI eval best practices、LangSmith trajectory evaluation、BFCL、τ-bench、RAGAS 和 AgentDojo 的共同思路改为分层门禁：确定性组件先验收，再评 LLM 节点、工具轨迹、端到端终态、`pass^k`、安全和性能。没有把各项指标加权成一个总分，因为安全或投递错误不能被检索高分抵消。
+
+### 工程实现
+- 新增 `AgentSystemEvaluationReporter`：自动扫描数据集规模和难度，统一汇总各 suite，计算工具成功率与延迟、真实 LLM 调用成功率、p50/p95/max、模型/route/trace 用量、缓存命中 token 和 DeepSeek 人民币费用，并使用硬门禁而非主观综合分。
+- 新增 `scripts/run_agent_system_eval.py`：提供 `deterministic/full` 两种模式、suite 选择、渐进式报告、断点续跑、真实 Token 总预算、可靠性重复、面试 case 上限和可选真实岗位源 smoke。未配置 LLM、embedding 或 reranker 时 full 模式直接失败，不启用结果 fallback。
+- `LLMCallLog.context_json.provider_usage` 新增 `prompt_cache_hit_tokens`、`prompt_cache_miss_tokens` 和 `reasoning_tokens`，解决此前只能用总 prompt token 推算费用、无法判断缓存价格的问题。
+- 运行器为每次进程启动新增 `evaluation_invocation_id`，同时保留跨续跑的 `system_evaluation_id`；进度 JSON 写入 `invocation_id`。这使同一实验的多次启动可以在 trace 中拆分，不再只能靠时间窗人工对账。
+- 修复断点报告尚未创建 `evaluation_run_id` 时调用 `db.get(..., None)` 产生的 SQLAlchemy 空主键警告。
+- 新增系统 reporter、供应商 usage、模型路由和各类产品回归测试；完整评测方法、指标和结果写入 `docs/AGENT_SYSTEM_EVALUATION_2026-07-22.md`。
+
+### 真实运行结果
+- 实验 `agent-system-20260722-214145-d004ddf3`、总记录 `EvaluationRun #113` 完整结束，无 suite 异常，但严格发布门禁失败。
+- 通过项：PDF Chunk 96 cases；RAG 180 cases；岗位相关性 13 cases；投递 Guardrail 27 cases；Prompt Injection 70 cases；JD Parser 30 cases；claim verifier 14 cases；完整面试包 1 case。
+- 未通过项：自然语言规划 `17/20=85%`；LLM 工作流 `18/24=75%`；Agent 全流程 `5/6=83.33%`；3 个代表 case 重复 2 次的 `pass^2=66.67%`，低于 80% 门槛。
+- 剔除确认的评测进程重叠后，系统净调用 171 次、218,342 tokens、0.257601 元；调用延迟 mean 4.624s、p50 3.538s、p95 9.684s、max 34.788s。Pro 只有 5 次调用但占 0.095959 元，热点集中在面试生成、验证和 claim verifier。
+- 原始账单为 194 次、227,511 tokens、0.267945 元。多出的 23 次、9,169 tokens、0.010344 元属于评测运行器进程重叠开销，原始值保留用于账单核对，净值用于描述产品调用成本。
+- 最终不调用外部 LLM 的完整回归为 `242 passed in 96.35s`；Python compileall、运行器 CLI、diff whitespace 和密钥扫描通过。8070 服务保持运行，`/health` 为 `ok`、`llm_configured=false`。
+
+### 开发过程中发现的关键 badcase
+1. **计划结构正确不代表能执行正确**：`profile_context_plus_search_zh` 返回了 `create_profile` 和 `search_jobs` 两个 action，但主 intent 是 `create_profile`。当前执行器会在建档分支提前返回，导致搜索不发生。早期 action precision/recall 会给它满分，加入 intent-to-effective-action 与端到端语义后才暴露。这是面试中可重点说明的“trajectory 与业务终态必须同时评估”的案例。
+2. **标注标准与模型判断可能冲突**：推荐算法候选人有 Python、A/B、指标经验但缺 ranking/CTR，旧标注为 weak，模型判 partial；worker 岗位和 Prompt Injection 噪声 case 也有类似争议。直接为了门禁改标签会污染基线，因此本轮保留失败，记录为待双人复标，不把全部失败简单归因于模型。
+3. **同义改写导致证据门禁误伤**：PDF 布局噪声 case 的 fit 标签正确，但“技能包括 Python、FastAPI、RAG”等中文归纳与原始英文/分栏证据的支持分只有 0.60-0.6957，被正向证据门禁拒绝。全流程中的前端“无障碍”跨语言结果也以 0.6953 卡在 0.70 阈值下。说明下一步应校准多语言证据检索和等价表达，不应全局降低阈值。
+4. **`pass^k` 识别出系统性错误**：Prompt Injection 噪声工作流连续两次失败，另外两个 case 连续通过。失败不是随机温度抖动，继续多跑只会继续花 Token，应该先修 rubric/grounding 契约。
+5. **评测进程本身也需要可观测性**：PowerShell 前台命令超时后，Python 子进程仍继续运行；随后启动的断点续跑和原进程在 JD suite 短暂并发，造成重复调用。只看实验 ID 会把它误计为产品成本。本轮通过日志 ID、trace、时间窗和重复 case 确认 23 次开销，并新增 invocation ID。这个问题说明“评测器也必须像被测系统一样有身份、trace 和成本审计”。
+6. **完成率与调用成功率不是一个指标**：简历解析出现 1 次 `ConnectError`，业务重试后 case 最终完成，所以 case 完成率为 100%，调用成功率为 99.42%。以后报告必须同时保留两者，不能用最终成功掩盖供应商抖动。
+
+### 为了让评测结果可信而修复的产品问题
+- Resume Parser 改为基于清洗后的原文做 grounding；不再从任意 Agent 字样推断目标岗位，计划学习不写成已掌握技能，无法溯源的可选字段逐项拒绝并在 trace 中记录。
+- JD Parser 移除把普通 prompt/“提示词”映射为 Prompt Engineering 的宽泛规则，避免注入文本污染岗位技能。
+- Application Guardrail 将裸 `无/未` 改为有作用域的否定模式，修复“无障碍”被误判；投递材料首行强制为精确 company/title，避免通用标题通过。
+- 自然语言评测将 intent 隐含动作计入 effective actions，并提高多动作计划的检查强度。
+- 面试 verifier 把“证据是否支持”与“是否回答当前问题”拆开，提示和模型路由调整为 Pro；14 个独立 case 的 accuracy、positive recall、question accuracy、specificity 均为 1.0，FPR 和答非所问误接收率为 0。
+- Interview Prompt 预算由 60k 调到 70k，使本轮 1 个完整包在不截断的情况下通过；这只是基于真实 trace 的预算调整，不代表可以继续无限扩大上下文。
+
+### 尚未修复及原因
+- 多动作 planner 的主 intent/执行器语义尚未重构。本轮目标是先冻结准确基线；在没有新增“建档后继续搜索”执行测试前直接改 executor，可能影响开始页已有流程。
+- 跨语言正向证据的 0.70 阈值尚未调整。当前只有少量边界样本，直接放宽会提高 unsupported claim 漏放风险，需要先补充正负校准集并画出阈值曲线。
+- 24 个 fit 工作流中的标签争议尚未改标。需要双人独立标注和分歧仲裁，记录一致率后才能发布新 rubric 版本。
+- 完整面试链路本轮只跑 1 个 case，可靠性只测 3 cases × 2。余额有限时先保证跨组件覆盖；该规模只能作为 smoke 和回归门禁，不能宣称生产成功率或稳定延迟分布。
+- 当前 invocation ID 能拆分未来重复进程，但尚未增加同 experiment 的进程互斥锁。强行加锁会影响合法的分 suite 并发，下一步应设计 coordinator lease/heartbeat，而不是简单创建一个可能遗留的 lock 文件。
+
+### 下一步
+1. 让 planner 输出的主任务与 action DAG 一致，执行器按 DAG 继续执行，并补多动作终态测试。
+2. 建立 fit 标签与跨语言 evidence 的双人复标集，区分模型错误、grader 错误和 annotation disagreement。
+3. 使用多语言校准集评估 grounding 阈值的 precision/recall，再决定 reranker、规范化或分类型阈值。
+4. 扩大关键流程 `pass^3` 和完整面试包样本，持续报告模型路由、Token、p95 与失败 trace。
+5. 为评测 coordinator 增加带 heartbeat 的 lease，防止同一 experiment 重复执行同一 suite，同时允许显式的并行 suite。
+
 ## 2026-07-22 17:53:21 +08:00：根据真实 Flash/Pro 对照落地节点级模型路由，并有限放宽 Flash 输出预算
 ### 决策依据
 - DeepSeek 官方价格中，Flash 未缓存输入/输出单价约为 Pro 的三分之一，并发上限是 Pro 的 5 倍；但同样本真实评测显示，Flash 只在短结构化节点与普通 canary 上接近 Pro，10 题面试多约束回答在 repair 后仍有两题未覆盖，Pro 则通过发布门禁。
