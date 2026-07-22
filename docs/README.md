@@ -27,6 +27,13 @@
 
 ## 面试资料
 
-- [面试资料说明](interview/README.md)
+- [面试资料总导航](interview/README.md)
+- [项目总览与架构](interview/PROJECT_OVERVIEW_AND_ARCHITECTURE.md)
+- [核心链路实现详解](interview/IMPLEMENTATION_DEEP_DIVE.md)
+- [生产工程与安全设计](interview/PRODUCTION_ENGINEERING.md)
+- [评测体系与当前指标](interview/EVALUATION_AND_METRICS.md)
+- [Bad Case 与设计决策](interview/BAD_CASES_AND_DECISIONS.md)
+- [高频面试问答](interview/INTERVIEW_QA.md)
+- [讲述稿与简历写法](interview/PRESENTATION_SCRIPTS.md)
 
 文档状态以 README、开发日志和当前代码为准。归档材料只保留历史分析过程，不代表当前实现边界。

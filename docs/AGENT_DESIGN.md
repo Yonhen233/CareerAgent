@@ -10,7 +10,7 @@
 - `MatcherService`：主匹配逻辑仍是可解释规则 + RAG evidence，不把最终匹配分数完全交给 LLM。
 - `ResumeTailorService._llm_tailor`：根据 JD 和检索证据生成定制简历。
 - `ApplicationService`：生成求职信和外联文案。
-- `InterviewPrepService`：当前使用结构化规则生成面试准备包，不强制调用 LLM；已支持引用用户导入的真实同岗面经。后续如果接入自动抓取或多篇面经聚合，可用 LLM 做去重、归因和风险标注。
+- `InterviewPrepService`：先生成 10 道覆盖 JD、简历项目、缺口和同岗面经视角的问题，再由 `InterviewAgenticRAGService` 使用本地 multi-query、混合检索和 Pro 模型批量生成/验证 claims；服务端只组合 verified claims。未配置 LLM 或 release gate 失败时直接报错，不生成规则占位答案。
 - `EvaluationService._llm_judge_suitability`：真实调用 LLM 判断岗位是否适配，用于评测 prompt 边界。
 
 所有 LLM 调用都通过 `LLMClient` 记录：

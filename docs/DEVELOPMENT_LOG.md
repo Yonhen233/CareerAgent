@@ -1,5 +1,60 @@
 # 开发日志
 
+## 2026-07-22 23:49:02 +08:00：基于重构后代码和评测库重建完整面试材料，修正文档事实漂移与指标口径混淆
+
+### 本轮目标
+- 项目在 LangGraph、Redis、岗位双 RAG、面试 Agentic RAG、模型路由和系统评测方面连续重构，旧面试资料已经无法准确反映当前实现。本轮不再在旧 110 问和长报告上局部打补丁，而是从当前代码、配置、数据库 EvaluationRun、评测集和开发日志重新建立一套可直接口述的中文面试材料。
+- 材料必须同时回答“系统是什么、为什么这样设计、代码怎样实现、指标怎样解释、遇到过哪些 bad case、当前还不能承诺什么”，避免只罗列 LangGraph/RAG/Redis 等关键词。
+- 本轮不调用外部 LLM，不消耗 DeepSeek 余额；所有数字只读取已有数据库和可审计报告。
+
+### 事实盘点与发现的问题
+1. **旧面试资料已经整体过时。** `docs/interview/archive-2026-07-06` 仍以早期主图、旧面试模块和旧评测口径为主；当前项目已经有 7 个 Skill、15 个 Tool Policy、7 个 SubAgent、17 个 LangGraph 主图节点、23 张 SQLAlchemy 表和 110 条 FastAPI route。继续在旧文档上追加会让历史方案和当前方案混在一起。
+2. **文档与源码出现预算漂移。** `app/core/config.py` 当前面试 RAG 硬预算为 5 次调用、70,000 Prompt 字符和 15,000 completion token 预留，但根 README、`ARCHITECTURE.md` 和 `EVALUATION.md` 仍写 60,000。该差异来自后续真实完整包根据 trace 调整预算，旧说明没有同步更新。
+3. **Agent 设计仍残留旧面试实现。** `AGENT_DESIGN.md` 说 `InterviewPrepService` 使用结构化规则且不强制 LLM，但当前产品实际是问题生成 + `InterviewAgenticRAGService` 的本地 multi-query、混合检索、Pro 批量 claim 生成/验证和服务端 verified-claim 组合。旧描述会导致面试时把已经删除的规则答案框架讲成现状。
+4. **评测数字存在三个时间层，不能挑最好看的混用。** `#113` 是修复前整轮真实系统实验；`#114/#118/#119/#120` 是修复后定向回归；`#101-#105/#111/#122` 是专项或不同运行模式。局部 1/1、2/2 不能改写成“最新全链路 100%”。
+5. **同名指标也必须带运行模式。** `#107` 使用真实 LLM 跑 30 个 JD case，pass 和 grounding gate 均为 1.0；最新 `#122` 使用显式 heuristic fallback，skill F1 为 0.9901，但 grounding gate 0.9333 低于 0.95，release gate 失败。两个结果不冲突，不能只保留其中一个。
+6. **Reranker 的中文边界需要诚实说明。** 默认模型 `ms-marco-MiniLM-L-6-v2` 偏英文，代码检测中文 query 后会走 CJK lexical rerank。固定 RAG 集证明真实 cross-encoder provider 被使用，但不等于所有中文请求都经过多语言 CrossEncoder；新材料将它列为后续 BGE multilingual 对照项。
+7. **PDF 指标有必须保留的弱点。** 选中 Chunk 策略整体通过门禁，但 `coursework_vs_shipped` 的 Top3 context hit 只有 0.0521。这支持下一步做 sentence/facet evidence，而不是用总体 0.776 隐藏混合极性问题。
+
+### 本轮改动
+- 重写 `docs/interview/README.md`，建立当前材料的阅读顺序、事实基线、运行时证据文件和结论边界。
+- 新增 `PROJECT_OVERVIEW_AND_ARCHITECTURE.md`：从用户三种入口、系统分层、LangGraph 控制面、Skill/Tool/SubAgent、23 张表、模型路由和代码地图解释整体架构，并提供 Mermaid 图。
+- 新增 `IMPLEMENTATION_DEEP_DIVE.md`：逐步解释 PDF/JD 解析、双 RAG、岗位排序公式、简历经历召回、Evidence Type、匹配公式、上下文包、ReAct、投递审批和面试 Agentic RAG v3。
+- 新增 `PRODUCTION_ENGINEERING.md`：说明 FastAPI 并发边界、Redis/SQLite 分工、优先级队列、锁/幂等、heartbeat、recovery、DLQ、checkpoint、审批、RBAC、Prompt Injection 和可观测性。
+- 新增 `EVALUATION_AND_METRICS.md`：给出 12 类数据集规模、Recall/MRR/nDCG/grounding/pass^k 定义、`#101-#113` 整轮指标、归一化成本、修复后定向回归、`#122` 红灯和当前发布判断。
+- 新增 `BAD_CASES_AND_DECISIONS.md`：整理 12 个可直接用于面试的真实案例，包括 59 次面试 LLM 调用、事实正确但答非所问、多动作提前结束、Parser/Chunker 组合丢证据、`AgentTrace` 子串污染、跨语言阈值误杀、JD 行内章节、评测器重复进程、LangGraph state 丢字段、跨页进度、理想化 RAG 和简历诊断污染。
+- 新增 `INTERVIEW_QA.md`：以 30 个高频问题完整回答 LangGraph、Plan-Execute/ReAct、Skill/SubAgent/MCP、Chunk、双 RAG、向量库、reranker、匹配、幻觉、并发、队列、安全、评测和上线判断。
+- 新增 `PRESENTATION_SCRIPTS.md`：提供 30 秒、2 分钟、5 分钟讲述稿、四条现场演示路径、Agent/后端/RAG 三种简历 bullet 和防止过度承诺的写法。
+- 保留 `CAREER_AGENT_PROJECT_EVIDENCE.md` 与 `TECHNICAL_KNOWLEDGE_BASE.md` 的短事实结构。它们会被面试 Agentic RAG 运行时检索，不把长篇人类讲述稿混入，避免增加检索噪声和 Token。
+- 同步修正根 `README.md`、`docs/ARCHITECTURE.md`、`docs/EVALUATION.md` 的 70,000 字符预算，更新 `docs/AGENT_DESIGN.md` 的当前面试链路，并将新材料加入 `docs/README.md` 导航。
+
+### 指标核验结果
+- PDF `#101`：96 case/576 query，Top3 keyword/page/context=`0.9479/0.8299/0.7760`，release gate 通过。
+- RAG `#102`：180 case，Top1=`1.0`、Recall@3=`0.6125`、Recall@5=`0.7292`、MRR=`1.0`、nDCG@5=`0.7862`，真实 embedding/cross-encoder、无 fallback，门禁通过。
+- 岗位排序 `#103`：13 query/130 candidate，nDCG@5=`0.9495`；投递 `#104` 和 Injection `#105` 固定集门禁通过。
+- 整轮系统 `#113`：自然语言规划 `17/20`、LLM workflow `18/24`、full-flow `5/6`、pass^2=`0.6667`，严格发布门禁失败。剔除重复进程后为 171 次调用、218,342 tokens、0.257601 元，p50/p95=`3.538/9.684s`。
+- 修复后定向回归：`#114=3/3`、`#118=2/2`、`#119=1/1`、`#120=1/1`。材料明确说明这些只证明已知失败切片修复。
+- 最新离线 JD `#122`：precision/recall/F1=`0.9817/1.0/0.9901`，但 grounding gate=`0.9333<0.95`，仍保留 release gate 失败结论。
+
+### 方案取舍
+- 没有重新生成一个单文件几万字报告。按架构、实现、生产、评测、bad case、Q&A 和讲述稿拆分，既方便系统学习，也避免面试时在一份文档里搜索困难。
+- 没有删除旧归档，因为它能证明架构演进；总导航明确标记旧资料不是当前事实源。
+- 没有为让材料“好看”重跑付费模型或选择性删除红灯。当前任务是梳理已有证据，系统发布状态必须保持可审计。
+- 没有把所有已有开发日志复制进面试资料，只选能解释设计变化、根因和验证的数据；完整时间线仍由开发日志承担。
+
+### 验证与未完成项
+- 新材料共 7 份主文档，内部相对链接检查无断链；新旧文档中的面试预算和 LLM 链路描述已与源码配置对齐。
+- 完整离线回归为 `264 passed in 95.72s`；`git diff --check`、Markdown 相对链接、旧预算/链路事实扫描和密钥扫描通过。本轮没有调用外部 LLM。
+- 8070 服务保持运行，`/health` 返回 `status=ok`、`llm_configured=false`，文档与测试过程没有重启或关闭用户正在检查的服务。
+- 当前仍未完成最新代码的 24-case 全量真实 LLM 发布认证，也未修复 `#122` 两个离线 JD grounding case；它们是产品质量问题，不应在文档任务中通过改数字解决。
+- 新材料中的固定集结果仍受合成/可控数据分布限制；fit 需要双人复标，完整面试包与 pass^k 需要扩大样本。
+
+### 下一步
+1. 修复 `#122` 两个 JD grounding case，建立双人 fit 标注和 disagreement set。
+2. 预算允许后按同一 methodology 重跑 24-case workflow、6-case full-flow 和代表 case pass^3，生成新的整体 release report，而不是继续叠加定向 smoke。
+3. 对中文 reranker 和 sentence/facet evidence 做独立对照，重点观察 `coursework_vs_shipped`、Recall@5、nDCG 和 p95。
+4. 将新面试材料作为人工学习文档，运行时面试 RAG 继续只读取经过审核的短项目证据和技术知识库。
+
 ## 2026-07-22 23:22:00 +08:00：逐项修复系统评测失败，建立可审计 fit rubric、跨语言事实门禁与评测器数据契约
 
 ### 本轮目标与处理原则

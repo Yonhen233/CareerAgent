@@ -86,7 +86,7 @@ PDF/结构化简历 + 中文目标岗位
   - `find_jobs_for_profile`：搜索岗位、解析 JD、入库、匹配、排序。
   - `tailor_resume_for_job`：匹配岗位、检索简历证据、定制简历、校验幻觉风险。
   - `quick_apply`：生成投递包、求职信、外联文案、投递清单和状态记录，并校验投递包是否编造事实或越过人工确认边界。
-  - `prepare_interview_for_job`：使用成本受控的 Agentic RAG v3 子图生成面试包。默认 10 题，正常路径 3 次 LLM 调用；本地 multi-query、按题目视角分配来源配额、exact/BM25/向量/RRF/Top20 reranker 召回证据，LLM 各用一个 10 题批次生成和验证 claims，服务端组合已验证回答。最多 1 轮串行 repair 与失败题增量复验，总调用不超过 5 次，并设置 60,000 Prompt 字符和 15,000 completion token 预留硬预算；release gate 未通过不落库。
+  - `prepare_interview_for_job`：使用成本受控的 Agentic RAG v3 子图生成面试包。默认 10 题，正常路径 3 次 LLM 调用；本地 multi-query、按题目视角分配来源配额、exact/BM25/向量/RRF/Top20 reranker 召回证据，LLM 各用一个 10 题批次生成和验证 claims，服务端组合已验证回答。最多 1 轮串行 repair 与失败题增量复验，总调用不超过 5 次，并设置 70,000 Prompt 字符和 15,000 completion token 预留硬预算；release gate 未通过不落库。
   - `quick_apply` 前置 `fit_gate`：低匹配岗位直接阻断，并把缺口写入 Agent step trace。
   - 每次 run 先生成 Plan-Execute 执行计划，并写入 Trace artifact。
   - `execution_plan` 和 run 输入输出会标记 `orchestration_framework=langgraph`，并保留 `graph_thread_id`；当前使用 LangGraph SQLite checkpointer 持久化到 `data/runtime/langgraph_checkpoints.sqlite`。

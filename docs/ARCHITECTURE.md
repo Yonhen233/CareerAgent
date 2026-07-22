@@ -101,7 +101,7 @@ flowchart LR
 - 默认 `ms-marco` cross-encoder 只处理英文 query；中文 query 使用双/三字 n-gram lexical reranker。真实 bad case 证明英文模型会把“Agent”词频高的评测文档排到中文架构证据前，按语言能力路由比继续使用不匹配模型更可靠，也显著降低本地 CPU 延迟。
 - 生成与 verifier 使用每条最多 360 字的完整短语义段。`docs/interview/CAREER_AGENT_PROJECT_EVIDENCE.md` 保存经过代码与架构文档核对的 Agent 位置、数据流、选型和 Trace 事实；它只能证明仓库实现，候选人归属仍需同时引用简历。
 - LLM 生成自然、按回答顺序排列的 claims；服务端只用已验证 claims 组合正文，因此无需 renderer 和 coverage judge 再次调用模型。repair 保留上一轮已验证 claims，只补缺口；单条 unsupported claim 会被剪除并记录 warning，整题是否通过继续由相关性、最短正文和引用门禁决定。
-- 工作流硬限制为 5 次 HTTP 调用尝试、60,000 Prompt 字符和 15,000 最大输出 token 预留；正常路径使用 3 次，repair 路径使用 5 次。若 verifier 完整 JSON 漏掉某题，只针对漏项题执行一次 `missing_retry`，不会重跑已完成批次；repair 与增量复验严格串行，网络重试也计入上限。
+- 工作流硬限制为 5 次 HTTP 调用尝试、70,000 Prompt 字符和 15,000 最大输出 token 预留；正常路径使用 3 次，repair 路径使用 5 次。若 verifier 完整 JSON 漏掉某题，只针对漏项题执行一次 `missing_retry`，不会重跑已完成批次；repair 与增量复验严格串行，网络重试也计入上限。
 - 生产链路默认不做 JSON 语法修复。真实 bad case 表明 completion 截断不是语法修补可以恢复的错误；当前策略是为单批 verifier 预留足够输出，仍异常时保留 trace 后直接失败。
 - `llm_call_logs` 保存供应商返回的 `prompt_tokens/completion_tokens/total_tokens`；旧日志没有 usage 时保持 0，不做虚构估算。
 - repair 最多 1 轮，只处理失败题并严格串行执行；第一批失败或预算不足时不再启动后续请求。旧 v1/v2 面试包不会读取时静默升级，必须重新生成 v3。

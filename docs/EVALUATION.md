@@ -17,7 +17,7 @@
 - repair error count 与 dirty question count 是否逐轮收敛；
 - release gate 失败时 InterviewPrep 是否保持不落库。
 
-真实 DeepSeek 旧包 `#44` 使用 59 次调用、1,490,670 Prompt 字符和 237,622 Response 字符，其中 verifier 占 37 次调用和 1,080,855 Prompt 字符。当前 v3 契约为 10 题、正常 3 次调用、repair 路径最多 5 次；答案和 verifier 各处理一个 10 题批次，repair 与复验只处理失败题。硬预算为 60,000 Prompt 字符和 15,000 completion token 预留，verifier 单次上限 2,800。完整 JSON 若漏题，只重试漏项题；历史日志没有供应商 usage 字段，不能把字符数伪装成真实 token。
+真实 DeepSeek 旧包 `#44` 使用 59 次调用、1,490,670 Prompt 字符和 237,622 Response 字符，其中 verifier 占 37 次调用和 1,080,855 Prompt 字符。当前 v3 契约为 10 题、正常 3 次调用、repair 路径最多 5 次；答案和 verifier 各处理一个 10 题批次，repair 与复验只处理失败题。根据后续真实完整包 trace，硬预算调整为 70,000 Prompt 字符和 15,000 completion token 预留，verifier 单次上限 2,800。完整 JSON 若漏题，只重试漏项题；历史日志没有供应商 usage 字段，不能把字符数伪装成真实 token。
 
 独立 `interview_claim_verifier` 数据集包含 14 个 case，覆盖 4 个可支持方案、4 个伪装成方案的既有经历、2 个支持事实、2 个不支持事实和 2 个“事实正确但答非所问”样本。真实 run `#50` 分两批各 7 case：support accuracy、strategy recall、question-answering accuracy 均为 1.0，false positive rate、disguised-experience false positive rate 和 nonresponsive false accept rate 均为 0。真实在线评测必须先通过该低成本闸门，完整面试链路才允许继续运行。
 
