@@ -2,6 +2,8 @@ import asyncio
 import json
 from pathlib import Path
 
+import pytest
+
 from app.models.entities import Job, JobChunk
 from app.services.job_sources import JobPosting
 from app.services.interview_sources import InterviewExperienceSearchResult
@@ -15,6 +17,108 @@ def test_sample_evaluation_produces_quantitative_metrics(db_session):
     assert 0 <= run.summary_json["pass_rate"] <= 1
     assert "avg_required_skill_recall" in run.summary_json
     assert run.case_results_json[0]["overall_score"] >= 0
+
+
+def test_llm_workflow_fit_rubric_v2_has_auditable_label_bands():
+    cases = json.loads(Path("evals/llm_workflow_cases.json").read_text(encoding="utf-8"))
+    bands = {
+        "weak_fit": (0, 54),
+        "partial_fit": (55, 84),
+        "strong_fit": (85, 100),
+    }
+    reviewed = {
+        "analytics_candidate_weak_recommendation_role",
+        "beginner_candidate_weak_agent_role",
+        "zh_agent_candidate_partial_worker_gap",
+        "zh_agent_candidate_weak_planned_learning",
+        "zh_agent_resume_with_prompt_injection_noise",
+        "zh_agent_pdf_layout_noise_partial",
+        "agent_candidate_partial_llm_eval_role",
+        "cv_candidate_partial_ml_platform_role",
+    }
+
+    for case in cases:
+        low, high = case["expected_fit_score_range"]
+        band_low, band_high = bands[case["expected_fit_label"]]
+        assert band_low <= low <= high <= band_high, case["name"]
+        if case["name"] in reviewed:
+            assert case["annotation_version"] == "fit-rubric-v2"
+            assert len(case["annotation_rationale"]) >= 20
+
+
+def test_fit_output_contract_separates_delivery_from_coursework():
+    service = EvaluationService()
+
+    delivery_errors = service._fit_output_contract_errors(
+        {"fit_label": "weak_fit", "fit_score": 40},
+        {
+            "matched_required_skill_count": 3,
+            "has_related_delivery_evidence": True,
+            "has_coursework_or_planned_only_evidence": False,
+        },
+    )
+    coursework_errors = service._fit_output_contract_errors(
+        {"fit_label": "partial_fit", "fit_score": 60},
+        {
+            "matched_required_skill_count": 3,
+            "has_related_delivery_evidence": False,
+            "has_coursework_or_planned_only_evidence": True,
+        },
+    )
+
+    assert any("不应判为 weak_fit" in item for item in delivery_errors)
+    assert any("coursework" in item for item in coursework_errors)
+
+
+def test_fit_output_contract_rejects_strong_fit_with_low_required_skill_coverage():
+    errors = EvaluationService()._fit_output_contract_errors(
+        {"fit_label": "strong_fit", "fit_score": 90},
+        {
+            "matched_required_skill_count": 3,
+            "has_related_delivery_evidence": True,
+            "has_coursework_or_planned_only_evidence": False,
+            "required_skill_coverage": 0.5,
+        },
+    )
+
+    assert any("0.67" in item for item in errors)
+
+
+def test_evaluation_dataset_rejects_single_object_root():
+    class InMemoryDatasetPath:
+        name = "single-case.json"
+
+        @staticmethod
+        def read_text(*, encoding):
+            assert encoding == "utf-8"
+            return json.dumps({"name": "only-one"})
+
+    with pytest.raises(ValueError, match="根节点必须是 JSON 数组"):
+        EvaluationService._load_case_dataset(InMemoryDatasetPath())
+
+
+def test_agent_full_flow_subset_gate_does_not_require_absent_negative_case():
+    passing_case = {
+        "case_passed": True,
+        "status": "completed",
+        "top_job_passed": True,
+        "score_passed": True,
+        "trace_passed": True,
+        "artifact_passed": True,
+        "langgraph_passed": True,
+        "fit_gate_blocked": False,
+        "expected_fit_gate_blocked": False,
+    }
+
+    summary = EvaluationService()._summarize_agent_full_flow(
+        [passing_case],
+        Path("positive-subset.json"),
+    )
+
+    assert summary["expected_fit_gate_block_count"] == 0
+    assert "fit_gate_block_count" not in {
+        item["metric"] for item in summary["release_gate"]["checks"]
+    }
 
 
 def test_pdf_chunk_strategy_evaluation_selects_strategy(db_session):
@@ -290,6 +394,30 @@ def test_jd_parser_aliases_preferred_and_negative_context():
     assert "Kubernetes" not in parsed["required_skills"]
     assert "MLflow" not in parsed["required_skills"]
     assert {"LangGraph", "MCP"} <= set(parsed["preferred_skills"])
+
+
+def test_jd_parser_promotes_general_evaluation_experience_to_required_skill():
+    from app.services.jd_parser import JDParserService
+
+    parsed = JDParserService().heuristic_parse(
+        "Agent 应用开发实习生\n负责 Agent 工具调用、RAG 引用和 trace 平台。"
+        "要求 Python、FastAPI、RAG 和评测经验。",
+        title="Agent 应用开发实习生",
+    )
+
+    assert "Model Evaluation" in parsed["required_skills"]
+
+
+def test_jd_parser_filters_llm_keywords_not_present_in_jd():
+    from app.services.jd_parser import JDParserService
+
+    parsed, rejected = JDParserService()._filter_unsupported_optional_keywords(
+        {"keywords": ["Python", "RankWorks", "RAG"]},
+        raw_text="要求 Python 和 RAG 经验。",
+    )
+
+    assert parsed["keywords"] == ["Python", "RAG"]
+    assert rejected == ["RankWorks"]
 
 
 def test_jd_parser_llm_merge_preserves_heuristic_skills():

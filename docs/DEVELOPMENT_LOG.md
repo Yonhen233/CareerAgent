@@ -1,5 +1,106 @@
 # 开发日志
 
+## 2026-07-22 23:22:00 +08:00：逐项修复系统评测失败，建立可审计 fit rubric、跨语言事实门禁与评测器数据契约
+
+### 本轮目标与处理原则
+- 上一轮系统评测 `#113` 的严格发布门禁未通过：自然语言规划为 `17/20`，真实 LLM workflow 为 `18/24`，Agent 全流程为 `5/6`。本轮没有把所有失败归因于模型，也没有通过降低阈值、关闭 verifier 或增加无限重试来追求全绿，而是逐条区分 **产品代码错误、检索/证据错误、评测器错误、标注分歧和模型输出错误**。
+- 修复顺序采用“先复现 stage trace，再修确定性组件，最后只重跑受影响的付费 case”。真实 DeepSeek 只用于验证必须经过模型的节点；parser、matcher、grounding、数据契约和 release gate 先用离线回归证明没有代码问题，避免继续浪费余额。
+- 本轮把原始模型结果和最终发布结果分开统计。LLM 可以产生错误 evidence/gap，但只有通过 grounding verifier 的字段才能进入用户消息；被拒绝内容保留在 `raw_*`、`rejected_*` 和 LLM call trace 中，便于调试而不污染用户结果。
+
+### Bad case 1：多动作计划“看起来对”，执行器却在第一步提前结束
+**现象：** `profile_context_plus_search_zh` 等自然语言 case 能输出 `create_profile + search_jobs`，action precision/recall 甚至可以满分，但主 intent 仍是 `create_profile`。旧执行器进入建档分支后直接 return，后续岗位搜索不会执行，因此 trajectory JSON 正确而业务终态错误。
+
+**根因：** 计划 schema 同时存在单值 `intent` 和多值 `actions`，执行层却把 intent 当作终止分支。评测只检查“是否列出工具”，没有检查“工具是否按依赖顺序真正执行”。此外，LLM 有时会在更新档案时遗漏 prompt 明确给出的技术词，旧链路会接受这类合法 JSON。
+
+**解决：**
+- 用终端业务动作归一化主 intent，多动作计划以最后一个需要完成的用户目标为主，而不是以第一个准备动作结束。
+- 执行器按 effective actions 连续执行，支持“创建档案 -> 搜索岗位 -> 后续材料”，不再在 `create_profile` 后提前 return。
+- 增加 plan contract：prompt 明确出现的更新事实和技术词必须进入 `profile_patch`；缺失时只允许一次结构化 repair，repair 仍不满足契约就直接抛错。
+- 档案更新改为增量合并。技能/目标岗位去重合并，项目、经历、教育按稳定键合并，避免一次自然语言补充把旧数组整体覆盖。
+
+**验证：** 真实 DeepSeek Flash 自然语言定向复测 `EvaluationRun #114` 为 `3/3`，intent、action precision/recall、依赖字段和禁止动作均为 `1.0`，release gate 通过。
+
+### Bad case 2：简历 parser 把整段叙事当 headline，随后又被 chunk 清洗删除
+**现象：** `zh_agent_candidate_weak_planned_learning` 原文中的“经历：阅读过……正在学习 Python，计划做 RAG”被 LLM 填进 headline。`ResumeTextSplitter` 为避免元数据重复，会从 raw chunk 中删除 headline，结果这整段关键负向证据也一起消失，只剩“市场营销专业”，RAG 无法召回计划学习和没有项目的事实。
+
+**根因：** parser 的 optional metadata 校验只检查“原文中是否出现”，没有检查字段形态是否像 headline；而 parser 与 chunk cleaner 分别看都合理，组合后形成跨组件数据损失。
+
+**解决：** 新增 role-like headline 形态约束，拒绝带“经历/项目/技能”等章节前缀、过长叙事句和数据描述；LLM 返回的无效 headline 不发布，并写入 `quality_gate.rejected_optional_fields`。同时让 citation grounding 在相邻 2/3 句窗口中寻找正向证据，修复 PDF 分栏或换行把技能、动作和项目名拆开的漏判，但包含“阅读/计划/未实现”的 passage 仍不能当正向交付。
+
+### Bad case 3：fit 标签不稳定，既有错误标注，也有 matcher 抬分
+**现象：** 六个 hard/adversarial workflow 初次修复后仍只有 `4/6`。推荐算法 case 被模型判 `weak_fit/45`，旧 gold 一度改成 partial；Prompt Injection 噪声 case 被判 strong。继续调 prompt 无法解释两个方向相反的错误。
+
+**逐项仲裁：**
+- 推荐算法候选人有 Python、A/B 和 metrics，但 ranking、CTR、feature engineering 三项岗位核心能力全部缺失，并明确写了没有实现相关模型。按“岗位主线多数不在已有交付证据内”的 `fit-rubric-v2`，最终判 `weak_fit 35-54`，不是因为模型输出 45 就迁就模型。
+- worker case 的唯一相关项目明确是 coursework，Redis、Celery、LangGraph 和 worker 并发均缺失。课程项目不能因匹配到 Python/FastAPI/RAG 就自动升级为 partial，继续标 `weak_fit`。
+- 注入噪声 case 有 Python/FastAPI/RAG 和真实 trace viewer 项目，但没有直接实现 Agent、Tool Calling、评测系统，应该是 `partial_fit`，不能因项目名 `AgentTrace` 判 strong。
+
+**真正的产品 bug：**
+- `fuzzy_contains` 使用 `term in text`，导致 `Agent` 命中 `AgentTrace`。改为英文数字 token 边界；合法的 `Agent workflow/agents` 仍可由精确 token、别名或受控相似匹配命中。
+- JD 中“有评测经验”没有稳定进入 required skills。`Model Evaluation` 增加中文“评测/评估 + 经验/体系/平台/指标/流程”别名，避免漏掉真实缺口。
+- fit judge 增加可审计契约：weak/partial/strong 分数分别为 `0-54/55-84/85-100`；只有课程/计划不能高于 weak；有相关交付且至少匹配两项时不能仅因存在缺口判 weak；strong 必须达到至少 `0.67` 的必需技能覆盖率。只有违反契约才触发一次 repair，正常 case 不增加调用。
+- 模型的 `matched_evidence` 和 `gaps` 先保留 raw 版本，再由双边 verifier 核验。用户可见 message 只由 verified evidence/gaps 确定性组合，不直接发布模型自由文本。
+
+**真实复测：** `EvaluationRun #118` 的两个历史失败 case 均通过。推荐算法为 `weak_fit/45`；注入噪声为 `partial_fit/70`，matcher 明确输出 matched=`Python/FastAPI/RAG`、missing=`Agent/Tool Calling/Model Evaluation`。两例 parser、RAG、fit 标签与分数、定制和 Guardrail 均为 `1.0`，release gate 通过。
+
+### Bad case 4：真实跨语言成果被 0.70 阈值误杀，不能简单全局降阈值
+**现象：** 前端全流程中，LLM 把 `Improved component reuse and UI regression coverage` 忠实改写为“提升组件复用率和 UI 回归覆盖率”，多语言 embedding 分数为 `0.698`。旧门禁在 0.70 处拒绝 quick apply；但直接把全局阈值降到 0.65，会增加“把复用率改写成可靠性提升”等事实漂移的漏放风险。
+
+**解决：** 保留 0.70 通用语义阈值；`0.65-0.70` 只开放两类有第二证据的边界恢复：
+1. claim 技术 taxonomy 完全包含于原档案已验证技能，例如 `accessibility <-> 无障碍`；
+2. claim 的最佳证据能回指原 Profile 的结构化 `project/work/campus description|impact|details`，并且成果语义组一致。
+
+成果语义组新增 `reuse/coverage`，继续保留 reliability/performance/accuracy/efficiency/cost。边界恢复必须同时满足 embedding、否定极性、成果语义和结构化事实四个条件；“复用/覆盖”被改成“可靠性”仍会拒绝。恢复方法与最佳证据写入 `semantic_claim_grounding.results`，不是不可解释放行。
+
+**真实复测：** `EvaluationRun #119` 单独执行前端全流程，top job score=`82.43`、ranking margin=`44.73`；岗位选择、定制、quick apply、投递包、Trace、Artifact 和 LangGraph 均为 `1.0`，Application `#32` 成功生成。该链路仅 2 次 Flash 调用、输入 2,971、输出 386、合计 3,357 tokens。
+
+### Bad case 5：JD 一行里同时出现职责和要求，章节检测把正文整行丢掉
+**现象：** 新增“要求 Python、FastAPI、RAG 和评测经验”的测试后，parser 只抽到 `Agent`。不是词典没识别，直接调用 `_extract_skills(raw)` 能抽全；问题出在 `_split_responsibilities`。
+
+**根因：** 招聘文本没有在“负责……”与“要求……”之间换行。章节检测发现行内含“要求”，将整行视为 qualification header；`_content_after_header` 又只支持冒号，得到空字符串后 `continue`，于是整行正文被静默丢弃。
+
+**解决：** 预处理按中文句号/分号拆分行内章节；支持无冒号的 `负责/岗位职责/任职要求/Requirements` 前缀，并保留前缀后的正文。没有把测试样例改成更规整的多行文本，因为真实 JD 的格式噪声正是 parser 必须承受的输入。
+
+### Bad case 6：评测器自己制造失败，说明测试基础设施也需要契约
+**单 case JSON 形状错误：** PowerShell `ConvertTo-Json` 在只有一个对象时可能把数组折叠成根对象，运行器随后把 dict 当列表迭代，最终在 `case['name']` 处出现难懂的 `TypeError`。所有 EvaluationService 数据集现在统一通过 `_load_case_dataset`，根节点不是数组、case 不是对象或缺少非空 name 时立即给出文件名和索引明确报错。
+
+**子集 release gate 假失败：** 只跑一个应成功 quick apply 的正例时，旧 summary 仍固定要求 `fit_gate_block_count>=1`，因此业务 case 通过但 release gate 失败。现在每个结果记录 `expected_fit_gate_blocked`；只有所选子集包含负例时才要求对应阻断数。`run_agent_full_flow_evaluation` 也支持 `case_indexes/case_limit`，便于低成本定向回归。
+
+**Windows 测试环境噪声：** 一次新增测试使用 pytest 默认临时目录，遇到 `C:\Users\IC\AppData\Local\Temp\pytest-of-IC` 权限错误。该用例改为内存 Path stub，业务测试不再依赖系统临时目录；完整回归统一显式使用项目 `runtime` basetemp。
+
+### Bad case 7：修 `AgentTrace` 后误伤 A/B tests，二次回归没有靠放宽阈值解决
+**现象：** 第一次完整回归为 `263 passed, 1 failed`。30 条 JD parser 数据的 grounding gate 从 1.0 降到 `0.9333`；失败集中在 `llm_eval_prompt_regression` 和 `recommendation_ranking_ctr`，共同的 unsupported skill 是 `A/B Testing`。
+
+**根因：** 旧 grounding 依赖字符串前缀，`A/B test` 会偶然命中 `A/B tests`。收紧英文 token 边界后，这个隐式复数匹配消失，而别名字典只列了单数。说明严格化会暴露过去被宽松实现掩盖的词典缺口。
+
+**解决：** 保留词边界，不恢复子串；明确加入 `A/B tests`、`AB tests` 复数别名。定向 30-case JD 回归恢复通过，随后完整回归为 `264 passed in 95.70s`。
+
+### 最终真实 LLM 证据与 Token
+- `#114`：自然语言历史失败 3 case，`3/3`，release gate 通过。
+- `#118`：fit 历史失败 2 case，`2/2`；9 次 Flash 调用，输入 11,711、输出 1,840、合计 13,551 tokens，provider latency 合计 24.661 秒。
+- `#119`：前端 Agent full-flow 1 case，`1/1`；2 次 Flash 调用，合计 3,357 tokens，release gate 通过。
+- `#120`：注入噪声最终复测 1 case，`1/1`；4 次 Flash 调用，输入 4,356、输出 740、合计 5,096 tokens；`jd_unsupported_keyword_count=0`。
+- 本轮最后三次定向验证合计 15 次 Flash 调用、22,004 tokens。没有调用 Pro，也没有重跑昂贵的完整面试包。
+- `#120` 原始 gap grounding 仍为 `0.6667`，verifier 拒绝 1 条。该条把“工具调用 trace 查看器”直接概括成“缺少 Tool Calling 经验”，证据语义存在邻接但边界不够精确；最终 verified gap 和用户消息为 1.0。这个差值必须保留，不能用最终通过掩盖模型仍会生成边界不严的草稿。
+
+### 尚未解决及原因
+- EvidenceClassifier 仍按整个 chunk 输出单一 evidence type。推荐算法项目同一 chunk 同时包含已交付的 dashboard/A-B 分析和“未实现 ranking/CTR”，目前整体被标为 `missing_skill_disclosure`。这对保守判定有利，但会丢掉句子级混合极性。下一步应做 sentence/facet 级 evidence，再在 chunk 层聚合，而不是继续增加 if/else。
+- fit-rubric-v2 已写明本轮分歧理由，但仍是单人仲裁，不代表统计意义上的标注一致性。扩大评测前应做双人独立标注，报告 Cohen's kappa 和 disagreement set。
+- 本轮只重跑失败切片，没有再次付费运行全部 24 个 LLM workflow，因此可以结论为“已知失败 case 修复并回归通过”，不能据此把全套真实通过率宣称为 100%。
+- sentence-transformers 仍提示 `cache_dir` 参数弃用。它不影响本轮结果，但需要迁移到 `model_kwargs/processor_kwargs/config_kwargs`，避免后续库升级变成启动错误。
+
+### 面试时可以如何概括这轮工作
+- 不是简单说“我调了 prompt”，而是：先用 stage trace 将失败拆成 planner 终态、parser 数据损失、matcher 子串污染、LLM rubric、grounding 误杀和评测器假失败；确定性错误在代码层修，语义判断用可版本化 rubric 和 verifier，只有违反契约才调用一次 repair。
+- 强调 raw-vs-published 双轨：真实模型在通过的 `#120` 中仍产生一条不够严谨的 gap，系统没有假装模型完美，而是把它留在 trace、从用户结果中剔除。这比只报告最终 pass 更能说明生产 Agent 的可靠性设计。
+- 强调阈值治理：0.698 正例没有通过“把 0.70 改成 0.65”解决，而是增加 taxonomy/结构化事实/成果语义/否定极性四重佐证；随后又用“可靠性替换复用率”的反例验证不会漏放。
+- 强调评测器也是软件系统：单 case 数组折叠、子集 gate 强制负例、Windows 临时目录权限都可能制造假失败。评测数据 schema、实验子集语义和 invocation trace 与产品代码同样需要工程质量。
+
+### 下一步
+1. 把混合正负项目 chunk 拆成 sentence/facet evidence，分别评测 evidence type、polarity 和与具体 required skill 的绑定关系。
+2. 为 fit-rubric-v2 建立双人复标流程，固定分歧仲裁记录，再全量运行 24-case Flash workflow 和代表性 `pass^3`。
+3. 优化 gap generator，使其优先输出“缺少直接实现证据”而不是宽泛“缺少经验”，减少 verifier 拒绝率，同时保持发布层高精度。
+4. 迁移 sentence-transformers 的 cache 参数，并把该 warning 加入依赖升级回归。
+
 ## 2026-07-22 22:12:17 +08:00：建立分层 Agent 系统评测，完成真实全链路运行并暴露规划、证据门禁与续跑记账问题
 
 ### 这次为什么不能再用“功能可以运行”作为结论

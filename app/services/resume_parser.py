@@ -190,6 +190,8 @@ Resume:
                 grounding_source,
                 normalized,
             )
+            normalized, rejected_metadata = self._remove_invalid_profile_metadata(normalized, heuristic)
+            rejected_fields.extend(rejected_metadata)
             quality_gate = self.grounding.evaluate_resume(grounding_source, normalized)
             quality_gate["rejected_optional_fields"] = rejected_fields
             quality_gate["rejected_optional_field_count"] = len(rejected_fields)
@@ -386,12 +388,49 @@ Resume:
         output["skills"] = skills
         return output, rejected
 
+    def _remove_invalid_profile_metadata(
+        self,
+        parsed: dict,
+        heuristic: dict,
+    ) -> tuple[dict, list[dict[str, str]]]:
+        output = dict(parsed)
+        rejected: list[dict[str, str]] = []
+        headline = str(output.get("headline") or "").strip()
+        if headline and not self._is_headline_like(headline):
+            rejected.append({"field": "headline", "value": headline})
+            output["headline"] = heuristic.get("headline")
+        return output, rejected
+
     def _guess_headline(self, lines: list[str]) -> str | None:
         for line in lines[:8]:
-            lowered = line.lower()
-            if any(token in lowered for token in ["agent", "llm", "rag", "backend", "ai engineer"]):
+            if self._is_headline_like(line):
                 return line[:255]
         return None
+
+    def _is_headline_like(self, value: str) -> bool:
+        line = " ".join(str(value or "").split())
+        lowered = line.lower()
+        if not line or len(line) > 100 or re.match(
+            r"^(?:经历|项目|技能|教育|专业|补充说明|experience|projects?|skills?|education|major)\s*[:：]",
+            lowered,
+        ):
+            return False
+        role_cues = (
+            "candidate",
+            "engineer",
+            "developer",
+            "intern",
+            "student",
+            "实习生",
+            "工程师",
+            "开发候选人",
+            "候选人",
+            "求职",
+            "学生",
+            "本科生",
+            "研究生",
+        )
+        return any(cue in lowered for cue in role_cues)
 
     def _section_lines(self, lines: list[str]) -> dict[str, list[str]]:
         section = "summary"

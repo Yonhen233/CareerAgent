@@ -79,12 +79,21 @@ def skill_terms(skill: str) -> list[str]:
     return [term for term in [skill_norm, *aliases] if term]
 
 
+def _term_in_text(term: str, text: str) -> bool:
+    if not term:
+        return False
+    if re.search(r"[a-z0-9]", term, flags=re.IGNORECASE):
+        pattern = re.escape(term).replace(r"\ ", r"\s+")
+        return re.search(rf"(?<![a-z0-9]){pattern}(?![a-z0-9])", text, flags=re.IGNORECASE) is not None
+    return term in text
+
+
 def fuzzy_contains(needle: str, haystack_tokens: set[str], haystack_text: str) -> bool:
     terms = skill_terms(needle)
     if not terms:
         return False
     for term in terms:
-        if term in haystack_text:
+        if _term_in_text(term, haystack_text):
             return True
         if any(SequenceMatcher(None, term, token).ratio() >= 0.88 for token in haystack_tokens):
             return True
@@ -330,7 +339,7 @@ class MatcherService:
             for sentence in re.split(r"[。！？!?；;\n.]+", text)
             if sentence.strip()
         ]
-        return [sentence for sentence in sentences if any(term in sentence for term in terms)]
+        return [sentence for sentence in sentences if any(_term_in_text(term, sentence) for term in terms)]
 
     def _contains_negative_evidence(self, text: str) -> bool:
         lowered = text.lower()

@@ -35,7 +35,7 @@ from app.services.job_search import JobSearchService
 from app.services.prompt_injection_guard import PromptInjectionGuard
 from app.services.job_sources import JobPosting, JobSourceRegistry
 from app.services.resume_tailor import ResumeTailorService
-from app.core.llm import LLMClient, LLMConfigurationError, format_exception, llm_trace_context
+from app.core.llm import LLMClient, LLMConfigurationError, LLMResponseError, format_exception, llm_trace_context
 from app.services.embedding_service import EmbeddingService
 from app.services.evidence_grounding import EvidenceGroundingService
 from app.services.matcher import MatcherService
@@ -160,7 +160,7 @@ class EvaluationService:
 
     async def run_sample_evaluation(self, db: Session, *, dataset_path: Path | None = None) -> EvaluationRun:
         path = dataset_path or self.settings.base_path / "evals" / "sample_cases.json"
-        cases = json.loads(path.read_text(encoding="utf-8"))
+        cases = self._load_case_dataset(path)
         case_results = []
         for case in cases:
             case_results.append(await self._run_case(db, case))
@@ -177,7 +177,7 @@ class EvaluationService:
 
     def run_prompt_injection_evaluation(self, db: Session, *, dataset_path: Path | None = None) -> EvaluationRun:
         path = dataset_path or self.settings.base_path / "evals" / "prompt_injection_cases.json"
-        cases = json.loads(path.read_text(encoding="utf-8"))
+        cases = self._load_case_dataset(path)
         case_results = []
         for case in cases:
             result = self.prompt_injection_guard.detect(case["text"], source=case.get("source") or "unknown")
@@ -231,7 +231,7 @@ class EvaluationService:
 
     def run_pdf_chunk_strategy_evaluation(self, db: Session, *, dataset_path: Path | None = None) -> EvaluationRun:
         path = dataset_path or self.settings.base_path / "evals" / "pdf_chunk_cases.json"
-        cases = json.loads(path.read_text(encoding="utf-8"))
+        cases = self._load_case_dataset(path)
         strategy_results = []
         case_results = []
         strategies = {
@@ -319,7 +319,7 @@ class EvaluationService:
 
     def run_rag_strategy_evaluation(self, db: Session, *, dataset_path: Path | None = None) -> EvaluationRun:
         path = dataset_path or self.settings.base_path / "evals" / "rag_cases.json"
-        cases = json.loads(path.read_text(encoding="utf-8"))
+        cases = self._load_case_dataset(path)
         strategies = {
             "hash_vector_only": {
                 "embedding_provider": "hash",
@@ -531,9 +531,21 @@ class EvaluationService:
         db.refresh(run)
         return run
 
-    async def run_agent_full_flow_evaluation(self, db: Session, *, dataset_path: Path | None = None) -> EvaluationRun:
+    async def run_agent_full_flow_evaluation(
+        self,
+        db: Session,
+        *,
+        dataset_path: Path | None = None,
+        case_limit: int | None = None,
+        case_indexes: list[int] | None = None,
+    ) -> EvaluationRun:
         path = dataset_path or self.settings.base_path / "evals" / "agent_full_flow_cases.json"
-        cases = json.loads(path.read_text(encoding="utf-8"))
+        all_cases = self._load_case_dataset(path)
+        cases = self._select_llm_cases(
+            all_cases,
+            case_limit=case_limit,
+            case_indexes=case_indexes,
+        )
         run_namespace = uuid.uuid4().hex[:12]
         case_results = [
             await self._run_agent_full_flow_case(db, case, namespace=f"{run_namespace}:{index}:{case['name']}")
@@ -559,7 +571,7 @@ class EvaluationService:
         case_indexes: list[int] | None = None,
     ) -> EvaluationRun:
         path = dataset_path or self.settings.base_path / "evals" / "jd_parser_cases.json"
-        all_cases = json.loads(path.read_text(encoding="utf-8"))
+        all_cases = self._load_case_dataset(path)
         cases = self._select_llm_cases(all_cases, case_limit=case_limit, case_indexes=case_indexes)
         case_results = [await self._run_jd_parser_case(db, case) for case in cases]
         summary = self._summarize_jd_parser(case_results, path)
@@ -584,7 +596,7 @@ class EvaluationService:
         if not self.llm.available:
             raise LLMConfigurationError("LLM_API_KEY/LLM_BASE_URL 未配置，无法进行自然语言规划评测。")
         path = dataset_path or self.settings.base_path / "evals" / "natural_language_plan_cases.json"
-        all_cases = json.loads(path.read_text(encoding="utf-8"))
+        all_cases = self._load_case_dataset(path)
         cases = self._select_llm_cases(all_cases, case_limit=case_limit, case_indexes=case_indexes)
         agent = NaturalLanguageAgentService(llm=self.llm)
         case_results = []
@@ -603,7 +615,7 @@ class EvaluationService:
 
     def run_job_relevance_evaluation(self, db: Session, *, dataset_path: Path | None = None) -> EvaluationRun:
         path = dataset_path or self.settings.base_path / "evals" / "job_relevance_cases.json"
-        cases = json.loads(path.read_text(encoding="utf-8"))
+        cases = self._load_case_dataset(path)
         case_results = [self._run_job_relevance_case(case) for case in cases]
         summary = self._summarize_job_relevance(case_results, path)
         run = EvaluationRun(
@@ -618,7 +630,7 @@ class EvaluationService:
 
     def run_application_packet_evaluation(self, db: Session, *, dataset_path: Path | None = None) -> EvaluationRun:
         path = dataset_path or self.settings.base_path / "evals" / "application_packet_cases.json"
-        cases = json.loads(path.read_text(encoding="utf-8"))
+        cases = self._load_case_dataset(path)
         case_results = [self._run_application_packet_case(case) for case in cases]
         summary = self._summarize_application_packet(case_results, path)
         run = EvaluationRun(
@@ -640,7 +652,7 @@ class EvaluationService:
         case_indexes: list[int] | None = None,
     ) -> EvaluationRun:
         path = dataset_path or self.settings.base_path / "evals" / "interview_prep_cases.json"
-        all_cases = json.loads(path.read_text(encoding="utf-8"))
+        all_cases = self._load_case_dataset(path)
         cases = self._select_llm_cases(all_cases, case_limit=case_limit, case_indexes=case_indexes)
         namespace = f"interview_eval:{uuid.uuid4().hex[:8]}"
         case_results = [
@@ -896,7 +908,7 @@ class EvaluationService:
         if trace_path is None and resume_from_last_completed:
             trace_path = self.settings.base_path / "data" / "runtime" / "llm_workflow_trace_latest.jsonl"
         path = dataset_path or self.settings.base_path / "evals" / "llm_workflow_cases.json"
-        all_cases = json.loads(path.read_text(encoding="utf-8"))
+        all_cases = self._load_case_dataset(path)
         cases = self._select_llm_cases(all_cases, case_limit=case_limit, case_indexes=case_indexes)
         existing_results = self._load_resumable_llm_results(trace_path, cases) if resume_from_last_completed else []
         remaining_cases = cases[len(existing_results) :]
@@ -981,6 +993,7 @@ class EvaluationService:
         result: dict[str, Any] = {
             "name": case["name"],
             "difficulty": case.get("difficulty", "unknown"),
+            "expected_fit_gate_blocked": bool(case.get("expect_quick_apply_blocked")),
             "status": "running",
         }
         try:
@@ -1132,6 +1145,23 @@ class EvaluationService:
             selected = selected[: max(case_limit, 0)]
         return selected
 
+    @staticmethod
+    def _load_case_dataset(path: Path) -> list[dict[str, Any]]:
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"评测数据集 JSON 无法解析：{path.name}:{exc.lineno}:{exc.colno} {exc.msg}"
+            ) from exc
+        if not isinstance(loaded, list):
+            raise ValueError(f"评测数据集根节点必须是 JSON 数组：{path.name}")
+        for index, item in enumerate(loaded):
+            if not isinstance(item, dict):
+                raise ValueError(f"评测 case 必须是 JSON 对象：{path.name}[{index}]")
+            if not str(item.get("name") or "").strip():
+                raise ValueError(f"评测 case 缺少非空 name：{path.name}[{index}]")
+        return loaded
+
     def _load_resumable_llm_results(
         self,
         trace_path: Path | None,
@@ -1249,6 +1279,8 @@ class EvaluationService:
         result: dict[str, Any] = {
             "name": case["name"],
             "difficulty": case.get("difficulty", "unknown"),
+            "annotation_version": case.get("annotation_version", "fit-rubric-v1"),
+            "annotation_rationale": case.get("annotation_rationale"),
             "expected_fit_label": case["expected_fit_label"],
             "expected_fit_score_range": case.get("expected_fit_score_range"),
             "run_tailor": bool(case.get("run_tailor")),
@@ -1354,6 +1386,9 @@ class EvaluationService:
                     "jd_statement_grounding_rate": jd_quality_gate.get("statement_grounding_rate", 0),
                     "jd_unsupported_skill_count": len(jd_quality_gate.get("unsupported_skills") or []),
                     "jd_unsupported_keyword_count": len(jd_quality_gate.get("unsupported_keywords") or []),
+                    "jd_rejected_optional_keyword_count": len(
+                        jd_quality_gate.get("rejected_optional_keywords") or []
+                    ),
                 }
             )
             self._record_stage(
@@ -1371,6 +1406,9 @@ class EvaluationService:
                     "statement_grounding_rate": jd_quality_gate.get("statement_grounding_rate", 0),
                     "unsupported_skills": jd_quality_gate.get("unsupported_skills", [])[:8],
                     "unsupported_keywords": jd_quality_gate.get("unsupported_keywords", [])[:8],
+                    "rejected_optional_keywords": jd_quality_gate.get(
+                        "rejected_optional_keywords", []
+                    )[:8],
                 },
             )
 
@@ -1444,7 +1482,12 @@ class EvaluationService:
             stage = "fit_judge"
             self._record_stage(stage_trace, stage, "started")
             with llm_trace_context(evaluation_run_id=evaluation_run_id, case_name=case["name"], stage=stage):
-                suitability = await self._llm_judge_suitability(db, profile.structured_profile_json, job)
+                suitability = await self._llm_judge_suitability(
+                    db,
+                    profile.structured_profile_json,
+                    job,
+                    match_features=self._fit_decision_features(match),
+                )
             fit_context_compression = suitability.pop("_context_compression", None)
             predicted_label = str(suitability.get("fit_label") or "").strip()
             fit_score = self._coerce_float(suitability.get("fit_score"))
@@ -1453,21 +1496,57 @@ class EvaluationService:
                 case["resume_raw_text"],
                 json.dumps(profile_json, ensure_ascii=False),
             ]
-            fit_evidence_grounding = self.grounding.evaluate_citations(
-                suitability.get("matched_evidence") or [],
+            raw_matched_evidence = [
+                str(item).strip() for item in suitability.get("matched_evidence") or [] if str(item).strip()
+            ]
+            raw_fit_evidence_grounding = self.grounding.evaluate_citations(
+                raw_matched_evidence,
                 profile_sources,
                 threshold=0.5,
                 require_positive=True,
             )
-            if predicted_label == "weak_fit" and not suitability.get("matched_evidence"):
+            verified_matched_evidence = [
+                str(item.get("citation") or "").strip()
+                for item in raw_fit_evidence_grounding.get("results") or []
+                if item.get("supported") and str(item.get("citation") or "").strip()
+            ]
+            suitability["raw_matched_evidence"] = raw_matched_evidence
+            suitability["rejected_matched_evidence"] = [
+                item.get("citation") for item in raw_fit_evidence_grounding.get("unsupported_citations") or []
+            ]
+            suitability["matched_evidence"] = verified_matched_evidence
+            fit_evidence_grounding = self.grounding.evaluate_citations(
+                verified_matched_evidence,
+                profile_sources,
+                threshold=0.5,
+                require_positive=True,
+            )
+            if predicted_label == "weak_fit" and not verified_matched_evidence:
                 fit_evidence_grounding = {**fit_evidence_grounding, "passed": True, "grounding_rate": 1.0}
-            fit_gap_grounding = self.grounding.evaluate_fit_gaps(
-                suitability.get("gaps") or [],
+            raw_gaps = [str(item).strip() for item in suitability.get("gaps") or [] if str(item).strip()]
+            raw_fit_gap_grounding = self.grounding.evaluate_fit_gaps(
+                raw_gaps,
                 jd=job.structured_jd_json or {},
                 jd_sources=[job.raw_jd_text, json.dumps(job.structured_jd_json or {}, ensure_ascii=False)],
                 profile=profile_json,
             )
-            if predicted_label == "strong_fit" and not suitability.get("gaps"):
+            verified_gaps = [
+                str(item.get("citation") or "").strip()
+                for item in raw_fit_gap_grounding.get("results") or []
+                if item.get("supported") and str(item.get("citation") or "").strip()
+            ]
+            suitability["raw_gaps"] = raw_gaps
+            suitability["rejected_gaps"] = [
+                item.get("citation") for item in raw_fit_gap_grounding.get("unsupported_citations") or []
+            ]
+            suitability["gaps"] = verified_gaps
+            fit_gap_grounding = self.grounding.evaluate_fit_gaps(
+                verified_gaps,
+                jd=job.structured_jd_json or {},
+                jd_sources=[job.raw_jd_text, json.dumps(job.structured_jd_json or {}, ensure_ascii=False)],
+                profile=profile_json,
+            )
+            if predicted_label == "strong_fit" and not verified_gaps:
                 fit_gap_grounding = {**fit_gap_grounding, "passed": True, "grounding_rate": 1.0}
             label_score_consistent = (
                 (predicted_label == "strong_fit" and 85 <= fit_score <= 100)
@@ -1503,9 +1582,17 @@ class EvaluationService:
                     "fit_score_range_error": range_error,
                     "fit_score_in_expected_range": range_error == 0,
                     "fit_context_compression": fit_context_compression,
+                    "raw_fit_evidence_grounding": raw_fit_evidence_grounding,
                     "suitability": suitability,
                     "fit_evidence_grounding": fit_evidence_grounding,
+                    "raw_fit_gap_grounding": raw_fit_gap_grounding,
                     "fit_gap_grounding": fit_gap_grounding,
+                    "fit_verifier_rejected_evidence_count": len(
+                        raw_fit_evidence_grounding.get("unsupported_citations") or []
+                    ),
+                    "fit_verifier_rejected_gap_count": len(
+                        raw_fit_gap_grounding.get("unsupported_citations") or []
+                    ),
                     "fit_message_grounding": fit_message_grounding,
                     "fit_message_grounding_passed": bool(fit_message_grounding.get("passed")),
                     "label_score_consistent": label_score_consistent,
@@ -1525,7 +1612,15 @@ class EvaluationService:
                     "message_preview": str(suitability.get("message_to_candidate") or "")[:240],
                     "context_compression": self._compact_context_summary(fit_context_compression),
                     "evidence_grounding_rate": fit_evidence_grounding.get("grounding_rate", 0),
+                    "raw_evidence_grounding_rate": raw_fit_evidence_grounding.get("grounding_rate", 0),
                     "gap_grounding_rate": fit_gap_grounding.get("grounding_rate", 0),
+                    "raw_gap_grounding_rate": raw_fit_gap_grounding.get("grounding_rate", 0),
+                    "verifier_rejected_evidence_count": len(
+                        raw_fit_evidence_grounding.get("unsupported_citations") or []
+                    ),
+                    "verifier_rejected_gap_count": len(
+                        raw_fit_gap_grounding.get("unsupported_citations") or []
+                    ),
                     "message_grounding_rate": fit_message_grounding.get("grounding_rate", 0),
                     "raw_message_preview": raw_message_to_candidate[:240],
                     "label_score_consistent": label_score_consistent,
@@ -1732,6 +1827,9 @@ class EvaluationService:
         quick_cases = [item for item in case_results if item.get("quick_apply_passed") is not None]
         packet_cases = [item for item in case_results if item.get("application_packet_passed") is not None]
         blocked_cases = [item for item in case_results if item.get("fit_gate_blocked") is True]
+        expected_block_count = sum(
+            1 for item in case_results if item.get("expected_fit_gate_blocked") is True
+        )
         summary = {
             "evaluation_type": "agent_full_flow",
             "dataset": dataset_path.name,
@@ -1744,6 +1842,7 @@ class EvaluationService:
             "quick_apply_pass_rate": self._avg_bool(quick_cases, "quick_apply_passed"),
             "application_packet_pass_rate": self._avg_bool(packet_cases, "application_packet_passed"),
             "fit_gate_block_count": len(blocked_cases),
+            "expected_fit_gate_block_count": expected_block_count,
             "trace_pass_rate": self._avg_bool(case_results, "trace_passed"),
             "artifact_pass_rate": self._avg_bool(case_results, "artifact_passed"),
             "langgraph_pass_rate": self._avg_bool(case_results, "langgraph_passed"),
@@ -1757,19 +1856,18 @@ class EvaluationService:
                 "低匹配 quick_apply 应被 fit_gate 阻断，失败直接写入 Agent step trace。",
             ],
         }
-        summary["release_gate"] = self._quality_release_gate(
-            summary,
-            [
-                ("pass_rate", ">=", 1.0),
-                ("completed_rate", ">=", 1.0),
-                ("top_job_accuracy", ">=", 1.0),
-                ("score_gate_accuracy", ">=", 1.0),
-                ("trace_pass_rate", ">=", 1.0),
-                ("artifact_pass_rate", ">=", 1.0),
-                ("langgraph_pass_rate", ">=", 1.0),
-                ("fit_gate_block_count", ">=", 1.0),
-            ],
-        )
+        release_checks = [
+            ("pass_rate", ">=", 1.0),
+            ("completed_rate", ">=", 1.0),
+            ("top_job_accuracy", ">=", 1.0),
+            ("score_gate_accuracy", ">=", 1.0),
+            ("trace_pass_rate", ">=", 1.0),
+            ("artifact_pass_rate", ">=", 1.0),
+            ("langgraph_pass_rate", ">=", 1.0),
+        ]
+        if expected_block_count:
+            release_checks.append(("fit_gate_block_count", ">=", float(expected_block_count)))
+        summary["release_gate"] = self._quality_release_gate(summary, release_checks)
         return summary
 
     def _run_uses_langgraph(self, run) -> bool:
@@ -3431,6 +3529,9 @@ class EvaluationService:
             "jd_unsupported_keyword_count": sum(
                 int(item.get("jd_unsupported_keyword_count") or 0) for item in completed
             ),
+            "jd_rejected_optional_keyword_count": sum(
+                int(item.get("jd_rejected_optional_keyword_count") or 0) for item in completed
+            ),
             "avg_jd_skill_recall": self._avg_number(case_results, "jd_skill_recall"),
             "fit_judge_success_rate": self._avg_bool(case_results, "fit_judge_success"),
             "fit_label_accuracy": self._avg_bool(fit_cases, "label_passed"),
@@ -3445,8 +3546,20 @@ class EvaluationService:
             "avg_fit_evidence_grounding_rate": self._avg_nested_number(
                 fit_cases, "fit_evidence_grounding", "grounding_rate"
             ),
+            "avg_raw_fit_evidence_grounding_rate": self._avg_nested_number(
+                fit_cases, "raw_fit_evidence_grounding", "grounding_rate"
+            ),
             "avg_fit_gap_grounding_rate": self._avg_nested_number(
                 fit_cases, "fit_gap_grounding", "grounding_rate"
+            ),
+            "avg_raw_fit_gap_grounding_rate": self._avg_nested_number(
+                fit_cases, "raw_fit_gap_grounding", "grounding_rate"
+            ),
+            "fit_verifier_rejected_evidence_count": sum(
+                int(item.get("fit_verifier_rejected_evidence_count") or 0) for item in fit_cases
+            ),
+            "fit_verifier_rejected_gap_count": sum(
+                int(item.get("fit_verifier_rejected_gap_count") or 0) for item in fit_cases
             ),
             "fit_message_grounding_pass_rate": self._avg_bool(fit_cases, "fit_message_grounding_passed"),
             "fit_label_score_consistency_rate": self._avg_bool(fit_cases, "label_score_consistent"),
@@ -4020,8 +4133,16 @@ class EvaluationService:
         hits = [keyword for keyword in expected_keywords if keyword.lower() in evidence_text]
         return round(len(hits) / len(expected_keywords), 4)
 
-    async def _llm_judge_suitability(self, db: Session, profile_json: dict[str, Any], job: Job) -> dict[str, Any]:
+    async def _llm_judge_suitability(
+        self,
+        db: Session,
+        profile_json: dict[str, Any],
+        job: Job,
+        *,
+        match_features: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         compressed_context = self.context_compressor.compress_fit_context(profile_json=profile_json, job=job)
+        decision_features = dict(match_features or {})
         system_prompt = (
             "You are a strict, evidence-grounded job-fit evaluator. Return JSON only. "
             "Use fit_label exactly one of: strong_fit, partial_fit, weak_fit. "
@@ -4044,6 +4165,9 @@ Rules:
 - strong_fit: candidate has direct evidence for most core requirements and similar delivered project or internship work. Use 85-100.
 - partial_fit: candidate has meaningful overlap, but at least one core requirement is missing or only adjacent. Use 55-84.
 - weak_fit: role is mostly outside candidate evidence, or the profile mostly shows coursework, plans, reading notes or unrelated prototypes. Use 0-54.
+- Binding boundary: if has_related_delivery_evidence=true and matched_required_skill_count>=2, do not use weak_fit merely because several requirements are missing; use partial_fit unless most requirements have direct delivery evidence.
+- Binding boundary: coursework/planned-learning evidence alone is not related delivery evidence and remains weak_fit.
+- Binding boundary: strong_fit requires required_skill_coverage>=0.67; otherwise use partial_fit or weak_fit.
 - Treat "planned to learn", "read about", "coursework only", "no shipped project" and "did not build" as gaps, not evidence.
 - matched_evidence should cite concrete phrases from the candidate profile.
 - gaps should cite important missing job requirements.
@@ -4052,6 +4176,9 @@ Rules:
 
 Compressed context:
 {json.dumps(compressed_context, ensure_ascii=False)}
+
+Deterministic retrieval facts (these are evidence constraints, not a final score):
+{json.dumps(decision_features, ensure_ascii=False)}
 """
         result = await self.llm.generate_json(
             system_prompt=system_prompt,
@@ -4061,8 +4188,102 @@ Compressed context:
             temperature=0,
             max_tokens=1000,
         )
+        contract_errors = self._fit_output_contract_errors(result, decision_features)
+        repaired = False
+        if contract_errors:
+            repair_prompt = f"""
+The previous fit result violates the binding fit rubric.
+
+Contract errors:
+{json.dumps(contract_errors, ensure_ascii=False)}
+
+Previous result:
+{json.dumps(result, ensure_ascii=False)}
+
+Deterministic retrieval facts:
+{json.dumps(decision_features, ensure_ascii=False)}
+
+Return the same JSON schema after correcting fit_label and fit_score. Keep only evidence-backed matched_evidence and gaps.
+weak_fit=0-54, partial_fit=55-84, strong_fit=85-100.
+"""
+            result = await self.llm.generate_json(
+                system_prompt=system_prompt,
+                user_prompt=repair_prompt,
+                db=db,
+                trace_name="evaluation.llm_judge_suitability_repair",
+                temperature=0,
+                max_tokens=1000,
+            )
+            repaired = True
+            remaining_errors = self._fit_output_contract_errors(result, decision_features)
+            if remaining_errors:
+                raise LLMResponseError(f"fit judge contract repair failed: {remaining_errors}")
+        result["_fit_contract"] = {
+            "features": decision_features,
+            "initial_errors": contract_errors,
+            "repair_attempted": repaired,
+        }
         result["_context_compression"] = compressed_context.get("context_compression")
         return result
+
+    def _fit_decision_features(self, match: Any) -> dict[str, Any]:
+        evidence = list(match.relevant_evidence_json or [])
+        delivery_types = {"shipped_project", "metric_evidence", "adjacent_experience"}
+        related_delivery = [
+            item
+            for item in evidence
+            if str(item.get("evidence_type") or "") in delivery_types
+            and str(item.get("polarity") or "") not in {"negative", "weak"}
+            and str(item.get("chunk_type") or "") in {"project", "experience", "summary", "raw_text"}
+        ]
+        coursework = [
+            item
+            for item in evidence
+            if str(item.get("evidence_type") or "") in {"coursework", "planned_learning"}
+        ]
+        return {
+            "matched_required_skills": list(match.matched_skills_json or []),
+            "missing_required_skills": list(match.missing_skills_json or []),
+            "matched_required_skill_count": len(match.matched_skills_json or []),
+            "missing_required_skill_count": len(match.missing_skills_json or []),
+            "required_skill_coverage": round(
+                len(match.matched_skills_json or [])
+                / max(len(match.matched_skills_json or []) + len(match.missing_skills_json or []), 1),
+                4,
+            ),
+            "has_related_delivery_evidence": bool(related_delivery),
+            "related_delivery_evidence": [str(item.get("text") or "")[:240] for item in related_delivery[:3]],
+            "has_coursework_or_planned_only_evidence": bool(coursework) and not related_delivery,
+        }
+
+    def _fit_output_contract_errors(
+        self,
+        result: dict[str, Any],
+        decision_features: dict[str, Any],
+    ) -> list[str]:
+        errors: list[str] = []
+        label = str(result.get("fit_label") or "")
+        score = self._coerce_float(result.get("fit_score"))
+        bands = {"weak_fit": (0, 54), "partial_fit": (55, 84), "strong_fit": (85, 100)}
+        if label not in bands:
+            errors.append("fit_label 不在允许枚举中")
+        else:
+            low, high = bands[label]
+            if not low <= score <= high:
+                errors.append(f"fit_score={score} 与 {label} 的区间 {low}-{high} 不一致")
+        matched_count = int(decision_features.get("matched_required_skill_count") or 0)
+        has_delivery = bool(decision_features.get("has_related_delivery_evidence"))
+        coursework_only = bool(decision_features.get("has_coursework_or_planned_only_evidence"))
+        required_coverage = float(decision_features.get("required_skill_coverage") or 0.0)
+        if has_delivery and matched_count >= 2 and label == "weak_fit":
+            errors.append("存在相关交付证据且至少匹配两项必需技能，不应判为 weak_fit")
+        if coursework_only and label in {"partial_fit", "strong_fit"}:
+            errors.append("只有 coursework/planned-learning 证据，不应判为 partial_fit 或 strong_fit")
+        if label == "strong_fit" and required_coverage < 0.67:
+            errors.append(
+                f"必需技能覆盖率仅 {required_coverage:.2f}，低于 strong_fit 要求的 0.67"
+            )
+        return errors
 
     def _pdf_fixed_window_450(self, pages: list[PDFPageText], *, case_name: str) -> list[TextChunk]:
         return self._fixed_window_pdf_chunks(pages, case_name=case_name, chunk_size=450, overlap=80)

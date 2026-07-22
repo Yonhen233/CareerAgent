@@ -81,6 +81,121 @@ def test_natural_language_plan_respects_explicit_no_tailor_constraint():
     assert plan["needs_job"] is False
 
 
+def test_natural_language_plan_uses_terminal_action_and_preserves_query_terms():
+    service = NaturalLanguageAgentService()
+    request = NaturalLanguageAgentRequest(
+        instruction="按填写信息建档，然后搜索深圳 Agent 实习，偏 RAG 和 backend。",
+        profile_context={"name": "王澄", "skills": ["Python"]},
+        location="深圳",
+    )
+
+    plan = service._normalize_plan(
+        {
+            "intent": "create_profile",
+            "query": "深圳 Agent 实习",
+            "profile": {"name": "王澄", "skills": ["Python"]},
+            "actions": ["create_profile", "search_jobs"],
+        },
+        request,
+    )
+
+    assert plan["intent"] == "search_jobs"
+    assert "RAG" in plan["query"]
+    assert "backend" in plan["query"]
+
+
+def test_natural_language_plan_contract_repairs_missing_update_fact(db_session):
+    profile = Profile(
+        name="李明",
+        source_type="guided",
+        raw_resume_text="CareerAgent 使用 Python 和 FastAPI。",
+        structured_profile_json={
+            "name": "李明",
+            "skills": ["Python", "FastAPI"],
+            "projects": [{"name": "CareerAgent", "description": "求职助手"}],
+        },
+    )
+    db_session.add(profile)
+    db_session.commit()
+    db_session.refresh(profile)
+
+    class SequencedLLM:
+        def __init__(self):
+            self.calls = 0
+
+        async def generate_json(self, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return {
+                    "intent": "update_profile",
+                    "query": "Agent 实习",
+                    "profile": {"skills": ["Redis", "Celery"]},
+                    "actions": ["create_profile"],
+                    "reason": "补充技能和项目事实。",
+                }
+            return {
+                "intent": "update_profile",
+                "query": "Agent 实习",
+                "profile": {
+                    "skills": ["Redis", "Celery"],
+                    "projects": [
+                        {
+                            "name": "CareerAgent",
+                            "description": "负责 worker 并发与任务重试。",
+                            "tech_stack": ["Redis", "Celery"],
+                        }
+                    ],
+                },
+                "actions": ["create_profile"],
+                "reason": "已把每项更新写入 profile patch。",
+            }
+
+    llm = SequencedLLM()
+    service = NaturalLanguageAgentService(llm=llm)
+    request = NaturalLanguageAgentRequest(
+        instruction="更新现有简历：加入 Redis、Celery，并补充 worker 并发与任务重试项目事实。",
+        profile_id=profile.id,
+    )
+
+    plan = asyncio.run(service._build_plan(db_session, request))
+
+    assert llm.calls == 2
+    assert "worker" in str(plan["profile"])
+    assert plan["contract_repairs"]
+
+
+def test_natural_language_profile_patch_merges_existing_lists():
+    service = NaturalLanguageAgentService()
+
+    merged = service._merge_profile_patch(
+        {
+            "skills": ["Python", "FastAPI"],
+            "projects": [
+                {
+                    "name": "CareerAgent",
+                    "description": "求职助手",
+                    "tech_stack": ["Python"],
+                }
+            ],
+        },
+        {
+            "skills": ["Redis", "Celery"],
+            "projects": [
+                {
+                    "name": "CareerAgent",
+                    "description": "负责 worker 并发与任务重试",
+                    "tech_stack": ["Redis", "Celery"],
+                }
+            ],
+        },
+    )
+
+    assert merged["skills"] == ["Python", "FastAPI", "Redis", "Celery"]
+    assert len(merged["projects"]) == 1
+    assert merged["projects"][0]["tech_stack"] == ["Python", "Redis", "Celery"]
+    assert "worker" in merged["projects"][0]["description"]
+
+
 def test_natural_language_agent_repairs_missing_job_plan(db_session, monkeypatch):
     service = NaturalLanguageAgentService()
 
@@ -223,6 +338,61 @@ def test_natural_language_agent_browses_jobs_without_resume(db_session, monkeypa
     assert run.output_json["result_json"]["job_search_session_id"] == 12
     assert run.output_json["result_json"]["matches"][0]["job_id"] == 77
     assert run.output_json["result_json"]["matches"][0]["match_score"] is None
+
+
+def test_natural_language_agent_continues_from_profile_creation_to_search(db_session, monkeypatch):
+    service = NaturalLanguageAgentService()
+    job = Job(
+        source="manual",
+        external_id="profile-then-search-job",
+        title="Agent 开发实习生",
+        company="DemoAI",
+        raw_jd_text="要求 Python、FastAPI 和 RAG。",
+        structured_jd_json={"required_skills": ["Python", "FastAPI", "RAG"]},
+    )
+    db_session.add(job)
+    db_session.commit()
+    db_session.refresh(job)
+    called_tasks = []
+
+    async def fake_plan(db, request):
+        return {
+            "intent": "create_profile",
+            "query": "深圳 Agent RAG 实习",
+            "profile": {"name": "王澄", "skills": ["Python", "FastAPI", "RAG"]},
+            "actions": ["create_profile", "search_jobs"],
+            "reason": "先建档再搜索。",
+        }
+
+    async def fake_run(db, request):
+        called_tasks.append(request.task_type)
+        return SimpleNamespace(
+            id=920,
+            task_type=request.task_type,
+            status="completed",
+            output_json={
+                "matches": [{"job_id": job.id, "title": job.title, "company": job.company, "overall_score": 88}]
+            },
+            error_message=None,
+        )
+
+    monkeypatch.setattr(service, "_build_plan", fake_plan)
+    monkeypatch.setattr(service.orchestrator, "run", fake_run)
+
+    run = asyncio.run(
+        service.run(
+            db_session,
+            NaturalLanguageAgentRequest(
+                instruction="按填写信息建档，然后搜索深圳 Agent 实习。",
+                profile_context={"name": "王澄", "skills": ["Python", "FastAPI", "RAG"]},
+                location="深圳",
+            ),
+        )
+    )
+
+    assert run.status == "completed"
+    assert called_tasks == ["find_jobs_for_profile"]
+    assert run.output_json["result_json"]["matches"][0]["job_id"] == job.id
 
 
 def test_natural_language_agent_respects_selected_actions_and_profile_context(db_session, monkeypatch):

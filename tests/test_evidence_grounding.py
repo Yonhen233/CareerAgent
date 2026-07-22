@@ -12,6 +12,37 @@ def test_support_score_ignores_terminal_period_tokenization_noise():
     assert score >= 0.6
 
 
+def test_citation_grounding_accepts_positive_fact_spanning_adjacent_pdf_lines():
+    service = EvidenceGroundingService()
+    source = (
+        "技能\nPython | FastAPI | SQLite | RAG\n项目经历\nDocRAG\n"
+        "解析 PDF 列表、表格和跨页标题\n使用向量检索返回证据片段\n"
+        "补充说明：仅在课程作业中使用过 LangGraph，没有 Redis 实践。"
+    )
+
+    report = service.evaluate_citations(
+        ["技能包括 Python、FastAPI、RAG", "项目 DocRAG 涉及 PDF 解析和向量检索"],
+        [source],
+        threshold=0.5,
+        require_positive=True,
+    )
+
+    assert report["passed"] is True
+
+
+def test_citation_grounding_rejects_reading_as_positive_experience():
+    service = EvidenceGroundingService()
+
+    report = service.evaluate_citations(
+        ["Read articles about RAG, Agent, FastAPI and SQLite"],
+        ["Coursework: Read articles about RAG, Agent, FastAPI and SQLite."],
+        threshold=0.5,
+        require_positive=True,
+    )
+
+    assert report["passed"] is False
+
+
 def test_resume_grounding_rejects_skill_absent_from_source():
     result = EvidenceGroundingService().evaluate_resume(
         "李明，使用 Python 和 FastAPI 构建 CareerAgent。",
@@ -179,3 +210,12 @@ def test_resume_grounding_rejects_fabricated_project_impact_even_when_skills_are
 
     assert result["passed"] is False
     assert result["unsupported_claim_fields"][0]["field"] == "projects[0].impact"
+
+
+def test_grounding_does_not_treat_agenttrace_as_agent_delivery():
+    grounding = EvidenceGroundingService()
+    source = "AgentTrace: 构建工具调用 trace 查看器和 RAG 引用检查。"
+
+    assert grounding.value_supported("Agent", source) is False
+    assert grounding.has_positive_support("Agent", source) is False
+    assert grounding.has_positive_support("Agent", "Implemented an Agent workflow.") is True

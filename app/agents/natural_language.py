@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 from typing import Any, TypedDict
 from uuid import uuid4
@@ -46,6 +47,20 @@ ACTIONS = {
     "quick_apply",
     "interview_prep",
     "full_flow",
+}
+
+PLAN_TECH_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9+.#-]{1,}(?![A-Za-z0-9])")
+PLAN_QUERY_STOPWORDS = {
+    "and",
+    "for",
+    "from",
+    "not",
+    "now",
+    "only",
+    "or",
+    "please",
+    "the",
+    "with",
 }
 
 
@@ -391,7 +406,9 @@ class NaturalLanguageAgentService:
 - full_flow 只用于用户明确要求一键完整流程或包含投递材料。
 - actions 用于表达 intent 之外还要串联执行的步骤；intent 自身对应的动作可以同时写入 actions。
 - “搜索后再定制”可使用 search_jobs 作为主 intent，并在 actions 中写入 search_jobs、tailor_resume。
-- update_profile 的修改内容必须写入 profile；不能只在 reason 中复述。
+- 多动作任务的 intent 必须表示最后一个主要用户结果。例如“先建档再搜索”使用 search_jobs，actions 写 create_profile、search_jobs。
+- query 必须保留用户明确给出的目标岗位和正向技术偏好，不能只把 RAG、tool calling 等偏好写在 reason。
+- update_profile 的每一项修改内容都必须写入 profile；项目事实放进 projects/work_experience，不能只在 reason 中复述。
 - quick_apply 表示生成待审批投递材料，不等于直接外发；用户明确要求准备投递材料时应选择它。
 
 返回 JSON schema:
@@ -440,7 +457,59 @@ profile_context={json.dumps(request.profile_context or {}, ensure_ascii=False)}
                 db=db,
                 trace_name="natural_language.plan",
             )
-        return self._normalize_plan(plan, request)
+        normalized = self._normalize_plan(plan, request)
+        contract_errors = self._plan_contract_errors(normalized, request)
+        if not contract_errors:
+            return normalized
+        repaired = await self._repair_plan_contract(db, request, normalized, contract_errors)
+        repaired["contract_repairs"] = contract_errors
+        remaining_errors = self._plan_contract_errors(repaired, request)
+        if remaining_errors:
+            raise ValueError(f"计划契约校验失败：{'；'.join(remaining_errors)}")
+        return repaired
+
+    async def _repair_plan_contract(
+        self,
+        db: Session,
+        request: NaturalLanguageAgentRequest,
+        plan: dict[str, Any],
+        errors: list[str],
+    ) -> dict[str, Any]:
+        base_profile = self._resolve_profile(db, request.profile_id)
+        base_profile_json = dict(base_profile.structured_profile_json or {}) if base_profile else {}
+        system_prompt = (
+            "你是 Agent 计划契约修复器。只返回完整 JSON 计划。"
+            "只补齐用户明确要求但计划遗漏的字段，不增加用户没有提供的经历或动作。"
+        )
+        user_prompt = f"""
+当前计划未通过执行前契约校验：
+{json.dumps(errors, ensure_ascii=False)}
+
+原计划：
+{json.dumps(plan, ensure_ascii=False)}
+
+用户原始需求：
+{request.instruction}
+
+现有简历档案（只用于定位应更新的条目）：
+{json.dumps(base_profile_json, ensure_ascii=False)}
+
+修复要求：
+- 保留原计划已正确的字段和安全边界。
+- update_profile 的技能更新写入 skills；项目/职责事实写入 projects 或 work_experience，不能只写在 reason。
+- 多动作任务的 intent 表示最后一个主要用户结果，actions 保留完整执行顺序。
+- 返回与原计划完全相同的 JSON schema，不要添加解释文本。
+"""
+        with llm_trace_context(stage="natural_language_plan_contract_repair", agent_run_task="natural_language_request"):
+            repaired = await self.llm.generate_json(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                temperature=0,
+                max_tokens=1400,
+                db=db,
+                trace_name="natural_language.repair_plan_contract",
+            )
+        return self._normalize_plan(repaired, request)
 
     async def _repair_plan(
         self,
@@ -508,12 +577,28 @@ query={request.query}
             "agent_runs": [],
         }
 
-        if intent in {"create_profile", "update_profile"}:
+        selected_actions = {self._canonical_action(action) for action in (plan.get("actions") or [])}
+        selected_actions.discard("")
+        implicit_action = {
+            "create_profile": "create_profile",
+            "update_profile": "create_profile",
+            "search_jobs": "search_jobs",
+            "tailor_resume": "tailor_resume",
+            "quick_apply": "quick_apply",
+            "interview_prep": "interview_prep",
+            "full_flow": "full_flow",
+        }.get(intent)
+        effective_actions = set(selected_actions)
+        if implicit_action:
+            effective_actions.add(implicit_action)
+
+        if intent in {"create_profile", "update_profile"} and effective_actions <= {"create_profile"}:
             if profile is None:
                 raise ValueError("需要简历信息才能生成简历档案。")
             return result
 
-        if intent == "search_jobs":
+        downstream_actions = {"tailor_resume", "quick_apply", "interview_prep"}
+        if "search_jobs" in effective_actions and intent != "full_flow":
             if profile is not None:
                 run = await self.orchestrator.run(
                     db,
@@ -529,62 +614,41 @@ query={request.query}
                 result["agent_runs"].append(self._run_payload(run))
                 result["matches"] = (run.output_json or {}).get("matches", [])
                 self._assert_search_has_matches(run)
+            else:
+                discovery = await self.job_discovery.discover(
+                    db,
+                    JobDiscoveryRequest(
+                        preference_text=plan.get("query") or request.query,
+                        profile_id=None,
+                        location=request.location,
+                        limit=request.limit,
+                        source_mode="hybrid",
+                    ),
+                )
+                result["job_search_session_id"] = discovery.id
+                result["matches"] = [
+                    {
+                        "job_id": item.job_id,
+                        "match_result_id": item.match_result_id,
+                        "rank": item.rank,
+                        "retrieval_score": item.retrieval_score,
+                        "match_score": item.match_score,
+                        "final_score": item.final_score,
+                        "title": item.job.title,
+                        "company": item.job.company,
+                        "location": item.job.location,
+                        "reason": item.reason_json or {},
+                    }
+                    for item in discovery.results
+                ]
+                if not result["matches"]:
+                    raise ValueError("岗位搜索没有返回结果，请调整求职偏好或岗位来源。")
+            if not effective_actions.intersection(downstream_actions):
                 return result
-            discovery = await self.job_discovery.discover(
-                db,
-                JobDiscoveryRequest(
-                    preference_text=plan.get("query") or request.query,
-                    profile_id=profile.id if profile else None,
-                    location=request.location,
-                    limit=request.limit,
-                    source_mode="hybrid",
-                ),
-            )
-            result["job_search_session_id"] = discovery.id
-            result["matches"] = [
-                {
-                    "job_id": item.job_id,
-                    "match_result_id": item.match_result_id,
-                    "rank": item.rank,
-                    "retrieval_score": item.retrieval_score,
-                    "match_score": item.match_score,
-                    "final_score": item.final_score,
-                    "title": item.job.title,
-                    "company": item.job.company,
-                    "location": item.job.location,
-                    "reason": item.reason_json or {},
-                }
-                for item in discovery.results
-            ]
-            if not result["matches"]:
-                raise ValueError("岗位搜索没有返回结果，请调整求职偏好或岗位来源。")
-            return result
-
-        selected_actions = {self._canonical_action(action) for action in (plan.get("actions") or [])}
-        selected_actions.discard("")
-        downstream_actions = {"tailor_resume", "quick_apply", "interview_prep"}
-        if (
-            "search_jobs" in selected_actions
-            and selected_actions.intersection(downstream_actions)
-            and job is None
-        ):
             profile = self._require_profile(profile)
-            search_run = await self.orchestrator.run(
-                db,
-                AgentRunRequest(
-                    task_type="find_jobs_for_profile",
-                    profile_id=profile.id,
-                    query=plan.get("query") or request.query,
-                    location=request.location,
-                    limit=request.limit,
-                ),
-            )
-            self._assert_run_completed(search_run, "岗位搜索")
-            result["agent_runs"].append(self._run_payload(search_run))
-            result["matches"] = (search_run.output_json or {}).get("matches", [])
-            self._assert_search_has_matches(search_run)
-            job = self._resolve_job(db, int(result["matches"][0]["job_id"]))
-            result["job"] = self._job_payload(job)
+            if job is None:
+                job = self._resolve_job(db, int(result["matches"][0]["job_id"]))
+                result["job"] = self._job_payload(job)
 
         if intent == "full_flow":
             profile = self._require_profile(profile)
@@ -722,6 +786,13 @@ query={request.query}
             if normalized["intent"] == "tailor_resume":
                 normalized["intent"] = "create_profile"
                 normalized["needs_job"] = False
+        normalized["actions"] = list(dict.fromkeys(normalized["actions"]))
+        normalized["intent"] = self._terminal_intent(normalized["intent"], normalized["actions"])
+        if normalized["intent"] == "search_jobs" or "search_jobs" in normalized["actions"]:
+            normalized["query"] = self._preserve_instruction_terms_in_query(
+                str(normalized.get("query") or ""),
+                request.instruction,
+            )
         if request.jd_text:
             normalized["job"] = {**(normalized["job"] or {}), "jd_text": request.jd_text}
         normalized_actions = set(normalized["actions"])
@@ -738,6 +809,61 @@ query={request.query}
         normalized["needs_profile"] = profile_dependent
         normalized["needs_job"] = job_dependent
         return normalized
+
+    def _terminal_intent(self, intent: str, actions: list[str]) -> str:
+        if intent == "full_flow" or "full_flow" in actions:
+            return "full_flow"
+        action_set = set(actions)
+        for action in ("quick_apply", "interview_prep", "tailor_resume", "search_jobs"):
+            if action in action_set:
+                return action
+        return intent
+
+    def _preserve_instruction_terms_in_query(self, query: str, instruction: str) -> str:
+        clean_query = " ".join(str(query or "").split())
+        lowered_query = clean_query.lower()
+        preserved: list[str] = []
+        for match in PLAN_TECH_TOKEN_RE.finditer(instruction or ""):
+            term = match.group(0)
+            lowered = term.lower()
+            if lowered in PLAN_QUERY_STOPWORDS or lowered in lowered_query:
+                continue
+            prefix = (instruction or "")[max(0, match.start() - 12) : match.start()].lower()
+            if re.search(r"(?:不要|不需要|无需|排除|不考虑|避免|\bno\b|\bnot\b|\bwithout\b)\s*$", prefix):
+                continue
+            preserved.append(term)
+            lowered_query += f" {lowered}"
+        return " ".join([clean_query, *preserved]).strip()
+
+    def _plan_contract_errors(
+        self,
+        plan: dict[str, Any],
+        request: NaturalLanguageAgentRequest,
+    ) -> list[str]:
+        errors: list[str] = []
+        if plan.get("intent") != "update_profile":
+            return errors
+        profile = plan.get("profile") if isinstance(plan.get("profile"), dict) else None
+        if not profile:
+            return ["update_profile 必须提供非空 profile patch"]
+        profile_text = json.dumps(profile, ensure_ascii=False).lower()
+        missing_terms = [
+            term
+            for term in self._instruction_technical_terms(request.instruction)
+            if term.lower() not in profile_text
+        ]
+        if missing_terms:
+            errors.append(f"profile patch 遗漏用户明确提供的技术/项目事实：{', '.join(missing_terms)}")
+        return errors
+
+    def _instruction_technical_terms(self, instruction: str) -> list[str]:
+        terms: list[str] = []
+        for match in PLAN_TECH_TOKEN_RE.finditer(instruction or ""):
+            term = match.group(0)
+            if term.lower() in PLAN_QUERY_STOPWORDS:
+                continue
+            terms.append(term)
+        return list(dict.fromkeys(terms))
 
     def _canonical_action(self, action: Any) -> str:
         value = str(action or "").strip()
@@ -843,8 +969,8 @@ query={request.query}
     ) -> Profile:
         profile_data = dict(base_profile.structured_profile_json or {}) if base_profile else {}
         if request and request.profile_context:
-            profile_data.update(request.profile_context)
-        profile_data.update(plan.get("profile") or {})
+            profile_data = self._merge_profile_patch(profile_data, request.profile_context)
+        profile_data = self._merge_profile_patch(profile_data, plan.get("profile") or {})
         if not profile_data.get("name"):
             profile_data["name"] = base_profile.name if base_profile else "候选人"
         payload = GuidedProfileRequest.model_validate(
@@ -863,6 +989,77 @@ query={request.query}
             }
         )
         return self.resume_parser.create_profile_from_guided_answers(db, payload)
+
+    def _merge_profile_patch(self, base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+        merged = dict(base)
+        additive_fields = {
+            "target_roles",
+            "skills",
+            "awards",
+            "languages",
+            "certifications",
+            "portfolio_links",
+            "enabled_sections",
+        }
+        keyed_fields = {
+            "projects": ("name",),
+            "work_experience": ("company", "role"),
+            "education": ("school", "major", "degree"),
+            "campus_experience": ("company", "role"),
+        }
+        for field, value in patch.items():
+            if value is None:
+                continue
+            if field in additive_fields and isinstance(value, list):
+                existing = list(merged.get(field) or [])
+                merged[field] = list(dict.fromkeys([*existing, *value]))
+                continue
+            if field in keyed_fields and isinstance(value, list):
+                merged[field] = self._merge_profile_items(
+                    list(merged.get(field) or []),
+                    value,
+                    identity_fields=keyed_fields[field],
+                )
+                continue
+            if value != "":
+                merged[field] = value
+        return merged
+
+    def _merge_profile_items(
+        self,
+        existing: list[Any],
+        updates: list[Any],
+        *,
+        identity_fields: tuple[str, ...],
+    ) -> list[Any]:
+        merged = [dict(item) if isinstance(item, dict) else item for item in existing]
+        for raw_update in updates:
+            if not isinstance(raw_update, dict):
+                if raw_update not in merged:
+                    merged.append(raw_update)
+                continue
+            update = dict(raw_update)
+            identity = tuple(str(update.get(field) or "").strip().lower() for field in identity_fields)
+            match_index = None
+            if any(identity):
+                for index, item in enumerate(merged):
+                    if not isinstance(item, dict):
+                        continue
+                    candidate = tuple(str(item.get(field) or "").strip().lower() for field in identity_fields)
+                    if candidate == identity:
+                        match_index = index
+                        break
+            if match_index is None:
+                merged.append(update)
+                continue
+            current = dict(merged[match_index])
+            for key, value in update.items():
+                if isinstance(value, list):
+                    current[key] = list(dict.fromkeys([*(current.get(key) or []), *value]))
+                elif value not in (None, ""):
+                    current[key] = value
+            merged[match_index] = current
+        return merged
 
     async def _create_job_from_plan(
         self,

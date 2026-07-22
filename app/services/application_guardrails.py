@@ -42,7 +42,7 @@ CLAIM_TERMS = (
     ClaimTerm("Recommendation", ("推荐算法", "推荐系统", r"\brecommendation\b")),
     ClaimTerm("Ranking", ("排序模型", "召回排序", r"\branking\b")),
     ClaimTerm("Feature Engineering", ("特征工程", r"feature engineering")),
-    ClaimTerm("Accessibility", (r"\baccessibility\b", "可访问性")),
+    ClaimTerm("Accessibility", (r"\baccessibility\b", r"\ba11y\b", "可访问性", "无障碍")),
 )
 
 CLAIM_VERB_PATTERNS = (
@@ -86,6 +86,8 @@ OUTCOME_SEMANTIC_GROUPS: dict[str, tuple[str, ...]] = {
     "accuracy": ("准确", "精度", "召回", r"\baccuracy\b", r"\bprecision\b", r"\brecall\b"),
     "efficiency": ("效率", "提效", r"\befficien"),
     "cost": ("成本", "费用", r"\bcosts?\b"),
+    "reuse": ("复用", r"\breus(?:e|able|ability)\b"),
+    "coverage": ("覆盖", r"\bcoverage\b"),
 }
 
 
@@ -105,6 +107,7 @@ class ApplicationPacketGuardrail:
         automation_result: dict[str, Any],
     ) -> dict[str, Any]:
         supported_terms = self._supported_terms(profile, resume_version)
+        trusted_fact_sources = self._profile_structured_fact_sources(profile)
         text = "\n".join([cover_letter or "", outreach_message or ""])
         unsupported_claims = self._unsupported_claims(text, supported_terms)
         support_sources = [self._profile_support_text(profile)]
@@ -116,6 +119,8 @@ class ApplicationPacketGuardrail:
             semantic_grounding,
             support_sources=support_sources,
             grounding=grounding,
+            supported_terms=supported_terms,
+            trusted_fact_sources=trusted_fact_sources,
         )
         unsupported_numbers = grounding.unsupported_numbers(text, support_sources)
         issues: list[dict[str, Any]] = []
@@ -193,6 +198,8 @@ class ApplicationPacketGuardrail:
         *,
         support_sources: list[str],
         grounding: EvidenceGroundingService,
+        supported_terms: set[str],
+        trusted_fact_sources: list[str] | None = None,
     ) -> dict[str, Any]:
         unsupported = list(report.get("unsupported_claims") or [])
         if not unsupported:
@@ -205,7 +212,8 @@ class ApplicationPacketGuardrail:
                 f"{left} {right}"[:900]
                 for left, right in zip(sentences, sentences[1:], strict=False)
             )
-        source_snippets = list(dict.fromkeys(source_snippet_candidates))[:120]
+        trusted_facts = [str(item).strip() for item in trusted_fact_sources or [] if str(item).strip()]
+        source_snippets = list(dict.fromkeys([*trusted_facts, *source_snippet_candidates]))[:120]
         if not source_snippets:
             return report
         claims = [str(item.get("claim") or "").strip() for item in unsupported]
@@ -216,7 +224,7 @@ class ApplicationPacketGuardrail:
         claim_vectors = embeddings.vectors[: len(claims)]
         source_vectors = embeddings.vectors[len(claims) :]
         embedding_matches: dict[str, dict[str, Any]] = {}
-        recovered: dict[str, float] = {}
+        recovered: dict[str, dict[str, Any]] = {}
         for claim, claim_vector in zip(claims, claim_vectors, strict=False):
             scored_sources = [
                 (cosine_similarity(claim_vector, source_vector), source)
@@ -225,19 +233,46 @@ class ApplicationPacketGuardrail:
             best, best_source = max(scored_sources, default=(0.0, ""), key=lambda item: item[0])
             polarity_consistent = self._is_negative_claim(claim) == self._is_negative_claim(best_source)
             outcome_consistent = self._outcome_semantics_consistent(claim, best_source)
+            claim_terms = self._claim_terms(claim)
+            taxonomy_corroborated = bool(claim_terms) and claim_terms.issubset(supported_terms)
+            claim_outcome_groups = self._outcome_semantic_groups(claim)
+            source_outcome_groups = self._outcome_semantic_groups(best_source)
+            trusted_fact_corroborated = bool(claim_outcome_groups) and any(
+                max(
+                    grounding.support_score(best_source, fact),
+                    grounding.support_score(fact, best_source),
+                )
+                >= 0.8
+                for fact in trusted_facts
+            )
             embedding_matches[claim] = {
                 "score": round(best, 4),
                 "source_preview": best_source[:240],
                 "polarity_consistent": polarity_consistent,
                 "outcome_semantics_consistent": outcome_consistent,
+                "claim_terms": sorted(claim_terms),
+                "taxonomy_corroborated": taxonomy_corroborated,
+                "claim_outcome_groups": sorted(claim_outcome_groups),
+                "source_outcome_groups": sorted(source_outcome_groups),
+                "trusted_fact_corroborated": trusted_fact_corroborated,
             }
             if best >= 0.70 and polarity_consistent and outcome_consistent:
-                recovered[claim] = round(best, 4)
+                recovered[claim] = {"score": round(best, 4), "method": "multilingual_embedding"}
+            elif best >= 0.65 and polarity_consistent and outcome_consistent and taxonomy_corroborated:
+                recovered[claim] = {
+                    "score": round(best, 4),
+                    "method": "multilingual_embedding_taxonomy_corroborated",
+                }
+            elif best >= 0.65 and polarity_consistent and outcome_consistent and trusted_fact_corroborated:
+                recovered[claim] = {
+                    "score": round(best, 4),
+                    "method": "multilingual_embedding_structured_fact_corroborated",
+                }
 
         results = []
         for item in report.get("results") or []:
             claim = str(item.get("claim") or "")
-            embedding_score = recovered.get(claim)
+            recovery = recovered.get(claim)
             match = embedding_matches.get(claim) or {}
             results.append(
                 {
@@ -247,8 +282,13 @@ class ApplicationPacketGuardrail:
                     "embedding_source_preview": match.get("source_preview"),
                     "embedding_polarity_consistent": match.get("polarity_consistent"),
                     "embedding_outcome_semantics_consistent": match.get("outcome_semantics_consistent"),
-                    "support_method": "multilingual_embedding" if embedding_score is not None else "lexical",
-                    "supported": bool(item.get("supported")) or embedding_score is not None,
+                    "embedding_claim_terms": match.get("claim_terms"),
+                    "embedding_taxonomy_corroborated": match.get("taxonomy_corroborated"),
+                    "embedding_claim_outcome_groups": match.get("claim_outcome_groups"),
+                    "embedding_source_outcome_groups": match.get("source_outcome_groups"),
+                    "embedding_trusted_fact_corroborated": match.get("trusted_fact_corroborated"),
+                    "support_method": recovery.get("method") if recovery else "lexical",
+                    "supported": bool(item.get("supported")) or recovery is not None,
                 }
             )
         unsupported_after = [item for item in results if not item.get("supported")]
@@ -262,25 +302,45 @@ class ApplicationPacketGuardrail:
             "results": results,
             "embedding": embeddings.info(),
             "embedding_threshold": 0.70,
+            "embedding_corroborated_threshold": 0.65,
+        }
+
+    def _claim_terms(self, text: str) -> set[str]:
+        return {
+            term.name
+            for term in CLAIM_TERMS
+            if any(re.search(pattern, text or "", flags=re.IGNORECASE) for pattern in term.patterns)
         }
 
     def _is_negative_claim(self, text: str) -> bool:
         return self._contains_any_pattern(text, NEGATIVE_SUPPORT_PATTERNS)
 
     def _outcome_semantics_consistent(self, claim: str, source: str) -> bool:
-        claim_groups = {
-            name
-            for name, patterns in OUTCOME_SEMANTIC_GROUPS.items()
-            if self._contains_any_pattern(claim, patterns)
-        }
+        claim_groups = self._outcome_semantic_groups(claim)
         if not claim_groups:
             return True
-        source_groups = {
+        source_groups = self._outcome_semantic_groups(source)
+        return claim_groups.issubset(source_groups)
+
+    def _outcome_semantic_groups(self, text: str) -> set[str]:
+        return {
             name
             for name, patterns in OUTCOME_SEMANTIC_GROUPS.items()
-            if self._contains_any_pattern(source, patterns)
+            if self._contains_any_pattern(text, patterns)
         }
-        return claim_groups.issubset(source_groups)
+
+    def _profile_structured_fact_sources(self, profile: Profile) -> list[str]:
+        structured = profile.structured_profile_json or {}
+        facts: list[str] = []
+        for field in ("projects", "work_experience", "campus_experience"):
+            for item in structured.get(field) or []:
+                if not isinstance(item, dict):
+                    continue
+                for key in ("description", "impact", "details"):
+                    value = str(item.get(key) or "").strip()
+                    if value:
+                        facts.append(value)
+        return list(dict.fromkeys(facts))
 
     def _supported_terms(self, profile: Profile, resume_version: ResumeVersion | None) -> set[str]:
         support_text = self._profile_support_text(profile)

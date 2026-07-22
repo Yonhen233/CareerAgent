@@ -4,7 +4,7 @@ from fastapi import HTTPException
 from app.api.matches import create_match
 from app.models.entities import Job, Profile
 from app.models.schemas import MatchCreateRequest
-from app.services.matcher import MatcherService
+from app.services.matcher import MatcherService, fuzzy_contains
 from app.services.text_splitter import ResumeTextSplitter
 from app.services.vector_index import SQLiteVectorIndex
 
@@ -111,6 +111,13 @@ def test_matcher_does_not_treat_machine_learning_as_negative_evidence():
 
     assert matcher._contains_negative_evidence("built machine learning workflows") is False
     assert matcher._contains_negative_evidence("currently learning RAG from tutorials") is True
+
+
+def test_matcher_does_not_match_agent_inside_project_name_agenttrace():
+    text = "agenttrace: built a trace viewer and rag citation checker"
+
+    assert fuzzy_contains("Agent", {"agenttrace", "trace", "viewer"}, text) is False
+    assert fuzzy_contains("Agent", {"agent", "workflow"}, "implemented an agent workflow") is True
 
 
 def test_matches_api_returns_structured_error_for_matching_failure(db_session, monkeypatch):

@@ -6,6 +6,7 @@ from app.models.entities import Job, Profile
 from app.services.embedding_service import EmbeddingBatch
 from app.services.application_guardrails import ApplicationPacketGuardrail
 from app.services.application_service import ApplicationService
+from app.services.evidence_grounding import EvidenceGroundingService
 
 
 def _manual_automation() -> dict:
@@ -290,6 +291,148 @@ def test_application_service_preserves_exact_english_job_target():
     output = service._ensure_job_target("尊敬的招聘团队：\n我申请前端开发实习生。", job)
 
     assert output.startswith("申请目标：DesignOps | Frontend Engineering Intern\n")
+
+
+def test_application_guardrail_recovers_borderline_translation_only_with_supported_taxonomy():
+    import math
+
+    class BorderlineEmbeddingStub:
+        def embed_texts(self, texts):
+            vectors = [[1.0, 0.0]]
+            vectors.extend([[0.68, math.sqrt(1 - 0.68**2)] for _ in texts[1:]])
+            return EmbeddingBatch(
+                vectors=vectors,
+                provider="borderline_translation_test",
+                model="controlled",
+                dimensions=2,
+            )
+
+    guardrail = ApplicationPacketGuardrail(embedding_service=BorderlineEmbeddingStub())
+    report = guardrail._recover_multilingual_grounding(
+        {
+            "passed": False,
+            "results": [{"claim": "我实现了无障碍检查", "support_score": 0.2, "supported": False}],
+            "unsupported_claims": [
+                {"claim": "我实现了无障碍检查", "support_score": 0.2, "supported": False}
+            ],
+        },
+        support_sources=["Built accessibility checks."],
+        grounding=EvidenceGroundingService(),
+        supported_terms={"Accessibility"},
+    )
+
+    assert report["passed"] is True
+    assert report["results"][0]["support_method"] == "multilingual_embedding_taxonomy_corroborated"
+
+
+def test_application_guardrail_does_not_recover_borderline_unsupported_taxonomy():
+    import math
+
+    class BorderlineEmbeddingStub:
+        def embed_texts(self, texts):
+            vectors = [[1.0, 0.0]]
+            vectors.extend([[0.68, math.sqrt(1 - 0.68**2)] for _ in texts[1:]])
+            return EmbeddingBatch(
+                vectors=vectors,
+                provider="borderline_translation_test",
+                model="controlled",
+                dimensions=2,
+            )
+
+    guardrail = ApplicationPacketGuardrail(embedding_service=BorderlineEmbeddingStub())
+    report = guardrail._recover_multilingual_grounding(
+        {
+            "passed": False,
+            "results": [{"claim": "我部署了 Kubernetes", "support_score": 0.2, "supported": False}],
+            "unsupported_claims": [
+                {"claim": "我部署了 Kubernetes", "support_score": 0.2, "supported": False}
+            ],
+        },
+        support_sources=["Built accessibility checks."],
+        grounding=EvidenceGroundingService(),
+        supported_terms={"Accessibility"},
+    )
+
+    assert report["passed"] is False
+
+
+def test_application_guardrail_recovers_borderline_translated_structured_outcome():
+    import math
+
+    class BorderlineEmbeddingStub:
+        def embed_texts(self, texts):
+            vectors = [[1.0, 0.0]]
+            vectors.extend([[0.68, math.sqrt(1 - 0.68**2)] for _ in texts[1:]])
+            return EmbeddingBatch(
+                vectors=vectors,
+                provider="borderline_translation_test",
+                model="controlled",
+                dimensions=2,
+            )
+
+    guardrail = ApplicationPacketGuardrail(embedding_service=BorderlineEmbeddingStub())
+    report = guardrail._recover_multilingual_grounding(
+        {
+            "passed": False,
+            "results": [
+                {
+                    "claim": "该项目提升了组件复用率和 UI 回归覆盖率",
+                    "support_score": 0.2,
+                    "supported": False,
+                }
+            ],
+            "unsupported_claims": [
+                {
+                    "claim": "该项目提升了组件复用率和 UI 回归覆盖率",
+                    "support_score": 0.2,
+                    "supported": False,
+                }
+            ],
+        },
+        support_sources=["Improved component reuse and UI regression coverage."],
+        grounding=EvidenceGroundingService(),
+        supported_terms=set(),
+        trusted_fact_sources=["Improved component reuse and UI regression coverage."],
+    )
+
+    assert report["passed"] is True
+    assert report["results"][0]["support_method"] == (
+        "multilingual_embedding_structured_fact_corroborated"
+    )
+
+
+def test_application_guardrail_does_not_recover_changed_outcome_from_structured_fact():
+    import math
+
+    class BorderlineEmbeddingStub:
+        def embed_texts(self, texts):
+            vectors = [[1.0, 0.0]]
+            vectors.extend([[0.68, math.sqrt(1 - 0.68**2)] for _ in texts[1:]])
+            return EmbeddingBatch(
+                vectors=vectors,
+                provider="borderline_translation_test",
+                model="controlled",
+                dimensions=2,
+            )
+
+    guardrail = ApplicationPacketGuardrail(embedding_service=BorderlineEmbeddingStub())
+    report = guardrail._recover_multilingual_grounding(
+        {
+            "passed": False,
+            "results": [
+                {"claim": "该项目提升了系统可靠性", "support_score": 0.2, "supported": False}
+            ],
+            "unsupported_claims": [
+                {"claim": "该项目提升了系统可靠性", "support_score": 0.2, "supported": False}
+            ],
+        },
+        support_sources=["Improved component reuse and UI regression coverage."],
+        grounding=EvidenceGroundingService(),
+        supported_terms=set(),
+        trusted_fact_sources=["Improved component reuse and UI regression coverage."],
+    )
+
+    assert report["passed"] is False
 
 
 def test_application_guardrail_embedding_does_not_reverse_negative_evidence():

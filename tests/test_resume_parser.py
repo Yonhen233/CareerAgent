@@ -247,6 +247,64 @@ def test_resume_parser_does_not_infer_target_role_from_project_technology():
     assert parsed["target_roles"] == []
 
 
+def test_resume_parser_does_not_turn_planned_learning_paragraph_into_headline():
+    service = ResumeParserService()
+
+    parsed = service._heuristic_parse(
+        "王清\n专业：市场营销。\n经历：阅读过 Agent 文章，正在学习 Python，计划做 RAG 项目。"
+    )
+
+    assert parsed["headline"] is None
+    chunks = service.splitter.build_resume_chunks(parsed)
+    assert any("正在学习 Python" in chunk.text for chunk in chunks)
+
+
+def test_resume_parser_keeps_explicit_candidate_headline():
+    service = ResumeParserService()
+
+    parsed = service._heuristic_parse("许言\nAgent 开发候选人\nSkills: Python, FastAPI")
+
+    assert parsed["headline"] == "Agent 开发候选人"
+
+
+def test_resume_parser_rejects_llm_experience_paragraph_misclassified_as_headline(monkeypatch):
+    monkeypatch.setenv("LLM_FALLBACK_ENABLED", "false")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+
+    class FakeLLM:
+        available = True
+
+        async def generate_text(self, **kwargs):
+            return json.dumps(
+                {
+                    "name": "王清",
+                    "headline": "经历：阅读过 Agent 文章，正在学习 Python，计划做 RAG 项目。",
+                    "skills": [],
+                    "projects": [],
+                    "work_experience": [],
+                    "education": [{"major": "市场营销"}],
+                },
+                ensure_ascii=False,
+            )
+
+    service = ResumeParserService()
+    service.llm = FakeLLM()
+    parsed = asyncio.run(
+        service.parse_structured_resume(
+            "王清\n专业：市场营销。\n经历：阅读过 Agent 文章，正在学习 Python，计划做 RAG 项目。"
+        )
+    )
+
+    assert parsed["headline"] is None
+    assert {"field": "headline", "value": "经历：阅读过 Agent 文章，正在学习 Python，计划做 RAG 项目。"} in parsed[
+        "quality_gate"
+    ]["rejected_optional_fields"]
+    assert any("正在学习 Python" in chunk.text for chunk in service.splitter.build_resume_chunks(parsed))
+    get_settings.cache_clear()
+
+
 def test_resume_parser_removes_injected_skill_before_grounding(monkeypatch):
     monkeypatch.setenv("LLM_FALLBACK_ENABLED", "false")
     from app.core.config import get_settings

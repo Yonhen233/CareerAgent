@@ -30,7 +30,15 @@ JD_SKILL_ALIASES: dict[str, list[str]] = {
     "Prompt Engineering": [r"\bprompt engineering\b", "提示词工程"],
     "Prompt Regression": [r"\bprompt regression\b", "提示词回归"],
     "Prompt Injection": [r"\bprompt injection\b", "提示词注入"],
-    "Model Evaluation": [r"\bmodel quality\b", r"\bmodel eval(uation)?\b", "模型质量", "模型评测"],
+    "Model Evaluation": [
+        r"\bmodel quality\b",
+        r"\bmodel eval(uation)?\b",
+        "模型质量",
+        "模型评测",
+        "模型评估",
+        r"评测(?:经验|体系|系统|平台|指标|流程)",
+        r"评估(?:经验|体系|系统|平台|指标|流程)",
+    ],
     "A/B Testing": [r"\ba/b tests?\b", r"\ba/b testing\b", r"\bab tests?\b", "A/B实验", "AB实验"],
     "Feature Store": [r"\bfeature stores?\b", "特征平台", "特征库"],
     "MLflow": [r"\bmlflow\b"],
@@ -144,11 +152,16 @@ JD:
             merged["prompt_injection"] = injection.model_dump()
             normalized = JDStructured.model_validate(merged).model_dump()
             normalized = self._canonicalize_structured_jd(normalized)
+            normalized, rejected_optional_keywords = self._filter_unsupported_optional_keywords(
+                normalized,
+                raw_text=safe_text or raw_text,
+            )
             quality_gate = self.grounding.evaluate_jd(
                 raw_text,
                 normalized,
                 allowed_values=[title, company, location],
             )
+            quality_gate["rejected_optional_keywords"] = rejected_optional_keywords
             normalized["quality_gate"] = quality_gate
             if not quality_gate["passed"]:
                 raise LLMResponseError(
@@ -332,6 +345,26 @@ JD:
             output["seniority"] = "intern"
         return output
 
+    def _filter_unsupported_optional_keywords(
+        self,
+        parsed: dict,
+        *,
+        raw_text: str,
+    ) -> tuple[dict, list[str]]:
+        output = dict(parsed)
+        supported: list[str] = []
+        rejected: list[str] = []
+        for item in output.get("keywords") or []:
+            value = str(item).strip()
+            if not value:
+                continue
+            if self.grounding.value_supported(value, raw_text):
+                supported.append(value)
+            else:
+                rejected.append(value)
+        output["keywords"] = supported
+        return output, rejected
+
     def _normalize_requirement_strength(
         self,
         merged: dict,
@@ -464,7 +497,12 @@ JD:
         company: str | None = None,
         location: str | None = None,
     ) -> dict:
-        lines = [line.strip(" -•\t") for line in raw_text.splitlines() if line.strip(" -•\t")]
+        lines = [
+            segment.strip(" -•\t")
+            for line in raw_text.splitlines()
+            for segment in re.split(r"(?<=[。；;])\s*", line)
+            if segment.strip(" -•\t")
+        ]
         guessed_title = title or self._guess_title(lines)
         responsibilities, qualifications, preferred_lines = self._split_responsibilities(lines)
         skill_text = "\n".join(responsibilities + qualifications) or raw_text
@@ -570,6 +608,7 @@ JD:
             "工作内容",
             "主要职责",
             "职责描述",
+            "负责",
         ]
         preferred_tokens = ["preferred", "nice to have", "bonus", "plus", "optional", "加分", "优先", "非必须"]
         for line in lines:
@@ -606,6 +645,14 @@ JD:
         parts = re.split(r"[:：]", line, maxsplit=1)
         if len(parts) == 2 and parts[1].strip():
             return parts[1].strip(" -•\t")
+        header_pattern = (
+            r"^(?:岗位职责|工作职责|工作内容|主要职责|职责描述|负责|"
+            r"任职要求|任职资格|岗位要求|基本要求|要求|"
+            r"responsibilities?|qualifications?|requirements?)\s*"
+        )
+        content = re.sub(header_pattern, "", line, count=1, flags=re.IGNORECASE).strip(" -•\t")
+        if content != line.strip(" -•\t"):
+            return content
         return ""
 
     def _keyword_phrases(self, text: str) -> list[str]:

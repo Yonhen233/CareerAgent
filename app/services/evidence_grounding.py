@@ -77,7 +77,9 @@ TERM_ALIASES: dict[str, tuple[str, ...]] = {
     "model evaluation": ("evaluation", "模型评测", "模型评估", "评测", "评估"),
     "a b testing": (
         "a/b test",
+        "a/b tests",
         "ab testing",
+        "ab tests",
         "a b testing",
         "a/b实验",
         "a/b 实验",
@@ -272,7 +274,7 @@ class EvidenceGroundingService:
             if not citation:
                 continue
             best = max((self.support_score(citation, source) for source in source_texts), default=0.0)
-            positive = any(self.has_positive_support(citation, source) for source in source_texts)
+            positive = self._citation_has_positive_passage(citation, source_texts, threshold=threshold)
             supported = best >= threshold and (positive or not require_positive)
             results.append(
                 {
@@ -290,6 +292,32 @@ class EvidenceGroundingService:
             "unsupported_citations": [item for item in results if not item["supported"]],
             "results": results,
         }
+
+    def _citation_has_positive_passage(
+        self,
+        citation: str,
+        sources: list[str],
+        *,
+        threshold: float,
+    ) -> bool:
+        lowered_citation = citation.lower()
+        if any(cue in lowered_citation for cue in NEGATIVE_OR_WEAK_CUES):
+            return False
+        for source in sources:
+            sentences = self.sentences(source)
+            passages = list(sentences)
+            for window_size in (2, 3):
+                passages.extend(
+                    " ".join(sentences[index : index + window_size])
+                    for index in range(0, max(len(sentences) - window_size + 1, 0))
+                )
+            for passage in passages:
+                if self.support_score(citation, passage) < threshold:
+                    continue
+                lowered_passage = passage.lower()
+                if not any(cue in lowered_passage for cue in NEGATIVE_OR_WEAK_CUES):
+                    return True
+        return False
 
     def evaluate_fit_gaps(
         self,
@@ -412,7 +440,8 @@ class EvidenceGroundingService:
         for sentence in self.sentences(source):
             sentence_normalized = self.normalize(sentence)
             if not any(
-                candidate in sentence_normalized or self.support_score(candidate, sentence) >= 0.78
+                self._candidate_in_normalized_text(candidate, sentence_normalized)
+                or self.support_score(candidate, sentence) >= 0.78
                 for candidate in candidates
             ):
                 continue
@@ -424,17 +453,34 @@ class EvidenceGroundingService:
     def value_supported(self, value: str, source: str) -> bool:
         source_normalized = self.normalize(source)
         return any(
-            candidate in source_normalized or self.support_score(candidate, source) >= 0.78
+            self._candidate_in_normalized_text(candidate, source_normalized)
+            or self.support_score(candidate, source) >= 0.78
             for candidate in self._term_candidates(value)
             if candidate
         )
+
+    @staticmethod
+    def _candidate_in_normalized_text(candidate: str, normalized_text: str) -> bool:
+        if not candidate:
+            return False
+        if re.search(r"[a-z0-9]", candidate):
+            pattern = re.escape(candidate).replace(r"\ ", r"\s+")
+            return (
+                re.search(
+                    rf"(?<![a-z0-9]){pattern}(?![a-z0-9])",
+                    normalized_text,
+                    flags=re.IGNORECASE,
+                )
+                is not None
+            )
+        return candidate in normalized_text
 
     def support_score(self, claim: str, source: str) -> float:
         normalized_claim = self.normalize(claim)
         normalized_source = self.normalize(source)
         if not normalized_claim or not normalized_source:
             return 0.0
-        if normalized_claim in normalized_source:
+        if self._candidate_in_normalized_text(normalized_claim, normalized_source):
             return 1.0
         claim_tokens = {
             clean
@@ -446,6 +492,12 @@ class EvidenceGroundingService:
             for token in tokenize(normalized_source)
             if len(clean := token.strip(".")) > 1
         }
+        if re.fullmatch(r"[a-z0-9+#.]{2,24}", normalized_claim):
+            token_similarity = max(
+                (SequenceMatcher(None, normalized_claim, token).ratio() for token in source_tokens),
+                default=0.0,
+            )
+            return round(token_similarity, 4)
         token_overlap = len(claim_tokens & source_tokens) / max(len(claim_tokens), 1)
         longest = SequenceMatcher(None, normalized_claim, normalized_source).find_longest_match()
         sequence_coverage = longest.size / max(len(normalized_claim), 1)
