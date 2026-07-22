@@ -3,7 +3,7 @@ import json
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.llm import LLMClient
+from app.core.llm import LLMClient, llm_trace_context
 from app.core.llm import LLMConfigurationError
 from app.models.entities import Application, Job, Profile, ResumeVersion
 from app.services.application_guardrails import ApplicationPacketGuardrail
@@ -24,7 +24,7 @@ class ApplicationService:
         resume_version: ResumeVersion | None,
         browser_assist: bool = False,
     ) -> Application:
-        cover_letter = await self._cover_letter(profile, job, resume_version)
+        cover_letter = await self._cover_letter(db, profile, job, resume_version)
         outreach = await self._outreach_message(profile, job)
         checklist = [
             "确认目标岗位和投递链接",
@@ -68,7 +68,13 @@ class ApplicationService:
         db.refresh(application)
         return application
 
-    async def _cover_letter(self, profile: Profile, job: Job, resume_version: ResumeVersion | None) -> str:
+    async def _cover_letter(
+        self,
+        db: Session,
+        profile: Profile,
+        job: Job,
+        resume_version: ResumeVersion | None,
+    ) -> str:
         fallback = self._fallback_cover_letter(profile, job, resume_version)
         if not self.llm.available:
             if not self.settings.llm_fallback_enabled:
@@ -93,7 +99,19 @@ Resume version:
 {resume_version.tailored_resume_markdown if resume_version else ""}
 """
         try:
-            return await self.llm.generate_text(system_prompt=system_prompt, user_prompt=user_prompt, temperature=0.25)
+            with llm_trace_context(
+                workflow="application_packet",
+                stage="cover_letter",
+                profile_id=profile.id,
+                job_id=job.id,
+            ):
+                return await self.llm.generate_text(
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    temperature=0.25,
+                    db=db,
+                    trace_name="application.cover_letter",
+                )
         except Exception:
             if not self.settings.llm_fallback_enabled:
                 raise

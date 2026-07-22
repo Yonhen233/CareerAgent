@@ -790,6 +790,24 @@ POST /evaluations/llm-workflow
 
 运行配置：`LLM_BASE_URL=https://api.deepseek.com`、`LLM_MODEL=deepseek-v4-pro`、`LLM_THINKING_MODE=auto`、`LLM_FALLBACK_ENABLED=false`。本次 run 关联 LLM 调用 68 次，68 次完成，0 次失败，1 次 repair；trace 文件为 `data/runtime/llm_workflow_trace_deepseek_v4_full_rerun.jsonl`。
 
+### DeepSeek V4 Flash 有限全链路替换实验
+
+2026-07-22 使用 `deepseek-v4-flash` 进行分层真实验证。该结果用于判断模型路由，不替代上面的 18-case Pro 发布基线。
+
+| 能力 | 真实样例结果 | 结论 |
+| --- | --- | --- |
+| 简历/JD 解析、RAG、适配判断 | strong/partial/weak 三个 case 全通过，预测分别为 strong_fit=92、partial_fit=65、weak_fit=20 | 可用。 |
+| 定制简历与 Guardrail | 两个需要定制的 case 均通过，禁止 claim 与幻觉计数为 0 | 可用。 |
+| PDF 建档 | 姓名、11 个技能、项目与 1,203 字原文落库 | 可用。 |
+| 自然语言入口 | 修复显式否定优先级后，“不要定制/搜索/投递”只执行建档 | 可用，但必须保留确定性权限约束。 |
+| 简历评分建议 | 模型生成 5 条建议，但全部未满足简历原文 grounding 契约；系统拒绝后发布 3 条安全建议 | 安全但可用性不足。 |
+| 投递材料与人工审批 | LangGraph interrupt、确认恢复、packet validation 和 LLM trace 均通过 | 可用。 |
+| 面试 Agentic RAG | 两次均未通过发布：第一次超 Prompt 预算，第二次被证据 verifier 拒绝 | 不可直接替换 Pro。 |
+
+可追踪调用共 34 条，输入 75,229、输出 20,967、合计 96,196 tokens；其中面试两次失败使用 71,205 tokens。第二次面试在 claims 状态压缩后为 35,173 tokens、约 77.2 秒；对照 Pro 成功基线为 30,478 tokens、83.07 秒，因此 Flash 没有获得端到端成本优势，且输出质量未达到发布要求。
+
+本实验修复了最终 Top5 只保留来源配额、不保留第一阶段检索通道头部的问题。架构题离线重放后，BM25 排名第一的项目事实卡能和 reranker 首位文档同时进入 Top5。该检索修复尚未进行第三次付费 Flash 面试重跑，因此当前发布结论仍是：保留 Pro 默认模型，后续通过显式 workflow 路由将 Flash 用于低风险、短上下文节点。
+
 最新全量分桶结果：
 
 | 难度 | Case 数 | 完成率 | 端到端通过率 | Fit 标签准确率 | Fit 分数区间命中 | Tailor 通过率 |

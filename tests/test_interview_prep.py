@@ -343,9 +343,11 @@ class OnePrunableClaimLLM(FakeAgenticInterviewLLM):
             for item in items
         }
         for answer in payload["answers"]:
-            answer["claims"].append(
+            answer["claims"][0]["text"] += "所有边界都以当前可追溯证据为准。"
+            answer["claims"].insert(
+                2,
                 {
-                    "text": "这条故意构造的额外说法会被独立 verifier 拒绝，但不应导致其余三条已支持事实被整题重写。",
+                    "text": "这条故意构造的额外说法会被独立 verifier 拒绝，但不应导致其余已支持事实被整题重写。",
                     "claim_type": "answer_strategy",
                     "evidence_ids": [evidence_by_question[answer["question_id"]]],
                 }
@@ -360,7 +362,7 @@ class OnePrunableClaimLLM(FakeAgenticInterviewLLM):
         rejected_questions = set()
         for verdict in payload["verdicts"]:
             question_id = verdict["question_id"]
-            if question_id in rejected_questions or verdict["claim_index"] != 3:
+            if question_id in rejected_questions or verdict["claim_index"] != 2:
                 continue
             verdict.update(
                 {
@@ -497,7 +499,7 @@ def test_interview_prunes_one_bad_claim_without_rewriting_complete_answers(db_se
     assert not any("repair" in item["trace_name"] for item in llm.calls)
     assert prep.summary_json["agentic_rag"]["repair_attempts"] == 0
     assert prep.summary_json["agentic_rag"]["verification_warning_count"] == len(questions)
-    assert all(len(question["claims"]) == 3 for question in questions)
+    assert all(len(question["claims"]) == 2 for question in questions)
 
 
 def test_interview_claim_error_is_prunable_when_any_verified_claim_survives():
@@ -609,6 +611,26 @@ def test_answer_repair_merges_new_claims_with_verified_claims_without_duplicates
         "answer_strategy",
         "technical_explanation",
     ]
+
+
+def test_interview_answer_normalization_caps_claim_state_for_verifier_budget():
+    service = InterviewAgenticRAGService(llm=FakeAgenticInterviewLLM())
+    answer = service._normalize_answer(
+        {
+            "question_id": "q1",
+            "claims": [
+                {
+                    "text": f"第 {index} 条有证据支持的回答内容",
+                    "claim_type": "technical_explanation",
+                    "evidence_ids": ["E1"],
+                }
+                for index in range(5)
+            ],
+        },
+        evidence_aliases={"E1": "technical:agent"},
+    )
+
+    assert len(answer["claims"]) == 3
 
 
 def test_composer_accepts_two_verified_sections_when_answer_is_substantive():
@@ -1758,6 +1780,42 @@ def test_interview_project_plan_reserves_multiple_project_evidence_slots(db_sess
         "job": 1,
         "technical_knowledge": 1,
     }
+
+
+def test_interview_final_top_k_preserves_project_bm25_anchor_after_reranking():
+    service = InterviewAgenticRAGService(llm=FakeAgenticInterviewLLM())
+    ranked = [
+        {
+            "evidence_id": "project:generic-reranker-winner",
+            "source_type": "project_document",
+            "retrieval_rank": 1,
+            "metadata": {"retrieval": {"channel_ranks": {"bm25": 11, "vector": 3, "exact": 2}}},
+        },
+        {
+            "evidence_id": "project:architecture-bm25-head",
+            "source_type": "project_document",
+            "retrieval_rank": 9,
+            "metadata": {"retrieval": {"channel_ranks": {"bm25": 1, "vector": 7, "exact": 12}}},
+        },
+        {
+            "evidence_id": "project:evaluation-noise",
+            "source_type": "project_document",
+            "retrieval_rank": 2,
+            "metadata": {"retrieval": {"channel_ranks": {"bm25": 8, "vector": 4, "exact": 3}}},
+        },
+    ]
+
+    selected = service._source_diverse_top_k(
+        ranked,
+        target_sources=["project_document"],
+        source_quotas={"project_document": 2},
+        top_k=2,
+    )
+
+    assert [item["evidence_id"] for item in selected] == [
+        "project:generic-reranker-winner",
+        "project:architecture-bm25-head",
+    ]
 
 
 def test_source_backed_interview_plan_combines_interview_project_and_technical_evidence(db_session):

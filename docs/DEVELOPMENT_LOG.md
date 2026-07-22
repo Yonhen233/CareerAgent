@@ -1,5 +1,44 @@
 # 开发日志
 
+## 2026-07-22 09:24:59 +08:00：完成 DeepSeek V4 Flash 全链路替换实验，确认不能直接全局替换 Pro
+### 本轮目标与测试边界
+- 用户要求把真实 LLM 测试模型统一替换为 `deepseek-v4-flash`，验证简历解析、JD 解析、岗位匹配、简历定制、自然语言入口、简历评估、投递审批和面试准备是否仍能实际运行。测试使用 DeepSeek 官方 OpenAI-compatible 接口，`LLM_FALLBACK_ENABLED=false`，任何模型、Schema、预算或发布门禁失败均直接记录错误，没有静默降级。
+- `/models` 只用于确认账号可访问 `deepseek-v4-flash`；真实生成调用均写入 `llm_call_logs`。本轮日志 `#1254-#1287` 共 34 条，全部标记为 `deepseek-v4-flash`，其中 33 条收到供应商响应，1 条在发 HTTP 前被本地预算拒绝。
+- 本轮采用分层样例而不是再次盲跑 18-case：先跑 strong/partial/weak 三种适配边界，再覆盖 PDF 建档、简历评估、自然语言规划、LangGraph interrupt/审批/恢复、投递材料和最复杂的面试 Agentic RAG。这样可以沿 trace 暴露问题，并控制余额损耗。
+
+### 真实结果与成本
+| 链路 | 真实结果 | 可追踪 Token / 耗时 | 结论 |
+| --- | --- | ---: | --- |
+| LLM workflow strong case，评测 `#51` | strong_fit=92；解析、RAG、定制、Guardrail 全通过 | 6,102 tokens；进程约 55.8 秒 | 通过。 |
+| LLM workflow partial + weak，评测 `#52` | partial_fit=65、weak_fit=20；需要定制的 case 通过，不适合岗位未错误定制 | 7,821 tokens；两 case 约 57.6 秒 | 通过。 |
+| PDF 上传建档 | Profile `#163`，姓名、11 个技能、项目及 1,203 字原文落库 | parser 1,104 tokens | 通过；HTTP 响应不回传整份原文是接口边界，不是解析丢失。 |
+| 简历评分与建议 | 评分 78.9，LLM/RAG 均参与；初次 5 条建议含把 JD 责任写成候选人成果的风险 | 两轮日志 7,521 tokens | 安全门禁修复后通过，但 Flash 的 5 条 LLM 改写全部未满足证据契约，最终只发布 3 条安全建议。 |
+| 自然语言入口 | “只建档，不搜索、不要定制、不要投递”最初仍规划 `tailor_resume` | 两轮日志 1,620 tokens | 修复否定约束后只执行 `create_profile`。 |
+| 投递材料 + LangGraph 审批 | Agent run `#194` 先 interrupt，用户确认后恢复完成；Application `#23/#24` 均为 ready，packet validation 通过 | 已补 trace 的复测 823 tokens；run `#194` 4.53 秒 | 通过；只生成材料，不执行外部提交。 |
+| 面试准备尝试一 | 8 次供应商调用完成，repair 后复核在 HTTP 前超过 85,000 Prompt 字符预算 | 36,032 tokens；约 93.5 秒 | 失败，未落库。 |
+| 面试准备尝试二 | 状态压缩后不再超预算，但架构题 3 条 claim 均无足够项目事实支撑，被 verifier 和发布门禁拒绝 | 35,173 tokens；约 77.2 秒 | 失败，未落库。 |
+- 三个核心适配 case 共 11 次调用、13,923 tokens，strong/partial/weak 标签准确率、解析成功率、RAG evidence hit、定制与 Guardrail 通过率均为 1.0。
+- 本轮 `#1254-#1287` 的供应商 usage 为输入 75,229、输出 20,967、合计 96,196 tokens，provider latency 累计 204.456 秒。这是可追踪下限：第一次投递信调用发生在 trace 参数补齐前，供应商用量未知，不能伪装成 0。
+- 对照既有 Pro 成功基线：面试包 `#47` 使用 30,478 tokens、83.07 秒并通过发布。Flash 第二次用 35,173 tokens、77.2 秒仍失败，Token 增加约 15.4%，墙钟时间只快约 7%，没有形成可接受的成本或速度优势。
+
+### 真实测试暴露的系统问题
+- **否定意图被关键词命中覆盖。** `_text_wants_tailor()` 看见“不要定制简历”中的“定制简历”就返回真。修复不是为一句话增加特殊流程，而是在确定性策略层先应用用户的显式禁止约束，再归一化 LLM plan；回归验证不再执行被否定动作。
+- **JD 证据被误当作候选人经历。** Flash 在简历建议中把岗位要求的“评估管线、工具调用精度、错误恢复率”改写成候选人已完成成果。简历评估 Schema 现在区分 `rewrite_supported`、`collect_evidence`、`structure_only`，事实改写必须给出简历原文 `source_quote` 并通过词项/连续片段 grounding；JD 只能说明缺口，不能证明经历。修复后这 5 条高风险建议全部被拒绝，系统发布安全的独立建议而不污染简历正文。
+- **投递信是 Token 观测盲点。** `ApplicationService._cover_letter()` 调用了 LLM，但没有传入 DB 和 trace context，导致第一次真实调用无法统计。现在记录 `workflow=application_packet`、stage、profile/job 和 `application.cover_letter`，复测 usage 完整入库。
+- **面试答案状态过大。** Flash 倾向生成更长、更松散的 claims，触发两批 repair 和复核。生成契约收紧为每题 3 条 35-100 字 claim，repair 只补 1-2 条，合并状态最多 4 条，verifier 输入只保留前 3 条；第二次工作流由预算失败推进到语义门禁阶段，证明压缩有效，但不等于质量已经达标。
+- **最终 Top5 丢失第一阶段正确证据。** 架构事实卡在 BM25 项目文档通道排名第 1，但经过中文 lexical reranker 后降到全局第 11；最终选择只执行来源配额，两个项目文档名额都被泛化的架构策略/评测文档占用。修复后同一来源有多个名额时同时保留“重排首位”和 BM25/Vector/Exact 通道锚点，不为“系统架构”写硬编码关键词。
+
+### 修复后的验证证据
+- 使用真实 profile `#159`、job `#218` 离线重放同一道“Agent 系统架构、数据流和组件交互”检索：Top5 现在包含 `docs/interview/CAREER_AGENT_PROJECT_EVIDENCE.md:1`，正文明确给出 `FastAPI -> LangGraph -> Tool/Service -> SQLite/向量索引` 与 Redis worker 数据流；同时保留简历、JD 和通用技术证据。
+- 新增回归构造“reranker 泛化文档分高、BM25 架构事实命中更准”的噪声场景，验证最终两个项目证据名额同时保留 reranker winner 与 BM25 anchor。
+- 自然语言显式否定、投递 LLM trace、简历非数字幻觉、面试 claim 状态上限和最终检索锚点均有测试覆盖；完整离线回归 `208 passed in 93.79s`。
+- 没有进行第三次付费面试重跑。两次 Flash 面试已经消耗 71,205 tokens 并稳定暴露同一类高风险语义问题；检索修复已离线证明，但在新的真实运行通过前，不能宣称 Flash 面试链路已修复。
+
+### 结论与下一步
+- **不能把生产全链路默认模型直接从 Pro 改为 Flash。** Flash 已证明适合结构化解析、岗位适配判断、简历定制、自然语言规划和简短投递材料；当前面试 Agentic RAG 的长上下文生成、claim 类型遵循和证据约束明显弱于 Pro。
+- 保留默认 `deepseek-v4-pro`。下一步应实现按 workflow/trace 的显式模型路由：解析、fit judge、普通文案可选择 Flash；面试答案生成、verifier/repair 先保留 Pro。路由必须写入 trace，并用固定 case 比较成功率、支持性误放率、Token 和 P95，不能只按价格切换。
+- 简历建议的 Flash 接受率本轮为 0/5，说明当前严格门禁保证了安全，但可用性仍不足。后续应单独建立“建议类型 + source quote”评测集，判断是 Prompt 契约过严还是 Flash grounding 能力不足，再决定是否让该节点继续使用 Flash。
+
 ## 2026-07-22 08:33:24 +08:00：修复 Token 控制台单栏挤压，并完成无 LLM 的运维链路优化
 ### 用户或系统看到了什么异常
 - 控制台的“LLM Token 用量”只有约一百像素宽，标题、指标名称和数字逐字换行并互相挤压，已经无法读取。截图同时说明这不是 Token 数据错误，而是整块面板没有占满页面。

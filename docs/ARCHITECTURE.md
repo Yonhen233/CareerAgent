@@ -82,7 +82,7 @@ flowchart LR
 - JD 不能证明候选人做过，面经不能证明公司固定题库，技术知识不能证明候选人经历，项目文档不能单独证明候选人所有权。
 - 默认只生成 10 题，正常路径固定为 6 次 LLM 调用：题目生成 1 次、Claims 生成 2 批、Claims 验证 3 批；不再为每题单独规划或验证。
 - verifier 按最多 4 题一批组织 Prompt，每题 Top5 evidence 只出现一次，同时校验 claim 支持性和整题回答相关性；保留完整 Top5 以支持 citation rebinding。真实 DeepSeek 测试证明 5 题一批加入 answer check 后会撞到 1,800 completion 上限，因此不能继续沿用旧批次。
-- Top20 第一阶段与最终 Top5 都按 `source_perspective` 执行来源配额，并保留各来源 Exact、BM25、Vector 通道的头部候选。项目题同时检索简历、项目事实、JD 和技术知识；面经题同时保留面经、简历、JD、项目与技术证据，避免只有问题线索而没有可回答原理。
+- Top20 第一阶段与最终 Top5 都按 `source_perspective` 执行来源配额。第一阶段保留各来源 Exact、BM25、Vector 通道头部；最终同一来源有多个名额时同时保留 reranker 首位和 BM25/Vector/Exact 通道锚点，避免正确事实已进入 Top20 却被二阶段排序全部挤出。项目题同时检索简历、项目事实、JD 和技术知识；面经题同时保留面经、简历、JD、项目与技术证据，避免只有问题线索而没有可回答原理。
 - 默认 `ms-marco` cross-encoder 只处理英文 query；中文 query 使用双/三字 n-gram lexical reranker。真实 bad case 证明英文模型会把“Agent”词频高的评测文档排到中文架构证据前，按语言能力路由比继续使用不匹配模型更可靠，也显著降低本地 CPU 延迟。
 - 生成与 verifier 使用每条最多 360 字的完整短语义段。`docs/interview/CAREER_AGENT_PROJECT_EVIDENCE.md` 保存经过代码与架构文档核对的 Agent 位置、数据流、选型和 Trace 事实；它只能证明仓库实现，候选人归属仍需同时引用简历。
 - LLM 生成自然、按回答顺序排列的 claims；服务端只用已验证 claims 组合正文，因此无需 renderer 和 coverage judge 再次调用模型。repair 保留上一轮已验证 claims，只补缺口；单条 unsupported claim 会被剪除并记录 warning，整题是否通过继续由相关性、最短正文和引用门禁决定。

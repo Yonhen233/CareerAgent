@@ -673,6 +673,13 @@ query={request.query}
                 normalized["actions"].append("tailor_resume")
             if self._text_wants_interview(request.instruction) and "interview_prep" not in normalized["actions"]:
                 normalized["actions"].append("interview_prep")
+        if self._forbids_tailor(request.instruction):
+            normalized["actions"] = [
+                action for action in normalized["actions"] if action != "tailor_resume"
+            ]
+            if normalized["intent"] == "tailor_resume":
+                normalized["intent"] = "create_profile"
+                normalized["needs_job"] = False
         if request.jd_text:
             normalized["job"] = {**(normalized["job"] or {}), "jd_text": request.jd_text}
         return normalized
@@ -738,8 +745,26 @@ query={request.query}
         return any(marker in text for marker in negative_markers)
 
     def _text_wants_tailor(self, instruction: str) -> bool:
+        if self._forbids_tailor(instruction):
+            return False
         text = instruction.lower()
         return any(word in text for word in ["改简历", "修改简历", "优化简历", "定制简历", "tailor resume"])
+
+    def _forbids_tailor(self, instruction: str) -> bool:
+        text = instruction.lower()
+        negative_markers = [
+            "不要改简历",
+            "不改简历",
+            "无需改简历",
+            "不用改简历",
+            "不要修改简历",
+            "不要优化简历",
+            "不要定制简历",
+            "不定制简历",
+            "don't tailor",
+            "do not tailor",
+        ]
+        return any(marker in text for marker in negative_markers)
 
     def _text_wants_interview(self, instruction: str) -> bool:
         text = instruction.lower()

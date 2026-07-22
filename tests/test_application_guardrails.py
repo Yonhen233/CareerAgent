@@ -136,7 +136,7 @@ def test_application_service_fails_when_llm_fabricates_claims(db_session, monkey
     db_session.refresh(job)
     service = ApplicationService()
 
-    async def fabricated_cover_letter(profile, job, resume_version):
+    async def fabricated_cover_letter(db, profile, job, resume_version):
         return "您好，我希望申请 MLWorks 的机器学习平台实习生。我熟悉 MLflow 和 Kubernetes，并有平台落地经验。"
 
     monkeypatch.setattr(service, "_cover_letter", fabricated_cover_letter)

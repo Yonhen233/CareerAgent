@@ -59,6 +59,28 @@ def test_natural_language_agent_creates_profile_from_user_description(db_session
     assert "graph_node_completed" in event_types
 
 
+def test_natural_language_plan_respects_explicit_no_tailor_constraint():
+    service = NaturalLanguageAgentService()
+    request = NaturalLanguageAgentRequest(
+        instruction="只建立简历档案，不要搜索岗位、不要定制简历、不要投递。",
+        selected_actions=["create_profile"],
+    )
+
+    plan = service._normalize_plan(
+        {
+            "intent": "create_profile",
+            "actions": ["create_profile", "tailor_resume", "quick_apply"],
+            "needs_profile": False,
+            "needs_job": True,
+        },
+        request,
+    )
+
+    assert plan["intent"] == "create_profile"
+    assert plan["actions"] == ["create_profile"]
+    assert plan["needs_job"] is False
+
+
 def test_natural_language_agent_repairs_missing_job_plan(db_session, monkeypatch):
     service = NaturalLanguageAgentService()
 

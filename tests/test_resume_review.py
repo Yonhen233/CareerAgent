@@ -108,6 +108,8 @@ def test_resume_review_rejects_llm_suggestions_with_unsupported_numbers(db_sessi
                     {
                         "priority": "high",
                         "section": "项目经历",
+                        "suggestion_type": "rewrite_supported",
+                        "source_quote": "构建 120 条噪声评测样本，统计 recall、false positive rate 和端到端耗时。",
                         "problem": "指标不够具体",
                         "advice": "改成在 500 份简历上达到 92% 召回率。",
                         "example_rewrite": "处理 500 份简历，Top-5 召回率达到 92%。",
@@ -115,6 +117,8 @@ def test_resume_review_rejects_llm_suggestions_with_unsupported_numbers(db_sessi
                     {
                         "priority": "medium",
                         "section": "项目经历",
+                        "suggestion_type": "rewrite_supported",
+                        "source_quote": "构建 120 条噪声评测样本，统计 recall、false positive rate 和端到端耗时。",
                         "problem": "现有证据没有前置",
                         "advice": "把原简历已有的 120 条评测样本放到第一条。",
                         "example_rewrite": "构建 120 条噪声评测样本并统计召回率与误报率。",
@@ -136,6 +140,39 @@ def test_resume_review_rejects_llm_suggestions_with_unsupported_numbers(db_sessi
             "section": "项目经历",
         }
     ]
+
+
+def test_resume_review_rejects_ungrounded_llm_rewrite_without_numeric_claims(db_session):
+    profile = _profile()
+    db_session.add(profile)
+    db_session.commit()
+    db_session.refresh(profile)
+    service = ResumeReviewService()
+
+    class FakeLLM:
+        available = True
+
+        async def generate_json(self, **_kwargs):
+            return {
+                "strengths": [],
+                "suggestions": [
+                    {
+                        "priority": "high",
+                        "section": "项目经历",
+                        "suggestion_type": "rewrite_supported",
+                        "source_quote": "CareerAgent 项目实现 PDF Chunk、SQLite RAG、LangGraph workflow 和 LLM trace。",
+                        "problem": "没有覆盖岗位职责",
+                        "advice": "补充工具调用精度和错误恢复率。",
+                        "example_rewrite": "构建 Agent 评估管线，评估工具参数准确性和错误恢复能力。",
+                    }
+                ],
+            }
+
+    service.llm = FakeLLM()
+    review = asyncio.run(service.review_profile(db_session, profile=profile, include_llm=True))
+
+    assert "工具参数准确性" not in str(review["suggestions"])
+    assert review["trace"]["llm_rejected_suggestions"][0]["reason"] == "insufficient_evidence_overlap"
 
 
 def test_deterministic_review_examples_only_use_profile_skills(db_session):

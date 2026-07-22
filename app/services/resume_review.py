@@ -1,5 +1,6 @@
 import json
 import re
+from difflib import SequenceMatcher
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -9,7 +10,7 @@ from app.core.llm import LLMClient, format_exception
 from app.models.entities import Job, Profile, ResumeChunk
 from app.services.matcher import MatcherService
 from app.services.text_splitter import ResumeTextSplitter
-from app.services.vector_index import SQLiteVectorIndex
+from app.services.vector_index import SQLiteVectorIndex, tokenize
 
 
 METRIC_RE = re.compile(
@@ -166,12 +167,20 @@ class ResumeReviewService:
                         {
                             "priority": "high|medium|low",
                             "section": "建议修改的栏目",
+                            "suggestion_type": "rewrite_supported|collect_evidence|structure_only",
+                            "source_quote": "rewrite_supported 时必须逐字引用简历原文；其他类型为空字符串",
                             "problem": "当前问题",
                             "advice": "具体怎么改",
-                            "example_rewrite": "可直接参考的中文 bullet，不得编造新事实",
+                            "example_rewrite": "仅 rewrite_supported 可填写；只能改写 source_quote，不得加入 JD 中有但简历中没有的经历",
                         }
                     ],
                 },
+                "grounding_rules": [
+                    "JD 只用于判断缺口，不能证明候选人做过某件事。",
+                    "已有事实可以用 rewrite_supported，并提供简历中的逐字 source_quote。",
+                    "缺少证据的 JD 要求必须用 collect_evidence，example_rewrite 必须为空，只提示用户补充真实证据。",
+                    "仅调整顺序、栏目或篇幅时使用 structure_only，example_rewrite 必须为空。",
+                ],
             },
             ensure_ascii=False,
         )
@@ -213,6 +222,7 @@ class ResumeReviewService:
         source_text: str,
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         source_numbers = set(re.findall(r"\d+(?:\.\d+)?", source_text))
+        normalized_source = self._normalize_evidence_text(source_text)
         accepted: list[dict[str, Any]] = []
         rejected: list[dict[str, Any]] = []
         for raw in suggestions:
@@ -233,8 +243,58 @@ class ResumeReviewService:
                     }
                 )
                 continue
+            suggestion_type = str(raw.get("suggestion_type") or "").strip()
+            source_quote = str(raw.get("source_quote") or "").strip()
+            example_rewrite = str(raw.get("example_rewrite") or "").strip()
+            if suggestion_type == "rewrite_supported":
+                normalized_quote = self._normalize_evidence_text(source_quote)
+                if len(normalized_quote) < 8 or normalized_quote not in normalized_source:
+                    rejected.append(
+                        {
+                            "reason": "unsupported_evidence_quote",
+                            "section": str(raw.get("section") or "简历"),
+                        }
+                    )
+                    continue
+                grounding_score = self._rewrite_grounding_score(example_rewrite, source_quote)
+                if not example_rewrite or grounding_score < 0.5:
+                    rejected.append(
+                        {
+                            "reason": "insufficient_evidence_overlap",
+                            "grounding_score": grounding_score,
+                            "section": str(raw.get("section") or "简历"),
+                        }
+                    )
+                    continue
+            elif suggestion_type in {"collect_evidence", "structure_only"}:
+                raw = {**raw, "source_quote": "", "example_rewrite": ""}
+            else:
+                rejected.append(
+                    {
+                        "reason": "invalid_suggestion_type",
+                        "section": str(raw.get("section") or "简历"),
+                    }
+                )
+                continue
             accepted.append(raw)
         return accepted, rejected
+
+    @staticmethod
+    def _normalize_evidence_text(value: str) -> str:
+        return re.sub(r"\s+", " ", str(value or "")).strip().lower()
+
+    @staticmethod
+    def _rewrite_grounding_score(example_rewrite: str, source_quote: str) -> float:
+        example_tokens = {token for token in tokenize(example_rewrite) if len(token) > 1}
+        if not example_tokens:
+            return 0.0
+        quote_tokens = {token for token in tokenize(source_quote) if len(token) > 1}
+        token_overlap = len(example_tokens & quote_tokens) / len(example_tokens)
+        normalized_example = ResumeReviewService._normalize_evidence_text(example_rewrite)
+        normalized_quote = ResumeReviewService._normalize_evidence_text(source_quote)
+        longest_match = SequenceMatcher(None, normalized_example, normalized_quote).find_longest_match()
+        character_coverage = longest_match.size / max(len(normalized_example), 1)
+        return round(max(token_overlap, character_coverage), 4)
 
     def _profile_text(self, profile: Profile, profile_data: dict[str, Any]) -> str:
         parts = [profile.raw_resume_text or "", profile.headline or ""]
