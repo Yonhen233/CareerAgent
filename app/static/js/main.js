@@ -2649,8 +2649,13 @@ function readDismissedRunIds() {
 }
 
 function rememberDismissedRun(runId) {
-  const ids = Array.from(readDismissedRunIds()).filter((id) => id !== Number(runId));
-  ids.push(Number(runId));
+  rememberDismissedRuns([runId]);
+}
+
+function rememberDismissedRuns(runIds) {
+  const dismissedNow = new Set((runIds || []).map((id) => Number(id)).filter(Boolean));
+  const ids = Array.from(readDismissedRunIds()).filter((id) => !dismissedNow.has(id));
+  ids.push(...dismissedNow);
   window.localStorage?.setItem(DISMISSED_RUN_KEY, JSON.stringify(ids.slice(-50)));
 }
 
@@ -2737,6 +2742,16 @@ function dismissActiveRun(runId) {
   void restoreActiveRuns();
 }
 
+function dismissFinishedActiveRuns() {
+  const rows = readActiveRuns();
+  const finishedRows = rows.filter((row) => ACTIVE_RUN_TERMINAL_STATUSES.has(row.status || ""));
+  if (!finishedRows.length) return;
+  rememberDismissedRuns(finishedRows.map((row) => row.run_id || row.id));
+  writeActiveRuns(rows.filter((row) => !ACTIVE_RUN_TERMINAL_STATUSES.has(row.status || "")));
+  toast(`已忽略 ${finishedRows.length} 条已结束流程，可在历史记录中继续查看`);
+  void restoreActiveRuns();
+}
+
 function activeRunStatusLabel(status) {
   const labels = {
     queued: "排队中",
@@ -2771,26 +2786,37 @@ function renderActiveRunMonitor(rows) {
     return Number(right.run_id || 0) - Number(left.run_id || 0);
   });
   const activeRows = orderedRows.filter((row) => !ACTIVE_RUN_TERMINAL_STATUSES.has(row.status || ""));
-  const displayRows = activeRows.length ? activeRows : orderedRows.slice(0, 1);
+  const finishedRows = orderedRows.filter((row) => ACTIVE_RUN_TERMINAL_STATUSES.has(row.status || ""));
+  const displayRows = orderedRows;
   if (!displayRows.length) {
     el.hidden = true;
     el.innerHTML = "";
     return;
   }
   el.hidden = false;
-  const visibleRows = displayRows.slice(0, 3);
+  const visibleRows = displayRows;
   const hasRunning = activeRows.some((row) => ["queued", "running"].includes(row.status));
   const waitingCount = activeRows.filter((row) => row.status === "waiting_for_confirmation").length;
   const collapsedPreference = window.localStorage?.getItem(ACTIVE_RUN_COLLAPSED_KEY);
   const collapsed = collapsedPreference === null
-    ? displayRows.length > 1
+    ? false
     : collapsedPreference === "1";
+  const monitorTitle = activeRows.length
+    ? (finishedRows.length ? "求职流程状态" : "正在处理的求职流程")
+    : "最近完成的求职流程";
+  const statusSummary = waitingCount
+    ? `${waitingCount} 个待确认`
+    : hasRunning
+      ? `${activeRows.length} 个进行中`
+      : finishedRows.length > 1
+        ? `${finishedRows.length} 条记录`
+        : activeRunStatusLabel(visibleRows[0].status);
   el.classList.toggle("collapsed", collapsed);
   el.innerHTML = `
     <div class="active-run-title">
-      <span>${activeRows.length ? "正在处理的求职流程" : "最近完成的求职流程"}</span>
+      <span>${monitorTitle}</span>
       <span class="active-run-title-actions">
-        <span class="status-pill ${waitingCount ? "risk" : "ok"}">${waitingCount ? `${waitingCount} 个待确认` : hasRunning ? `${activeRows.length} 个进行中` : escapeHtml(activeRunStatusLabel(visibleRows[0].status))}</span>
+        <span class="status-pill ${waitingCount ? "risk" : "ok"}">${escapeHtml(statusSummary)}</span>
         <button class="icon-button" type="button" title="${collapsed ? "展开流程状态" : "收起流程状态"}" data-toggle-active-runs>
           <i data-lucide="${collapsed ? "chevron-up" : "chevron-down"}"></i>
         </button>
@@ -2811,9 +2837,13 @@ function renderActiveRunMonitor(rows) {
         </div>
       `).join("")}
     </div>
-    ${displayRows.length > visibleRows.length ? `<a class="active-run-more" href="/ui/agent-runs">还有 ${displayRows.length - visibleRows.length} 个进行中的流程</a>` : ""}
     <div class="active-run-footer">
       <a href="/ui/agent-runs"><i data-lucide="history"></i> 查看全部历史记录</a>
+      ${finishedRows.length ? `
+        <button type="button" data-dismiss-finished-runs>
+          <i data-lucide="eye-off"></i> ${activeRows.length ? "忽略全部已结束" : "全部忽略"}
+        </button>
+      ` : ""}
       ${waitingCount ? `<span>逐条确认，互不覆盖</span>` : ""}
     </div>
   `;
@@ -4721,6 +4751,11 @@ function bindForms() {
     const dismissRunButton = event.target.closest("[data-dismiss-active-run]");
     if (dismissRunButton) {
       dismissActiveRun(dismissRunButton.dataset.dismissActiveRun);
+      return;
+    }
+    const dismissFinishedRunsButton = event.target.closest("[data-dismiss-finished-runs]");
+    if (dismissFinishedRunsButton) {
+      dismissFinishedActiveRuns();
       return;
     }
     const toggleActiveRunsButton = event.target.closest("[data-toggle-active-runs]");

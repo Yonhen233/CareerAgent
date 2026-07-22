@@ -213,9 +213,14 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "DISMISSED_RUN_KEY" in main_js
     assert "updateTrackedRun" in main_js
     assert "dismissActiveRun" in main_js
+    assert "dismissFinishedActiveRuns" in main_js
+    assert "rememberDismissedRuns" in main_js
     assert "recentRunsFromServer" in main_js
     assert "await api(\"/agent/runs\")" in main_js
     assert "data-dismiss-active-run" in main_js
+    assert "data-dismiss-finished-runs" in main_js
+    assert "const displayRows = orderedRows;" in main_js
+    assert "orderedRows.slice(0, 1)" not in main_js
     assert "最近完成的求职流程" in main_js
     assert "LLM 尚未接入" in main_js
     assert "loadGlobalLLMWarning" in main_js
