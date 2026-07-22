@@ -31,6 +31,7 @@ def test_ops_console_exposes_queue_approvals_cancel_and_stale_controls():
     client = TestClient(app)
     response = client.get("/ui/ops")
     main_js = Path("app/static/js/main.js").read_text(encoding="utf-8")
+    style_css = Path("app/static/css/style.css").read_text(encoding="utf-8")
 
     assert response.status_code == 200
     assert "ops-queue" in response.text
@@ -52,6 +53,11 @@ def test_ops_console_exposes_queue_approvals_cancel_and_stale_controls():
     assert "data-approval-decision" in main_js
     assert "data-dlq-replay" in main_js
     assert "data-dlq-discard" in main_js
+    assert "loadOpsSection" in main_js
+    assert "ops-usage-metrics" in main_js
+    assert ".span-12" in style_css
+    assert "grid-column: 1 / -1" in style_css
+    assert ".ops-usage-metrics" in style_css
 
 
 def test_outbound_smoke_pages_expose_browser_and_smtp_payloads():

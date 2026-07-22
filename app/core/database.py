@@ -83,6 +83,13 @@ def _ensure_sqlite_columns() -> None:
     with engine.begin() as conn:
         for statement in statements:
             conn.execute(text(statement))
+        if "llm_call_logs" in tables:
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_llm_call_logs_created_at "
+                    "ON llm_call_logs(created_at)"
+                )
+            )
         for table_name in ["resume_versions", "applications", "interview_preps"]:
             if table_name in tables:
                 index_name = f"ix_{table_name}_idempotency_key"

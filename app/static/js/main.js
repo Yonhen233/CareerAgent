@@ -2492,7 +2492,7 @@ function renderOpsLLMUsage(payload) {
   const hasMissingUsage = Number(summary.missing_usage_calls || 0) > 0;
   return `
     <article class="item">
-      <div class="validation-grid">
+      <div class="validation-grid ops-usage-metrics">
         ${metricCell("输入 Token", tokenCount(summary.prompt_tokens))}
         ${metricCell("输出 Token", tokenCount(summary.completion_tokens))}
         ${metricCell("总 Token", tokenCount(summary.total_tokens))}
@@ -2550,67 +2550,37 @@ async function loadDashboardOpsSummary() {
   if (window.lucide) window.lucide.createIcons();
 }
 
+async function loadOpsSection(selector, request, render) {
+  const target = $(selector);
+  if (!target) return;
+  target.innerHTML = `<div class="item meta">正在加载...</div>`;
+  try {
+    const payload = await request;
+    target.innerHTML = render(payload);
+  } catch (error) {
+    target.innerHTML = `<div class="item validation-risk">${escapeHtml(error.message || "加载失败")}</div>`;
+  }
+  if (window.lucide) window.lucide.createIcons();
+}
+
 async function loadOpsPage() {
   if (!$("#ops-readiness")) return;
   updateAdminTokenState();
-  const results = await Promise.allSettled([
-    api("/ops/readiness"),
-    api("/ops/metrics"),
-    api("/ops/config"),
-    api("/ops/llm-usage?hours=24"),
-    api("/tasks?limit=12"),
-    api("/llm/debug/logs?limit=20"),
-    api("/ops/queue/status"),
-    api("/agent/runs"),
-    api("/ops/approvals?limit=20"),
-    api("/ops/agent-runs/stale"),
-    api("/ops/audit-events?limit=20"),
+  await Promise.all([
+    loadOpsSection("#ops-readiness", api("/ops/readiness"), renderOpsReadiness),
+    loadOpsSection("#ops-metrics", api("/ops/metrics"), renderOpsMetrics),
+    loadOpsSection("#ops-config", api("/ops/config"), renderOpsConfig),
+    loadOpsSection("#ops-llm-usage", api("/ops/llm-usage?hours=24"), renderOpsLLMUsage),
+    loadOpsSection("#ops-tasks", api("/tasks?limit=12"), (tasks) => tasks.length
+      ? tasks.map(renderTaskRun).join("")
+      : `<div class="item meta">暂无后台任务</div>`),
+    loadOpsSection("#ops-llm-logs", api("/llm/debug/logs?limit=20"), renderOpsLogs),
+    loadOpsSection("#ops-queue", api("/ops/queue/status"), renderQueueStatus),
+    loadOpsSection("#ops-agent-runs", api("/agent/runs"), renderOpsAgentRuns),
+    loadOpsSection("#ops-approvals", api("/ops/approvals?limit=20"), renderApprovalList),
+    loadOpsSection("#ops-stale-runs", api("/ops/agent-runs/stale"), renderStaleRuns),
+    loadOpsSection("#ops-audit-events", api("/ops/audit-events?limit=20"), renderOpsAuditEvents),
   ]);
-  const [readiness, metrics, config, llmUsage, tasks, logs, queue, runs, approvals, staleRuns, auditEvents] = results;
-  $("#ops-readiness").innerHTML = readiness.status === "fulfilled"
-    ? renderOpsReadiness(readiness.value)
-    : `<div class="item validation-risk">${escapeHtml(readiness.reason.message)}</div>`;
-  $("#ops-metrics").innerHTML = metrics.status === "fulfilled"
-    ? renderOpsMetrics(metrics.value)
-    : `<div class="item validation-risk">${escapeHtml(metrics.reason.message)}</div>`;
-  $("#ops-config").innerHTML = config.status === "fulfilled"
-    ? renderOpsConfig(config.value)
-    : `<div class="item validation-risk">${escapeHtml(config.reason.message)}</div>`;
-  $("#ops-llm-usage").innerHTML = llmUsage.status === "fulfilled"
-    ? renderOpsLLMUsage(llmUsage.value)
-    : `<div class="item validation-risk">${escapeHtml(llmUsage.reason.message)}</div>`;
-  $("#ops-tasks").innerHTML = tasks.status === "fulfilled" && tasks.value.length
-    ? tasks.value.map(renderTaskRun).join("")
-    : `<div class="item meta">${tasks.status === "fulfilled" ? "暂无后台任务" : escapeHtml(tasks.reason.message)}</div>`;
-  $("#ops-llm-logs").innerHTML = logs.status === "fulfilled"
-    ? renderOpsLogs(logs.value)
-    : `<div class="item validation-risk">${escapeHtml(logs.reason.message)}</div>`;
-  if ($("#ops-queue")) {
-    $("#ops-queue").innerHTML = queue.status === "fulfilled"
-      ? renderQueueStatus(queue.value)
-      : `<div class="item validation-risk">${escapeHtml(queue.reason.message)}</div>`;
-  }
-  if ($("#ops-agent-runs")) {
-    $("#ops-agent-runs").innerHTML = runs.status === "fulfilled"
-      ? renderOpsAgentRuns(runs.value)
-      : `<div class="item validation-risk">${escapeHtml(runs.reason.message)}</div>`;
-  }
-  if ($("#ops-approvals")) {
-    $("#ops-approvals").innerHTML = approvals.status === "fulfilled"
-      ? renderApprovalList(approvals.value)
-      : `<div class="item validation-risk">${escapeHtml(approvals.reason.message)}</div>`;
-  }
-  if ($("#ops-stale-runs")) {
-    $("#ops-stale-runs").innerHTML = staleRuns.status === "fulfilled"
-      ? renderStaleRuns(staleRuns.value)
-      : `<div class="item validation-risk">${escapeHtml(staleRuns.reason.message)}</div>`;
-  }
-  if ($("#ops-audit-events")) {
-    $("#ops-audit-events").innerHTML = auditEvents.status === "fulfilled"
-      ? renderOpsAuditEvents(auditEvents.value)
-      : `<div class="item validation-risk">${escapeHtml(auditEvents.reason.message)}</div>`;
-  }
-  if (window.lucide) window.lucide.createIcons();
 }
 
 function updateAdminTokenState() {

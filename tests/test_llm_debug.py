@@ -233,6 +233,12 @@ def test_llm_usage_aggregates_provider_tokens_and_reports_missing_usage(db_sessi
     assert payload["by_workflow_run"][0]["key"] == "run-a"
 
 
+def test_llm_call_log_has_time_window_query_index():
+    index_names = {index.name for index in LLMCallLog.__table__.indexes}
+
+    assert "ix_llm_call_logs_created_at" in index_names
+
+
 def test_deepseek_v4_official_api_disables_thinking_by_default(monkeypatch):
     monkeypatch.setenv("LLM_BASE_URL", "https://api.deepseek.com")
     monkeypatch.setenv("LLM_MODEL", "deepseek-v4-pro")

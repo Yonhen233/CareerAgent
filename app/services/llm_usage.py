@@ -26,15 +26,13 @@ class LLMUsageService:
         query = db.query(LLMCallLog).filter(LLMCallLog.created_at >= start_at)
         if since_id is not None:
             query = query.filter(LLMCallLog.id > since_id)
-        rows = query.order_by(LLMCallLog.id.asc()).all()
         if workflow:
-            rows = [row for row in rows if str((row.context_json or {}).get("workflow") or "") == workflow]
+            query = query.filter(LLMCallLog.context_json["workflow"].as_string() == workflow)
         if workflow_run_id:
-            rows = [
-                row
-                for row in rows
-                if str((row.context_json or {}).get("workflow_run_id") or "") == workflow_run_id
-            ]
+            query = query.filter(
+                LLMCallLog.context_json["workflow_run_id"].as_string() == workflow_run_id
+            )
+        rows = query.order_by(LLMCallLog.id.asc()).all()
 
         return {
             "window": {
