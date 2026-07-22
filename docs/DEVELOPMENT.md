@@ -26,8 +26,14 @@ uvicorn app.main:app --reload
 ```env
 DATABASE_URL=sqlite:///./data/career_agent.db
 LLM_API_KEY=
-LLM_BASE_URL=https://llmapi.paratera.com
-LLM_MODEL=DeepSeek-V4-Pro
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=deepseek-v4-flash
+LLM_ROUTING_ENABLED=true
+LLM_FLASH_MODEL=deepseek-v4-flash
+LLM_PRO_MODEL=deepseek-v4-pro
+LLM_FLASH_TRACE_PREFIXES=natural_language.,resume_parser.,jd_parser.,evaluation.llm_judge_suitability,resume_tailor.,application.
+LLM_PRO_TRACE_PREFIXES=resume_review.,interview_prep.,interview_agentic_rag.
+LLM_FLASH_MAX_TOKENS_MULTIPLIER=1.15
 LLM_FALLBACK_ENABLED=false
 LLM_THINKING_MODE=auto
 LLM_REASONING_EFFORT=high
@@ -60,6 +66,8 @@ JOB_SOURCE_BROWSER_TIMEOUT_MS=30000
 - `VECTOR_BACKEND=sqlite`：只使用 SQLite。
 - `VECTOR_BACKEND=hybrid`：SQLite + 可选 Chroma 镜像。
 - `LLM_FALLBACK_ENABLED=false`：开发默认严格失败；设置为 `true` 才使用规则解析/生成路径。
+- `LLM_ROUTING_ENABLED=true`：按 Trace 显式分配模型。短结构化与普通生成走 Flash，简历深度建议和面试链路走 Pro；未分类 Trace 使用 `LLM_MODEL`。
+- `LLM_FLASH_MAX_TOKENS_MULTIPLIER=1.15`：只略微放宽 Flash completion 上限，不增加 repair 次数；配置上限为 1.5。
 - `LLM_THINKING_MODE=auto`：官方 DeepSeek V4 接口会自动发送 `thinking: disabled`，让 JD 解析、简历定制、面试包生成优先获得稳定最终 `content`；如果要调试思考模式，可显式设置为 `enabled`。
 - `LLM_RETRY_ATTEMPTS=1`：只对网络断连、429 和 5xx 等瞬时错误做同请求短重试；每次失败都会进入 `llm_call_logs`，不是静默兜底。
 - `LLM_CONTEXT_COMPRESSION_ENABLED=true`：真实 LLM 调用默认使用渐进式披露和分级上下文压缩。
@@ -166,7 +174,7 @@ python scripts/generate_demo_resumes.py
 ```powershell
 $env:LLM_API_KEY='your_key_here'
 $env:LLM_BASE_URL='https://api.deepseek.com'
-$env:LLM_MODEL='deepseek-v4-pro'
+$env:LLM_ROUTING_ENABLED='true'
 $env:LLM_THINKING_MODE='auto'
 $env:LLM_FALLBACK_ENABLED='false'
 python scripts\run_user_flow_smoke.py --pdf demo_resumes\agent_intern_strong_resume.pdf
@@ -230,6 +238,8 @@ POST /evaluations/application-packet
 
 ## LLM 调试
 
+模型路由发生在 `LLMClient.generate_text()` 内。排查时先看 `context_json.model_route` 和日志行的实际 `model`：`flash_economy` 表示成本优先节点，`pro_quality` 表示质量优先节点，`configured_default` 表示 Trace 尚未纳入显式前缀。单模型评测必须设置 `LLM_ROUTING_ENABLED=false`。
+
 查看最近调用：
 
 ```http
@@ -269,8 +279,8 @@ GET /llm/debug/logs?limit=50
 
 ```powershell
 $env:LLM_API_KEY='your_key_here'
-$env:LLM_BASE_URL='https://llmapi.paratera.com'
-$env:LLM_MODEL='DeepSeek-V4-Pro'
+$env:LLM_BASE_URL='https://api.deepseek.com'
+$env:LLM_ROUTING_ENABLED='true'
 $env:LLM_THINKING_MODE='auto'
 $env:LLM_FALLBACK_ENABLED='false'
 $env:EMBEDDING_PROVIDER='sentence_transformers'
@@ -314,7 +324,7 @@ LLM 网络层短重试会以 `retryable_failed` 写入调用日志；如果重�
 ```powershell
 $env:LLM_API_KEY='your_key_here'
 $env:LLM_BASE_URL='https://api.deepseek.com'
-$env:LLM_MODEL='deepseek-v4-pro'
+$env:LLM_ROUTING_ENABLED='true'
 $env:LLM_THINKING_MODE='auto'
 $env:LLM_FALLBACK_ENABLED='false'
 python scripts\run_llm_workflow_eval.py --trace-path data\runtime\llm_workflow_trace_latest.jsonl

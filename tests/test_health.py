@@ -65,6 +65,9 @@ def test_ops_readiness_and_metrics_endpoints():
         config = client.get("/ops/config")
         assert config.status_code == 200
         assert "api_key" not in str(config.json()).lower()
+        assert config.json()["llm"]["routing_enabled"] is True
+        assert config.json()["llm"]["flash_model"] == "deepseek-v4-flash"
+        assert config.json()["llm"]["pro_model"] == "deepseek-v4-pro"
 
         usage = client.get("/ops/llm-usage?hours=24")
         assert usage.status_code == 200

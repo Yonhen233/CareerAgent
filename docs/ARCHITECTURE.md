@@ -58,6 +58,21 @@ Agent 主编排已经迁移到 LangGraph。`app/agents/orchestrator.py` 只保�
 
 `agent_events` 保存两类进度：一类来自 `TraceService` 的 run/step/artifact 事件，另一类来自 LangGraph `astream_events` 的 graph/node/interrupt 事件。`/agent/runs/{run_id}/events/stream` 以 SSE 输出这些事件，历史记录和长流程状态卡消费该事件流。普通岗位浏览使用独立搜索会话，不需要创建 AgentRun。
 
+### DeepSeek 模型路由
+
+`LLMClient` 在发出请求前根据 `trace_name` 解析模型路由，业务 Service 不直接硬编码模型：
+
+| 路由 | Trace 前缀 | 模型 | 依据 |
+| --- | --- | --- | --- |
+| `flash_economy` | `natural_language.`、`resume_parser.`、`jd_parser.`、`evaluation.llm_judge_suitability`、`resume_tailor.`、`application.` | `deepseek-v4-flash` | 同样本测试中短结构化节点与 Pro 接近；定制即使发生一次 repair 仍更便宜。 |
+| `pro_quality` | `resume_review.`、`interview_prep.`、`interview_agentic_rag.` | `deepseek-v4-pro` | Flash 简历建议曾出现证据接受率低，面试多约束回答 repair 后仍未过发布门禁。 |
+| `configured_default` | 未分类 Trace | `LLM_MODEL` | 新增调用必须先在日志中暴露，再决定正式归属。 |
+
+- Flash 的调用方 `max_tokens` 乘以 1.15，给低价模型略多的结构化输出空间；配置使用 `Field(ge=1.0, le=1.5)`，不能无限放大。
+- 没有增加网络重试或业务 repair 轮数，避免 parser 外层重试与 HTTP 重试相乘；Guardrail、Token budget 和失败 Trace 继续生效。
+- 每条 `llm_call_logs` 使用实际发送的模型，并在 `context_json.model_route/routed_model` 和 `prompt_preview_json.requested_max_tokens/max_tokens` 中保存决策。
+- 路由不是 fallback。Flash 质量门禁失败不会静默切 Pro；单模型评测设置 `LLM_ROUTING_ENABLED=false`，避免混合结果污染模型对照。
+
 ### 面试 Agentic RAG v3：成本受控默认流程
 
 面试模块不使用关键词题型分类器或规则答案模板。LLM 只负责题目生成、证据 Claim 生成和批量语义校验；检索 Query 构造、混合检索、来源权限、答案组合和 release gate 都在本地执行。
@@ -69,8 +84,8 @@ flowchart LR
     C --> D["Exact + BM25 + Vector + RRF"]
     D --> E["Top20 CrossEncoder Reranker"]
     E --> F["每题 Top5 Evidence"]
-    F --> G["LLM 两批生成 Claims"]
-    G --> H["LLM 三批验证 Claims 与答题相关性"]
+    F --> G["Pro 单批生成 10 题 Claims"]
+    G --> H["Pro 单批验证 Claims 与答题相关性"]
     H --> I["本地 Source Policy Gate"]
     I --> J["本地 Verified Claim Composer"]
     J -->|"通过"| K["Quality/Coverage Release Gate"]
@@ -277,6 +292,7 @@ Reranker：
 
 - `trace_name`
 - `model`
+- `context_json.model_route/routed_model`
 - `base_url`
 - `status`
 - `prompt_preview_json`
@@ -286,7 +302,7 @@ Reranker：
 - `prompt_chars`
 - `response_chars`
 
-日志用于调试 prompt、模型响应、JSON 解析失败、超时和延迟问题。系统不会记录 API key。
+日志用于调试路由、prompt、模型响应、JSON 解析失败、超时和延迟问题。系统不会记录 API key。
 
 ## 上下文治理
 

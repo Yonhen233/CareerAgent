@@ -1,5 +1,29 @@
 # 开发日志
 
+## 2026-07-22 17:53:21 +08:00：根据真实 Flash/Pro 对照落地节点级模型路由，并有限放宽 Flash 输出预算
+### 决策依据
+- DeepSeek 官方价格中，Flash 未缓存输入/输出单价约为 Pro 的三分之一，并发上限是 Pro 的 5 倍；但同样本真实评测显示，Flash 只在短结构化节点与普通 canary 上接近 Pro，10 题面试多约束回答在 repair 后仍有两题未覆盖，Pro 则通过发布门禁。
+- 早期 Flash 简历深度建议还出现过 5 条建议全部无法通过简历证据契约的问题。因此不能简单设置一个全局 Flash，也不能先跑完整 Flash、失败后再把整条链路用 Pro 重跑。
+
+### 路由方案
+| Route | Trace | 模型 | 策略 |
+| --- | --- | --- | --- |
+| `flash_economy` | `natural_language.`、`resume_parser.`、`jd_parser.`、`evaluation.llm_judge_suitability`、`resume_tailor.`、`application.` | `deepseek-v4-flash` | 规划、解析、fit、定制和短投递文案，全部继续受 grounding/Guardrail 约束。 |
+| `pro_quality` | `resume_review.`、`interview_prep.`、`interview_agentic_rag.` | `deepseek-v4-pro` | 深度简历建议、面试题、答案、verifier 和 repair 直接使用已通过真实门禁的 Pro。 |
+| `configured_default` | 未命中前缀 | `LLM_MODEL` | 新 Trace 不静默归类，先在日志暴露再决定归属。 |
+
+### 工程实现
+- 在公共 `LLMClient` 中按 `trace_name` 解析 `LLMRoute`，Service 不各自硬编码模型。请求 payload、DeepSeek thinking 参数、`LLMCallLog.model` 和 Token budget 使用同一个 resolved model/limit，避免“请求走 Flash、日志却写默认 Pro”。
+- `context_json` 新增 `model_route/routed_model`；`prompt_preview_json` 新增 `requested_max_tokens`、实际 `max_tokens` 和倍率。控制台脱敏配置展示路由开关、两种模型、Trace 前缀和倍率，最近调用展示实际 route。
+- Flash completion 上限提高 15%，并在 Pydantic 配置层限制为 `1.0-1.5`。没有增加 HTTP retry 或业务 repair 次数：简历/JD parser 本身已有业务重试，继续叠加会把少量放宽乘成最多九次外部请求。
+- 路由不是 fallback。Flash 结果未过门禁仍直接失败，不会自动切 Pro。`scripts/run_model_comparison_slice.py` 强制 `LLM_ROUTING_ENABLED=false`，防止混合模型调用污染单模型对照结论。
+
+### 测试与当前边界
+- 新增路由解析和假 HTTP 请求测试，验证 Planner 使用 Flash、简历 Review/面试使用 Pro、未分类 Trace 使用默认模型；验证 Flash `max_tokens=100` 实际发送和预算预留均为 115，日志写入 `flash_economy/deepseek-v4-flash`。
+- LLM 日志、Ops、前端、面试预算和评测相关定向回归共 `113 passed in 76.67s`；最终完整回归为 `231 passed in 94.59s`，Python compileall、前端 JavaScript 语法和 diff whitespace 检查通过。本轮没有调用真实 DeepSeek，模型质量结论复用上一轮固定切片结果，不额外消耗余额。
+- 重启不带 API Key 的 8070 服务后，`/health` 为 `ok`、`llm_configured=false`，`/ops/config` 返回 routing=true、默认/Flash=`deepseek-v4-flash`、Pro=`deepseek-v4-pro`、Flash 倍率 1.15。运行时探针确认 Planner/Parser/Application 走 `flash_economy`，Resume Review/Interview 走 `pro_quality`。
+- 当前只按 Trace 做静态质量/成本路由，没有实现按单次置信度自动升级。后续只有在建立“Flash 失败产物 -> Pro 局部重写”的独立成本和成功率评测后，才考虑受控升级，不能把它当默认兜底。
+
 ## 2026-07-22 13:51:33 +08:00：修复求职流程状态卡片逐条冒出的问题，增加多记录列表和批量忽略
 ### 用户看到的问题
 - 右下角“最近完成的求职流程”每次只显示一条；点击单条关闭后，下一条记录才出现。用户无法提前知道还有多少条，也容易把关闭理解成“已经清空”。

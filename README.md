@@ -236,12 +236,18 @@ python scripts/run_agent_worker.py
 
 ## LLM 配置
 
-默认开发模式要求配置 LLM；LLM 缺失或调用失败会直接报错，并写入调用日志。测试时可以显式设置 `LLM_FALLBACK_ENABLED=true` 使用规则路径。启用 DeepSeek 兼容接口时，在本地 `.env` 中填写：
+默认开发模式要求配置 LLM；LLM 缺失或调用失败会直接报错，并写入调用日志。测试时可以显式设置 `LLM_FALLBACK_ENABLED=true` 使用规则路径。正式链路使用按 Trace 路由的 DeepSeek Flash/Pro 组合，在本地 `.env` 中填写：
 
 ```env
 LLM_API_KEY=your_key_here
-LLM_BASE_URL=https://llmapi.paratera.com
-LLM_MODEL=DeepSeek-V4-Pro
+LLM_BASE_URL=https://api.deepseek.com
+LLM_MODEL=deepseek-v4-flash
+LLM_ROUTING_ENABLED=true
+LLM_FLASH_MODEL=deepseek-v4-flash
+LLM_PRO_MODEL=deepseek-v4-pro
+LLM_FLASH_TRACE_PREFIXES=natural_language.,resume_parser.,jd_parser.,evaluation.llm_judge_suitability,resume_tailor.,application.
+LLM_PRO_TRACE_PREFIXES=resume_review.,interview_prep.,interview_agentic_rag.
+LLM_FLASH_MAX_TOKENS_MULTIPLIER=1.15
 LLM_THINKING_MODE=auto
 LLM_RETRY_ATTEMPTS=1
 LLM_RETRY_BACKOFF_SECONDS=0.75
@@ -249,16 +255,10 @@ LLM_RETRY_BACKOFF_SECONDS=0.75
 
 不要提交 `.env` 和真实 API key。
 
-如果使用 DeepSeek 官方 OpenAI 兼容接口，可设置：
-
-```env
-LLM_BASE_URL=https://api.deepseek.com
-LLM_MODEL=deepseek-v4-pro
-LLM_THINKING_MODE=auto
-```
-
 `auto` 会在官方 DeepSeek V4 接口上发送 `thinking: disabled`，避免结构化 JSON 链路只返回 `reasoning_content` 而最终 `content` 为空。
 `LLM_RETRY_ATTEMPTS` 只处理网络断连、429 和 5xx 等瞬时错误；每次失败都会写入 LLM 调用日志，业务解析错误仍直接报错。
+
+路由依据 2026-07-22 的同样本实测：规划、简历/JD 解析、匹配、定制和投递走 Flash；简历深度建议与整个面试 Agentic RAG 走 Pro。Flash 节点只把 completion 上限提高 15%，不增加业务 repair 轮数；门禁失败仍直接报错。`LLM_MODEL` 是未命中任何前缀时的默认模型。要进行单模型对照，必须设置 `LLM_ROUTING_ENABLED=false`；`scripts/run_model_comparison_slice.py` 已强制执行这一点。
 
 ## 主要页面
 
@@ -292,7 +292,7 @@ python scripts/generate_demo_resumes.py
 ```powershell
 $env:LLM_API_KEY='your_key_here'
 $env:LLM_BASE_URL='https://api.deepseek.com'
-$env:LLM_MODEL='deepseek-v4-pro'
+$env:LLM_ROUTING_ENABLED='true'
 $env:LLM_THINKING_MODE='auto'
 $env:LLM_FALLBACK_ENABLED='false'
 python scripts/run_user_flow_smoke.py --pdf demo_resumes/agent_intern_strong_resume.pdf

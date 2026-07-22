@@ -13,8 +13,17 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/career_agent.db"
 
     llm_api_key: str | None = None
-    llm_base_url: str = "https://llmapi.paratera.com"
-    llm_model: str = "DeepSeek-V4-Pro"
+    llm_base_url: str = "https://api.deepseek.com"
+    llm_model: str = "deepseek-v4-flash"
+    llm_routing_enabled: bool = True
+    llm_flash_model: str = "deepseek-v4-flash"
+    llm_pro_model: str = "deepseek-v4-pro"
+    llm_flash_trace_prefixes: str = (
+        "natural_language.,resume_parser.,jd_parser.,evaluation.llm_judge_suitability,"
+        "resume_tailor.,application."
+    )
+    llm_pro_trace_prefixes: str = "resume_review.,interview_prep.,interview_agentic_rag."
+    llm_flash_max_tokens_multiplier: float = Field(default=1.15, ge=1.0, le=1.5)
     llm_timeout_seconds: float = 120.0
     llm_retry_attempts: int = 1
     llm_retry_backoff_seconds: float = 0.75
@@ -178,6 +187,14 @@ class Settings(BaseSettings):
         if explicit_compatible_url and self.llm_base_url == Settings.model_fields["llm_base_url"].default:
             return explicit_compatible_url
         return self.llm_base_url or explicit_compatible_url or ""
+
+    @property
+    def llm_flash_trace_prefix_list(self) -> list[str]:
+        return [item.strip() for item in self.llm_flash_trace_prefixes.split(",") if item.strip()]
+
+    @property
+    def llm_pro_trace_prefix_list(self) -> list[str]:
+        return [item.strip() for item in self.llm_pro_trace_prefixes.split(",") if item.strip()]
 
     @property
     def lever_slugs(self) -> list[str]:

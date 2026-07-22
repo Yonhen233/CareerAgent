@@ -25,6 +25,7 @@ def _bootstrap_args() -> argparse.Namespace:
 
 ARGS = _bootstrap_args()
 os.environ["LLM_MODEL"] = ARGS.model
+os.environ["LLM_ROUTING_ENABLED"] = "false"
 os.environ["LLM_BASE_URL"] = ARGS.base_url
 os.environ["LLM_THINKING_MODE"] = "disabled"
 os.environ["LLM_FALLBACK_ENABLED"] = "false"

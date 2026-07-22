@@ -252,6 +252,95 @@ def test_deepseek_v4_official_api_disables_thinking_by_default(monkeypatch):
     get_settings.cache_clear()
 
 
+def test_llm_router_assigns_flash_and_pro_by_trace(monkeypatch):
+    monkeypatch.setenv("LLM_ROUTING_ENABLED", "true")
+    monkeypatch.setenv("LLM_MODEL", "custom-default")
+    monkeypatch.setenv("LLM_FLASH_MODEL", "deepseek-v4-flash")
+    monkeypatch.setenv("LLM_PRO_MODEL", "deepseek-v4-pro")
+    monkeypatch.setenv("LLM_FLASH_MAX_TOKENS_MULTIPLIER", "1.15")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    client = LLMClient()
+
+    planner = client.resolve_route("natural_language.plan")
+    resume_review = client.resolve_route("resume_review.enhance_suggestions")
+    interview = client.resolve_route("interview_agentic_rag.generate.1")
+    unknown = client.resolve_route("future_workflow.unclassified")
+
+    assert (planner.name, planner.model) == ("flash_economy", "deepseek-v4-flash")
+    assert client.effective_max_tokens(1000, planner) == 1150
+    assert (resume_review.name, resume_review.model) == ("pro_quality", "deepseek-v4-pro")
+    assert (interview.name, interview.model) == ("pro_quality", "deepseek-v4-pro")
+    assert (unknown.name, unknown.model) == ("configured_default", "custom-default")
+    get_settings.cache_clear()
+
+
+def test_llm_router_sends_and_logs_effective_flash_model(monkeypatch, db_session):
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.deepseek.com")
+    monkeypatch.setenv("LLM_ROUTING_ENABLED", "true")
+    monkeypatch.setenv("LLM_FLASH_MODEL", "deepseek-v4-flash")
+    monkeypatch.setenv("LLM_FLASH_MAX_TOKENS_MULTIPLIER", "1.15")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    captured = {}
+
+    class FakeResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
+            }
+
+    class FakeAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, headers, json):
+            captured.update(json)
+            return FakeResponse()
+
+    monkeypatch.setattr("app.core.llm.httpx.AsyncClient", FakeAsyncClient)
+    budget = LLMCallBudget(
+        name="flash-route-test",
+        max_calls=1,
+        max_prompt_chars=100,
+        max_completion_tokens=120,
+    )
+    with llm_call_budget(budget):
+        result = asyncio.run(
+            LLMClient().generate_text(
+                system_prompt="system",
+                user_prompt="user",
+                max_tokens=100,
+                db=db_session,
+                trace_name="natural_language.plan",
+            )
+        )
+
+    row = db_session.query(LLMCallLog).filter(LLMCallLog.trace_name == "natural_language.plan").one()
+    assert result == "ok"
+    assert captured["model"] == "deepseek-v4-flash"
+    assert captured["max_tokens"] == 115
+    assert row.model == "deepseek-v4-flash"
+    assert row.context_json["model_route"] == "flash_economy"
+    assert row.prompt_preview_json["requested_max_tokens"] == 100
+    assert row.prompt_preview_json["max_tokens"] == 115
+    assert budget.reserved_completion_tokens == 115
+    get_settings.cache_clear()
+
+
 def test_non_deepseek_provider_omits_thinking_options(monkeypatch):
     monkeypatch.setenv("LLM_BASE_URL", "https://llmapi.paratera.com")
     monkeypatch.setenv("LLM_MODEL", "DeepSeek-V4-Pro")

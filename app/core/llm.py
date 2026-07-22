@@ -1,5 +1,6 @@
 import asyncio
 import json
+import math
 import re
 import time
 from contextlib import contextmanager
@@ -103,6 +104,13 @@ class LLMCallBudget:
         }
 
 
+@dataclass(frozen=True)
+class LLMRoute:
+    name: str
+    model: str
+    max_tokens_multiplier: float = 1.0
+
+
 @contextmanager
 def llm_trace_context(**metadata: Any):
     parent = dict(_LLM_TRACE_CONTEXT.get() or {})
@@ -169,6 +177,27 @@ class LLMClient:
             return f"{base}/chat/completions"
         return f"{base}/v1/chat/completions"
 
+    def resolve_route(self, trace_name: str) -> LLMRoute:
+        if not self.settings.llm_routing_enabled:
+            return LLMRoute(name="configured_default", model=self.settings.llm_model)
+        for prefix in self.settings.llm_pro_trace_prefix_list:
+            if trace_name.startswith(prefix):
+                return LLMRoute(name="pro_quality", model=self.settings.llm_pro_model)
+        for prefix in self.settings.llm_flash_trace_prefix_list:
+            if trace_name.startswith(prefix):
+                return LLMRoute(
+                    name="flash_economy",
+                    model=self.settings.llm_flash_model,
+                    max_tokens_multiplier=max(1.0, self.settings.llm_flash_max_tokens_multiplier),
+                )
+        return LLMRoute(name="configured_default", model=self.settings.llm_model)
+
+    @staticmethod
+    def effective_max_tokens(max_tokens: int | None, route: LLMRoute) -> int | None:
+        if max_tokens is None:
+            return None
+        return max(1, math.ceil(max_tokens * route.max_tokens_multiplier))
+
     async def generate_text(
         self,
         *,
@@ -181,7 +210,23 @@ class LLMClient:
         trace_name: str = "llm.generate_text",
     ) -> str:
         started = time.perf_counter()
-        prompt_preview = self._prompt_preview(system_prompt, user_prompt, temperature, max_tokens, response_format)
+        route = self.resolve_route(trace_name)
+        effective_max_tokens = self.effective_max_tokens(max_tokens, route)
+        prompt_preview = self._prompt_preview(
+            system_prompt,
+            user_prompt,
+            temperature,
+            effective_max_tokens,
+            response_format,
+        )
+        prompt_preview.update(
+            {
+                "requested_max_tokens": max_tokens,
+                "model_route": route.name,
+                "routed_model": route.model,
+                "max_tokens_multiplier": route.max_tokens_multiplier,
+            }
+        )
         if not self.available:
             error = "LLM_API_KEY and LLM_BASE_URL are required for online generation."
             self._record_llm_call(
@@ -192,6 +237,8 @@ class LLMClient:
                 response_preview=None,
                 error_message=error,
                 started_at=started,
+                model=route.model,
+                route_name=route.name,
             )
             raise LLMConfigurationError(error)
 
@@ -204,18 +251,18 @@ class LLMClient:
             "Content-Type": "application/json",
         }
         payload = {
-            "model": self.settings.llm_model,
+            "model": route.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": temperature,
         }
-        if max_tokens is not None:
-            payload["max_tokens"] = max_tokens
+        if effective_max_tokens is not None:
+            payload["max_tokens"] = effective_max_tokens
         if response_format is not None:
             payload["response_format"] = response_format
-        payload.update(self._provider_options())
+        payload.update(self._provider_options(model=route.model))
 
         max_attempts = max(1, int(self.settings.llm_retry_attempts or 0) + 1)
         for attempt in range(1, max_attempts + 1):
@@ -225,7 +272,7 @@ class LLMClient:
                     active_budget.reserve(
                         trace_name=f"{trace_name}#attempt{attempt}",
                         prompt_chars=prompt_chars,
-                        max_tokens=max_tokens,
+                        max_tokens=effective_max_tokens,
                     )
                 except LLMBudgetExceededError as exc:
                     self._record_llm_call(
@@ -236,6 +283,8 @@ class LLMClient:
                         response_preview=None,
                         error_message=format_exception(exc),
                         started_at=started,
+                        model=route.model,
+                        route_name=route.name,
                     )
                     raise
             try:
@@ -290,6 +339,8 @@ class LLMClient:
                     total_tokens=total_tokens,
                     error_message=None,
                     started_at=started,
+                    model=route.model,
+                    route_name=route.name,
                 )
                 return content
             except Exception as exc:
@@ -304,6 +355,8 @@ class LLMClient:
                     response_preview=None,
                     error_message=error_message,
                     started_at=started,
+                    model=route.model,
+                    route_name=route.name,
                 )
                 if will_retry:
                     await asyncio.sleep(max(self.settings.llm_retry_backoff_seconds, 0) * attempt)
@@ -362,14 +415,14 @@ class LLMClient:
             "response_format": response_format,
         }
 
-    def _provider_options(self) -> dict[str, Any]:
+    def _provider_options(self, *, model: str | None = None) -> dict[str, Any]:
         mode = (self.settings.llm_thinking_mode or "auto").strip().lower()
         if mode in {"omit", "none", "off"}:
             return {}
 
         base_url = self.settings.effective_llm_base_url.lower()
-        model = self.settings.llm_model.lower()
-        is_deepseek_v4 = "api.deepseek.com" in base_url and model.startswith("deepseek-v4")
+        selected_model = (model or self.settings.llm_model).lower()
+        is_deepseek_v4 = "api.deepseek.com" in base_url and selected_model.startswith("deepseek-v4")
         if mode == "auto" and not is_deepseek_v4:
             return {}
 
@@ -397,16 +450,23 @@ class LLMClient:
         prompt_tokens: int = 0,
         completion_tokens: int = 0,
         total_tokens: int = 0,
+        model: str | None = None,
+        route_name: str | None = None,
     ) -> None:
         if db is None:
             return
         try:
             from app.models.entities import LLMCallLog
 
+            context = dict(_LLM_TRACE_CONTEXT.get() or {})
+            if route_name:
+                context["model_route"] = route_name
+            if model:
+                context["routed_model"] = model
             db.add(
                 LLMCallLog(
                     trace_name=trace_name,
-                    model=self.settings.llm_model,
+                    model=model or self.settings.llm_model,
                     base_url=self.settings.effective_llm_base_url,
                     status=status,
                     prompt_preview_json=prompt_preview,
@@ -419,7 +479,7 @@ class LLMClient:
                     prompt_tokens=max(0, int(prompt_tokens or 0)),
                     completion_tokens=max(0, int(completion_tokens or 0)),
                     total_tokens=max(0, int(total_tokens or 0)),
-                    context_json=dict(_LLM_TRACE_CONTEXT.get() or {}),
+                    context_json=context,
                 )
             )
             db.commit()

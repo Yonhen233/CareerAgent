@@ -2320,7 +2320,10 @@ function renderOpsConfig(config) {
         ${metricCell("环境", config.app_env || "-")}
         ${metricCell("数据库", config.database_backend || "-")}
         ${metricCell("LLM", llm.configured ? "已配置" : "未配置")}
-        ${metricCell("模型", llm.model || "-")}
+        ${metricCell("默认模型", llm.model || "-")}
+        ${metricCell("模型路由", llm.routing_enabled ? "已开启" : "未开启")}
+        ${metricCell("Flash 路由", llm.flash_model || "-")}
+        ${metricCell("Pro 路由", llm.pro_model || "-")}
         ${metricCell("Thinking", llm.thinking_mode || "-")}
         ${metricCell("Embedding", retrieval.embedding_provider || "-")}
         ${metricCell("Reranker", retrieval.reranker_enabled ? retrieval.reranker_provider : "disabled")}
@@ -2463,7 +2466,7 @@ function renderOpsLogs(logs) {
         <span>${escapeHtml(row.trace_name)}</span>
         <span class="status-pill ${statusClass(row.status)}">${escapeHtml(row.status)}</span>
       </div>
-      <div class="meta">${escapeHtml(row.model)} / ${escapeHtml(row.latency_ms)}ms / tokens=${escapeHtml(row.total_tokens > 0 ? row.total_tokens : "未返回")} (${escapeHtml(row.prompt_tokens || 0)} in / ${escapeHtml(row.completion_tokens || 0)} out) / workflow=${escapeHtml(row.context_json?.workflow || "-")} / stage=${escapeHtml(row.context_json?.stage || "-")}</div>
+      <div class="meta">${escapeHtml(row.model)} / route=${escapeHtml(row.context_json?.model_route || "-")} / ${escapeHtml(row.latency_ms)}ms / tokens=${escapeHtml(row.total_tokens > 0 ? row.total_tokens : "未返回")} (${escapeHtml(row.prompt_tokens || 0)} in / ${escapeHtml(row.completion_tokens || 0)} out) / workflow=${escapeHtml(row.context_json?.workflow || "-")} / stage=${escapeHtml(row.context_json?.stage || "-")}</div>
       ${row.error_message ? `<div class="message-preview">${escapeHtml(row.error_message)}</div>` : ""}
       ${row.response_preview ? `<details class="details-block"><summary>响应预览</summary><pre>${escapeHtml(row.response_preview)}</pre></details>` : ""}
     </article>

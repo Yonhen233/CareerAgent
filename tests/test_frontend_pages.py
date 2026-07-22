@@ -251,6 +251,8 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "white-space: nowrap" in style_css
     assert "min-height: 38px" in style_css
     assert "console-entry" in style_css
+    assert 'metricCell("模型路由"' in main_js
+    assert "context_json?.model_route" in main_js
 
 
 def test_run_history_page_exposes_business_summary_before_trace():

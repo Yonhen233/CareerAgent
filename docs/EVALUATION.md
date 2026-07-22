@@ -35,6 +35,8 @@ python scripts/run_model_comparison_slice.py --model deepseek-v4-pro --mode cana
 
 `mode=core` 固定选择 4 个自然语言规划、4 个 JD Parser 和 3 个 hard/adversarial workflow case；`mode=interview` 固定选择 `agent_intern_with_mlflow_gap`。脚本强制 `thinking=disabled`、`fallback=false`，并按 benchmark ID 汇总供应商真实 usage。API key 不写入报告或日志。
 
+比较脚本同时强制 `LLM_ROUTING_ENABLED=false`，保证 Flash 报告的所有节点都使用 Flash、Pro 报告的所有节点都使用 Pro。产品运行则开启路由：普通节点走 Flash，简历深度建议和面试节点走 Pro。
+
 | 分层 | Flash | Pro |
 | --- | ---: | ---: |
 | Canary 通过率 | 1/1 | 1/1 |

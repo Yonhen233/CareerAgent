@@ -643,7 +643,7 @@ GET /llm/debug/logs?evaluation_run_id=12&case_name=agent_candidate_strong_agent_
 用于查看：
 
 - 调用名称。
-- 模型和 base_url。
+- 实际模型、base_url 和 `context_json.model_route/routed_model`。
 - prompt 预览。
 - response 预览。
 - 调用状态。
@@ -654,7 +654,7 @@ GET /llm/debug/logs?evaluation_run_id=12&case_name=agent_candidate_strong_agent_
 支持按 `evaluation_run_id`、`case_name` 和 `stage` 过滤。过滤是在最近日志窗口内完成，适合开发期从评测 run 快速定位对应 LLM 调用；接口仍不会返回 API key。
 
 Resume parser 和 JD parser 的真实 LLM 链路会显式记录 `resume_parser.parse_structured_resume.retry_1`、`jd_parser.parse_jd.retry_1`、`jd_parser.parse_jd.retry_2` 和 `jd_parser.parse_jd.repair_json` 等 trace 名称。空返回/超时/服务端断连只做有限业务层重试；JD 截断或非法 JSON 会触发一次 repair/reparse，仍失败时直接向上报错，不静默兜底。
-底层 LLM HTTP 客户端对网络断连、429 和 5xx 会做有限短重试；中间失败会以 `retryable_failed` 写入 `llm_call_logs.status`，最终失败仍会暴露到调用方。
+底层 LLM HTTP 客户端对网络断连、429 和 5xx 会做有限短重试；中间失败会以 `retryable_failed` 写入 `llm_call_logs.status`，最终失败仍会暴露到调用方。默认路由把规划、简历/JD 解析、fit、定制和投递分配给 Flash，把简历深度建议和面试生成/验证/repair 分配给 Pro；Flash 的 completion 上限放宽 15%，但不会在质量失败后自动切换 Pro。
 
 ## 量化评测
 
@@ -806,6 +806,7 @@ POST /ops/high-risk-actions/{approval_id}/execute
 - `/ops/readiness` 返回数据库、LLM、embedding 和 reranker 的健康状态。
 - `/ops/metrics` 返回请求计数、平均延迟、状态码分布、Agent run/task/LLM call 状态分布和最近评测摘要。
 - `/ops/llm-usage` 聚合 `llm_call_logs` 中供应商实际返回的 prompt/completion/total token，支持 `hours`、`since_id`、`workflow` 和 `workflow_run_id` 过滤，并返回按模型、workflow、单次运行和 trace 的分组。`missing_usage_calls` 单独报告，不能解释为零消耗。
+- `/ops/config` 的 `llm` 字段返回脱敏后的路由开关、Flash/Pro 模型、Trace 前缀和 Flash completion 倍率，不返回 API key。
 - `/ops/config` 只返回脱敏配置摘要，不返回 API key。
 - `/ops/queue/status` 返回 Redis queue、dead-letter queue、带 `dlq_index` 的 DLQ 预览、最大重试次数和 queued recovery 配置。
 - `/ops/queue/recover-queued` 扫描 SQLite 中长时间 `queued` 的 Agent run，并重新写入 Redis 队列。
