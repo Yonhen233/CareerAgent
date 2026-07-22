@@ -5,7 +5,7 @@
 面试评测不再只检查题目数量和回答长度，还检查完整链路契约：
 
 - 默认问题数是否等于 10；
-- 正常路径调用数是否等于 6，含一次漏项重试和一轮业务修复时是否不超过 9；
+- 正常路径调用数是否等于 3，一轮业务修复和增量复验时是否不超过 5；
 - 累计 Prompt 字符和最大输出 token 预留是否低于工作流硬预算；
 - 本地 multi-query plan、source inventory 与按题目视角设置的来源配额是否兼容；
 - citation integrity 与局部证据别名合法率；
@@ -15,13 +15,40 @@
 - repair error count 与 dirty question count 是否逐轮收敛；
 - release gate 失败时 InterviewPrep 是否保持不落库。
 
-真实 DeepSeek 旧包 `#44` 使用 59 次调用、1,490,670 Prompt 字符和 237,622 Response 字符，其中 verifier 占 37 次调用和 1,080,855 Prompt 字符。当前 v3 契约为 10 题、正常 6 次调用、最多 9 次尝试；verifier 采用最多 4 题一批，避免 claim verdict 加 answer check 后撞到 completion 上限。完整 JSON 若漏题，只重试漏项题；历史日志没有供应商 usage 字段，不能把字符数伪装成真实 token。
+真实 DeepSeek 旧包 `#44` 使用 59 次调用、1,490,670 Prompt 字符和 237,622 Response 字符，其中 verifier 占 37 次调用和 1,080,855 Prompt 字符。当前 v3 契约为 10 题、正常 3 次调用、repair 路径最多 5 次；答案和 verifier 各处理一个 10 题批次，repair 与复验只处理失败题。硬预算为 60,000 Prompt 字符和 15,000 completion token 预留，verifier 单次上限 2,800。完整 JSON 若漏题，只重试漏项题；历史日志没有供应商 usage 字段，不能把字符数伪装成真实 token。
 
 独立 `interview_claim_verifier` 数据集包含 14 个 case，覆盖 4 个可支持方案、4 个伪装成方案的既有经历、2 个支持事实、2 个不支持事实和 2 个“事实正确但答非所问”样本。真实 run `#50` 分两批各 7 case：support accuracy、strategy recall、question-answering accuracy 均为 1.0，false positive rate、disguised-experience false positive rate 和 nonresponsive false accept rate 均为 0。真实在线评测必须先通过该低成本闸门，完整面试链路才允许继续运行。
 
 最终真实 DeepSeek 面试包 `#47` 使用简历 `#159` 与岗位 `#218`：10 题、8 次调用、83.07 秒，实际输入 23,028、输出 7,450、总计 30,478 tokens；一次定向 repair 后发布。question quality 为 1.0，必备技能覆盖 `6/7=0.8571`，引用完整性、来源权限和参考答案可用性均为 1.0。该数字是单次成功工作流成本，不代表开发期总试错成本；`llm_call_logs #1153-#1253` 合计 397,770 tokens。
 
 离线评测中的 `DeterministicInterviewEvaluationLLM` 只在显式 `LLM_FALLBACK_ENABLED=true` 的评测 harness 使用，不进入产品路径；产品未配置 LLM 或 release gate 失败时直接报错。
+
+## 2026-07-22 DeepSeek V4 Flash 与 Pro 固定切片对照
+
+运行器：
+
+```powershell
+$env:LLM_API_KEY='<通过进程环境注入>'
+python scripts/run_model_comparison_slice.py --model deepseek-v4-flash --mode canary --token-budget 50000
+python scripts/run_model_comparison_slice.py --model deepseek-v4-pro --mode canary --token-budget 50000
+```
+
+`mode=core` 固定选择 4 个自然语言规划、4 个 JD Parser 和 3 个 hard/adversarial workflow case；`mode=interview` 固定选择 `agent_intern_with_mlflow_gap`。脚本强制 `thinking=disabled`、`fallback=false`，并按 benchmark ID 汇总供应商真实 usage。API key 不写入报告或日志。
+
+| 分层 | Flash | Pro |
+| --- | ---: | ---: |
+| Canary 通过率 | 1/1 | 1/1 |
+| Canary Token / wall time | 7,629 / 40.0s | 7,469 / 57.1s |
+| Planner | 4/4 | 4/4 |
+| JD Parser | 4/4 | 4/4 |
+| Core workflow（按当前门控） | 0/3 | 0/3 |
+| Core Token / wall time | 22,175 / 79.1s | 15,737 / 128.8s |
+| Interview release gate | 失败 | 通过 |
+| Interview Token / wall time | 29,135 / 87.1s | 30,615 / 129.2s |
+
+结论边界：Flash 在短结构化节点和正常 canary 上质量与 Pro 接近且更快；Flash core 因两次定制 repair 反而比 Pro 多用 Token。面试 case 中两者都需要一次 repair，Pro 的增量复验通过，Flash 仍有两题未覆盖架构位置、选型理由和替代方案。当前只支持“面试节点保留 Pro、短节点继续评估 Flash 路由”，不支持全局替换，也不支持把 1/1 面试结果外推为总体胜率。
+
+本轮门控校准包括：JD retrieval keyword 与事实字段分离、负向 gap 双边验证、unsupported target role 硬失败、英文句界隔离，以及投递文案的“词法校验 -> 本地多语言 embedding -> 否定极性/结果语义一致性”二阶段门禁。所有模型质量结论使用校准后的统一门控；被代码 bug 污染的首次运行只作为开发 bad case，不进入上表。
 
 CareerAgent 的评测分为十二类：
 
@@ -142,7 +169,7 @@ evals/natural_language_plan_cases.json
 evals/application_packet_cases.json
 ```
 
-规模：26 个 case。除技能名编造外，还覆盖非技能经历编造、不支持/支持的数字指标、负面能力披露、双语近义改写、目标岗位 claim scope、缺少投递链接和自动提交边界。
+规模：27 个 case。除技能名编造外，还覆盖非技能经历编造、不支持/支持的数字指标、相近实现掩盖新增结果、负面能力披露、双语近义改写、目标岗位 claim scope、缺少投递链接和自动提交边界。
 
 ### Agent 全流程数据
 
@@ -494,9 +521,9 @@ POST /evaluations/application-packet
 
 评测内容：
 
-- 使用 `evals/application_packet_cases.json`，覆盖 26 个中文为主投递包 case。
+- 使用 `evals/application_packet_cases.json`，覆盖 27 个中文为主投递包 case。
 - 正例包括 Agent、前端、数据、产品等非单一岗位投递包，验证动态 fallback 不再硬编码 Agent/RAG/FastAPI/SQLite。
-- 反例包括编造 MLflow/Kubernetes、非技能经历和数字指标，非 Agent 岗位硬写 Agent 经验、缺少目标岗位、负面披露误判以及越过人工确认边界。
+- 反例包括编造 MLflow/Kubernetes、非技能经历、数字指标和结果类声明，非 Agent 岗位硬写 Agent 经验、缺少目标岗位、负面披露误判以及越过人工确认边界。
 - 缺少投递链接和外联文案过短当前作为 warning，不直接阻断。
 - 不调用外部招聘站，也不调用 LLM，只验证投递包最后一公里的事实校验和自动化边界。
 
@@ -516,7 +543,7 @@ POST /evaluations/application-packet
 
 | 指标 | 结果 |
 | --- | ---: |
-| case_count | 26 |
+| case_count | 27 |
 | pass_rate | 1.0000 |
 | high_risk_recall | 1.0000 |
 | false_block_count | 0 |
@@ -526,7 +553,7 @@ POST /evaluations/application-packet
 | issue_code_hit_rate | 1.0000 |
 | release_gate.passed | true |
 
-本轮暴露并修复的问题：句级 claim 检查会把“申请 Agent 岗位，我有 Python 经验”中的目标岗位 `Agent` 也当成候选人自述能力，造成误拦截。当前按子句识别 claim scope，并把目标岗位与技能证据分句生成；`ApplicationPacketGuardrail` 同时检查语义经历、数字来源、缺目标岗位和自动提交边界。最新离线全量为评测 `#63`。
+本轮暴露并修复两个问题：句级 claim 检查会把“申请 Agent 岗位，我有 Python 经验”中的目标岗位 `Agent` 也当成候选人自述能力，造成误拦截；高 embedding 相似度也可能让真实实现掩盖同句新增的“可靠性提升”。当前按子句识别 claim scope，跨语言恢复除相似度外还检查否定极性与结果语义组；`ApplicationPacketGuardrail` 同时检查语义经历、数字来源、缺目标岗位和自动提交边界。最新离线全量为评测 `#82`。
 
 ## 面试准备包评测
 

@@ -1,5 +1,49 @@
 # 开发日志
 
+## 2026-07-22 11:49:28 +08:00：完成 DeepSeek V4 Flash/Pro 同样本全链路对照，并用真实 bad case 修正证据门控与面试成本上界
+### 本轮目标与付费前检查
+- 目标不是比较文风，而是在相同输入、`thinking=disabled`、`fallback=false` 和相同 release gate 下，对比 `deepseek-v4-flash` 与 `deepseek-v4-pro` 的自然语言规划、简历/JD 解析、RAG 匹配、适配解释、定制简历、投递材料和面试 Agentic RAG。
+- 付费前先完成 `/models` 可用性检查，确认账号同时可见两个模型；再运行完整无 LLM 回归，结果为 `223 passed`。核心样本依赖的 Profile `#156` 与 Job `#197` 也先做存在性检查，避免因本地数据缺失浪费调用。
+- 新增 `scripts/run_model_comparison_slice.py`。脚本固定 canary/core/interview 三组样本，强制关闭 fallback，按 `benchmark_run_id/model/mode` 关联 `llm_call_logs`，输出调用数、输入/输出 Token、provider latency、retry/repair、逐 trace 成本和错误；core 在套件之间执行 Token 预算检查。
+
+### 最终同样本结果
+| 分层 | Flash | Pro | 可以得出的结论 |
+| --- | --- | --- | --- |
+| Canary：1 个中文 Agent 强匹配全链路 | 5 调用，7,629 tokens，40.0 秒；解析、RAG、fit、定制、投递全部通过 | 5 调用，7,469 tokens，57.1 秒；全部通过 | 单个正常样本质量打平，Flash 墙钟时间约快 30%。 |
+| 自然语言规划 | 4/4，通过 intent、action precision/recall、禁止动作和依赖门禁 | 4/4，同样通过 | 短结构化规划暂未看到 Pro 优势。 |
+| JD Parser | 4/4，required skill precision/recall/F1 与 grounding 通过 | 4/4，同样通过 | `Intern -> internship` 规范化修复后两者打平。 |
+| 3 个 hard/adversarial workflow | 按当前收紧门控离线重判为 0/3 | 实际 0/3 | 两者都把 worker-gap case 判成 partial 而非标注的 weak，也都会在至少一个简历中推断未明确写出的 target role；不能宣称核心对抗集通过。 |
+| Core 成本 | 20 调用，22,175 tokens，79.1 秒；含 2 次 tailor repair 和 1 次投递信 | 17 调用，15,737 tokens，128.8 秒；无 repair，因无通过的 strong/partial 产物而跳过投递 | Flash 更快，但 repair 使 Token 比 Pro 高；不能简单用“Flash 更便宜”描述全流程。 |
+| 面试 Agentic RAG：同一 10 题 case | 5 调用，29,135 tokens，87.1 秒；repair 后仍有 2 道多子问题未覆盖，发布失败 | 5 调用，30,615 tokens，129.2 秒；repair 后 10 题、三类视角、技能覆盖、回答质量和 Markdown 全部门禁通过 | Pro 在长上下文、多约束回答和 repair 收敛上明显更可靠；Flash 快约 32%，但结果不可发布。 |
+
+- 最终代表性三层运行合计：Flash 58,939 tokens、约 206 秒；Pro 53,821 tokens、约 315 秒。它们只用于当前固定小样本对照，不是模型总体胜率或价格结论。
+- 调试运行与代表性结果分开统计。本轮为定位门控和预算 bug，Flash 额外消耗至少 73,266 tokens；这些成本不能混入“正常一次全链路成本”，但必须记录为开发期试错成本。
+- 最终决策保持不变：短上下文规划、解析和普通 fit 可把 Flash 作为候选路由；面试答案生成、verifier/repair 暂时保留 Pro。没有修改全局默认模型，也没有因单个 canary 通过就宣布 Flash 可全局替换。
+
+### 真实 bad case、错误判断与修复
+1. **把检索扩展词当作事实字段。** Flash JD Parser 为了检索扩展加入“大模型”，旧门控把它和 required/preferred skills 一样要求逐字来自 JD，导致 canary 在 JD 阶段中止。修复后 `keywords` 的无来源扩展会单独记录 `unsupported_keywords`，但只有 required/preferred skills、职责、要求和元数据属于严格事实门禁。
+2. **用正向 citation 算法验证负向 gap。** Flash 生成“FastAPI 只在技能列表、项目没有使用证据”，结论正确，但旧算法找不到一段原文直接写着“没有项目证据”。新增双边 gap 校验：先确认它确实对应 JD requirement，再在项目/实习/工作交付证据中验证该能力是否缺失；纯技能行即使被 Parser 错放进工作经历，也不能冒充交付证据。
+3. **英文同一行的否定污染前一句。** `implemented ... graceful worker drain. Did not implement distributed tracing` 被旧句界整体视为负向，导致真实正向证据被拒绝。英文句号加空格现在是证据边界，否定只影响对应句子。
+4. **Job type 只做字面相等。** 模型返回 `Intern`，人工标注为 `internship`，核心技能完全正确却整 case 失败。`Intern/Internship/实习/实习生` 现在统一规范化为 `internship`，并有回归测试。
+5. **平均 grounding 分掩盖关键字段错误。** 较长简历即使模型推断出不存在的 `target_roles`，总体 grounding 仍可能超过 0.9。现在 unsupported target role 与身份、技能、成果一样是独立硬失败，不再由字段数量稀释。
+6. **跨语言投递文案被词法门控误杀。** Flash 把英文 `event streaming / health probes / graceful worker drain` 忠实改写成中文，词法分只有 0.0465。投递 Guardrail 现在先做高精度词法校验，失败 claim 再用本地 `paraphrase-multilingual-MiniLM-L12-v2` 对单条及相邻证据窗口做语义校验；真实改写分数 0.7116/0.8593。为防 embedding 忽略否定，只有相似度不低于 0.70 且 claim 与最佳证据否定极性一致才放行。“已实现分布式追踪”对“未实现分布式追踪”即使向量很近仍会被拒绝。最终 Application `#28` 为 `ready/low risk`，grounding=1.0。
+7. **比较脚本把 Guardrail 业务拒绝当进程崩溃。** `_create_application_from_workflow` 原先未捕获业务校验异常，导致已完成的规划/JD/workflow 套件没有写入最终报告。现在投递失败结构化记录 `passed/error/source_case`，不会吞掉前序指标。
+8. **面试批处理只改 batch，没有重算 completion 上界。** 10 题合并后默认调用从 6 降到 3，但第一次 verifier 仍用旧 1,800 上限，Flash 输出正好截断为非法 JSON；改为 2,800 后，第二次又在 repair 后增量复验前被 12,000 预留上限阻断。最终契约为正常 3 次、repair 路径最多 5 次、60,000 Prompt 字符、15,000 completion 预留；增量复验只处理失败题。第三次 Flash 完整执行后是业务质量失败，不再归咎代码或继续重跑。
+9. **高向量相似度会掩盖同句新增结果。** 代码复查发现，“实现健康探针和优雅退出，并确保平台可靠性提升”会因前半句与项目证据高度相似，让整句 embedding 通过，即使“可靠性提升”没有来源。修复后结果类声明按可靠性、性能、准确性、效率和成本语义组额外对齐；claim 出现的结果组必须也出现在最佳证据中，且仍需同时满足相似度与否定极性。新增 `semantic_outcome_fabrication` 对抗 case，避免为了接受跨语言改写而重新放开事实拼接。
+
+### 门控为什么没有为了过样本而放宽
+- Gap 门控没有接受“只要提到 experience 就算 JD 差距”。无结构化 requirement 命中时，JD 语句相似阈值从 0.32 收紧到 0.50，因此 Flash 生成的 `No work experience or internship history` 被正确拒绝。
+- 跨语言投递没有直接降低整个词法阈值，也没有用第二次 LLM 当裁判；只对词法未通过的 claim 使用本地多语言 embedding，并增加否定极性一致性。真实正例最高 0.8233，伪造“跨地域容灾/生产切换”样本只有 0.3122。
+- Flash 面试最终失败来自 verifier 的明确 `answer_not_responsive`，即 Python/FastAPI 的架构位置、选型理由和替代方案未被同时覆盖。没有修改标注、关闭 verifier 或增加无限 repair。
+
+### 测试、遗留问题与下一步
+- 本轮新增或更新了 JD 类型规范化、负向 gap、目标岗位推断、英文句界、跨语言投递、否定极性、结果语义一致性和面试成本契约测试。最终使用项目解释器执行 `python -m pytest -q`，结果为 `229 passed in 92.27s`。一次直接执行 `pytest` 落到了系统 Python，因缺少 `aiosqlite/langgraph` 在收集期失败；这属于 Windows PATH 中两个 pytest/Python 不一致，不是代码回归，后续命令统一绑定解释器。
+- 投递 Guardrail 扩展后的 27-case 评测 `#82` 的 pass rate/high-risk recall/issue-code hit 均为 1.0，false-block 和 missed-high-risk 均为 0，release gate 通过；证明跨语言 embedding 恢复没有破坏原有高风险阻断，也能拒绝“实现相近但结果无来源”的事实拼接。
+- 使用不带 API Key 的新进程重启 `127.0.0.1:8070`，`/health`、`/ops/readiness`、开始页、评测页、控制台和面试页均返回 200；数据库为 `ok`，页面能明确看到 LLM 未配置。`compileall` 与比较脚本 `--help` 通过，服务保留运行供人工检查；本机未安装 Ruff，因此没有把后续成功命令误报为 Ruff 通过。
+- 当前 core 只抽取 4 个规划、4 个 JD 和 3 个 workflow；canary 与 interview 各 1 个 case。可以用于发现差异和决定暂时路由，不能替代 20/30/24/9 case 的完整真实 LLM 发布认证。
+- 两个模型都没有稳定跨过 partial/weak 边界，也都会推断未明确目标岗位。下一步优先改 Parser/fit 的结构化契约与 few-shot，而不是扩大 repair 次数。
+- 面试 Flash 的多子问题覆盖仍是明确未修复项。若继续优化，应把“架构位置/理由/替代方案”拆成 verifier 可逐项反馈的 coverage slots，并在 repair prompt 中逐槽补齐；在离线 fake-LLM 契约通过前不要继续付费重跑。
+
 ## 2026-07-22 10:22:55 +08:00：把“接口跑通”升级为分层质量门控，重新校准简历、JD、RAG、适配、定制、规划和投递结论
 ### 为什么要做这轮改造
 - 上一轮把简历/JD 解析、RAG 匹配、适配判断、简历定制、自然语言规划和投递材料描述为“运行正常”，这个结论过宽。它主要证明 HTTP/Schema/持久化链路没有报错，只有面试模块具备较强的答案相关性和证据发布门禁；其他环节仍可能在返回 200 的同时漏字段、错误归一化、引用无依据或生成未支持事实。

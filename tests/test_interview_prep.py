@@ -404,21 +404,18 @@ def test_interview_default_flow_uses_batched_verifier_within_context_budget(db_s
         for question in group.get("questions", [])
     ]
     assert len(questions) == 10
-    assert len(llm.calls) == 6
+    assert len(llm.calls) == 3
     assert [item["trace_name"] for item in llm.calls] == [
         "interview_prep.generate_interviewer_questions",
         "interview_agentic_rag.generate.1",
-        "interview_agentic_rag.generate.2",
         "interview_agentic_rag.verify.1",
-        "interview_agentic_rag.verify.2",
-        "interview_agentic_rag.verify.3",
     ]
-    assert sum(item["prompt_chars"] for item in llm.calls) <= 85000
-    assert sum(item["max_tokens"] for item in llm.calls) <= 22000
+    assert sum(item["prompt_chars"] for item in llm.calls) <= 60000
+    assert sum(item["max_tokens"] for item in llm.calls) <= 15000
     verify_calls = [item for item in llm.calls if item["trace_name"].startswith("interview_agentic_rag.verify.")]
-    assert len(verify_calls) == 3
-    assert all(item["prompt_chars"] < 12000 for item in verify_calls)
-    assert all(item["max_tokens"] == 1800 for item in verify_calls)
+    assert len(verify_calls) == 1
+    assert all(item["prompt_chars"] < 25000 for item in verify_calls)
+    assert all(item["max_tokens"] == 2800 for item in verify_calls)
 
 
 def test_interview_repair_batches_stop_sequentially_after_first_failure(db_session):
@@ -495,7 +492,7 @@ def test_interview_prunes_one_bad_claim_without_rewriting_complete_answers(db_se
         for group in prep.question_sets_json
         for question in group.get("questions", [])
     ]
-    assert len(llm.calls) == 6
+    assert len(llm.calls) == 3
     assert not any("repair" in item["trace_name"] for item in llm.calls)
     assert prep.summary_json["agentic_rag"]["repair_attempts"] == 0
     assert prep.summary_json["agentic_rag"]["verification_warning_count"] == len(questions)

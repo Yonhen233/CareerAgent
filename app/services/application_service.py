@@ -84,7 +84,8 @@ class ApplicationService:
             return fallback
         system_prompt = (
             "You write concise Chinese job application letters. Return plain text only. "
-            "Every candidate experience or achievement sentence must be a close paraphrase of the supplied profile."
+            "Every candidate experience or achievement sentence must be a close paraphrase of the supplied profile. "
+            "Do not add causal outcomes such as ensuring reliability or improving performance unless the source says so."
         )
         user_prompt = f"""
 Write a concise cover letter in Chinese.

@@ -25,10 +25,10 @@ class Settings(BaseSettings):
     llm_context_max_chars: int = 9000
     llm_evidence_max_chars: int = 3600
     interview_rag_max_questions: int = 10
-    interview_rag_answer_batch_size: int = 5
+    interview_rag_answer_batch_size: int = 10
     interview_rag_llm_concurrency: int = 2
-    interview_rag_verify_question_batch_size: int = 4
-    interview_rag_verify_max_tokens: int = 1800
+    interview_rag_verify_question_batch_size: int = 10
+    interview_rag_verify_max_tokens: int = 2800
     interview_rag_json_repair_attempts: int = 0
     interview_rag_retrieval_top_n: int = 20
     interview_rag_evidence_top_k: int = 5
@@ -36,9 +36,9 @@ class Settings(BaseSettings):
     interview_rag_rrf_k: int = 60
     interview_rag_min_answer_chars: int = 120
     interview_rag_answer_repair_attempts: int = 1
-    interview_rag_max_llm_calls: int = 9
-    interview_rag_max_prompt_chars: int = 85000
-    interview_rag_max_completion_tokens: int = 22000
+    interview_rag_max_llm_calls: int = 5
+    interview_rag_max_prompt_chars: int = 60000
+    interview_rag_max_completion_tokens: int = 15000
 
     openai_api_key: str | None = None
     openai_base_url: str | None = None

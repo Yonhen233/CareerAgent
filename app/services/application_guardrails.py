@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.models.entities import Job, Profile, ResumeVersion
+from app.services.embedding_service import EmbeddingService, cosine_similarity
 from app.services.evidence_grounding import EvidenceGroundingService
 
 
@@ -79,8 +80,19 @@ NEGATIVE_SUPPORT_PATTERNS = (
     "缺少",
 )
 
+OUTCOME_SEMANTIC_GROUPS: dict[str, tuple[str, ...]] = {
+    "reliability": ("可靠", "稳定", r"\breliab", r"\bstab"),
+    "performance": ("性能", "延迟", "吞吐", r"\bperformance\b", r"\blatency\b", r"\bthroughput\b"),
+    "accuracy": ("准确", "精度", "召回", r"\baccuracy\b", r"\bprecision\b", r"\brecall\b"),
+    "efficiency": ("效率", "提效", r"\befficien"),
+    "cost": ("成本", "费用", r"\bcosts?\b"),
+}
+
 
 class ApplicationPacketGuardrail:
+    def __init__(self, *, embedding_service: EmbeddingService | None = None) -> None:
+        self.embedding_service = embedding_service or EmbeddingService()
+
     def validate(
         self,
         *,
@@ -100,6 +112,11 @@ class ApplicationPacketGuardrail:
             support_sources.append(resume_version.tailored_resume_markdown or "")
         grounding = EvidenceGroundingService()
         semantic_grounding = grounding.evaluate_generated_claims(text, support_sources, threshold=0.12)
+        semantic_grounding = self._recover_multilingual_grounding(
+            semantic_grounding,
+            support_sources=support_sources,
+            grounding=grounding,
+        )
         unsupported_numbers = grounding.unsupported_numbers(text, support_sources)
         issues: list[dict[str, Any]] = []
         warnings: list[dict[str, Any]] = []
@@ -169,6 +186,101 @@ class ApplicationPacketGuardrail:
             "unsupported_numbers": unsupported_numbers,
             "checked_fields": ["cover_letter", "outreach_message", "checklist", "automation_result"],
         }
+
+    def _recover_multilingual_grounding(
+        self,
+        report: dict[str, Any],
+        *,
+        support_sources: list[str],
+        grounding: EvidenceGroundingService,
+    ) -> dict[str, Any]:
+        unsupported = list(report.get("unsupported_claims") or [])
+        if not unsupported:
+            return report
+        source_snippet_candidates: list[str] = []
+        for source in support_sources:
+            sentences = [item[:500] for item in grounding.sentences(source) if len(item.strip()) >= 8]
+            source_snippet_candidates.extend(sentences)
+            source_snippet_candidates.extend(
+                f"{left} {right}"[:900]
+                for left, right in zip(sentences, sentences[1:], strict=False)
+            )
+        source_snippets = list(dict.fromkeys(source_snippet_candidates))[:120]
+        if not source_snippets:
+            return report
+        claims = [str(item.get("claim") or "").strip() for item in unsupported]
+        try:
+            embeddings = self.embedding_service.embed_texts([*claims, *source_snippets])
+        except Exception as exc:  # noqa: BLE001
+            return {**report, "embedding_error": f"{type(exc).__name__}: {exc}"}
+        claim_vectors = embeddings.vectors[: len(claims)]
+        source_vectors = embeddings.vectors[len(claims) :]
+        embedding_matches: dict[str, dict[str, Any]] = {}
+        recovered: dict[str, float] = {}
+        for claim, claim_vector in zip(claims, claim_vectors, strict=False):
+            scored_sources = [
+                (cosine_similarity(claim_vector, source_vector), source)
+                for source, source_vector in zip(source_snippets, source_vectors, strict=False)
+            ]
+            best, best_source = max(scored_sources, default=(0.0, ""), key=lambda item: item[0])
+            polarity_consistent = self._is_negative_claim(claim) == self._is_negative_claim(best_source)
+            outcome_consistent = self._outcome_semantics_consistent(claim, best_source)
+            embedding_matches[claim] = {
+                "score": round(best, 4),
+                "source_preview": best_source[:240],
+                "polarity_consistent": polarity_consistent,
+                "outcome_semantics_consistent": outcome_consistent,
+            }
+            if best >= 0.70 and polarity_consistent and outcome_consistent:
+                recovered[claim] = round(best, 4)
+
+        results = []
+        for item in report.get("results") or []:
+            claim = str(item.get("claim") or "")
+            embedding_score = recovered.get(claim)
+            match = embedding_matches.get(claim) or {}
+            results.append(
+                {
+                    **item,
+                    "lexical_support_score": item.get("support_score"),
+                    "embedding_support_score": match.get("score"),
+                    "embedding_source_preview": match.get("source_preview"),
+                    "embedding_polarity_consistent": match.get("polarity_consistent"),
+                    "embedding_outcome_semantics_consistent": match.get("outcome_semantics_consistent"),
+                    "support_method": "multilingual_embedding" if embedding_score is not None else "lexical",
+                    "supported": bool(item.get("supported")) or embedding_score is not None,
+                }
+            )
+        unsupported_after = [item for item in results if not item.get("supported")]
+        supported_count = len(results) - len(unsupported_after)
+        return {
+            **report,
+            "passed": not unsupported_after,
+            "supported_claim_count": supported_count,
+            "grounding_rate": round(supported_count / max(len(results), 1), 4),
+            "unsupported_claims": unsupported_after,
+            "results": results,
+            "embedding": embeddings.info(),
+            "embedding_threshold": 0.70,
+        }
+
+    def _is_negative_claim(self, text: str) -> bool:
+        return self._contains_any_pattern(text, NEGATIVE_SUPPORT_PATTERNS)
+
+    def _outcome_semantics_consistent(self, claim: str, source: str) -> bool:
+        claim_groups = {
+            name
+            for name, patterns in OUTCOME_SEMANTIC_GROUPS.items()
+            if self._contains_any_pattern(claim, patterns)
+        }
+        if not claim_groups:
+            return True
+        source_groups = {
+            name
+            for name, patterns in OUTCOME_SEMANTIC_GROUPS.items()
+            if self._contains_any_pattern(source, patterns)
+        }
+        return claim_groups.issubset(source_groups)
 
     def _supported_terms(self, profile: Profile, resume_version: ResumeVersion | None) -> set[str]:
         support_text = self._profile_support_text(profile)

@@ -181,6 +181,7 @@ def test_interview_prep_evaluation_covers_sources_stack_and_gap_drills(db_sessio
     assert run.summary_json["markdown_export_pass_rate"] == 1.0
     assert run.summary_json["avg_source_backed_question_count"] > 0
     assert run.summary_json["avg_question_count"] == 10
+    assert run.summary_json["release_gate"]["passed"] is True
     assert "agent_development" in run.summary_json["role_type_breakdown"]
 
 
@@ -330,6 +331,11 @@ def test_jd_parser_canonicalizes_chinese_aliases_and_job_type():
     assert parsed["job_type"] == "internship"
     assert parsed["required_skills"] == ["LLM", "Prompt Engineering", "Model Evaluation"]
     assert parsed["preferred_skills"] == ["A/B Testing"]
+
+    english_job_type = JDParserService()._canonicalize_structured_jd(
+        {"job_type": "Intern", "required_skills": [], "preferred_skills": []}
+    )
+    assert english_job_type["job_type"] == "internship"
 
 
 def test_fit_message_is_composed_only_from_verified_structured_facts():

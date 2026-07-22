@@ -75,8 +75,11 @@ def run_prompt_injection_evaluation(db: Session = Depends(get_db)) -> Evaluation
 
 
 @router.post("/interview-prep", response_model=EvaluationRunResponse, status_code=status.HTTP_201_CREATED)
-def run_interview_prep_evaluation(db: Session = Depends(get_db)) -> EvaluationRunResponse:
-    run = EvaluationService().run_interview_prep_evaluation(db)
+def run_interview_prep_evaluation(
+    case_limit: int | None = Query(default=None, ge=1, le=9),
+    db: Session = Depends(get_db),
+) -> EvaluationRunResponse:
+    run = EvaluationService().run_interview_prep_evaluation(db, case_limit=case_limit)
     return EvaluationRunResponse.model_validate(run)
 
 

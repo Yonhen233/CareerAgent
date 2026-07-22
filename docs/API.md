@@ -718,7 +718,7 @@ POST /evaluations/job-relevance
 POST /evaluations/application-packet
 ```
 
-该评测使用 `evals/application_packet_cases.json` 的 26 个 case，不访问外部招聘站，也不调用 LLM，只验证投递包质量校验。返回的 `summary_json` 包含 `high_risk_recall`、`false_block_rate`、`missed_high_risk_rate`、`issue_code_hit_rate`、`risk_level_counts`、分桶指标和 `release_gate`。case 覆盖技能/经历/数字编造、负面披露、双语改写、目标岗位作用域与人工确认边界；`case_results_json` 保留完整 validation 与命中的 issue/warning code。
+该评测使用 `evals/application_packet_cases.json` 的 27 个 case，不访问外部招聘站，也不调用 LLM，只验证投递包质量校验。返回的 `summary_json` 包含 `high_risk_recall`、`false_block_rate`、`missed_high_risk_rate`、`issue_code_hit_rate`、`risk_level_counts`、分桶指标和 `release_gate`。case 覆盖技能/经历/数字/结果类声明编造、负面披露、双语改写、目标岗位作用域与人工确认边界；`case_results_json` 保留完整 validation 与命中的 issue/warning code。
 
 运行 Prompt Injection Guard 对抗评测：
 
@@ -732,9 +732,10 @@ POST /evaluations/prompt-injection
 
 ```http
 POST /evaluations/interview-prep
+POST /evaluations/interview-prep?case_limit=1
 ```
 
-该评测使用 `evals/interview_prep_cases.json`，不访问牛客网、OfferShow、小红书等外部平台，只验证面试包是否覆盖同岗位面经调研线索、已导入面经证据、简历项目技术栈追问、JD 缺口 drill 和通用面试问题。返回的 `summary_json` 包含 `pass_rate`、`category_pass_rate`、`research_source_pass_rate`、`source_backed_pass_rate`、`experience_site_pass_rate`、`gap_drill_pass_rate`、`question_id_pass_rate`、`source_perspective_pass_rate`、`preparation_angle_pass_rate`、`llm_question_generation_pass_rate`、`question_quality_pass_rate`、`avg_question_quality_score`、`markdown_export_pass_rate`、`avg_question_count`、`avg_source_backed_question_count`、`avg_required_skill_coverage_rate`、`difficulty_breakdown` 和 `role_type_breakdown`。
+该评测使用 `evals/interview_prep_cases.json`，`case_limit` 可用于付费前的单 case canary；不访问牛客网、OfferShow、小红书等外部平台，只验证面试包是否覆盖同岗位面经调研线索、已导入面经证据、简历项目技术栈追问、JD 缺口 drill 和通用面试问题。返回的 `summary_json` 包含 `pass_rate`、`category_pass_rate`、`research_source_pass_rate`、`source_backed_pass_rate`、`experience_site_pass_rate`、`gap_drill_pass_rate`、`question_id_pass_rate`、`source_perspective_pass_rate`、`preparation_angle_pass_rate`、`llm_question_generation_pass_rate`、`question_quality_pass_rate`、`avg_question_quality_score`、`markdown_export_pass_rate`、`avg_question_count`、`avg_source_backed_question_count`、`avg_required_skill_coverage_rate`、`difficulty_breakdown`、`role_type_breakdown` 和 `release_gate`。当前默认 10 题，正常 3 次 LLM 调用；一次 repair 和失败题增量复验时最多 5 次。
 
 运行面经来源 smoke：
 

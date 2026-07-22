@@ -631,9 +631,17 @@ class EvaluationService:
         db.refresh(run)
         return run
 
-    def run_interview_prep_evaluation(self, db: Session, *, dataset_path: Path | None = None) -> EvaluationRun:
+    def run_interview_prep_evaluation(
+        self,
+        db: Session,
+        *,
+        dataset_path: Path | None = None,
+        case_limit: int | None = None,
+        case_indexes: list[int] | None = None,
+    ) -> EvaluationRun:
         path = dataset_path or self.settings.base_path / "evals" / "interview_prep_cases.json"
-        cases = json.loads(path.read_text(encoding="utf-8"))
+        all_cases = json.loads(path.read_text(encoding="utf-8"))
+        cases = self._select_llm_cases(all_cases, case_limit=case_limit, case_indexes=case_indexes)
         namespace = f"interview_eval:{uuid.uuid4().hex[:8]}"
         case_results = [
             self._run_interview_prep_case(db, case, namespace=f"{namespace}:{index}")
@@ -1345,6 +1353,7 @@ class EvaluationService:
                     "jd_quality_gate_passed": bool(jd_quality_gate.get("passed")),
                     "jd_statement_grounding_rate": jd_quality_gate.get("statement_grounding_rate", 0),
                     "jd_unsupported_skill_count": len(jd_quality_gate.get("unsupported_skills") or []),
+                    "jd_unsupported_keyword_count": len(jd_quality_gate.get("unsupported_keywords") or []),
                 }
             )
             self._record_stage(
@@ -1361,6 +1370,7 @@ class EvaluationService:
                     "quality_gate_passed": bool(jd_quality_gate.get("passed")),
                     "statement_grounding_rate": jd_quality_gate.get("statement_grounding_rate", 0),
                     "unsupported_skills": jd_quality_gate.get("unsupported_skills", [])[:8],
+                    "unsupported_keywords": jd_quality_gate.get("unsupported_keywords", [])[:8],
                 },
             )
 
@@ -1451,11 +1461,11 @@ class EvaluationService:
             )
             if predicted_label == "weak_fit" and not suitability.get("matched_evidence"):
                 fit_evidence_grounding = {**fit_evidence_grounding, "passed": True, "grounding_rate": 1.0}
-            fit_gap_grounding = self.grounding.evaluate_citations(
+            fit_gap_grounding = self.grounding.evaluate_fit_gaps(
                 suitability.get("gaps") or [],
-                [job.raw_jd_text, json.dumps(job.structured_jd_json or {}, ensure_ascii=False)],
-                threshold=0.32,
-                require_positive=False,
+                jd=job.structured_jd_json or {},
+                jd_sources=[job.raw_jd_text, json.dumps(job.structured_jd_json or {}, ensure_ascii=False)],
+                profile=profile_json,
             )
             if predicted_label == "strong_fit" and not suitability.get("gaps"):
                 fit_gap_grounding = {**fit_gap_grounding, "passed": True, "grounding_rate": 1.0}
@@ -2201,6 +2211,7 @@ class EvaluationService:
                 "grounding_quality_gate_passed": bool(quality_gate.get("passed")),
                 "statement_grounding_rate": quality_gate.get("statement_grounding_rate", 0),
                 "unsupported_extracted_skill_count": len(quality_gate.get("unsupported_skills") or []),
+                "unsupported_keyword_expansion_count": len(quality_gate.get("unsupported_keywords") or []),
                 "unsupported_statement_count": quality_gate.get("unsupported_statement_count", 0),
             }
         )
@@ -2239,6 +2250,9 @@ class EvaluationService:
             "avg_statement_grounding_rate": self._avg_number(completed, "statement_grounding_rate"),
             "unsupported_extracted_skill_count": sum(
                 int(item.get("unsupported_extracted_skill_count") or 0) for item in completed
+            ),
+            "unsupported_keyword_expansion_count": sum(
+                int(item.get("unsupported_keyword_expansion_count") or 0) for item in completed
             ),
             "job_type_accuracy": self._avg_bool(completed, "job_type_passed"),
             "responsibility_min_pass_rate": self._avg_bool(completed, "responsibility_min_passed"),
@@ -2622,7 +2636,7 @@ class EvaluationService:
         dataset_path: Path,
     ) -> dict[str, Any]:
         count = max(len(case_results), 1)
-        return {
+        summary = {
             "evaluation_type": "interview_prep",
             "status": "completed" if all(item.get("case_passed") for item in case_results) else "completed_with_quality_failures",
             "dataset": dataset_path.name,
@@ -2660,6 +2674,20 @@ class EvaluationService:
                 "缺少证据的技能必须进入 gap drill，不能包装成已掌握经验。",
             ],
         }
+        summary["release_gate"] = self._quality_release_gate(
+            summary,
+            [
+                ("pass_rate", ">=", 1.0),
+                ("question_id_pass_rate", ">=", 1.0),
+                ("source_perspective_pass_rate", ">=", 1.0),
+                ("preparation_angle_pass_rate", ">=", 1.0),
+                ("question_quality_pass_rate", ">=", 1.0),
+                ("avg_question_quality_score", ">=", 0.9),
+                ("avg_required_skill_coverage_rate", ">=", 0.8),
+                ("markdown_export_pass_rate", ">=", 1.0),
+            ],
+        )
+        return summary
 
     def _summarize_interview_prep_by_key(self, rows: list[dict[str, Any]], key: str) -> dict[str, Any]:
         grouped: dict[str, list[dict[str, Any]]] = {}
@@ -3385,6 +3413,9 @@ class EvaluationService:
             "avg_jd_statement_grounding_rate": self._avg_number(completed, "jd_statement_grounding_rate"),
             "jd_unsupported_skill_count": sum(
                 int(item.get("jd_unsupported_skill_count") or 0) for item in completed
+            ),
+            "jd_unsupported_keyword_count": sum(
+                int(item.get("jd_unsupported_keyword_count") or 0) for item in completed
             ),
             "avg_jd_skill_recall": self._avg_number(case_results, "jd_skill_recall"),
             "fit_judge_success_rate": self._avg_bool(case_results, "fit_judge_success"),

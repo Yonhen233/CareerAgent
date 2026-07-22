@@ -69,6 +69,8 @@ JD_EXACT_SKILL_CANONICAL = {
 }
 
 JD_JOB_TYPE_CANONICAL = {
+    "intern": "internship",
+    "internship": "internship",
     "实习": "internship",
     "实习生": "internship",
     "校招": "internship",

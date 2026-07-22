@@ -173,6 +173,9 @@ class EvidenceGroundingService:
             if item["field"] in {"name", "email", "phone"}
         ]
         unsupported_skills = [item for item in unsupported_fields if "skill" in item["field"]]
+        unsupported_target_roles = [
+            item for item in unsupported_fields if item["field"].startswith("target_roles[")
+        ]
         unsupported_claim_fields = [
             item
             for item in unsupported_fields
@@ -182,6 +185,7 @@ class EvidenceGroundingService:
         passed = (
             not unsupported_critical
             and not unsupported_skills
+            and not unsupported_target_roles
             and not unsupported_claim_fields
             and grounding_rate >= 0.9
         )
@@ -194,6 +198,7 @@ class EvidenceGroundingService:
             "unsupported_fields": unsupported_fields[:20],
             "unsupported_critical_fields": unsupported_critical,
             "unsupported_skills": unsupported_skills,
+            "unsupported_target_roles": unsupported_target_roles,
             "unsupported_claim_fields": unsupported_claim_fields,
         }
 
@@ -206,11 +211,17 @@ class EvidenceGroundingService:
     ) -> dict[str, Any]:
         allowed = {self.normalize(value) for value in allowed_values if str(value or "").strip()}
         unsupported_skills: list[dict[str, str]] = []
-        for field in ("required_skills", "preferred_skills", "keywords"):
+        for field in ("required_skills", "preferred_skills"):
             for value in parsed.get(field) or []:
                 clean = str(value or "").strip()
                 if clean and not self.value_supported(clean, raw_text):
                     unsupported_skills.append({"field": field, "value": clean})
+
+        unsupported_keywords = []
+        for value in parsed.get("keywords") or []:
+            clean = str(value or "").strip()
+            if clean and not self.value_supported(clean, raw_text):
+                unsupported_keywords.append({"field": "keywords", "value": clean})
 
         statement_results: list[dict[str, Any]] = []
         for field in ("responsibilities", "qualifications"):
@@ -242,6 +253,7 @@ class EvidenceGroundingService:
             "unsupported_statement_count": sum(1 for item in statement_results if not item["supported"]),
             "unsupported_statements": [item for item in statement_results if not item["supported"]][:12],
             "unsupported_skills": unsupported_skills,
+            "unsupported_keywords": unsupported_keywords,
             "unsupported_metadata": unsupported_metadata,
         }
 
@@ -270,6 +282,74 @@ class EvidenceGroundingService:
                     "supported": supported,
                 }
             )
+        supported_count = sum(1 for item in results if item["supported"])
+        return {
+            "passed": bool(results) and supported_count == len(results),
+            "grounding_rate": round(supported_count / max(len(results), 1), 4),
+            "citation_count": len(results),
+            "unsupported_citations": [item for item in results if not item["supported"]],
+            "results": results,
+        }
+
+    def evaluate_fit_gaps(
+        self,
+        gaps: Iterable[Any],
+        *,
+        jd: dict[str, Any],
+        jd_sources: Iterable[Any],
+        profile: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Verify that each gap is a real JD requirement without delivery evidence.
+
+        A gap is a negative claim, so lexical citation matching alone cannot prove it.
+        This check grounds the requirement against the JD and separately checks that
+        the candidate's project or experience evidence does not demonstrate it.
+        """
+        source_texts = [str(item or "").strip() for item in jd_sources if str(item or "").strip()]
+        requirements = [
+            str(item).strip()
+            for field in ("required_skills", "preferred_skills")
+            for item in (jd.get(field) or [])
+            if str(item or "").strip()
+        ]
+        delivery_evidence = self._profile_delivery_evidence(profile)
+        results: list[dict[str, Any]] = []
+
+        for raw in gaps:
+            gap = str(raw or "").strip()
+            if not gap:
+                continue
+            matched_requirements = [item for item in requirements if self.value_supported(item, gap)]
+            jd_support_score = max(
+                (
+                    self.support_score(clause, source)
+                    for clause in self._gap_requirement_clauses(gap)
+                    for source in source_texts
+                ),
+                default=0.0,
+            )
+            jd_supported = bool(matched_requirements) or jd_support_score >= 0.5
+            missing_delivery_evidence = [
+                item
+                for item in matched_requirements
+                if not self.has_positive_support(item, delivery_evidence)
+            ]
+            if matched_requirements:
+                absence_verified = bool(missing_delivery_evidence)
+            else:
+                absence_verified = self.support_score(gap, delivery_evidence) < 0.32
+            supported = jd_supported and absence_verified
+            results.append(
+                {
+                    "citation": gap[:300],
+                    "jd_support_score": jd_support_score,
+                    "matched_requirements": matched_requirements,
+                    "missing_delivery_evidence": missing_delivery_evidence,
+                    "candidate_absence_verified": absence_verified,
+                    "supported": supported,
+                }
+            )
+
         supported_count = sum(1 for item in results if item["supported"])
         return {
             "passed": bool(results) and supported_count == len(results),
@@ -363,6 +443,38 @@ class EvidenceGroundingService:
         sequence_coverage = longest.size / max(len(normalized_claim), 1)
         return round(max(token_overlap, sequence_coverage), 4)
 
+    def _profile_delivery_evidence(self, profile: dict[str, Any]) -> str:
+        evidence: list[Any] = [profile.get("self_summary")]
+        evidence.extend(profile.get("projects") or [])
+        for field in ("work_experience", "campus_experience"):
+            for item in profile.get(field) or []:
+                if not isinstance(item, dict):
+                    continue
+                role = str(item.get("role") or "").strip()
+                details = str(item.get("details") or "").strip()
+                has_identity = bool(item.get("company") or item.get("duration"))
+                if not has_identity and (role.startswith("技能") or details.startswith("技能")):
+                    continue
+                evidence.append(item)
+        return "\n".join(
+            json_value
+            for item in evidence
+            if (json_value := self._stringify_evidence(item))
+        )
+
+    @staticmethod
+    def _stringify_evidence(value: Any) -> str:
+        if isinstance(value, dict):
+            return " ".join(str(item or "") for item in value.values()).strip()
+        if isinstance(value, list):
+            return " ".join(str(item or "") for item in value).strip()
+        return str(value or "").strip()
+
+    @staticmethod
+    def _gap_requirement_clauses(gap: str) -> list[str]:
+        clauses = [item.strip() for item in re.split(r"[；;。]|(?:但是|但|然而|however|but)", gap, flags=re.I)]
+        return clauses or [gap]
+
     def _term_candidates(self, value: str) -> list[str]:
         normalized = self.normalize(value)
         aliases = TERM_ALIASES.get(normalized, ())
@@ -371,7 +483,11 @@ class EvidenceGroundingService:
 
     @staticmethod
     def sentences(text: str) -> list[str]:
-        return [item.strip() for item in re.split(r"[\n。！？!?；;]+", text or "") if item.strip()]
+        return [
+            item.strip()
+            for item in re.split(r"[\n。！？!?；;]+|\.\s+", text or "")
+            if item.strip()
+        ]
 
     @staticmethod
     def normalize(value: Any) -> str:

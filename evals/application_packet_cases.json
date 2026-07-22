@@ -1246,5 +1246,41 @@
     },
     "expected_passed": true,
     "expected_issue_codes": []
+  },
+  {
+    "name": "related_implementation_cannot_prove_reliability_outcome_zh",
+    "difficulty": "adversarial",
+    "noise_profile": "semantic_outcome_fabrication",
+    "profile": {
+      "name": "许言",
+      "raw_resume_text": "Implemented health probes and graceful worker drain for Agent workers.",
+      "structured_profile": {
+        "name": "许言",
+        "skills": ["Python"],
+        "projects": [
+          {
+            "name": "AgentOps",
+            "description": "Implemented health probes and graceful worker drain for Agent workers."
+          }
+        ]
+      }
+    },
+    "job": {
+      "title": "Agent 平台实习生",
+      "company": "FlowAI",
+      "jd_text": "负责 Agent 平台工具开发。",
+      "apply_url": "https://example.com/apply"
+    },
+    "packet": {
+      "cover_letter": "您好，我希望申请 FlowAI 的 Agent 平台实习生。我实现了健康探针和工作节点优雅退出，并确保平台可靠性提升。",
+      "outreach_message": "您好，我关注到 FlowAI 的 Agent 平台实习生岗位，希望交流。",
+      "checklist": ["提交前人工确认隐私授权和必填字段"],
+      "automation_result": {
+        "mode": "manual_confirm_required",
+        "final_submission": "user_confirmed_only"
+      }
+    },
+    "expected_passed": false,
+    "expected_issue_codes": ["unsupported_evidence_claims"]
   }
 ]

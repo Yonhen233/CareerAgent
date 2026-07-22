@@ -3,6 +3,7 @@ import asyncio
 import pytest
 
 from app.models.entities import Job, Profile
+from app.services.embedding_service import EmbeddingBatch
 from app.services.application_guardrails import ApplicationPacketGuardrail
 from app.services.application_service import ApplicationService
 
@@ -184,6 +185,147 @@ def test_application_guardrail_rejects_unknown_semantic_achievement():
 
     assert validation["passed"] is False
     assert "unsupported_evidence_claims" in {item["code"] for item in validation["issues"]}
+
+
+def test_application_guardrail_accepts_grounded_cross_language_project_paraphrase():
+    class CrossLanguageEmbeddingStub:
+        def embed_texts(self, texts):
+            return EmbeddingBatch(
+                vectors=[[1.0, 0.0] for _ in texts],
+                provider="cross_language_test",
+                model="controlled",
+                dimensions=2,
+            )
+
+    profile = Profile(
+        name="Xu Yan",
+        source_type="guided",
+        raw_resume_text=(
+            "Project AgentOps: implemented LangGraph event streaming, structured logs, health probes "
+            "and graceful worker drain. Did not implement distributed tracing across external providers."
+        ),
+        structured_profile_json={"skills": ["Python", "LangGraph", "OpenTelemetry"]},
+    )
+    job = Job(
+        source="manual",
+        external_id="agent-observability",
+        title="Agent Observability Intern",
+        company="FlowAI",
+        raw_jd_text="Build Agent observability tooling.",
+        structured_jd_json={"required_skills": ["LangGraph", "OpenTelemetry"]},
+        apply_url="https://example.com/apply",
+    )
+
+    validation = ApplicationPacketGuardrail(
+        embedding_service=CrossLanguageEmbeddingStub()
+    ).validate(
+        profile=profile,
+        job=job,
+        resume_version=None,
+        cover_letter=(
+            "尊敬的 FlowAI 招聘团队，我申请 Agent Observability Intern。"
+            "在 AgentOps 项目中，我实现了 LangGraph 事件流以支持运行时可观测性，"
+            "并开发了健康检查探针与优雅的工作节点排空机制。"
+        ),
+        outreach_message="您好，我关注到 FlowAI 的 Agent Observability Intern，希望进一步交流。",
+        checklist=_checklist(),
+        automation_result=_manual_automation(),
+    )
+
+    assert validation["passed"] is True
+    semantic = validation["semantic_claim_grounding"]
+    assert semantic["embedding"]["provider"] == "cross_language_test"
+    assert semantic["results"][0]["support_method"] == "multilingual_embedding"
+
+
+def test_application_guardrail_embedding_does_not_reverse_negative_evidence():
+    class SimilarityStub:
+        def embed_texts(self, texts):
+            return EmbeddingBatch(
+                vectors=[[1.0, 0.0] for _ in texts],
+                provider="similarity_test",
+                model="controlled",
+                dimensions=2,
+            )
+
+    profile = Profile(
+        name="Xu Yan",
+        source_type="guided",
+        raw_resume_text="Did not implement distributed tracing across external model providers.",
+        structured_profile_json={"skills": ["Python"]},
+    )
+    job = Job(
+        source="manual",
+        external_id="negative-evidence",
+        title="Agent Observability Intern",
+        company="FlowAI",
+        raw_jd_text="Build distributed tracing.",
+        structured_jd_json={"required_skills": ["distributed tracing"]},
+        apply_url="https://example.com/apply",
+    )
+
+    validation = ApplicationPacketGuardrail(embedding_service=SimilarityStub()).validate(
+        profile=profile,
+        job=job,
+        resume_version=None,
+        cover_letter=(
+            "尊敬的 FlowAI 招聘团队，我申请 Agent Observability Intern。"
+            "我已经实现跨外部模型提供商的分布式追踪。"
+        ),
+        outreach_message="您好，我关注到 FlowAI 的 Agent Observability Intern，希望交流。",
+        checklist=_checklist(),
+        automation_result=_manual_automation(),
+    )
+
+    assert validation["passed"] is False
+    semantic = validation["semantic_claim_grounding"]
+    assert semantic["results"][0]["embedding_support_score"] == 1.0
+    assert semantic["results"][0]["embedding_polarity_consistent"] is False
+
+
+def test_application_guardrail_embedding_does_not_invent_outcome_from_related_implementation():
+    class SimilarityStub:
+        def embed_texts(self, texts):
+            return EmbeddingBatch(
+                vectors=[[1.0, 0.0] for _ in texts],
+                provider="similarity_test",
+                model="controlled",
+                dimensions=2,
+            )
+
+    profile = Profile(
+        name="Xu Yan",
+        source_type="guided",
+        raw_resume_text="Implemented health probes and graceful worker drain for Agent workers.",
+        structured_profile_json={"skills": ["Python"]},
+    )
+    job = Job(
+        source="manual",
+        external_id="unsupported-outcome",
+        title="Agent Platform Intern",
+        company="FlowAI",
+        raw_jd_text="Build Agent platform tooling.",
+        structured_jd_json={"required_skills": ["Python"]},
+        apply_url="https://example.com/apply",
+    )
+
+    validation = ApplicationPacketGuardrail(embedding_service=SimilarityStub()).validate(
+        profile=profile,
+        job=job,
+        resume_version=None,
+        cover_letter=(
+            "尊敬的 FlowAI 招聘团队，我申请 Agent Platform Intern。"
+            "我实现了健康探针和工作节点优雅退出，并确保平台可靠性提升。"
+        ),
+        outreach_message="您好，我关注到 FlowAI 的 Agent Platform Intern，希望交流。",
+        checklist=_checklist(),
+        automation_result=_manual_automation(),
+    )
+
+    assert validation["passed"] is False
+    semantic = validation["semantic_claim_grounding"]
+    assert semantic["results"][0]["embedding_support_score"] == 1.0
+    assert semantic["results"][0]["embedding_outcome_semantics_consistent"] is False
 
 
 def test_application_guardrail_does_not_treat_target_role_as_candidate_skill():
