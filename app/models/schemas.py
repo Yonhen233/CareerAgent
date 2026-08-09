@@ -405,6 +405,8 @@ class AgentRunResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    tenant_id: str | None = None
+    user_id: str | None = None
     task_type: str
     profile_id: int | None
     job_id: int | None
@@ -503,6 +505,77 @@ class AgentEventResponse(BaseModel):
     node_name: str | None
     event_json: dict[str, Any]
     created_at: datetime
+
+
+class AgentMemoryCreateRequest(BaseModel):
+    profile_id: int | None = None
+    memory_type: Literal["preference", "constraint", "decision", "outcome", "correction"]
+    memory_key: str = Field(min_length=1, max_length=160)
+    value_json: dict[str, Any]
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+
+
+class AgentMemoryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    tenant_id: str | None
+    user_id: str | None
+    profile_id: int | None
+    memory_type: str
+    memory_key: str
+    value_json: dict[str, Any]
+    confidence: float
+    source_type: str
+    source_run_id: int | None
+    status: str
+    expires_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AgentFeedbackCreateRequest(BaseModel):
+    verdict: Literal["helpful", "incorrect", "incomplete", "unsafe"]
+    rating: int | None = Field(default=None, ge=1, le=5)
+    reason_tags: list[str] = Field(default_factory=list, max_length=20)
+    comment: str | None = Field(default=None, max_length=2000)
+    correction_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentFeedbackResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    run_id: int
+    tenant_id: str | None
+    user_id: str | None
+    verdict: str
+    rating: int | None
+    reason_tags_json: list[str]
+    comment: str | None
+    correction_json: dict[str, Any]
+    created_at: datetime
+
+
+class AgentQualityReviewResolveRequest(BaseModel):
+    resolution_note: str = Field(min_length=2, max_length=2000)
+
+
+class AgentQualityReviewResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    run_id: int
+    feedback_id: int | None
+    tenant_id: str | None
+    trigger_type: str
+    severity: str
+    status: str
+    checks_json: dict[str, Any]
+    resolution_note: str | None
+    resolved_by: str | None
+    created_at: datetime
+    resolved_at: datetime | None
 
 
 class NaturalLanguageAgentRequest(BaseModel):

@@ -4,6 +4,27 @@
 
 > 2026-08-09 新增 Task Contract、Completion Gate、Trajectory V2 和 RAG Evidence Gate。离线全量代码回归为 `277 passed`；独立 SQLite 数据库上的 6-case Agent 全流程确定性评测通过率、Trajectory V2、Artifact、LangGraph、岗位 Top1 和投递包门禁均为 `1.0`，3 个低匹配 case 均被 Fit Gate 按预期阻断。该结果证明新的确定性控制面和固定评测场景通过，不替代 24-case 真实 LLM workflow 重跑，也不改写 2026-07-22 整体 Release Gate 仍为失败的历史结论。
 
+> 2026-08-09 Agent Runtime v2 增加执行时 Tool 合同、ErrorEnvelope、单一重试所有权、持久化熔断、typed memory、在线质量复核和 Prompt 指纹。最终全量回归为 `291 passed in 103.21s`；新增用例全部使用本地故障注入，没有调用 DeepSeek。该结果证明运行控制面通过确定性回归，不替代真实 LLM 输出质量评测。
+
+## Agent Runtime Bad Case 评测
+
+这部分不评“回答写得像不像”，而是验证成熟 Agent 的控制面在故障下是否作出正确决策：
+
+| 指标 | 定义 | 当前门禁 |
+| --- | --- | --- |
+| Tool contract rejection | 未注册 Tool、缺参数和非法输出是否在执行层拒绝 | 必须 100% 拒绝 |
+| Retry precision | 发生自动重试的 case 中，是否全部为合同允许的幂等瞬时错误 | 1.0 |
+| Side-effect replay rate | email/browser 等外发 Tool 是否被自动重试 | 0 |
+| Circuit open accuracy | 连续可重试失败达到阈值后是否 open，冷却前是否拒绝新调用 | 1.0 |
+| Error routing accuracy | 配置/预算/熔断是否直接失败，可修输入/完成缺项是否只 repair 一次 | 1.0 |
+| Poison-message immediate DLQ rate | 不可重试 queue payload 是否第一次失败即 DLQ | 1.0 |
+| Memory isolation | tenant/user/profile 边界外的记忆是否进入上下文 | 0 条泄漏 |
+| Negative-feedback review rate | incorrect/incomplete/unsafe 或低评分是否创建复核项 | 1.0 |
+| Diagnostic secret leakage | Key/Bearer/邮箱/手机号是否进入预览 | 0 |
+| Prompt provenance coverage | LLM 日志是否具备 prompt hash、route 和 policy version | 1.0 |
+
+上述门禁由 `tests/test_agent_runtime_maturity.py` 和 Redis hardening 测试完成。它们使用真实 SQLAlchemy 状态迁移和异步 timeout/retry 逻辑，不调用 LLM。Online Quality score 只表示运行控制面的可疑程度，不应被解释为用户满意度或答案正确率。
+
 ## 面试 Agentic RAG v3 成本与质量门禁
 
 面试评测不再只检查题目数量和回答长度，还检查完整链路契约：

@@ -29,10 +29,38 @@ CareerAgent 的目标不是“一个 Prompt 生成简历”，而是一个可观
 - `agent_runs`：Agent 工作流运行记录。
 - `agent_steps`：Agent 步骤级 Trace。
 - `agent_artifacts`：Agent 产物。
+- `tool_circuit_states`：跨 worker 共享的 Tool 熔断状态、连续失败和冷却时间。
+- `agent_memories`：按 tenant/user/profile 隔离的类型化长期记忆。
+- `agent_feedback`：用户对 run 的评分、错误标签和结构化纠错。
+- `agent_quality_reviews`：运行门禁或负反馈触发的人工复核队列。
 - `agent_approvals`：投递包、浏览器和邮件高风险动作的独立审批审计。
 - `ops_audit_events`：DLQ 管理和高风险工具放行等运维审计事件。
 - `llm_call_logs`：LLM 调用调试日志。
 - `evaluation_runs`：评测运行结果。
+
+## Agent Runtime 控制面
+
+```mermaid
+flowchart LR
+    Graph["LangGraph Node"] --> Trace["TraceService.step"]
+    Trace --> Runtime["AgentToolRuntime"]
+    Runtime --> Contract["Tool Contract Preflight"]
+    Contract --> Circuit["Persistent Circuit Breaker"]
+    Circuit --> Handler["Tool Handler"]
+    Handler --> Output["Output Contract"]
+    Handler --> Error["ErrorEnvelope"]
+    Error --> Retry["Single-owner bounded retry"]
+    Error --> DLQ["Worker DLQ / Manual review"]
+    Output --> Completion["Task Completion Gate"]
+    Completion --> Quality["Online deterministic quality gate"]
+```
+
+- Tool 必须注册后才能在严格模式执行；Tool Policy 不再只是 API 展示信息。
+- 每个可重试动作只有一个 owner，避免 LLM Client、Tool、Graph 和 worker 同时重试。
+- 读操作可按合同重试；邮件、网页提交等副作用即使属于瞬时故障也不自动重放。
+- `ErrorEnvelope` 同时进入 Step、Event、Run 和 Queue payload，使恢复策略不依赖字符串匹配。
+- 每个 plan 写 `execution_provenance`，记录 Tool 合同 hash、模型路由和 RAG 配置，支持回放时定位版本差异。
+- 详细设计见 [成熟 Agent 运行治理](AGENT_RUNTIME_RELIABILITY.md)。
 
 ## Agent 能力注册
 

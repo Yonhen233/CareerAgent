@@ -24,6 +24,8 @@ class AgentToolSpec:
     retry_policy: dict[str, Any] = field(
         default_factory=lambda: {"max_attempts": 1, "retryable_errors": []}
     )
+    retry_owner: str = "runtime"
+    contract_version: str = "careeragent-tool-contract-v2"
     audit_events: list[str] = field(default_factory=lambda: ["step_started", "step_completed", "step_failed"])
     mcp_candidate: bool = False
 
@@ -34,6 +36,36 @@ class AgentToolSpec:
 
 
 AGENT_TOOLS: list[AgentToolSpec] = [
+    AgentToolSpec(
+        name="LangGraph.AgentPlanner",
+        purpose="把任务请求编译为受工具权限和完成条件约束的执行计划。",
+        input_schema={"task_type": "str"},
+        output_schema={"plan": "dict"},
+        side_effects=[],
+        timeout_seconds=10,
+    ),
+    AgentToolSpec(
+        name="llm.intent_planner",
+        purpose="把用户自然语言解析为受契约约束的求职任务计划。",
+        input_schema={"instruction|error": "str", "plan": "dict|None"},
+        output_schema={"plan": "dict"},
+        side_effects=["llm_call", "llm_call_log"],
+        risk_level="medium",
+        timeout_seconds=180,
+        retry_policy={"max_attempts": 1, "retryable_errors": []},
+        retry_owner="handler",
+    ),
+    AgentToolSpec(
+        name="NaturalLanguageAgentService",
+        purpose="按已验证计划协调建档、找岗、定制、投递材料和面试准备子流程。",
+        input_schema={"intent": "str"},
+        output_schema={"result": "dict"},
+        side_effects=["subgraph_execution", "sqlite_write", "optional_llm_call"],
+        risk_level="medium",
+        timeout_seconds=900,
+        retry_policy={"max_attempts": 1, "retryable_errors": []},
+        retry_owner="orchestrator",
+    ),
     AgentToolSpec(
         name="profile_repository.load_profile",
         purpose="加载候选人档案和结构化简历。",
@@ -72,6 +104,7 @@ AGENT_TOOLS: list[AgentToolSpec] = [
         idempotency_policy="caller persists one structured JD per job version",
         timeout_seconds=90,
         retry_policy={"max_attempts": 2, "retryable_errors": ["timeout", "connection_error", "invalid_json"]},
+        retry_owner="handler",
     ),
     AgentToolSpec(
         name="vector_index.upsert_job_chunks",
@@ -104,13 +137,14 @@ AGENT_TOOLS: list[AgentToolSpec] = [
     AgentToolSpec(
         name="resume_tailor.tailor_resume",
         purpose="根据 JD 和 RAG 证据生成定制简历。",
-        input_schema={"profile": "Profile", "job": "Job", "evidence": "list[dict]"},
+        input_schema={"profile_id": "int", "job_id": "int"},
         output_schema={"resume_version": "ResumeVersion"},
         side_effects=["llm_call", "sqlite_write", "llm_call_log"],
         risk_level="medium",
         idempotency_policy="agent_run+profile_id+job_id",
         timeout_seconds=240,
         retry_policy={"max_attempts": 2, "retryable_errors": ["timeout", "connection_error", "guardrail_repair"]},
+        retry_owner="handler",
     ),
     AgentToolSpec(
         name="guardrail.verify_resume",
@@ -123,7 +157,7 @@ AGENT_TOOLS: list[AgentToolSpec] = [
     AgentToolSpec(
         name="application.create_quick_apply_packet",
         purpose="生成投递包、求职信、外联文案、清单和投递链接。",
-        input_schema={"profile": "Profile", "job": "Job", "resume_version": "ResumeVersion"},
+        input_schema={"profile_id": "int", "job_id": "int", "resume_version_id": "int"},
         output_schema={"application": "Application"},
         side_effects=["sqlite_write", "llm_call", "llm_call_log"],
         risk_level="high",
@@ -137,13 +171,14 @@ AGENT_TOOLS: list[AgentToolSpec] = [
     AgentToolSpec(
         name="interview_prep.generate_packet",
         purpose="基于 JD、匹配结果和 RAG 证据生成面试问题、回答要点、缺口 drill 和调研清单。",
-        input_schema={"profile": "Profile", "job": "Job", "match_result": "MatchResult"},
+        input_schema={"profile_id": "int", "job_id": "int", "match_result_id": "int"},
         output_schema={"interview_prep": "InterviewPrep"},
         side_effects=["sqlite_write", "llm_call", "embedding_model_call", "reranker_call"],
         risk_level="medium",
         idempotency_policy="agent_run+profile_id+job_id",
         timeout_seconds=240,
         retry_policy={"max_attempts": 2, "retryable_errors": ["timeout", "connection_error"]},
+        retry_owner="handler",
     ),
     AgentToolSpec(
         name="interview_experience.import_text",

@@ -70,6 +70,8 @@ def _ensure_sqlite_columns() -> None:
             columns = {column["name"] for column in inspector.get_columns(table_name)}
             if "tenant_id" not in columns:
                 statements.append(f"ALTER TABLE {table_name} ADD COLUMN tenant_id VARCHAR(128)")
+            if table_name == "agent_runs" and "user_id" not in columns:
+                statements.append("ALTER TABLE agent_runs ADD COLUMN user_id VARCHAR(128)")
     if "app_users" in tables:
         app_user_columns = {column["name"] for column in inspector.get_columns("app_users")}
         if "password_hash" not in app_user_columns:

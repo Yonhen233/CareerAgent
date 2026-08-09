@@ -16,6 +16,7 @@ from app.core.database import SessionLocal
 from app.core.redis_client import RedisLike, get_redis_client, redis_key
 from app.models.entities import AgentRun
 from app.services.ops_audit import OpsAuditService
+from app.services.agent_runtime import AgentErrorClassifier
 from app.services.run_control import RunControlService
 from app.services.stale_runs import StaleRunService
 from app.services.task_queue import TaskQueueService
@@ -129,7 +130,14 @@ class RedisTaskRunner:
             ttl_seconds=self.settings.redis_run_lock_ttl_seconds,
         )
 
-    def requeue_or_dead_letter(self, payload: dict, *, error: str, worker_id: str | None = None) -> str:
+    def requeue_or_dead_letter(
+        self,
+        payload: dict,
+        *,
+        error: str,
+        worker_id: str | None = None,
+        error_envelope: dict | None = None,
+    ) -> str:
         attempts = int(payload.get("attempts") or 0) + 1
         failed_payload = {
             **payload,
@@ -137,8 +145,12 @@ class RedisTaskRunner:
             "last_error": error,
             "last_failed_at": datetime.now(timezone.utc).isoformat(),
             "worker_id": worker_id,
+            "error_envelope": error_envelope or {},
         }
-        if attempts >= self.settings.redis_worker_max_attempts:
+        retryable = True if error_envelope is None else bool(error_envelope.get("retryable"))
+        if not retryable:
+            failed_payload["terminal_reason"] = "non_retryable_error"
+        if not retryable or attempts >= self.settings.redis_worker_max_attempts:
             failed_payload["dlq_id"] = failed_payload.get("dlq_id") or uuid4().hex
             failed_payload["dead_lettered_at"] = datetime.now(timezone.utc).isoformat()
             self.redis.lpush(
@@ -486,7 +498,14 @@ async def consume_redis_queue_once(
     kind = str(payload.get("kind") or "agent_run")
     worker_id = f"worker-{uuid4().hex}"
     if kind not in {"agent_run", "task_run"}:
-        runner.requeue_or_dead_letter(payload, error=f"Unsupported queue payload kind: {kind}", worker_id=worker_id)
+        error = ValueError(f"Unsupported queue payload kind: {kind}")
+        envelope = AgentErrorClassifier().classify(error, step_name="redis_queue_decode").as_dict()
+        runner.requeue_or_dead_letter(
+            payload,
+            error=str(error),
+            worker_id=worker_id,
+            error_envelope=envelope,
+        )
         return None
     if kind == "task_run":
         task_id = int(payload["task_id"])
@@ -506,7 +525,13 @@ async def consume_redis_queue_once(
             runner.heartbeat(run_id=task_id, worker_id=worker_id, stage="task_completed", kind="task_run")
             return None
         except Exception as exc:  # noqa: BLE001
-            runner.requeue_or_dead_letter(payload, error=f"{exc.__class__.__name__}: {exc}", worker_id=worker_id)
+            envelope = AgentErrorClassifier().classify(exc, step_name="task_worker").as_dict()
+            runner.requeue_or_dead_letter(
+                payload,
+                error=f"{exc.__class__.__name__}: {exc}",
+                worker_id=worker_id,
+                error_envelope=envelope,
+            )
             return None
         finally:
             runner.redis.delete(redis_key("career_agent", "tasks", "heartbeat", task_id))
@@ -558,13 +583,24 @@ async def consume_redis_queue_once(
             )
             return result
         except Exception as exc:  # noqa: BLE001
-            action = runner.requeue_or_dead_letter(payload, error=f"{exc.__class__.__name__}: {exc}", worker_id=worker_id)
+            envelope = AgentErrorClassifier().classify(exc, step_name="agent_worker").as_dict()
+            action = runner.requeue_or_dead_letter(
+                payload,
+                error=f"{exc.__class__.__name__}: {exc}",
+                worker_id=worker_id,
+                error_envelope=envelope,
+            )
             try:
                 TraceService().add_event(
                     db,
                     run_id=run_id,
                     event_type="worker_payload_failed",
-                    payload={"action": action, "error": f"{exc.__class__.__name__}: {exc}", "worker_id": worker_id},
+                    payload={
+                        "action": action,
+                        "error": f"{exc.__class__.__name__}: {exc}",
+                        "error_envelope": envelope,
+                        "worker_id": worker_id,
+                    },
                 )
             except Exception:
                 pass

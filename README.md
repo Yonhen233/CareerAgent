@@ -38,6 +38,9 @@ PDF/结构化简历 + 中文目标岗位
 | LLM 可能编造项目或把缺口写成经验 | Evidence-constrained generation、Guardrail、一次 ReAct repair |
 | 浏览器填写和邮件发送不可静默执行 | Tool Policy、审批表、LangGraph interrupt、RBAC、审计事件 |
 | 最终文本好看但无法定位中间错误 | Run/Step/Artifact/Event、LLM 调用日志、四层业务摘要 |
+| Tool 配置写了但执行时不生效 | Agent Tool Runtime、合同预检、单一重试所有权、持久化熔断 |
+| 所有异常都触发 LLM repair 浪费成本 | ErrorEnvelope 分类与 LangGraph 定向恢复路由 |
+| 多轮偏好和用户纠错无法跨 run 使用 | tenant/user/profile 隔离的 typed memory 与反馈复核闭环 |
 
 ## 核心能力
 
@@ -103,6 +106,10 @@ PDF/结构化简历 + 中文目标岗位
   - `skills/*/SKILL.md` 定义版本化 Skill 契约，包含触发条件、输入、允许调用的 Tool、上下文、输出契约、禁止行为、成功标准和失败策略。
   - Skill 采用渐进式披露：能力目录只返回 metadata，执行计划只携带任务所需契约，完整指令通过 Skill 详情接口按需读取。
   - Tool Policy 统一声明风险等级、审批要求、幂等策略、超时、重试、审计事件和 MCP 候选；Planner 会校验所有计划工具都被当前 Skill 明确授权。
+  - `AgentToolRuntime` 在执行时兑现 Tool Policy：未注册工具拒绝、参数预检、timeout、输出合同、单层重试和跨 worker Circuit Breaker。
+  - `ErrorEnvelope` 统一 Step、Graph、Run、worker 和 DLQ 的错误语义；只有缺输入/状态和完成门禁缺项会进入一次 LLM plan repair。
+  - typed memory 只保存偏好、约束、选择、结果和用户纠错，不回放原始聊天；按 tenant/user/profile 隔离并受上下文预算约束。
+  - 负反馈和低质量 run 自动进入 `agent_quality_reviews`，每次 plan 同时写模型、Tool 和 RAG 版本溯源 Artifact。
   - 显式注册 Tool、Skill 和 SubAgent，计划产物会展示当前任务使用的能力边界和权限校验结果。
   - 简历定制带 1 轮 ReAct repair loop：Guardrail 高风险时读取 issues 和压缩上下文，修复后再次验证，并记录 `react_repair` 元数据。
 - LLM 上下文治理：
@@ -144,6 +151,7 @@ PDF/结构化简历 + 中文目标岗位
 - V7：多租户 RBAC、Supervisor、健康探针、发布阈值和 Prompt Injection 评测。
 - V8：版本化 `SKILL.md`、统一 Tool Policy、三条黄金演示和面向用户的四层业务摘要。
 - V9：腾讯/百度/美团/字节/阿里五源中文岗位检索、动态批次/签名适配和真实多 query release suite。
+- V10：统一 Agent Tool Runtime、ErrorEnvelope 定向恢复、持久化熔断、typed memory、用户反馈和在线质量复核。
 
 ## 当前文件架构
 

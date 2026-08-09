@@ -1,0 +1,414 @@
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Awaitable, Callable
+from dataclasses import asdict, dataclass
+from datetime import datetime, timedelta, timezone
+from typing import Any, TypeVar
+from uuid import uuid4
+
+import httpx
+from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.orm import Session
+
+from app.agents.tools import AgentToolSpec, get_agent_tool
+from app.core.config import Settings, get_settings
+from app.core.llm import LLMBudgetExceededError, LLMConfigurationError, LLMResponseError
+from app.core.redis_client import RedisUnavailableError
+from app.models.entities import ToolCircuitState
+from app.services.agent_reliability import (
+    AgentExecutionBudgetExceeded,
+    AgentTaskIncompleteError,
+)
+from app.services.retrieval_quality import RetrievalQualityError
+from app.core.redaction import SecurityRedactor
+
+T = TypeVar("T")
+EventSink = Callable[[str, dict[str, Any]], None]
+
+
+class AgentToolContractError(RuntimeError):
+    pass
+
+
+class AgentToolTimeoutError(TimeoutError):
+    pass
+
+
+class AgentToolCircuitOpenError(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class ErrorEnvelope:
+    error_id: str
+    category: str
+    code: str
+    message: str
+    retryable: bool
+    recovery_action: str
+    origin: dict[str, Any]
+    occurred_at: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+class AgentErrorClassifier:
+    """Convert arbitrary exceptions into a stable recovery taxonomy."""
+
+    def __init__(self, *, redactor: SecurityRedactor | None = None) -> None:
+        self.redactor = redactor or SecurityRedactor()
+
+    def classify(
+        self,
+        exc: Exception,
+        *,
+        tool_name: str | None = None,
+        step_name: str | None = None,
+        attempt: int | None = None,
+    ) -> ErrorEnvelope:
+        category, retryable, action = self._policy(exc)
+        message = str(self.redactor.redact(str(exc)))[:2000]
+        return ErrorEnvelope(
+            error_id=uuid4().hex,
+            category=category,
+            code=exc.__class__.__name__,
+            message=message,
+            retryable=retryable,
+            recovery_action=action,
+            origin={
+                "tool_name": tool_name,
+                "step_name": step_name,
+                "attempt": attempt,
+            },
+            occurred_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    @staticmethod
+    def _policy(exc: Exception) -> tuple[str, bool, str]:
+        name = exc.__class__.__name__
+        if isinstance(exc, AgentToolCircuitOpenError):
+            return "dependency_circuit_open", False, "wait_for_cooldown_or_manual_probe"
+        if isinstance(exc, (AgentToolTimeoutError, asyncio.TimeoutError, httpx.TimeoutException)):
+            return "dependency_timeout", True, "bounded_retry_then_dlq"
+        if isinstance(exc, (httpx.TransportError, ConnectionError, RedisUnavailableError, OperationalError)):
+            return "dependency_transient", True, "bounded_retry_then_dlq"
+        if isinstance(exc, RetrievalQualityError):
+            return "insufficient_evidence", False, "request_better_evidence_or_change_query"
+        if isinstance(exc, LLMConfigurationError):
+            return "configuration_error", False, "configure_provider_before_retry"
+        if isinstance(exc, LLMBudgetExceededError):
+            return "model_budget_exceeded", False, "reduce_context_or_raise_explicit_budget"
+        if isinstance(exc, LLMResponseError):
+            return "model_response_invalid", False, "schema_repair_or_model_review"
+        if isinstance(exc, AgentExecutionBudgetExceeded):
+            return "execution_budget_exceeded", False, "inspect_loop_and_replan"
+        if isinstance(exc, AgentTaskIncompleteError):
+            return "completion_gate_rejected", False, "repair_missing_goals"
+        if name == "OutboundToolError":
+            if "required" in str(exc).lower() or "install" in str(exc).lower():
+                return "configuration_error", False, "configure_outbound_dependency_before_retry"
+            return "dependency_transient", True, "manual_review_before_retrying_side_effect"
+        if name == "InterviewAgenticRAGError":
+            return "insufficient_or_invalid_evidence", False, "inspect_retrieval_and_claim_trace"
+        if name in {"ApprovalRequiredError", "RunWithdrawalConflict", "AgentRunCancelled"}:
+            return "policy_or_human_interrupt", False, "wait_for_human_or_stop"
+        if isinstance(exc, AgentToolContractError):
+            return "tool_contract_violation", False, "fix_tool_arguments_or_output_contract"
+        if isinstance(exc, (ValueError, FileNotFoundError)):
+            return "input_or_state_validation", False, "correct_input_or_state"
+        if isinstance(exc, (AssertionError, KeyError, TypeError, AttributeError)):
+            return "internal_invariant_violation", False, "open_quality_review_and_fix_code"
+        return "internal_error", False, "open_quality_review_and_inspect_trace"
+
+
+class AgentToolRuntime:
+    """Enforce tool contracts and one-owner retry/circuit policies at runtime."""
+
+    RETRYABLE_ALIASES = {
+        "dependency_timeout": "timeout",
+        "dependency_transient": "connection_error",
+        "model_response_invalid": "invalid_json",
+    }
+
+    def __init__(self, *, settings: Settings | None = None) -> None:
+        self.settings = settings or get_settings()
+        self.classifier = AgentErrorClassifier()
+
+    async def execute(
+        self,
+        db: Session,
+        *,
+        run_id: int,
+        step_name: str,
+        tool_name: str,
+        input_json: dict[str, Any] | None,
+        handler: Callable[[], Awaitable[T]],
+        event_sink: EventSink,
+    ) -> T:
+        contract = self._resolve_contract(tool_name)
+        self._validate_input(contract, input_json or {})
+        self._assert_circuit_allows(db, contract, event_sink=event_sink)
+        max_attempts = self._runtime_attempts(contract)
+
+        for attempt in range(1, max_attempts + 1):
+            try:
+                output = await asyncio.wait_for(handler(), timeout=contract.timeout_seconds)
+                self._validate_output(contract, output)
+                self._record_success(db, contract)
+                if attempt > 1:
+                    event_sink(
+                        "tool_retry_recovered",
+                        {"tool_name": tool_name, "attempt": attempt, "max_attempts": max_attempts},
+                    )
+                return output
+            except Exception as exc:
+                db.rollback()
+                envelope = self.classifier.classify(
+                    exc,
+                    tool_name=tool_name,
+                    step_name=step_name,
+                    attempt=attempt,
+                )
+                self._record_failure(db, contract, envelope, event_sink=event_sink)
+                retry = attempt < max_attempts and self._can_retry(contract, envelope)
+                event_sink(
+                    "tool_attempt_failed",
+                    {
+                        "tool_name": tool_name,
+                        "attempt": attempt,
+                        "max_attempts": max_attempts,
+                        "will_retry": retry,
+                        "error_envelope": envelope.as_dict(),
+                    },
+                )
+                if not retry:
+                    raise
+                delay = self.settings.agent_tool_retry_backoff_seconds * attempt
+                event_sink(
+                    "tool_retry_scheduled",
+                    {
+                        "tool_name": tool_name,
+                        "next_attempt": attempt + 1,
+                        "delay_seconds": delay,
+                        "error_id": envelope.error_id,
+                    },
+                )
+                if delay > 0:
+                    await asyncio.sleep(delay)
+
+        raise RuntimeError(f"Tool {tool_name} exhausted without a terminal result.")
+
+    def execute_sync(
+        self,
+        db: Session,
+        *,
+        step_name: str,
+        tool_name: str,
+        input_json: dict[str, Any],
+        handler: Callable[[], T],
+        event_sink: EventSink,
+    ) -> T:
+        """Guard sync outbound tools; their clients own transport-level timeouts."""
+        contract = self._resolve_contract(tool_name)
+        self._validate_input(contract, input_json)
+        self._assert_circuit_allows(db, contract, event_sink=event_sink)
+        try:
+            output = handler()
+            self._validate_output(contract, output)
+            self._record_success(db, contract)
+            return output
+        except Exception as exc:
+            db.rollback()
+            envelope = self.classifier.classify(
+                exc,
+                tool_name=tool_name,
+                step_name=step_name,
+                attempt=1,
+            )
+            self._record_failure(db, contract, envelope, event_sink=event_sink)
+            event_sink(
+                "tool_attempt_failed",
+                {
+                    "tool_name": tool_name,
+                    "attempt": 1,
+                    "max_attempts": 1,
+                    "will_retry": False,
+                    "error_envelope": envelope.as_dict(),
+                    "timeout_owner": "outbound_client",
+                },
+            )
+            raise
+
+    def _resolve_contract(self, tool_name: str) -> AgentToolSpec:
+        try:
+            return get_agent_tool(tool_name)
+        except KeyError as exc:
+            if self.settings.agent_strict_tool_contracts:
+                raise AgentToolContractError(f"No runtime contract is registered for tool {tool_name}.") from exc
+            return AgentToolSpec(
+                name=tool_name,
+                purpose="unregistered compatibility tool",
+                input_schema={},
+                output_schema={},
+                side_effects=[],
+            )
+
+    @staticmethod
+    def _validate_input(contract: AgentToolSpec, payload: dict[str, Any]) -> None:
+        missing: list[str] = []
+        for field_name, type_name in contract.input_schema.items():
+            alternatives = [item.strip() for item in field_name.split("|") if item.strip()]
+            optional = "None" in type_name or "optional" in type_name.lower()
+            if optional:
+                continue
+            if alternatives and not any(payload.get(name) is not None for name in alternatives):
+                missing.append(field_name)
+        if missing:
+            raise AgentToolContractError(
+                f"Tool {contract.name} is missing required input fields: {', '.join(missing)}."
+            )
+
+    @staticmethod
+    def _validate_output(contract: AgentToolSpec, output: Any) -> None:
+        if output is None and contract.output_schema:
+            raise AgentToolContractError(f"Tool {contract.name} returned None for a non-empty output contract.")
+        if contract.name in {"LangGraph.AgentPlanner", "llm.intent_planner", "NaturalLanguageAgentService"}:
+            if not isinstance(output, dict):
+                raise AgentToolContractError(f"Tool {contract.name} must return a dictionary.")
+        if contract.name == "job_search.search_jobs":
+            if not isinstance(output, tuple) or len(output) != 2 or not isinstance(output[0], list):
+                raise AgentToolContractError("job_search.search_jobs must return (jobs, source_errors).")
+        if contract.name == "matcher.match_job" and not hasattr(output, "overall_score") and not isinstance(output, dict):
+            raise AgentToolContractError("matcher.match_job returned an invalid match result.")
+
+    @staticmethod
+    def _scope_key(contract: AgentToolSpec) -> str:
+        return "external" if any("external" in item or "llm" in item for item in contract.side_effects) else "local"
+
+    def _assert_circuit_allows(
+        self,
+        db: Session,
+        contract: AgentToolSpec,
+        *,
+        event_sink: EventSink,
+    ) -> None:
+        state = self._get_circuit(db, contract)
+        if state is None or state.status == "closed":
+            return
+        now = datetime.now(timezone.utc)
+        open_until = self._aware(state.open_until)
+        if open_until and open_until <= now:
+            state.status = "half_open"
+            db.add(state)
+            db.commit()
+            event_sink("tool_circuit_half_open", {"tool_name": contract.name, "scope_key": state.scope_key})
+            return
+        raise AgentToolCircuitOpenError(
+            f"Tool circuit is open for {contract.name} until {open_until.isoformat() if open_until else 'manual reset'}."
+        )
+
+    def _record_failure(
+        self,
+        db: Session,
+        contract: AgentToolSpec,
+        envelope: ErrorEnvelope,
+        *,
+        event_sink: EventSink,
+    ) -> None:
+        if not envelope.retryable:
+            return
+        state = self._get_circuit(db, contract)
+        if state is None:
+            state = ToolCircuitState(
+                tool_name=contract.name,
+                scope_key=self._scope_key(contract),
+                status="closed",
+                consecutive_failures=0,
+            )
+        state.consecutive_failures = int(state.consecutive_failures or 0) + 1
+        state.last_error_category = envelope.category
+        if state.consecutive_failures >= self.settings.agent_tool_circuit_failure_threshold:
+            now = datetime.now(timezone.utc)
+            state.status = "open"
+            state.opened_at = now
+            state.open_until = now + timedelta(seconds=self.settings.agent_tool_circuit_cooldown_seconds)
+            event_sink(
+                "tool_circuit_opened",
+                {
+                    "tool_name": contract.name,
+                    "failure_count": state.consecutive_failures,
+                    "open_until": state.open_until.isoformat(),
+                    "error_id": envelope.error_id,
+                },
+            )
+        db.add(state)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            concurrent = self._get_circuit(db, contract)
+            if concurrent is None:
+                raise
+            concurrent.consecutive_failures = int(concurrent.consecutive_failures or 0) + 1
+            concurrent.last_error_category = envelope.category
+            if concurrent.consecutive_failures >= self.settings.agent_tool_circuit_failure_threshold:
+                now = datetime.now(timezone.utc)
+                concurrent.status = "open"
+                concurrent.opened_at = now
+                concurrent.open_until = now + timedelta(
+                    seconds=self.settings.agent_tool_circuit_cooldown_seconds
+                )
+                event_sink(
+                    "tool_circuit_opened",
+                    {
+                        "tool_name": contract.name,
+                        "failure_count": concurrent.consecutive_failures,
+                        "open_until": concurrent.open_until.isoformat(),
+                        "error_id": envelope.error_id,
+                        "concurrent_update": True,
+                    },
+                )
+            db.add(concurrent)
+            db.commit()
+
+    def _record_success(self, db: Session, contract: AgentToolSpec) -> None:
+        state = self._get_circuit(db, contract)
+        if state is None or (state.status == "closed" and state.consecutive_failures == 0):
+            return
+        state.status = "closed"
+        state.consecutive_failures = 0
+        state.last_error_category = None
+        state.opened_at = None
+        state.open_until = None
+        db.add(state)
+        db.commit()
+
+    def _get_circuit(self, db: Session, contract: AgentToolSpec) -> ToolCircuitState | None:
+        return (
+            db.query(ToolCircuitState)
+            .filter(
+                ToolCircuitState.tool_name == contract.name,
+                ToolCircuitState.scope_key == self._scope_key(contract),
+            )
+            .first()
+        )
+
+    @staticmethod
+    def _aware(value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+    @staticmethod
+    def _runtime_attempts(contract: AgentToolSpec) -> int:
+        if contract.retry_owner != "runtime":
+            return 1
+        return max(1, int(contract.retry_policy.get("max_attempts") or 1))
+
+    def _can_retry(self, contract: AgentToolSpec, envelope: ErrorEnvelope) -> bool:
+        if contract.retry_owner != "runtime" or not envelope.retryable:
+            return False
+        allowed = {str(item) for item in contract.retry_policy.get("retryable_errors") or []}
+        return envelope.category in allowed or self.RETRYABLE_ALIASES.get(envelope.category) in allowed

@@ -561,6 +561,38 @@ GET /agent/runs/{run_id}/steps
 GET /agent/runs/{run_id}/summary
 ```
 
+## Agent 记忆与反馈治理
+
+```text
+GET    /agent/memories?profile_id={profile_id}&limit=50
+POST   /agent/memories
+DELETE /agent/memories/{memory_id}
+POST   /agent/runs/{run_id}/feedback
+GET    /agent/runs/{run_id}/feedback
+```
+
+记忆只允许 `preference/constraint/decision/outcome/correction`，按 tenant/user/profile 隔离，不接受原始聊天全文。负反馈会自动进入质量复核队列；`correction_json` 会成为后续 Agent 可检索的纠错记忆。
+
+```json
+{
+  "profile_id": 159,
+  "memory_type": "constraint",
+  "memory_key": "excluded_city",
+  "value_json": {"city": "上海"},
+  "confidence": 1.0
+}
+```
+
+```json
+{
+  "verdict": "incorrect",
+  "rating": 1,
+  "reason_tags": ["fabricated_claim"],
+  "comment": "这个项目指标不是真实经历",
+  "correction_json": {"forbidden_claim": "DAU 10 万"}
+}
+```
+
 返回面向用户的四层摘要：
 
 - `routing_layer`：本次选择的 Skill、SubAgent、Tool 和权限校验。
@@ -837,6 +869,10 @@ GET /ops/metrics
 GET /ops/config
 GET /ops/llm-usage?hours=24&since_id=0&workflow=interview_prep
 GET /ops/audit-events
+GET /ops/agent-quality/reviews?status=open
+POST /ops/agent-quality/reviews/{review_id}/resolve
+GET /ops/agent-runtime/circuits
+POST /ops/agent-runtime/circuits/{circuit_id}/reset
 POST /ops/queue/dead-letter/{dlq_index}/replay
 POST /ops/queue/dead-letter/{dlq_index}/discard
 POST /ops/high-risk-actions/request

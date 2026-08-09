@@ -33,6 +33,7 @@ CareerAgent/
 │   │   ├── tasks.py                          # 后台任务与队列状态
 │   │   ├── auth.py                           # Session 登录
 │   │   ├── ops.py                            # 运维、队列、DLQ、stale run 与审计
+│   │   ├── agent_governance.py               # 类型化记忆、用户反馈、质量复核和熔断运维 API
 │   │   ├── llm_debug.py                      # LLM 调用日志查询
 │   │   └── health.py                         # liveness/readiness
 │   │
@@ -73,6 +74,10 @@ CareerAgent/
 │   │   ├── interview_answer_framework.py     # v3 交付规范化与旧版重新生成标记
 │   │   │
 │   │   ├── trace_service.py                  # Run/Step/Artifact/Event Trace
+│   │   ├── agent_runtime.py                  # Tool 合同、ErrorEnvelope、单层重试与熔断
+│   │   ├── execution_provenance.py           # 模型/Tool/RAG 策略版本溯源
+│   │   ├── memory_feedback.py                # 类型化长期记忆与用户反馈闭环
+│   │   ├── online_quality.py                 # 不调用 LLM 的在线运行质量门禁
 │   │   ├── run_business_summary.py           # 路由/过程/结果/副作用四层业务摘要
 │   │   ├── task_queue.py                     # Redis 优先级队列、DLQ、HA 和 recovery
 │   │   ├── task_runner.py                    # 队列任务执行入口
@@ -89,6 +94,7 @@ CareerAgent/
 │   │   ├── llm.py                            # OpenAI-compatible LLM 客户端与调用日志
 │   │   ├── redis_client.py                   # Redis/Sentinel 连接
 │   │   ├── security.py                       # Admin token、RBAC 请求检查
+│   │   ├── redaction.py                      # 诊断日志凭证和 PII 脱敏
 │   │   └── telemetry.py                      # HTTP 指标
 │   │
 │   ├── models/

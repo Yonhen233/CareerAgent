@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models.entities import AgentApproval, AgentRun
 from app.services.approval_service import ApprovalService
+from app.services.agent_runtime import AgentToolRuntime
 from app.services.ops_audit import OpsAuditService
 from app.services.outbound_tools import BrowserApplyTool, EmailOutboundTool, OutboundToolError
 from app.services.trace_service import TraceService
@@ -70,10 +71,24 @@ class HighRiskActionToolService:
             )
         execution_payload = {**(approval.payload_summary_json or {}), **(tool_payload or {})}
         try:
-            tool_result = self._execute_tool(
-                action_type=approval.action_type,
-                payload=execution_payload,
-                run_id=approval.run_id,
+            trace = TraceService()
+            tool_result = AgentToolRuntime().execute_sync(
+                db,
+                step_name=f"approved_{approval.action_type}",
+                tool_name=approval.action_type,
+                input_json=execution_payload,
+                handler=lambda: self._execute_tool(
+                    action_type=approval.action_type,
+                    payload=execution_payload,
+                    run_id=approval.run_id,
+                ),
+                event_sink=lambda event_type, payload: trace.add_event(
+                    db,
+                    run_id=approval.run_id,
+                    event_type=event_type,
+                    node_name=f"approved_{approval.action_type}",
+                    payload=payload,
+                ),
             )
         except OutboundToolError as exc:
             failure_payload = {

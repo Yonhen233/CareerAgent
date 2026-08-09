@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import math
 import re
@@ -12,6 +13,7 @@ from typing import Any
 import httpx
 
 from app.core.config import get_settings
+from app.core.redaction import SecurityRedactor
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -164,6 +166,7 @@ def extract_json_object(text: str) -> dict[str, Any]:
 class LLMClient:
     def __init__(self) -> None:
         self.settings = get_settings()
+        self.redactor = SecurityRedactor()
 
     @property
     def available(self) -> bool:
@@ -426,14 +429,26 @@ class LLMClient:
         max_tokens: int | None,
         response_format: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        bundle = json.dumps(
+            {"system": system_prompt, "user": user_prompt, "response_format": response_format},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
         return {
-            "system_preview": system_prompt[:1000],
-            "user_preview": user_prompt[:1600],
+            "system_preview": self.redactor.redact(
+                system_prompt[:1000], redact_pii=self.settings.diagnostic_redact_pii
+            ),
+            "user_preview": self.redactor.redact(
+                user_prompt[:1600], redact_pii=self.settings.diagnostic_redact_pii
+            ),
             "system_chars": len(system_prompt),
             "user_chars": len(user_prompt),
             "temperature": temperature,
             "max_tokens": max_tokens,
             "response_format": response_format,
+            "prompt_bundle_sha256": hashlib.sha256(bundle.encode("utf-8")).hexdigest(),
+            "prompt_contract_version": "careeragent-prompt-observability-v2",
+            "routing_policy_version": "careeragent-model-routing-v2",
         }
 
     def _provider_options(self, *, model: str | None = None) -> dict[str, Any]:
@@ -494,8 +509,11 @@ class LLMClient:
                     base_url=self.settings.effective_llm_base_url,
                     status=status,
                     prompt_preview_json=prompt_preview,
-                    response_preview=response_preview,
-                    error_message=error_message,
+                    response_preview=self.redactor.redact(
+                        response_preview,
+                        redact_pii=self.settings.diagnostic_redact_pii,
+                    ),
+                    error_message=self.redactor.redact(error_message),
                     latency_ms=int((time.perf_counter() - started_at) * 1000),
                     prompt_chars=int(prompt_preview.get("system_chars", 0))
                     + int(prompt_preview.get("user_chars", 0)),

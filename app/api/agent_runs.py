@@ -4,14 +4,15 @@ from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.agents.orchestrator import AgentOrchestrator
 from app.core.config import get_settings
 from app.core.database import SessionLocal, get_db
 from app.core.redis_client import RedisUnavailableError, get_redis_client, redis_key
-from app.core.security import AuthContext, optional_auth_context
-from app.models.entities import AgentApproval, AgentEvent, AgentRun, AgentRunControlAction, AgentStep
+from app.core.security import AuthContext, has_admin_access, optional_auth_context
+from app.models.entities import AgentApproval, AgentEvent, AgentRun, AgentRunControlAction, AgentStep, Job, Profile
 from app.models.schemas import (
     AgentApprovalResponse,
     AgentCheckpointResponse,
@@ -35,7 +36,9 @@ router = APIRouter(prefix="/agent/runs", tags=["agent-runs"])
 
 def _tenant_query(query, auth: AuthContext):
     if get_settings().rbac_enabled:
-        return query.filter(AgentRun.tenant_id == auth.tenant_id)
+        query = query.filter(AgentRun.tenant_id == auth.tenant_id)
+        if not has_admin_access(auth):
+            query = query.filter(or_(AgentRun.user_id == auth.user_id, AgentRun.user_id.is_(None)))
     return query
 
 
@@ -48,14 +51,40 @@ def _set_run_tenant(run: AgentRun, auth: AuthContext, db: Session) -> AgentRun:
     return run
 
 
+def _tenant_run_or_404(db: Session, run_id: int, auth: AuthContext) -> AgentRun:
+    run = _tenant_query(db.query(AgentRun), auth).filter(AgentRun.id == run_id).first()
+    if run is None:
+        raise HTTPException(status_code=404, detail="Agent run not found.")
+    return run
+
+
+def _validate_resource_scope(db: Session, payload: AgentRunRequest, auth: AuthContext) -> None:
+    if not get_settings().rbac_enabled:
+        return
+    if payload.profile_id is not None:
+        profile = db.query(Profile).filter(Profile.id == payload.profile_id).first()
+        if profile is None or profile.tenant_id != auth.tenant_id:
+            raise HTTPException(status_code=404, detail="Profile not found.")
+    if payload.job_id is not None:
+        job = db.query(Job).filter(Job.id == payload.job_id).first()
+        if job is None or job.tenant_id not in {None, auth.tenant_id}:
+            raise HTTPException(status_code=404, detail="Job not found.")
+
+
 @router.post("", response_model=AgentRunResponse, status_code=status.HTTP_201_CREATED)
 async def create_agent_run(
     payload: AgentRunRequest,
     db: Session = Depends(get_db),
     auth: AuthContext = Depends(optional_auth_context),
 ) -> AgentRunResponse:
-    _enforce_active_run_limit(db, payload)
-    run = await AgentOrchestrator().run(db, payload)
+    _validate_resource_scope(db, payload, auth)
+    _enforce_active_run_limit(db, payload, auth=auth)
+    run = await AgentOrchestrator().run(
+        db,
+        payload,
+        tenant_id=auth.tenant_id,
+        user_id=auth.user_id,
+    )
     return AgentRunResponse.model_validate(_set_run_tenant(run, auth, db))
 
 
@@ -65,8 +94,14 @@ async def create_background_agent_run(
     db: Session = Depends(get_db),
     auth: AuthContext = Depends(optional_auth_context),
 ) -> AgentRunResponse:
-    _enforce_active_run_limit(db, payload)
-    run = AgentOrchestrator().queue_run(db, payload)
+    _validate_resource_scope(db, payload, auth)
+    _enforce_active_run_limit(db, payload, auth=auth)
+    run = AgentOrchestrator().queue_run(
+        db,
+        payload,
+        tenant_id=auth.tenant_id,
+        user_id=auth.user_id,
+    )
     _set_run_tenant(run, auth, db)
     try:
         get_task_runner().enqueue_agent_run(run.id)
@@ -284,10 +319,12 @@ def get_agent_run_summary(
 
 
 @router.get("/{run_id}/graph-state")
-async def get_agent_graph_state(run_id: int, db: Session = Depends(get_db)) -> dict:
-    run = db.query(AgentRun).filter(AgentRun.id == run_id).first()
-    if run is None:
-        raise HTTPException(status_code=404, detail="Agent run not found.")
+async def get_agent_graph_state(
+    run_id: int,
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(optional_auth_context),
+) -> dict:
+    run = _tenant_run_or_404(db, run_id, auth)
     try:
         return await AgentOrchestrator().graph_state(run)
     except ValueError as exc:
@@ -295,16 +332,23 @@ async def get_agent_graph_state(run_id: int, db: Session = Depends(get_db)) -> d
 
 
 @router.get("/{run_id}/steps", response_model=list[AgentStepResponse])
-def get_agent_steps(run_id: int, db: Session = Depends(get_db)) -> list[AgentStepResponse]:
+def get_agent_steps(
+    run_id: int,
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(optional_auth_context),
+) -> list[AgentStepResponse]:
+    _tenant_run_or_404(db, run_id, auth)
     rows = db.query(AgentStep).filter(AgentStep.run_id == run_id).order_by(AgentStep.id.asc()).all()
     return [AgentStepResponse.model_validate(row) for row in rows]
 
 
 @router.get("/{run_id}/approvals", response_model=list[AgentApprovalResponse])
-def get_agent_approvals(run_id: int, db: Session = Depends(get_db)) -> list[AgentApprovalResponse]:
-    run = db.query(AgentRun).filter(AgentRun.id == run_id).first()
-    if run is None:
-        raise HTTPException(status_code=404, detail="Agent run not found.")
+def get_agent_approvals(
+    run_id: int,
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(optional_auth_context),
+) -> list[AgentApprovalResponse]:
+    _tenant_run_or_404(db, run_id, auth)
     rows = (
         db.query(AgentApproval)
         .filter(AgentApproval.run_id == run_id)
@@ -320,10 +364,9 @@ def get_agent_events(
     after_id: int = Query(default=0, ge=0),
     limit: int = Query(default=200, ge=1, le=1000),
     db: Session = Depends(get_db),
+    auth: AuthContext = Depends(optional_auth_context),
 ) -> list[AgentEventResponse]:
-    run = db.query(AgentRun).filter(AgentRun.id == run_id).first()
-    if run is None:
-        raise HTTPException(status_code=404, detail="Agent run not found.")
+    _tenant_run_or_404(db, run_id, auth)
     rows = (
         db.query(AgentEvent)
         .filter(AgentEvent.run_id == run_id, AgentEvent.id > after_id)
@@ -339,21 +382,46 @@ def stream_agent_events(
     run_id: int,
     after_id: int = Query(default=0, ge=0),
     heartbeat_seconds: float = Query(default=1.0, ge=0.2, le=10.0),
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(optional_auth_context),
 ) -> StreamingResponse:
+    _tenant_run_or_404(db, run_id, auth)
     return StreamingResponse(
-        _agent_event_sse(run_id, after_id=after_id, heartbeat_seconds=heartbeat_seconds),
+        _agent_event_sse(
+            run_id,
+            after_id=after_id,
+            heartbeat_seconds=heartbeat_seconds,
+            tenant_id=auth.tenant_id if get_settings().rbac_enabled else None,
+            user_id=(
+                None
+                if not get_settings().rbac_enabled or has_admin_access(auth)
+                else auth.user_id
+            ),
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
-async def _agent_event_sse(run_id: int, *, after_id: int, heartbeat_seconds: float) -> AsyncIterator[str]:
+async def _agent_event_sse(
+    run_id: int,
+    *,
+    after_id: int,
+    heartbeat_seconds: float,
+    tenant_id: str | None = None,
+    user_id: str | None = None,
+) -> AsyncIterator[str]:
     last_id = after_id
     final_statuses = {"completed", "failed", "waiting_for_confirmation", "cancelled", "withdrawn"}
     while True:
         db = SessionLocal()
         try:
-            run = db.query(AgentRun).filter(AgentRun.id == run_id).first()
+            query = db.query(AgentRun).filter(AgentRun.id == run_id)
+            if tenant_id is not None:
+                query = query.filter(AgentRun.tenant_id == tenant_id)
+            if user_id is not None:
+                query = query.filter(or_(AgentRun.user_id == user_id, AgentRun.user_id.is_(None)))
+            run = query.first()
             if run is None:
                 yield _sse("error", {"detail": "Agent run not found.", "run_id": run_id})
                 return
@@ -404,7 +472,7 @@ def _sse(event: str, data: dict, *, event_id: int | None = None) -> str:
     return "\n".join(lines) + "\n\n"
 
 
-def _enforce_active_run_limit(db: Session, payload: AgentRunRequest) -> None:
+def _enforce_active_run_limit(db: Session, payload: AgentRunRequest, *, auth: AuthContext) -> None:
     if payload.profile_id is None:
         return
     settings = get_settings()
@@ -427,11 +495,13 @@ def _enforce_active_run_limit(db: Session, payload: AgentRunRequest) -> None:
         except RedisUnavailableError as exc:
             raise HTTPException(status_code=503, detail=f"Redis rate limiter unavailable: {exc}") from exc
     active_statuses = {"queued", "running", "waiting_for_confirmation"}
-    active_count = (
-        db.query(AgentRun)
-        .filter(AgentRun.profile_id == payload.profile_id, AgentRun.status.in_(active_statuses))
-        .count()
+    active_query = db.query(AgentRun).filter(
+        AgentRun.profile_id == payload.profile_id,
+        AgentRun.status.in_(active_statuses),
     )
+    if settings.rbac_enabled:
+        active_query = active_query.filter(AgentRun.tenant_id == auth.tenant_id)
+    active_count = active_query.count()
     if active_count >= settings.agent_active_run_limit_per_profile:
         raise HTTPException(
             status_code=429,
@@ -441,16 +511,15 @@ def _enforce_active_run_limit(db: Session, payload: AgentRunRequest) -> None:
             ),
         )
     if payload.task_type == "full_career_flow" and payload.job_id is not None:
-        duplicate = (
-            db.query(AgentRun)
-            .filter(
-                AgentRun.profile_id == payload.profile_id,
-                AgentRun.job_id == payload.job_id,
-                AgentRun.task_type == "full_career_flow",
-                AgentRun.status.in_(active_statuses),
-            )
-            .first()
+        duplicate_query = db.query(AgentRun).filter(
+            AgentRun.profile_id == payload.profile_id,
+            AgentRun.job_id == payload.job_id,
+            AgentRun.task_type == "full_career_flow",
+            AgentRun.status.in_(active_statuses),
         )
+        if settings.rbac_enabled:
+            duplicate_query = duplicate_query.filter(AgentRun.tenant_id == auth.tenant_id)
+        duplicate = duplicate_query.first()
         if duplicate is not None:
             raise HTTPException(
                 status_code=429,

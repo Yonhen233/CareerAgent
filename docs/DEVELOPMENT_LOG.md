@@ -1,5 +1,79 @@
 # 开发日志
 
+## 2026-08-09 22:41:06 +08:00：Agent Runtime、定向恢复、类型化记忆与在线质量闭环升级
+
+### 本轮目标
+- 不再用“已经用了 LangGraph、RAG 和很多 Tool”作为成熟 Agent 的判断标准，而是补齐运行时合同、稳定错误语义、定向恢复、熔断、长期记忆、用户反馈、在线质量复核和版本溯源。
+- 处理成熟 Agent 高频 Bad Case：错误 Tool、参数缺失、瞬时依赖失败、重试风暴、外发副作用重放、无意义 LLM repair、poison queue message、跨用户记忆污染、Prompt/模型版本不可追踪和诊断日志泄密。
+- 延续开发期原则：失败直接暴露并保留 Trace，不用静默兜底隐藏代码错误；所有验证使用本地 fake/SQLite/hash embedding，不调用 DeepSeek，不消耗余额。
+
+### 开发前审计发现的问题
+1. `AgentToolSpec` 已声明超时、重试、风险和幂等策略，但 `TraceService.step` 实际仍直接 `await handler()`。合同只是展示信息，没有执行语义。
+2. 主图异常最终只保存 `str(exc)`。worker、Planner 和运维无法判断错误是否可重试、该由用户补资料还是该修代码。
+3. 自然语言 Agent 的第一次执行只要失败就进入 LLM plan repair。API 未配置、预算耗尽、依赖熔断也会再次调用模型，既无效又浪费 Token。
+4. Redis worker 对所有异常统一重排队，参数错误和 run 不存在等 poison payload 也要耗尽次数才进 DLQ。
+5. 系统有 checkpoint 短期状态和业务表，但没有受治理的跨 run 用户偏好、选择结果和用户纠错；也没有负反馈进入人工复核的闭环。
+6. LLM 日志有 trace/model/token，但缺 Prompt 指纹和策略版本；Prompt 预览还可能含邮箱、手机号和用户粘贴的 Key。
+7. AgentRun 子资源虽然按 tenant 查询列表，steps/events/approvals/SSE 部分接口仍可只凭 run ID 读取；长期记忆第一版若只按 tenant/profile 查询，还会在同租户用户之间串上下文。
+
+### 实现：统一 Agent Tool Runtime
+- 新增 `app/services/agent_runtime.py`，引入 `AgentToolRuntime`、`AgentErrorClassifier` 和结构化 `ErrorEnvelope`。
+- Tool 调用统一执行 preflight、合同参数检查、持久化 circuit 检查、超时、单层重试、输出合同、失败分类和 attempt Event。
+- `AGENT_STRICT_TOOL_CONTRACTS=true` 时拒绝未注册 Tool。补注册 `LangGraph.AgentPlanner`、`llm.intent_planner` 和 `NaturalLanguageAgentService`，避免把编排内部调用留在合同体系外。
+- Tool Policy 新增 `retry_owner` 和合同版本。招聘源读取由 Runtime 重试；LLM 由 LLMClient/业务 Handler 重试；Guardrail 由 ResumeTailor repair；Orchestrator 负责 checkpoint；不同层不重复放大调用。
+- 高风险 `browser_apply/email_draft/email_send` 在 approval table 门禁后也进入同步 Runtime 合同和错误事件，但因为有外部副作用，始终只尝试一次。
+- 新增 `tool_circuit_states` 持久化连续依赖失败、open/half-open/closed 和冷却时间；提供运维查看及 reset API。
+
+### 实现：ErrorEnvelope 与定向恢复
+- 分类覆盖 dependency timeout/transient/circuit、input/state、insufficient evidence、model response/config/budget、completion gate、execution budget、policy/human interrupt、contract 和 internal invariant。
+- LangGraph `graph_failed`、Step failure、run output、worker payload 和 DLQ 均保存同一结构，而不是不同模块各写一段错误字符串。
+- 自然语言图只允许 `input_or_state_validation` 和 `completion_gate_rejected` 进入一次 LLM repair。配置、预算、熔断、依赖重试耗尽和代码错误直接进入失败终点。
+- Redis worker 读取 `retryable`。不可重试 payload 第一次即进 DLQ，并写 `terminal_reason=non_retryable_error`；瞬时故障仍按 worker 上限处理。
+
+### 实现：类型化长期记忆和反馈闭环
+- 新增 `agent_memories`，只存 preference、constraint、decision、outcome、correction，不保存原始聊天全文。
+- 同 key 新值把旧值标记为 superseded；Prompt 只接收受条数和字符预算约束的 compact typed memory。
+- run 完成后仅从已验证 Artifact 学习岗位选择和“投递材料已准备但未发送”等 episode，不把模型自由文本自动升级为事实。
+- 新增 memory 查看、创建、停用 API。AgentRun 增加 `user_id`，记忆按 tenant/user/profile 隔离；当前用户可读取自己的私有记忆和显式共享记忆。
+- 新增 `agent_feedback` 和 `agent_quality_reviews`。负反馈或低评分自动建人工复核项；结构化纠错写成 correction memory，后续 Prompt 不再重复错误事实。
+
+### 实现：在线质量、版本溯源和安全日志
+- 每次 run 完成后执行不调用 LLM 的 `OnlineAgentQualityService`，检查终态、失败步骤、未知 Tool、Completion Gate、RAG quality 和 ErrorEnvelope，低于阈值自动进入质量复核队列。
+- 每个计划新增 `execution_provenance` Artifact：应用版本、Runtime/Task 合同、Tool 合同 SHA-256、模型路由、thinking mode、embedding、reranker、RRF 和安全策略。
+- LLM 日志新增 Prompt bundle SHA-256、Prompt 观测合同版本和模型路由策略版本。
+- 新增统一日志脱敏：API Key、Bearer Token、认证字段、邮箱和手机号不进入诊断预览；`prompt_tokens/completion_tokens/total_tokens` 使用精确字段规则保留，不再被笼统的 token 脱敏误伤。
+- 修复 AgentRun steps/events/approvals/graph-state/SSE 和反馈接口的 owner scope；RBAC 开启后普通用户只能读取自己的 run，租户管理员仍可管理租户内记录。
+
+### 开发中遇到的 Bad Case 与处理
+1. **熔断对象默认值为 None。** 第一轮断连测试在 `consecutive_failures += 1` 处报 `NoneType`。SQLAlchemy 列的 `default=0` 是 INSERT default，不保证 Python 新对象立刻有值。修复为构造时显式写 0/closed，更新时使用 `int(value or 0)`。
+2. **严格 Tool 注册打破旧测试。** 执行预算测试使用未注册的 `demo.tool`。没有为了兼容测试关闭严格模式，而是改成真实注册的 Planner Tool；测试夹具不能要求产品保留不安全入口。
+3. **只按 tenant/profile 读取记忆会跨用户串线。** 第一版 typed memory 能按租户隔离，但同租户多用户仍可能共享偏好。补 `AgentRun.user_id`、ContextVar 透传和 owner filter，并新增同租户 user-a/user-b 对抗测试。
+4. **顶层 run 有 user_id，子图 run 仍可能丢 owner。** Natural Language Agent 调用子 Orchestrator 时原接口只传 request。新增签名感知 `_run_orchestrator`，真实 Orchestrator 透传 tenant/user，旧测试 fake 仍按两参数调用，不牺牲测试可替换性。
+5. **重试层级如果不指定 owner 会指数放大。** LLM Tool 原合同也写 max_attempts=2，如果 Runtime 再执行一次，叠加 LLMClient retry 和 worker retry会放大成本。新增 `retry_owner=handler`，Runtime 对这些 Tool 只执行一次。
+6. **外发 Tool 的连接失败虽然 retryable，也不能自动重试。** Error 分类中的 retryable 表示故障性质，不代表所有操作都能重放；email_send 合同 max_attempts=1，失败只开熔断/审计，必须人工决定。
+7. **不可重试 queue message 不能等三轮。** worker 现在携带 ErrorEnvelope，参数/状态错误直接 DLQ；避免队列吞吐被确定性坏消息占用。
+8. **日志脱敏不能用字段名包含 token 的简单规则。** 否则 Token 成本统计会被清空。最终使用精确 secret key 和字符串模式，另对 Prompt 预览做 PII 脱敏。
+
+### 测试与结果
+- 新增 Runtime 成熟度测试，覆盖：瞬时断连后有限重试成功、外发不重试、连续失败开熔断、未知 Tool 拒绝、typed memory 覆盖、同租户跨用户隔离、负反馈建复核和纠错记忆、失败 run 在线门禁、秘密/PII 脱敏、Prompt 指纹和错误路由不浪费 LLM。
+- 新增 Redis poison payload 第一次直接 DLQ 测试。
+- 第一轮 Runtime 专项：`10 passed`。
+- 第一轮全量：`287 passed in 118.02s`。
+- 增加定向恢复、worker ErrorEnvelope 和 user owner scope 后，专项回归：`56 passed in 21.32s`。
+- 增加 memory/feedback governance API 串联回归后，最终全量一致性检查：`291 passed in 103.21s`；`compileall` 和 `git diff --check` 通过，密钥扫描只曾命中测试构造字符串，现已改为运行时拼接并重新确认仓库无真实 Key。
+- 本轮所有测试使用本地替身和确定性数据，没有调用 DeepSeek。
+
+### 文档同步
+- 新增 `docs/AGENT_RUNTIME_RELIABILITY.md`，完整解释 Tool Runtime、ErrorEnvelope、单层重试、Circuit Breaker、typed memory、在线质量和 8 类核心 Bad Case。
+- `AGENT_DESIGN.md`、`ARCHITECTURE.md`、`EVALUATION.md`、`README.md` 和面试 Bad Case 文档同步本轮架构。
+
+### 尚未解决与下一步
+1. 当前持久化熔断使用 SQLite，适合当前单机/中等并发。高吞吐多实例应迁移 PostgreSQL 或 Redis 原子状态机并做竞争测试。
+2. Online Quality Gate 是确定性运行质量门禁，不是用户满意度模型；需要持续把人工复核结果回流版本化评测集。
+3. typed memory 当前使用 scope/type/时间检索，尚未在大规模记忆上引入向量召回；数据量增大后应评测 metadata filter + semantic retrieval，而不是现在提前增加复杂度。
+4. 外发工具仍需增加外部 outcome probe，如邮件 Message-ID、招聘站确认号和提交后页面状态，不能只相信 Tool 本地返回。
+5. 本轮没有重跑真实 DeepSeek 全链路，结论只覆盖 Runtime 控制面、数据边界和确定性 Bad Case。
+
 ## 2026-08-09 21:17:11 +08:00：建立成熟 Agent 的任务完成、轨迹正确性与 RAG 证据质量闭环
 
 ### 本轮目标

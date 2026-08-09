@@ -6,6 +6,8 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.agent_runs import router as agent_runs_router
+from app.api.agent_governance import ops_router as agent_governance_ops_router
+from app.api.agent_governance import router as agent_governance_router
 from app.api.agent_skills import router as agent_skills_router
 from app.api.agent_tools import router as agent_tools_router
 from app.api.applications import router as applications_router
@@ -107,4 +109,6 @@ app.include_router(evaluations_router)
 app.include_router(agent_tools_router)
 app.include_router(agent_skills_router)
 app.include_router(agent_runs_router)
+app.include_router(agent_governance_router)
+app.include_router(agent_governance_ops_router)
 app.include_router(tasks_router)

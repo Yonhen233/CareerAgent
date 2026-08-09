@@ -9,11 +9,18 @@ from app.core.redis_client import RedisUnavailableError, get_redis_client, redis
 from app.models.entities import AgentArtifact, AgentEvent, AgentRun, AgentStep
 from app.core.config import get_settings
 from app.services.agent_reliability import AgentExecutionBudgetExceeded
+from app.services.agent_runtime import AgentErrorClassifier, AgentToolRuntime
+from app.core.redaction import SecurityRedactor
 
 T = TypeVar("T")
 
 
 class TraceService:
+    def __init__(self, *, runtime: AgentToolRuntime | None = None) -> None:
+        self.runtime = runtime or AgentToolRuntime()
+        self.error_classifier = AgentErrorClassifier()
+        self.redactor = SecurityRedactor()
+
     def create_run(
         self,
         db: Session,
@@ -22,10 +29,14 @@ class TraceService:
         input_json: dict[str, Any],
         profile_id: int | None = None,
         job_id: int | None = None,
+        tenant_id: str | None = None,
+        user_id: str | None = None,
         status: str = "running",
     ) -> AgentRun:
         run = AgentRun(
             task_type=task_type,
+            tenant_id=tenant_id,
+            user_id=user_id,
             profile_id=profile_id,
             job_id=job_id,
             status=status,
@@ -38,7 +49,14 @@ class TraceService:
             db,
             run_id=run.id,
             event_type="run_created",
-            payload={"task_type": task_type, "status": status, "profile_id": profile_id, "job_id": job_id},
+            payload={
+                "task_type": task_type,
+                "status": status,
+                "tenant_id": tenant_id,
+                "user_id": user_id,
+                "profile_id": profile_id,
+                "job_id": job_id,
+            },
         )
         return run
 
@@ -77,7 +95,21 @@ class TraceService:
             payload={"step_id": step.id, "tool_name": tool_name, "input_json": input_json or {}},
         )
         try:
-            output = await handler()
+            output = await self.runtime.execute(
+                db,
+                run_id=run_id,
+                step_name=step_name,
+                tool_name=tool_name,
+                input_json=input_json,
+                handler=handler,
+                event_sink=lambda event_type, payload: self.add_event(
+                    db,
+                    run_id=run_id,
+                    event_type=event_type,
+                    node_name=step_name,
+                    payload=payload,
+                ),
+            )
             step.status = "completed"
             step.output_json = self._json_safe(output)
             step.latency_ms = int((time.perf_counter() - started) * 1000)
@@ -96,8 +128,14 @@ class TraceService:
             )
             return output
         except Exception as exc:
+            db.rollback()
+            envelope = self.error_classifier.classify(
+                exc,
+                tool_name=tool_name,
+                step_name=step_name,
+            )
             step.status = "failed"
-            step.error_message = str(exc)
+            step.error_message = envelope.message
             step.latency_ms = int((time.perf_counter() - started) * 1000)
             db.commit()
             self.add_event(
@@ -109,7 +147,8 @@ class TraceService:
                     "step_id": step.id,
                     "tool_name": tool_name,
                     "latency_ms": step.latency_ms,
-                    "error": str(exc),
+                    "error": envelope.message,
+                    "error_envelope": envelope.as_dict(),
                 },
             )
             raise
@@ -199,12 +238,15 @@ class TraceService:
         status: str,
         output_json: dict[str, Any] | None = None,
         error_message: str | None = None,
+        error_exception: Exception | None = None,
         started_at: float,
     ) -> AgentRun:
         run.status = status
         run.error_message = error_message
         run.latency_ms = int((time.perf_counter() - started_at) * 1000)
         payload = dict(output_json or {})
+        if error_exception is not None:
+            payload["error_envelope"] = self.error_classifier.classify(error_exception).as_dict()
         from app.services.run_business_summary import RunBusinessSummaryService
 
         payload["business_summary"] = RunBusinessSummaryService().build(
@@ -216,11 +258,30 @@ class TraceService:
         run.output_json = payload
         db.commit()
         db.refresh(run)
+        from app.services.memory_feedback import CareerMemoryService
+        from app.services.online_quality import OnlineAgentQualityService
+
+        quality_report = OnlineAgentQualityService().assess_and_route(db, run=run)
+        payload["runtime_quality"] = quality_report
+        run.output_json = payload
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+        learned_memories = CareerMemoryService().learn_run_episodes(db, run=run)
         self.add_artifact(
             db,
             run_id=run.id,
             artifact_type="business_summary",
             payload=payload["business_summary"],
+        )
+        self.add_artifact(
+            db,
+            run_id=run.id,
+            artifact_type="runtime_quality",
+            payload={
+                **quality_report,
+                "learned_memory_ids": [memory.id for memory in learned_memories],
+            },
         )
         self.add_event(
             db,
@@ -241,10 +302,10 @@ class TraceService:
         if isinstance(value, (list, tuple, set)):
             return [self._json_safe(item) for item in value]
         if isinstance(value, dict):
-            return {str(k): self._json_safe(v) for k, v in value.items()}
+            return self.redactor.redact({str(k): self._json_safe(v) for k, v in value.items()})
         if isinstance(value, (str, int, float, bool)) or value is None:
-            return value
-        return str(value)
+            return self.redactor.redact(value)
+        return self.redactor.redact(str(value))
 
     def _publish_event(self, event: AgentEvent) -> None:
         try:

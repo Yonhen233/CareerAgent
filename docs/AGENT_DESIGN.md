@@ -1,5 +1,18 @@
 # Agent 设计说明
 
+## Agent Runtime 与成熟度边界
+
+LangGraph 负责“业务状态下一步走哪里”，`AgentToolRuntime` 负责“这一步能不能安全、正确、有限地执行”。两者职责分开：
+
+- Task Contract、Goal Ledger 和 Completion Gate 防止未完成就停止；
+- Tool Runtime 在执行时兑现注册合同、参数、超时、单一重试所有权、输出约束和持久化熔断；
+- `ErrorEnvelope` 把异常分成依赖瞬时故障、输入/状态、证据不足、配置/预算、完成门禁、策略中断和代码不变量；
+- 自然语言图只对输入/状态缺失和 Completion Gate 缺项做一次 replan，其他错误直接失败；
+- typed memory 只保存 preference/constraint/decision/outcome/correction，不回放整段聊天；
+- Online Quality Gate 不调用 LLM，低质量 run 进入人工复核，用户纠错再进入 correction memory 和后续评测样本。
+
+完整恢复矩阵、重试所有权和 Bad Case 见 [成熟 Agent 运行治理](AGENT_RUNTIME_RELIABILITY.md)。
+
 ## LLM 调用点
 
 当前 LLM 不是一个“全能 Prompt”，而是被放在需要语义理解或自然语言生成的边界上：
@@ -22,8 +35,10 @@
 - latency。
 - prompt/response 字符数。
 - error message。
+- Prompt bundle SHA-256、Prompt 合同版本和模型路由策略版本。
+- routed model、provider usage 和工作流上下文。
 
-系统不会记录 API key。
+系统不会记录 API key；诊断 Prompt/Response 预览会脱敏凭证、邮箱和手机号，Token 统计字段保留。
 
 ## Skill 与 SubAgent
 

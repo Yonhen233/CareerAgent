@@ -86,6 +86,14 @@ class Settings(BaseSettings):
     agent_active_run_limit_per_profile: int = 3
     agent_max_tool_steps: int = Field(default=48, ge=4, le=200)
     agent_max_identical_tool_calls: int = Field(default=2, ge=1, le=10)
+    agent_strict_tool_contracts: bool = True
+    agent_tool_retry_backoff_seconds: float = Field(default=0.4, ge=0.0, le=10.0)
+    agent_tool_circuit_failure_threshold: int = Field(default=3, ge=1, le=20)
+    agent_tool_circuit_cooldown_seconds: int = Field(default=60, ge=1, le=3600)
+    agent_online_quality_min_score: float = Field(default=0.75, ge=0.0, le=1.0)
+    agent_memory_context_max_items: int = Field(default=12, ge=1, le=50)
+    agent_memory_context_max_chars: int = Field(default=1600, ge=200, le=10000)
+    diagnostic_redact_pii: bool = True
     rbac_enabled: bool = False
     rbac_trusted_header_auth: bool = True
     rbac_default_tenant_id: str = "default"

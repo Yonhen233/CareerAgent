@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import re
 import time
+from contextvars import ContextVar
 from typing import Any, TypedDict
 from uuid import uuid4
 
@@ -15,7 +17,7 @@ from sqlalchemy.orm import Session
 from app.agents.orchestrator import AgentOrchestrator
 from app.core.config import get_settings
 from app.core.llm import LLMClient, llm_trace_context
-from app.models.entities import AgentArtifact, Job, Profile
+from app.models.entities import AgentArtifact, AgentRun, Job, Profile
 from app.models.schemas import (
     AgentRunRequest,
     GuidedProfileRequest,
@@ -23,8 +25,10 @@ from app.models.schemas import (
     NaturalLanguageAgentRequest,
 )
 from app.services.job_discovery import JobDiscoveryService
-from app.services.agent_reliability import AgentTaskContractService
+from app.services.agent_reliability import AgentTaskContractService, AgentTaskIncompleteError
+from app.services.execution_provenance import ExecutionProvenanceService
 from app.services.jd_parser import JDParserService
+from app.services.memory_feedback import CareerMemoryService
 from app.services.resume_parser import ResumeParserService
 from app.services.text_splitter import ResumeTextSplitter
 from app.services.trace_service import TraceService
@@ -63,6 +67,10 @@ PLAN_QUERY_STOPWORDS = {
     "the",
     "with",
 }
+_NATURAL_MEMORY_SCOPE: ContextVar[dict[str, str | None]] = ContextVar(
+    "natural_memory_scope",
+    default={"tenant_id": None, "user_id": None},
+)
 
 
 class NaturalLanguageGraphState(TypedDict, total=False):
@@ -71,9 +79,11 @@ class NaturalLanguageGraphState(TypedDict, total=False):
     graph_thread_id: str
     plan: dict[str, Any]
     task_contract: dict[str, Any]
+    memory_context: dict[str, Any]
     completion_verification: dict[str, Any]
     result: dict[str, Any]
     execution_error: str | None
+    error_envelope: dict[str, Any]
     repair_attempts: list[dict[str, Any]]
     output: dict[str, Any]
 
@@ -101,7 +111,14 @@ class NaturalLanguageAgentService:
         self.checkpointer = None
         self._graph = None
 
-    async def run(self, db: Session, request: NaturalLanguageAgentRequest) -> dict[str, Any]:
+    async def run(
+        self,
+        db: Session,
+        request: NaturalLanguageAgentRequest,
+        *,
+        tenant_id: str | None = None,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
         started = time.perf_counter()
         graph_thread_id = f"natural-run-{uuid4().hex}"
         run = self.trace.create_run(
@@ -109,11 +126,16 @@ class NaturalLanguageAgentService:
             task_type="natural_language_request",
             profile_id=request.profile_id,
             job_id=request.job_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
             input_json={
                 **request.model_dump(),
                 "orchestration_framework": "langgraph",
                 "graph_thread_id": graph_thread_id,
             },
+        )
+        memory_scope_token = _NATURAL_MEMORY_SCOPE.set(
+            {"tenant_id": tenant_id, "user_id": user_id}
         )
         self._runtime_dbs[run.id] = db
         self.trace.add_event(
@@ -166,10 +188,12 @@ class NaturalLanguageAgentService:
                 status="failed",
                 output_json=payload,
                 error_message=str(exc),
+                error_exception=exc,
                 started_at=started,
             )
         finally:
             self._runtime_dbs.pop(run.id, None)
+            _NATURAL_MEMORY_SCOPE.reset(memory_scope_token)
             await self._close_checkpoint()
 
     def _build_graph(self):
@@ -187,7 +211,11 @@ class NaturalLanguageAgentService:
         graph.add_conditional_edges(
             "execute_user_plan",
             self._route_after_execute,
-            {"repair_user_plan": "repair_user_plan", "verify_user_plan": "verify_user_plan"},
+            {
+                "repair_user_plan": "repair_user_plan",
+                "verify_user_plan": "verify_user_plan",
+                "finalize_failed": "finalize_failed",
+            },
         )
         graph.add_conditional_edges(
             "verify_user_plan",
@@ -245,11 +273,16 @@ class NaturalLanguageAgentService:
                 state["checkpoint_id"] = (snapshot.config or {}).get("configurable", {}).get("checkpoint_id")
             return state
         except Exception as exc:
+            envelope = self.trace.error_classifier.classify(exc, step_name="LangGraph").as_dict()
             self.trace.add_event(
                 db,
                 run_id=run_id,
                 event_type="graph_failed",
-                payload={"error": str(exc), "error_type": exc.__class__.__name__},
+                payload={
+                    "error": envelope["message"],
+                    "error_type": exc.__class__.__name__,
+                    "error_envelope": envelope,
+                },
             )
             raise
 
@@ -264,7 +297,41 @@ class NaturalLanguageAgentService:
             input_json={"instruction": request.instruction},
             handler=lambda: self._build_plan(db, request),
         )
+        run = db.query(AgentRun).filter(AgentRun.id == state["run_id"]).one()
+        memory_context = CareerMemoryService().compact_context(
+            db,
+            tenant_id=run.tenant_id,
+            user_id=run.user_id,
+            profile_id=request.profile_id,
+        )
+        provenance = ExecutionProvenanceService().build(
+            task_type="natural_language_request",
+            plan={
+                "steps": [
+                    {"tool": "llm.intent_planner"},
+                    {"tool": "NaturalLanguageAgentService"},
+                ]
+            },
+        )
+        plan["memory_context"] = {
+            "version": memory_context["version"],
+            "item_count": memory_context["item_count"],
+            "context_chars": memory_context["context_chars"],
+        }
+        plan["execution_provenance"] = provenance
         self.trace.add_artifact(db, run_id=state["run_id"], artifact_type="natural_language_plan", payload=plan)
+        self.trace.add_artifact(
+            db,
+            run_id=state["run_id"],
+            artifact_type="memory_context",
+            payload=memory_context,
+        )
+        self.trace.add_artifact(
+            db,
+            run_id=state["run_id"],
+            artifact_type="execution_provenance",
+            payload=provenance,
+        )
         contract = {
             "version": "careeragent-natural-task-contract-v1",
             "intent": plan.get("intent"),
@@ -278,7 +345,7 @@ class NaturalLanguageAgentService:
             artifact_type="task_contract",
             payload=contract,
         )
-        return {"plan": plan, "task_contract": contract}
+        return {"plan": plan, "task_contract": contract, "memory_context": memory_context}
 
     async def _node_execute_user_plan(self, state: NaturalLanguageGraphState) -> dict[str, Any]:
         request = NaturalLanguageAgentRequest(**state["request"])
@@ -295,7 +362,18 @@ class NaturalLanguageAgentService:
             )
             return {"result": result, "execution_error": None}
         except Exception as exc:  # noqa: BLE001
-            return {"execution_error": str(exc)}
+            envelope = self.trace.error_classifier.classify(
+                exc,
+                tool_name="NaturalLanguageAgentService",
+                step_name="execute_user_plan",
+            ).as_dict()
+            self.trace.add_artifact(
+                db,
+                run_id=state["run_id"],
+                artifact_type="error_envelope",
+                payload=envelope,
+            )
+            return {"execution_error": str(exc), "error_envelope": envelope}
 
     async def _node_repair_user_plan(self, state: NaturalLanguageGraphState) -> dict[str, Any]:
         request = NaturalLanguageAgentRequest(**state["request"])
@@ -318,7 +396,11 @@ class NaturalLanguageAgentService:
         )
         repair_attempts = [
             *(state.get("repair_attempts") or []),
-            {"error": str(error), "repaired_intent": repaired_plan.get("intent")},
+            {
+                "error": str(error),
+                "error_envelope": state.get("error_envelope") or {},
+                "repaired_intent": repaired_plan.get("intent"),
+            },
         ]
         self.trace.add_artifact(
             db,
@@ -326,7 +408,12 @@ class NaturalLanguageAgentService:
             artifact_type="natural_language_repaired_plan",
             payload=repaired_plan,
         )
-        return {"plan": repaired_plan, "repair_attempts": repair_attempts, "execution_error": None}
+        return {
+            "plan": repaired_plan,
+            "repair_attempts": repair_attempts,
+            "execution_error": None,
+            "error_envelope": {},
+        }
 
     async def _node_execute_repaired_user_plan(self, state: NaturalLanguageGraphState) -> dict[str, Any]:
         request = NaturalLanguageAgentRequest(**state["request"])
@@ -348,7 +435,22 @@ class NaturalLanguageAgentService:
             )
             return {"result": result, "execution_error": None}
         except Exception as exc:  # noqa: BLE001
-            return {"execution_error": str(exc), "result": {"error": str(exc)}}
+            envelope = self.trace.error_classifier.classify(
+                exc,
+                tool_name="NaturalLanguageAgentService",
+                step_name="execute_repaired_user_plan",
+            ).as_dict()
+            self.trace.add_artifact(
+                db,
+                run_id=state["run_id"],
+                artifact_type="error_envelope",
+                payload=envelope,
+            )
+            return {
+                "execution_error": str(exc),
+                "error_envelope": envelope,
+                "result": {"error": str(exc), "error_envelope": envelope},
+            }
 
     async def _node_verify_user_plan(self, state: NaturalLanguageGraphState) -> dict[str, Any]:
         return self._verify_natural_language_completion(state, repaired=False)
@@ -384,7 +486,16 @@ class NaturalLanguageAgentService:
         if report["passed"]:
             return {"completion_verification": report, "execution_error": None}
         error = f"任务未完成，缺少动作结果：{', '.join(report['missing_actions'])}"
-        return {"completion_verification": report, "execution_error": error}
+        envelope = self.trace.error_classifier.classify(
+            AgentTaskIncompleteError(error),
+            tool_name="completion_gate",
+            step_name="verify_repaired_user_plan" if repaired else "verify_user_plan",
+        ).as_dict()
+        return {
+            "completion_verification": report,
+            "execution_error": error,
+            "error_envelope": envelope,
+        }
 
     async def _node_finalize_success(self, state: NaturalLanguageGraphState) -> dict[str, Any]:
         plan = state.get("plan") or {}
@@ -409,12 +520,18 @@ class NaturalLanguageAgentService:
             "user_message": f"处理失败：{self._public_error_message(RuntimeError(error))}",
             "plan_json": state.get("plan") or {},
             "result_json": {"error": error},
+            "error_envelope": state.get("error_envelope") or {},
             "repair_attempts": state.get("repair_attempts") or [],
         }
         return {"output": payload}
 
     def _route_after_execute(self, state: NaturalLanguageGraphState) -> str:
-        return "repair_user_plan" if state.get("execution_error") else "verify_user_plan"
+        if not state.get("execution_error"):
+            return "verify_user_plan"
+        category = str((state.get("error_envelope") or {}).get("category") or "")
+        if category in {"input_or_state_validation", "completion_gate_rejected"}:
+            return "repair_user_plan"
+        return "finalize_failed"
 
     def _route_after_verification(self, state: NaturalLanguageGraphState) -> str:
         return "repair_user_plan" if state.get("execution_error") else "finalize_success"
@@ -467,6 +584,14 @@ class NaturalLanguageAgentService:
         return self.trace._json_safe(value)
 
     async def _build_plan(self, db: Session, request: NaturalLanguageAgentRequest) -> dict[str, Any]:
+        profile = self._resolve_profile(db, request.profile_id)
+        memory_scope = _NATURAL_MEMORY_SCOPE.get()
+        memory_context = CareerMemoryService().compact_context(
+            db,
+            tenant_id=memory_scope.get("tenant_id") or (profile.tenant_id if profile else None),
+            user_id=memory_scope.get("user_id"),
+            profile_id=request.profile_id,
+        )
         system_prompt = (
             "你是中文求职助手 Agent 的意图规划器。只返回 JSON。"
             "不要编造用户没有提供的经历；缺少必要 ID 时优先使用用户文本生成 profile 或 job。"
@@ -527,6 +652,7 @@ location={request.location}
 jd_text={request.jd_text or ""}
 selected_actions={request.selected_actions}
 profile_context={json.dumps(request.profile_context or {}, ensure_ascii=False)}
+typed_memory={json.dumps(memory_context, ensure_ascii=False)}
 
 用户需求:
 {request.instruction}
@@ -697,7 +823,7 @@ query={request.query}
             if result.get("matches"):
                 pass
             elif profile is not None:
-                run = await self.orchestrator.run(
+                run = await self._run_orchestrator(
                     db,
                     AgentRunRequest(
                         task_type="find_jobs_for_profile",
@@ -757,7 +883,7 @@ query={request.query}
                 location=request.location,
                 limit=request.limit,
             )
-            run = await self.orchestrator.run(
+            run = await self._run_orchestrator(
                 db,
                 run_request,
             )
@@ -782,7 +908,7 @@ query={request.query}
 
         if wants_tailor:
             if not (result.get("tailor") or {}).get("resume_version_id"):
-                tailor_run = await self.orchestrator.run(
+                tailor_run = await self._run_orchestrator(
                     db,
                     AgentRunRequest(task_type="tailor_resume_for_job", profile_id=profile.id, job_id=job.id),
                 )
@@ -796,7 +922,7 @@ query={request.query}
                 result["agent_runs"].append(self._run_payload(tailor_run))
         if wants_interview:
             if not (result.get("interview_prep") or {}).get("interview_prep_id"):
-                interview_run = await self.orchestrator.run(
+                interview_run = await self._run_orchestrator(
                     db,
                     AgentRunRequest(task_type="prepare_interview_for_job", profile_id=profile.id, job_id=job.id),
                 )
@@ -810,7 +936,7 @@ query={request.query}
                 result["agent_runs"].append(self._run_payload(interview_run))
         if intent == "quick_apply" or "quick_apply" in selected_actions:
             if not (result.get("application") or {}).get("application_id") and not result.get("requires_confirmation"):
-                apply_run = await self.orchestrator.run(
+                apply_run = await self._run_orchestrator(
                     db,
                     AgentRunRequest(
                         task_type="quick_apply",
@@ -827,6 +953,16 @@ query={request.query}
                 self._assert_run_completed(apply_run, "投递包")
                 result["application"] = apply_run.output_json
         return result
+
+    async def _run_orchestrator(self, db: Session, request: AgentRunRequest):
+        scope = _NATURAL_MEMORY_SCOPE.get()
+        parameters = inspect.signature(self.orchestrator.run).parameters
+        kwargs: dict[str, Any] = {}
+        if "tenant_id" in parameters:
+            kwargs["tenant_id"] = scope.get("tenant_id")
+        if "user_id" in parameters:
+            kwargs["user_id"] = scope.get("user_id")
+        return await self.orchestrator.run(db, request, **kwargs)
 
     def _completed_result_summary(self, result: dict[str, Any]) -> dict[str, Any]:
         return {

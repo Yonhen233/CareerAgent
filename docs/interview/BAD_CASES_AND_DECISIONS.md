@@ -10,6 +10,56 @@
 
 以下案例都来自项目真实开发过程，历史实现已经被替换的地方会明确说明。
 
+## 案例零：已经有 Tool Policy，为什么仍不算成熟 Agent
+
+### 现象与影响
+
+CareerAgent 的 Tool Registry 已经写了 risk、timeout、retry、idempotency 和 approval。面试时看起来很完整，但审计 `TraceService.step` 后发现实际执行只是 `await handler()`。也就是说，超时 30 秒和最大重试 2 次只是字典里的说明，运行时不会自动发生。
+
+### 根因
+
+最初把 Tool Registry 同时当作“能力目录”和“执行策略”，但缺少一个统一 Runtime 去读取策略。各业务 Service 自己处理部分重试，worker 又有自己的重试，结果是规则没有唯一执行点。
+
+### 最终方案
+
+- 新增 `AgentToolRuntime`，所有 Trace step 都经过合同预检、timeout、输出校验和熔断；
+- 未注册 Tool 在严格模式直接失败；
+- 用 `retry_owner` 明确 Runtime、LLM Client、Handler 或 Orchestrator 谁负责重试；
+- 用 `ErrorEnvelope` 让 LangGraph 和 Redis worker 基于类别路由，不再解析错误字符串；
+- 外发动作即使是瞬时错误也不自动重试，因为“故障可重试”和“业务副作用可安全重放”是两回事。
+
+### 开发中的真实反例
+
+第一次故障测试又暴露了 SQLAlchemy 默认值问题：新建 `ToolCircuitState` 时 `consecutive_failures` 仍是 `None`，`default=0` 只在 INSERT 阶段生效。修复为 Python 构造时显式赋 0，并把它固化成断连回归。如果只测 Tool 成功路径，这个熔断器会在真正故障时先把自己打崩。
+
+### 面试表达
+
+> 我后来意识到 Tool Schema 和 Tool Runtime 是两层。Schema 解决模型“知道有哪些工具”，Runtime 才解决工具是否按超时、幂等、审批和重试策略真实执行。我把所有调用收敛到统一 Runtime，并通过故障注入验证，而不是只展示一份看起来很企业级的元数据。
+
+## 案例零点五：为什么不能所有失败都交给 LLM 反思修复
+
+### 现象与影响
+
+自然语言图原来只要执行报错就进入一次 LLM repair。缺少 Job 时这样做有用，但 API Key 未配置、Token 预算耗尽、依赖熔断和代码 KeyError 同样会调用 repair。它们不可能通过改计划解决，还会继续花钱。
+
+### 方案取舍
+
+没有再增加一个“错误分析 SubAgent”，因为错误类型大部分能由异常和运行上下文确定。系统先确定性生成 `ErrorEnvelope`：
+
+- 缺输入/状态、Completion Gate 缺项：允许一次 replan；
+- 网络瞬时失败：由唯一 Tool/Client 层有限重试；
+- 配置、预算、circuit open：直接失败并告诉运维如何处理；
+- 证据不足：阻止生成，要求补证据；
+- 代码不变量错误：进入质量复核，修代码而不是让 LLM 猜。
+
+Redis worker 也读取同一 envelope。不可重试 poison message 第一次就进 DLQ，不再无意义排队三轮。
+
+### 面试表达
+
+> ReAct repair 不是通用异常处理。成熟 Agent 的恢复应该先判断失败是否可由重新规划解决。我把错误分成稳定类别，只让业务可修复错误进入一次 LLM repair，基础设施和代码错误直接停止。这既降低 Token，也让 Trace 更容易定位根因。
+
+完整错误矩阵见 [成熟 Agent 运行治理](../AGENT_RUNTIME_RELIABILITY.md)。
+
 ## 案例一：调用越多不等于更 Agentic，面试包一次用了 59 次 LLM
 
 ### 现象与影响

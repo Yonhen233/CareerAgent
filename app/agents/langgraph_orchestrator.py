@@ -26,9 +26,11 @@ from app.services.agent_reliability import (
     format_completion_failure,
 )
 from app.services.application_service import ApplicationService
+from app.services.execution_provenance import ExecutionProvenanceService
 from app.services.interview_prep import InterviewPrepService
 from app.services.job_search import JobSearchService
 from app.services.matcher import MatcherService
+from app.services.memory_feedback import CareerMemoryService
 from app.services.resume_tailor import ResumeTailorService
 from app.services.run_control import RunControlService
 from app.services.trace_service import TraceService
@@ -49,6 +51,7 @@ class CareerAgentGraphState(TypedDict, total=False):
     task_type: TaskType
     execution_plan: dict[str, Any]
     task_contract: dict[str, Any]
+    memory_context: dict[str, Any]
     goal_ledger: list[dict[str, Any]]
     completion_verification: dict[str, Any]
     profile_id: int | None
@@ -108,7 +111,14 @@ class LangGraphAgentOrchestrator:
         self.checkpointer = None
         self._graph = None
 
-    async def run(self, db: Session, request: AgentRunRequest):
+    async def run(
+        self,
+        db: Session,
+        request: AgentRunRequest,
+        *,
+        tenant_id: str | None = None,
+        user_id: str | None = None,
+    ):
         started = time.perf_counter()
         graph_thread_id = f"agent-run-{uuid4().hex}"
         run = self.trace.create_run(
@@ -116,6 +126,8 @@ class LangGraphAgentOrchestrator:
             task_type=request.task_type,
             profile_id=request.profile_id,
             job_id=request.job_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
             input_json={
                 **request.model_dump(),
                 "orchestration_framework": "langgraph",
@@ -124,13 +136,22 @@ class LangGraphAgentOrchestrator:
         )
         return await self._execute_run(db, run, request, graph_thread_id, started)
 
-    def queue_run(self, db: Session, request: AgentRunRequest) -> AgentRun:
+    def queue_run(
+        self,
+        db: Session,
+        request: AgentRunRequest,
+        *,
+        tenant_id: str | None = None,
+        user_id: str | None = None,
+    ) -> AgentRun:
         graph_thread_id = f"agent-run-{uuid4().hex}"
         return self.trace.create_run(
             db,
             task_type=request.task_type,
             profile_id=request.profile_id,
             job_id=request.job_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
             status="queued",
             input_json={
                 **request.model_dump(),
@@ -288,6 +309,7 @@ class LangGraphAgentOrchestrator:
                     "execution_plan": self._runtime_plans.get(run.id) or {},
                 },
                 error_message=str(exc),
+                error_exception=exc,
                 started_at=started,
             )
         except GraphInterrupt as exc:
@@ -318,6 +340,7 @@ class LangGraphAgentOrchestrator:
                     "execution_plan": self._runtime_plans.get(run.id) or {},
                 },
                 error_message=str(exc),
+                error_exception=exc,
                 started_at=started,
             )
         finally:
@@ -405,6 +428,7 @@ class LangGraphAgentOrchestrator:
                     "execution_plan": self._runtime_plans.get(run.id) or {},
                 },
                 error_message=str(exc),
+                error_exception=exc,
                 started_at=started,
             )
         except GraphInterrupt as exc:
@@ -435,6 +459,7 @@ class LangGraphAgentOrchestrator:
                     "execution_plan": self._runtime_plans.get(run.id) or {},
                 },
                 error_message=str(exc),
+                error_exception=exc,
                 started_at=started,
             )
         finally:
@@ -822,11 +847,16 @@ class LangGraphAgentOrchestrator:
                 state["checkpoint_id"] = (snapshot.config or {}).get("configurable", {}).get("checkpoint_id")
             return state
         except Exception as exc:
+            envelope = self.trace.error_classifier.classify(exc, step_name="LangGraph").as_dict()
             self.trace.add_event(
                 db,
                 run_id=run_id,
                 event_type="graph_failed",
-                payload={"error": str(exc), "error_type": exc.__class__.__name__},
+                payload={
+                    "error": envelope["message"],
+                    "error_type": exc.__class__.__name__,
+                    "error_envelope": envelope,
+                },
             )
             raise
 
@@ -1009,8 +1039,34 @@ class LangGraphAgentOrchestrator:
                 }
             ),
         )
+        run = db.query(AgentRun).filter(AgentRun.id == state["run_id"]).one()
+        memory_context = CareerMemoryService().compact_context(
+            db,
+            tenant_id=run.tenant_id,
+            user_id=run.user_id,
+            profile_id=state.get("profile_id"),
+        )
+        provenance = ExecutionProvenanceService().build(task_type=request.task_type, plan=plan)
+        plan["memory_context"] = {
+            "version": memory_context["version"],
+            "item_count": memory_context["item_count"],
+            "context_chars": memory_context["context_chars"],
+        }
+        plan["execution_provenance"] = provenance
         self._runtime_plans[state["run_id"]] = plan
         self.trace.add_artifact(db, run_id=state["run_id"], artifact_type="execution_plan", payload=plan)
+        self.trace.add_artifact(
+            db,
+            run_id=state["run_id"],
+            artifact_type="memory_context",
+            payload=memory_context,
+        )
+        self.trace.add_artifact(
+            db,
+            run_id=state["run_id"],
+            artifact_type="execution_provenance",
+            payload=provenance,
+        )
         task_contract = self.task_contracts.build_contract(request.task_type, request.model_dump())
         self.trace.add_artifact(
             db,
@@ -1018,7 +1074,11 @@ class LangGraphAgentOrchestrator:
             artifact_type="task_contract",
             payload=task_contract,
         )
-        return {"execution_plan": plan, "task_contract": task_contract}
+        return {
+            "execution_plan": plan,
+            "task_contract": task_contract,
+            "memory_context": memory_context,
+        }
 
     async def _node_load_profile(self, state: CareerAgentGraphState) -> dict[str, Any]:
         db = self._db_from_state(state)

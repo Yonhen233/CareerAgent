@@ -249,6 +249,24 @@ def test_redis_worker_treats_socket_timeout_as_empty_poll():
     assert result is None
 
 
+def test_redis_worker_dead_letters_non_retryable_poison_message_immediately():
+    fake = FakeRedis()
+    settings = get_settings()
+    runner = RedisTaskRunner(redis_client=fake, settings=settings)
+
+    action = runner.requeue_or_dead_letter(
+        {"kind": "agent_run", "run_id": 404, "attempts": 0},
+        error="input validation failed",
+        worker_id="worker-test",
+        error_envelope={"category": "input_or_state_validation", "retryable": False},
+    )
+
+    assert action == "dead_lettered"
+    assert fake.llen(settings.redis_dead_letter_queue_name) == 1
+    assert fake.llen(settings.redis_queue_name) == 0
+    assert runner.queue_status()["dead_letter_preview"][0]["terminal_reason"] == "non_retryable_error"
+
+
 def test_dead_letter_replay_and_discard_write_audit_events(db_session):
     fake = FakeRedis()
     settings = get_settings()

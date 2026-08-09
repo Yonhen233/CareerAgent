@@ -71,8 +71,8 @@ def test_trace_budget_rejects_third_identical_tool_call(db_session):
             db_session,
             run_id=run.id,
             step_name="first",
-            tool_name="demo.tool",
-            input_json={"query": "same"},
+            tool_name="LangGraph.AgentPlanner",
+            input_json={"task_type": "same"},
             handler=invoke,
         )
     )
@@ -81,8 +81,8 @@ def test_trace_budget_rejects_third_identical_tool_call(db_session):
             db_session,
             run_id=run.id,
             step_name="second",
-            tool_name="demo.tool",
-            input_json={"query": "same"},
+            tool_name="LangGraph.AgentPlanner",
+            input_json={"task_type": "same"},
             handler=invoke,
         )
     )
@@ -92,8 +92,8 @@ def test_trace_budget_rejects_third_identical_tool_call(db_session):
                 db_session,
                 run_id=run.id,
                 step_name="third",
-                tool_name="demo.tool",
-                input_json={"query": "same"},
+                tool_name="LangGraph.AgentPlanner",
+                input_json={"task_type": "same"},
                 handler=invoke,
             )
         )

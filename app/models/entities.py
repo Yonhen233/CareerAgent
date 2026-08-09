@@ -347,6 +347,7 @@ class AgentRun(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     tenant_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    user_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     task_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     profile_id: Mapped[int | None] = mapped_column(ForeignKey("profiles.id"), nullable=True, index=True)
     job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.id"), nullable=True, index=True)
@@ -403,6 +404,76 @@ class AgentArtifact(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
     run: Mapped[AgentRun] = relationship(back_populates="artifacts")
+
+
+class ToolCircuitState(Base):
+    __tablename__ = "tool_circuit_states"
+    __table_args__ = (UniqueConstraint("tool_name", "scope_key", name="uq_tool_circuit_scope"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    tool_name: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    scope_key: Mapped[str] = mapped_column(String(128), nullable=False, default="global", index=True)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="closed", index=True)
+    consecutive_failures: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_error_category: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    opened_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    open_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+
+class AgentMemory(Base):
+    __tablename__ = "agent_memories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    user_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    profile_id: Mapped[int | None] = mapped_column(ForeignKey("profiles.id"), nullable=True, index=True)
+    memory_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    memory_key: Mapped[str] = mapped_column(String(160), nullable=False, index=True)
+    value_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    source_type: Mapped[str] = mapped_column(String(40), nullable=False, default="explicit_user", index=True)
+    source_run_id: Mapped[int | None] = mapped_column(ForeignKey("agent_runs.id"), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="active", index=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+
+class AgentFeedback(Base):
+    __tablename__ = "agent_feedback"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("agent_runs.id"), nullable=False, index=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    user_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    verdict: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reason_tags_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    correction_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+
+
+class AgentQualityReview(Base):
+    __tablename__ = "agent_quality_reviews"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    run_id: Mapped[int] = mapped_column(ForeignKey("agent_runs.id"), nullable=False, index=True)
+    feedback_id: Mapped[int | None] = mapped_column(ForeignKey("agent_feedback.id"), nullable=True, index=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    trigger_type: Mapped[str] = mapped_column(String(48), nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String(24), nullable=False, default="medium", index=True)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="open", index=True)
+    checks_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resolved_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class AgentApproval(Base):
