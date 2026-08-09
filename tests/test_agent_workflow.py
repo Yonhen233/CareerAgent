@@ -455,7 +455,7 @@ def test_full_career_flow_with_target_job_skips_job_search(db_session):
     assert "load_job" in step_names
 
 
-def test_queued_run_can_be_started_and_records_events(db_session, monkeypatch):
+def test_queued_run_with_empty_search_fails_completion_gate_and_records_events(db_session, monkeypatch):
     from pathlib import Path
     from uuid import uuid4
 
@@ -492,15 +492,16 @@ def test_queued_run_can_be_started_and_records_events(db_session, monkeypatch):
 
     completed = asyncio.run(AgentOrchestrator(job_search=EmptyJobSearch()).run_existing(db_session, queued.id))
 
-    assert completed.status == "completed"
-    assert completed.output_json["matches"] == []
+    assert completed.status == "failed"
+    assert "completion gate rejected" in completed.error_message.lower()
     event_types = [
         row.event_type
         for row in db_session.query(AgentEvent).filter(AgentEvent.run_id == completed.id).order_by(AgentEvent.id).all()
     ]
     assert "run_created" in event_types
     assert "run_started" in event_types
-    assert "graph_completed" in event_types
+    assert "completion_gate_rejected" in event_types
+    assert "graph_failed" in event_types
     assert "run_finished" in event_types
     get_settings.cache_clear()
     checkpoint_path.unlink(missing_ok=True)

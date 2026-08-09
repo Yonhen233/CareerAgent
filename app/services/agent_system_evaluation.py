@@ -171,6 +171,11 @@ class AgentSystemEvaluationReporter:
         steps = [step for trace in traces for step in (trace.get("steps") or [])]
         tool_steps = [step for step in steps if step.get("tool_name")]
         tool_names = Counter(str(step.get("tool_name")) for step in tool_steps)
+        trajectory_evaluations = [
+            trace.get("trajectory_evaluation") or {}
+            for trace in traces
+            if trace.get("trajectory_evaluation")
+        ]
         return {
             "trace_count": len(traces),
             "step_count": len(steps),
@@ -183,6 +188,24 @@ class AgentSystemEvaluationReporter:
             "failed_tool_call_count": sum(step.get("status") != "completed" for step in tool_steps),
             "tool_latency_ms": self._latency_summary(int(step.get("latency_ms") or 0) for step in tool_steps),
             "tool_call_breakdown": dict(sorted(tool_names.items())),
+            "trajectory_v2_pass_rate": self._ratio(
+                sum(item.get("passed") is True for item in trajectory_evaluations),
+                len(trajectory_evaluations),
+            ),
+            "trajectory_v2_failure_breakdown": {
+                key: sum(bool(item.get(key)) for item in trajectory_evaluations)
+                for key in (
+                    "missing_steps",
+                    "failed_steps",
+                    "unexpected_tools",
+                    "order_violations",
+                    "argument_violations",
+                    "duplicate_violations",
+                    "approval_violation",
+                    "policy_block_violation",
+                    "missing_completion_artifact",
+                )
+            },
         }
 
     def reliability_report(

@@ -211,7 +211,7 @@ def test_natural_language_agent_repairs_missing_job_plan(db_session, monkeypatch
             "reason": "缺少 job 会失败。",
         }
 
-    async def repaired_plan(db, request, plan, error):
+    async def repaired_plan(db, request, plan, error, *, completed_result=None):
         return {
             "intent": "create_profile",
             "query": "Agent 开发实习生",
@@ -263,7 +263,7 @@ def test_natural_language_agent_fails_empty_job_search_after_repair(db_session, 
             "reason": "用户要求按简历搜索岗位。",
         }
 
-    async def fake_repair(db, request, plan, error):
+    async def fake_repair(db, request, plan, error, *, completed_result=None):
         return await search_plan(db, request)
 
     async def fake_run(db, request):
@@ -289,6 +289,65 @@ def test_natural_language_agent_fails_empty_job_search_after_repair(db_session, 
     assert run.status == "failed"
     assert run.output_json["repair_attempts"]
     assert "岗位搜索没有返回可推荐岗位" in run.error_message
+
+
+def test_repair_execution_reuses_completed_search_and_only_runs_missing_action(db_session):
+    profile = Profile(
+        name="李明",
+        source_type="guided",
+        raw_resume_text="实现 CareerAgent。",
+        structured_profile_json={"skills": ["Python", "FastAPI"]},
+    )
+    job = Job(
+        source="manual",
+        external_id="repair-target-job",
+        title="Agent 开发实习生",
+        company="DemoAI",
+        raw_jd_text="负责 Agent、Python 和 FastAPI。",
+        structured_jd_json={"required_skills": ["Python", "FastAPI"]},
+    )
+    db_session.add_all([profile, job])
+    db_session.commit()
+    called_tasks = []
+
+    class MissingActionOrchestrator:
+        async def run(self, db, request):
+            called_tasks.append(request.task_type)
+            return SimpleNamespace(
+                id=1001,
+                task_type=request.task_type,
+                status="completed",
+                output_json={"resume_version_id": 88, "verification": {"passed": True}},
+                error_message=None,
+            )
+
+    service = NaturalLanguageAgentService(orchestrator=MissingActionOrchestrator())
+    result = asyncio.run(
+        service._execute_plan(
+            db_session,
+            NaturalLanguageAgentRequest(
+                instruction="保留搜索结果并补生成定制简历",
+                profile_id=profile.id,
+                job_id=job.id,
+            ),
+            {
+                "intent": "tailor_resume",
+                "query": "Agent 开发实习生",
+                "actions": ["search_jobs", "tailor_resume"],
+            },
+            prior_result={
+                "profile": {"id": profile.id, "name": profile.name},
+                "job": {"id": job.id, "title": job.title},
+                "matches": [{"job_id": job.id}],
+                "agent_runs": [{"id": 1000, "task_type": "find_jobs_for_profile"}],
+            },
+        )
+    )
+
+    assert called_tasks == ["tailor_resume_for_job"]
+    assert result["matches"] == [{"job_id": job.id}]
+    assert result["tailor"]["resume_version_id"] == 88
+    assert [item["id"] for item in result["agent_runs"]] == [1000, 1001]
 
 
 def test_natural_language_agent_browses_jobs_without_resume(db_session, monkeypatch):

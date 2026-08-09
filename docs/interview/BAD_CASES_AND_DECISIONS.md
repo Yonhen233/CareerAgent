@@ -259,6 +259,80 @@ LangGraph state 不是任意 dict。跨节点字段必须在 TypedDict/schema �
 
 可解释性不是把日志贴进最终产物，而是区分 artifact、diagnostics 和 audit。这个看似前端 bug，本质是领域边界 bug。
 
+## 案例十三：岗位一个都没搜到，Agent 仍然说“完成”
+
+### 现象
+
+旧 `find_jobs_for_profile` 会在岗位源返回空列表时正常执行 `finalize_find_jobs`，run 状态是 completed，只是 `matches=[]`。自然语言入口后来会再检查一次空结果，但直接调用主 Agent、后台任务和其他入口仍可能把空结果当成功。
+
+### 根因
+
+系统把“图走到了 END”误当成“业务目标完成”。LangGraph 保证控制流执行，不会自动理解“找岗位”至少需要一个可展示岗位；最终输出存在也不代表任务结果有效。
+
+### 修复
+
+每类任务建立 Task Contract 和 Goal Ledger。岗位搜索要求 `jobs_retrieved`、`jobs_ranked`、`result_exposed` 以及 `execution_plan/ranked_jobs` Artifact 全部满足。所有 finalize 节点必须经过 Completion Gate，空搜索会生成完整拒绝报告并将 run 标为 failed。
+
+### 验证与经验
+
+新增空岗位源回归，确认 `completion_gate_rejected` 和 `graph_failed` 都进入 Trace。经验是：Agent 是否完成必须看环境状态和交付物，不应相信模型文案，也不应只看图是否结束。
+
+## 案例十四：工具成功率 95% 看起来不错，却不能证明工具用对了
+
+### 现象
+
+旧系统评测统计 Tool 的 completed/failed 状态，但无法识别“先改简历后加载岗位”、把错误 `profile_id` 传给工具、定制任务调用邮件工具或同一参数反复执行。
+
+### 根因
+
+执行可用性、轨迹正确性和业务结果正确性被合并成一个指标。HTTP 200 或函数返回值只能证明工具运行，不证明选型、参数、顺序和结果都正确。
+
+### 修复
+
+Trajectory V2 使用任务级工具白名单、必要步骤、参数 invariant、偏序约束、重复签名、审批状态和 Completion Artifact 联合评分。完成闸门还检查各产物的 Profile/Job/Resume ID 一致，防止并发或恢复时混用其他流程产物。
+
+### 验证与经验
+
+构造错误参数、乱序和越权 `email.send` 的轨迹，旧指标会把步骤视为 completed，新评测同时报告 argument/order/unexpected-tool 三类失败。面试时应明确区分 tool availability、trajectory correctness 与 outcome correctness。
+
+## 案例十五：恢复成功后仍被判失败，历史分支又缺少前半段轨迹
+
+### 现象
+
+新增严格完成闸门后，全量测试出现两个恢复回归：Tailor 节点第一次崩溃、checkpoint 恢复后成功，但旧失败 step 仍让轨迹失败；从 `tailor_resume` 前 checkpoint 创建的新 run 有完整 LangGraph state，却没有新 run 的 `plan/load/match` 数据库记录，完成闸门认为它跳过了前置步骤。
+
+### 根因
+
+物理执行日志和逻辑任务轨迹不是同一概念。重试会留下多个 attempt，不能只要历史上出现 failed 就判整个任务失败；checkpoint fork 继承状态但不会自动复制业务数据库中的 AgentStep 和 Artifact。
+
+### 修复
+
+- 同一 step/tool/input 签名采用最后一次 attempt 作为当前状态，历史失败仍保留用于可靠性统计。
+- fork 时按 checkpoint 时间截点复制此前 Artifact，并保存 `checkpoint_inherited_trajectory`；分支的新步骤与继承前缀合并评测。
+- 不直接复制为“新 run 实际调用”，避免把继承步骤计入新的 Tool 成本和延迟。
+
+### 验证与经验
+
+崩溃恢复和 checkpoint 分支两项回归通过，最终全量 277 项通过。这个案例说明 checkpoint 只保存图状态；要得到可审计的任务恢复，还必须同时设计 attempt 语义、业务幂等和轨迹 lineage。
+
+## 案例十六：RAG 返回 TopK 不代表证据足够，错误结果会沿链路扩散
+
+### 现象
+
+原匹配器只要向量库返回 chunk，就把 TopK 交给简历定制。无关 chunk、很短的简历、Prompt Injection 清洗后的空文本，都可能以“有检索结果”的形式进入 LLM。中文查询还可能因为默认 CrossEncoder 偏英文而转为词法重排，但下游看不到能力降级。
+
+### 修复
+
+- 按完整 JD、必需技能、职责资格构造 multi-query；各查询混合召回后用 RRF 融合，只做一次 rerank。
+- 记录 query coverage、first-stage score、evidence count、chunk type、multi-query hit 和 degraded route。
+- 匹配与缺口分析允许低证据并降低结论强度；定制简历等生成动作必须通过 Evidence Gate。
+- Prompt Injection 清洗后再次检查可用证据；不足直接失败。
+- 质量报告写入 MatchResult 和 JobSearchSession，便于 Trace 和前端解释。
+
+### 当前边界
+
+confidence 是可解释分数，不是统计校准概率；默认中文 reranker 仍需和 BGE multilingual 在真实 hard-negative 集上对照。成熟做法不是把任意 TopK 都塞给 LLM，也不是无结果就无限改写查询，而是限次检索、明确证据边界并允许拒绝生成。
+
 ## 面试总结模板
 
 可以这样收束这些案例：

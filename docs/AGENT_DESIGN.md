@@ -110,6 +110,40 @@ Graph state 只保存 JSON 友好的 ID、状态和产物摘要，例如 `profil
 - `orchestration_framework=langgraph`
 - `graph_thread_id`
 
+## 任务契约、完成闸门与有界执行
+
+CareerAgent 不再把 `finalize_*` 节点或 LLM 的“已完成”文案当作任务成功。每次主图在 `plan_task` 后生成 `task_contract`，其中声明本任务必须完成的 Goal、Artifact、工具步骤和终态规则；所有 finalize 节点统一进入 `completion_gate`，只有该节点可以连接 `END`。
+
+运行时使用两组结构：
+
+- `TaskContract`：声明 `required_goals`、`required_artifacts`、合法终态和副作用幂等要求。
+- `GoalLedger`：逐项记录 `satisfied/pending`、状态证据和 Artifact 类型。
+
+完成闸门同时检查：
+
+1. 业务目标是否满足，例如岗位搜索必须有召回结果和排序结果，定制简历必须有版本且事实校验通过。
+2. 必要 Artifact 是否存在，例如 `ranked_jobs`、`tailored_resume`、`fit_gate`、`application_packet` 和 `interview_prep`。
+3. 工具轨迹是否满足必要步骤、允许工具、参数、先后依赖、重复调用和审批约束。
+4. 各层 ID 是否一致，防止岗位 A 的简历、岗位 B 的投递包被拼到同一个流程。
+5. 生成结果是否通过业务 Validator，而不是只检查字段非空。
+
+如果任一检查失败，系统写入 `completion_verification` 和 `completion_gate_rejected`，然后显式将 run 标为 failed。固定 DAG 已经走到终点后不会调用一个泛化 Critic 重新跑完整流程，因为那会增加 Token、隐藏确定性缺陷并可能重复副作用。自然语言图允许一次有明确错误原因的 plan repair，第二次仍不完整则失败。
+
+执行器还有两层预算：单 run 最多 48 个 Tool Step，同一 Tool 与同一参数最多执行两次。第三次相同调用会写入 `execution_budget_rejected`，用于阻断无进展循环。节点崩溃后同签名重试成功时，轨迹以最后一次 attempt 为当前结果，同时保留第一次失败记录。
+
+## RAG 证据质量控制
+
+简历经历检索采用按 JD 语义字段拆分的 multi-query：完整 JD 查询、标题与必需技能查询、职责与资格查询。每个查询先做向量与词法混合召回，再用 RRF 融合候选，最后只做一次统一 rerank，避免每个查询重复执行 CrossEncoder。
+
+`RetrievalQualityService` 将“有返回结果”和“证据足够支持生成”分开，记录 evidence count、query coverage、first-stage score、chunk type coverage、multi-query hit、reranker 降级路径和 confidence。策略边界是：
+
+- 低置信度证据仍可用于判定弱匹配或能力缺口。
+- 定制简历等 evidence-dependent generation 必须通过证据门禁。
+- Prompt Injection 清洗后会重新检查可用证据数量，清洗导致证据不足时直接失败。
+- 岗位发现会把检索质量写入 `job_search_sessions.retrieval_quality_json`；低于门槛返回 422，不向用户展示一批不可靠结果。
+
+当前 confidence 是可解释的规则合成分数，还不是统计校准概率。中文查询遇到偏英文 CrossEncoder 时会记录 degraded route；后续需要用真实中文 hard-negative 集对 BGE multilingual reranker 和阈值做校准，不能把该分数表述成“80% 正确率”。
+
 ## ReAct
 
 最适合引入 ReAct 的环节是简历定制：

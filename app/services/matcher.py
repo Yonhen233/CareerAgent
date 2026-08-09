@@ -9,6 +9,7 @@ from app.models.entities import Job, MatchResult, Profile
 from app.services.embedding_service import EmbeddingService, cosine_similarity, tokenize
 from app.services.evidence_classifier import EvidenceClassifier
 from app.services.vector_index import SQLiteVectorIndex
+from app.services.retrieval_quality import RetrievalQualityService
 
 
 NEGATIVE_EVIDENCE_CUES = [
@@ -106,6 +107,7 @@ class MatcherService:
         self.vector_index = SQLiteVectorIndex()
         self.embedding_service = EmbeddingService()
         self.evidence_classifier = EvidenceClassifier()
+        self.retrieval_quality = RetrievalQualityService()
 
     def build_match_payload(self, db: Session, profile: Profile, job: Job) -> dict[str, Any]:
         profile_data = profile.structured_profile_json or {}
@@ -127,7 +129,7 @@ class MatcherService:
         required_score = len(matched) / max(len(all_required), 1)
 
         semantic_score = self._semantic_similarity(resume_text, job.raw_jd_text)
-        evidence = self.retrieve_evidence(db, profile.id, job, top_k=8)
+        evidence, retrieval_quality = self.retrieve_evidence_with_quality(db, profile.id, job, top_k=8)
         project_score = self._project_relevance(evidence)
         internship_score = self._internship_fit(profile, job)
         preference_score = self._preference_coverage(preferred, resume_tokens, resume_text)
@@ -156,6 +158,7 @@ class MatcherService:
             "matched_skills": matched,
             "missing_skills": missing,
             "relevant_evidence": evidence,
+            "retrieval_quality": retrieval_quality,
             "suggestions": self._suggestions(missing, dimension_scores),
         }
 
@@ -180,6 +183,7 @@ class MatcherService:
             matched_skills_json=payload["matched_skills"],
             missing_skills_json=payload["missing_skills"],
             relevant_evidence_json=payload["relevant_evidence"],
+            retrieval_quality_json=payload["retrieval_quality"],
             suggestions_json=payload["suggestions"],
             idempotency_key=idempotency_key,
         )
@@ -198,6 +202,16 @@ class MatcherService:
             return existing
 
     def retrieve_evidence(self, db: Session, profile_id: int, job: Job, top_k: int = 8) -> list[dict[str, Any]]:
+        evidence, _ = self.retrieve_evidence_with_quality(db, profile_id, job, top_k=top_k)
+        return evidence
+
+    def retrieve_evidence_with_quality(
+        self,
+        db: Session,
+        profile_id: int,
+        job: Job,
+        top_k: int = 8,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         job_data = job.structured_jd_json or {}
         query_parts = [
             job.title,
@@ -207,10 +221,40 @@ class MatcherService:
             job.raw_jd_text[:900],
         ]
         query = "\n".join(part for part in query_parts if part)
-        return [
+        focused_requirements = " ".join(
+            [
+                str(job.title or ""),
+                *[str(item) for item in job_data.get("required_skills", []) or []],
+                *[str(item) for item in job_data.get("keywords", []) or []],
+            ]
+        ).strip()
+        responsibility_query = " ".join(
+            [
+                *[str(item) for item in (job_data.get("responsibilities") or [])[:5]],
+                *[str(item) for item in (job_data.get("qualifications") or [])[:5]],
+            ]
+        ).strip()
+        chunks = self.vector_index.query_profile_chunks_multi(
+            db,
+            profile_id,
+            [query, focused_requirements, responsibility_query],
+            top_k=top_k,
+        )
+        evidence = [
             self.evidence_classifier.classify_dict(chunk.as_dict())
-            for chunk in self.vector_index.query_profile_chunks(db, profile_id, query, top_k=top_k)
+            for chunk in chunks
         ]
+        quality = self.retrieval_quality.assess(
+            query,
+            chunks,
+            expected_chunk_types={"project", "experience", "skill"},
+        )
+        quality["query_strategy"] = {
+            "name": "semantic_field_multi_query_rrf",
+            "query_count": len([item for item in [query, focused_requirements, responsibility_query] if item]),
+            "single_rerank_after_fusion": True,
+        }
+        return evidence, quality
 
     def _semantic_similarity(self, resume_text: str, jd_text: str) -> float:
         embeddings = self.embedding_service.embed_texts([resume_text, jd_text])

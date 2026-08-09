@@ -84,6 +84,8 @@ class Settings(BaseSettings):
     agent_run_stale_after_minutes: int = 30
     agent_run_max_recovery_attempts: int = 3
     agent_active_run_limit_per_profile: int = 3
+    agent_max_tool_steps: int = Field(default=48, ge=4, le=200)
+    agent_max_identical_tool_calls: int = Field(default=2, ge=1, le=10)
     rbac_enabled: bool = False
     rbac_trusted_header_auth: bool = True
     rbac_default_tenant_id: str = "default"
@@ -130,6 +132,11 @@ class Settings(BaseSettings):
     reranker_promotion_gap: float = 0.02
     reranker_anchor_top_n: int = 5
     reranker_provider_fallback: str = "error"
+    rag_multi_query_enabled: bool = True
+    rag_multi_query_rrf_k: int = Field(default=60, ge=1, le=200)
+    rag_min_evidence_chunks: int = Field(default=1, ge=1, le=20)
+    rag_min_query_coverage: float = Field(default=0.08, ge=0.0, le=1.0)
+    rag_min_first_stage_score: float = Field(default=0.08, ge=-1.0, le=1.0)
     job_ingest_concurrency: int = 6
 
     job_search_timeout_seconds: float = 18.0

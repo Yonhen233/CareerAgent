@@ -1,5 +1,93 @@
 # 开发日志
 
+## 2026-08-09 21:17:11 +08:00：建立成熟 Agent 的任务完成、轨迹正确性与 RAG 证据质量闭环
+
+### 本轮目标
+- 回答并落实“Agent 是否真的完成任务才停止”，不能再把 LangGraph 到达 `END`、LLM 自称完成或工具没有报错当成业务成功。
+- 为工具调用增加可执行的正确性约束：工具是否该调用、参数是否正确、先后顺序是否合理、是否越权、是否重复、外发前是否审批。
+- 为 RAG 增加错误结果处理：区分“返回了 TopK”和“证据足以支持下游生成”，证据不足时允许弱匹配判断但阻止简历定制等事实敏感生成。
+- 覆盖成熟 Agent 常见的早停、跑偏、无进展循环、跨产物串线、重试假失败、checkpoint 分支缺审计前缀和 Prompt Injection 清洗后证据不足。
+- 全程不调用 DeepSeek。先用代码测试和独立 SQLite 确定性评测证明控制面正确，避免为代码问题消耗余额。
+
+### 开发前发现的评测盲区
+1. **旧 `trace_passed` 只证明 planner 跑过。** Agent 全流程评测中的 Trace 通过条件只是每个 run 有 completed `plan_task`，Artifact 通过条件也只要求存在 `execution_plan`。模型漏做后续动作、工具参数错或不该调用的工具执行成功，都可能被判为通过。
+2. **工具成功率不是工具正确率。** `tool_success_rate=95.45%` 统计函数返回状态，不能回答 Tool Selection、Argument、Ordering、Redundancy、Side Effect 和 Outcome 是否正确。
+3. **主图存在假完成路径。** `find_jobs_for_profile` 即使岗位源返回空数组，也会执行 finalize 并以 completed 结束。自然语言入口有二次空结果检查，但主图、后台任务和 API 直接调用没有统一约束。
+4. **自然语言计划仍可能静默漏动作。** 之前修过 `create_profile + search_jobs` 的提前 return，但完成判定仍散落在执行分支中；新增动作后容易再次出现 plan 列出了动作、result 却没有对应产物的问题。
+5. **RAG 把“有结果”当“有证据”。** Matcher 直接使用 TopK Profile chunk，没有记录 query coverage、候选分数、语义类型覆盖和 provider 降级。无关结果仍可进入 ResumeTailor。
+6. **多查询和二阶段排序的边界不清。** 原实现通常用一个很长的 `title + skills + responsibilities + raw_jd` 查询简历，容易让不同意图互相稀释；如果每个子查询都独立 CrossEncoder，又会重复消耗计算。
+7. **中文 reranker 存在已知降级。** 默认 `ms-marco-MiniLM-L-6-v2` 偏英文，中文 query 会进入 CJK lexical route。旧结果 metadata 有 fallback reason，但下游没有把它纳入证据质量报告。
+8. **没有统一的无进展循环预算。** 固定主图本身是 DAG，但 Trace 层没有阻止 repair/recovery 或未来自由规划器以相同参数反复调用 Tool。
+
+### 实现：Task Contract、Goal Ledger 与 Completion Gate
+- 新增 `app/services/agent_reliability.py`，为五类主任务声明 `TaskPolicy`：必要 Goal、Artifact、Step、偏序约束和允许 Tool。
+- `plan_task` 生成 `task_contract` Artifact。它是系统执行契约，不是交给 LLM 自由改写的计划文案。
+- 所有 `finalize_find_jobs/finalize_tailor/finalize_quick_apply/finalize_interview/finalize_full_flow` 不再直接连接 `END`，统一进入 `completion_gate`。
+- Completion Gate 生成 Goal Ledger，并检查：业务目标、必要 Artifact、Trajectory V2、审批、Validator、Profile/Job/Resume/Application/Interview ID 一致性。
+- 只有 Completion Gate 可以返回 completed。失败会同时写入 `completion_verification` Artifact、`completion_gate_rejected` Event 和明确错误，不把部分结果包装成成功。
+- 对固定 DAG 的终点缺失不启用泛化 Critic 无限重跑。原因是确定性步骤缺失通常是产品代码错误，重新调用 LLM 会隐藏缺陷、增加 Token，并可能重复外部副作用。
+- 自然语言 LangGraph 增加 `verify_user_plan` 和 `verify_repaired_user_plan`。第一次结果缺动作时携带 `missing_actions` 进入一次 plan repair，第二次仍缺失则失败；等待岗位选择或投递确认是合法 `waiting_for_confirmation`，不按早停处理。
+- plan repair 使用首轮 `prior_result` 作为已完成账本。已存在的 Profile、Job、搜索结果、定制简历、面试包或投递确认不会重复执行，只补缺失动作；修复 Prompt 也只暴露已完成结果摘要，不重新发送完整产物。
+
+### 实现：工具轨迹与运行预算
+- `careeragent-trajectory-eval-v2` 检查 required step、task-specific allowed tool、工具参数、步骤偏序、重复签名、投递审批和 Completion Artifact。
+- 不使用唯一的严格路径字符串。岗位搜索可以有多个 `match_job_*`，quick apply 可以复用已有简历或补建简历；评测使用 required/superset、allowed/subset 和 precedence constraint 组合描述合法轨迹。
+- 投递 Tool 如果没有 approved `application_packet` Action，轨迹直接失败。Fit Gate 正确阻断采用独立合法轨迹：必须执行到 `fit_gate`，且 application Tool 不能出现。
+- `TraceService.step` 在真正调用 Tool 前检查 `AGENT_MAX_TOOL_STEPS=48` 和 `AGENT_MAX_IDENTICAL_TOOL_CALLS=2`。第三次相同 Tool/参数写入 `execution_budget_rejected` 并抛错。
+- Evaluation trace 现在保存每步 input/output，并在系统汇总中报告 `trajectory_v2_pass_rate` 及 missing step、argument、order、duplicate、approval 等失败分桶。
+
+### 实现：RAG Multi-query、RRF 与 Evidence Gate
+- Profile 证据检索拆为三类 query：完整岗位语义、标题与必需技能、职责与资格条件。
+- 每类 query 使用 SQLite chunk 上的向量/词法混合一阶段召回；候选使用 RRF 融合，然后只对融合后的 Top20 执行一次 rerank，策略标记为 `semantic_field_multi_query_rrf`。
+- 新增 `RetrievalQualityService`，记录 evidence count、query token coverage、first-stage/final score、chunk types、multi-query hits、reranker degraded routes 和可解释 confidence。
+- 低证据并不自动代表候选人不匹配，也不触发无限 query rewrite。Matcher 仍可据此给出弱匹配/缺口；ResumeTailor 等 evidence-dependent generation 必须通过门禁，否则抛出 `RetrievalQualityError`。
+- Prompt Injection 清洗后再次计算可用证据数量。恶意行被移除后证据不足会直接停止生成，避免“清洗前通过、清洗后拿空文本继续写”。
+- `match_results` 和 `job_search_sessions` 新增 `retrieval_quality_json`，SQLite 启动迁移负责旧库加列；岗位发现低质量时保存报告并返回 422，而不是用 500 或展示无关岗位。
+- 当前 confidence 是规则合成分数，不是校准概率。`degraded_routes` 只做显式披露，没有因为默认中文 reranker 降级就悄悄使用另一套生成逻辑。
+
+### 开发中暴露的新 Bad Case 与修复
+1. **空岗位搜索从 completed 改为 failed 后，一个旧测试失败。** 旧测试名是“queued run 可启动”，却使用 EmptyJobSearch 并断言 completed。它实际固化了错误业务语义。本轮没有放宽 Completion Gate，而是把测试改为验证 empty search 必须显式失败并产生拒绝 Trace。
+2. **恢复后成功仍被旧失败 attempt 污染。** Tailor 第一次模拟 worker crash，checkpoint resume 后第二次成功。Trajectory V2 最初看到历史 failed step 就拒绝整个 run。修复为同一 `step/tool/input` 签名以最后一次 attempt 决定当前状态，同时历史失败仍保留在 AgentStep 和可靠性统计中。
+3. **Checkpoint fork 只有图状态，没有数据库轨迹前缀。** 从 `tailor_resume` 前 checkpoint 建立新 run 后，state 已包含 plan/profile/job/match，但新 run 没有对应 AgentStep/Artifact，严格门禁判定跳步。修复为按 checkpoint 时间截点复制此前 Artifact，并写 `checkpoint_inherited_trajectory` 保存逻辑前缀；新分支步骤与继承前缀联合评测。
+4. **不能把继承步骤伪装成新 run 的真实调用。** 如果直接复制 AgentStep，会使新分支 Tool Call 数、成本和延迟虚高。最终只在 lineage Artifact 保存继承步骤，Trajectory Evaluator 合并读取，实际 AgentStep 仍只记录新执行。
+5. **合法 Fit Gate 阻断不能要求 Completion Artifact。** 低匹配 quick apply 在 fit gate 抛错，本来就不会经过 Completion Gate。Trajectory V2 增加 expected policy block 语义：接受 fit_gate 自身 failed，但要求之前步骤完整、之后 application Tool 不得执行。
+6. **RAG 最少两条证据会误伤极短但有效的简历。** 第一版门槛设为两条。复盘后改为至少一条且必须同时有 query coverage 或 first-stage relevance 信号，避免把“文档短”误判为“证据错误”。
+7. **跨岗位产物串线不能靠字段非空发现。** Completion Gate 增加 ID integrity，岗位、定制简历、投递包和面试包的 profile/job/resume ID 必须一致，历史分支的 selected job 还必须来自当前 ranked jobs。
+8. **完成校验触发 repair 后会重跑已成功动作。** 第一版 Natural Language Completion Gate 能发现 silent early-stop，却把 repaired plan 从头执行，可能重复搜索和生成产物。最终将首轮 result 传入第二次执行，并按 Artifact ID 跳过已满足动作；新增测试确认“搜索已完成、只缺定制简历”时只调用 `tailor_resume_for_job`。
+9. **新增测试时断言被插入到错误函数。** plan repair 测试第一次运行出现 `NameError: run is not defined`，不是产品代码失败，而是补丁把上一条空搜索测试的最后一条断言移动到了新测试末尾。将断言放回原 case 后，专项 24 项通过。该事件保留在日志中，避免把测试实现错误误报为 Agent Bad Case。
+
+### 新增与调整的测试
+- 新增错误参数、步骤乱序和越权 `email.send` 的 Trajectory V2 Bad Case；旧 completed 状态会通过，当前同时报告 argument/order/unexpected-tool 失败。
+- 新增相同 Tool/参数第三次调用测试，确认执行前被预算拒绝。
+- 新增 supported evidence 与 irrelevant noise 的 Evidence Gate 对照。
+- 新增自然语言多动作 silent early-stop 测试，`search_jobs` 有结果但 `tailor_resume/interview_prep` 缺失时必须进入 repair。
+- 新增跨岗位 Artifact ID 混用测试。
+- 保留并强化崩溃恢复、checkpoint rewind、审批与 Fit Gate 阻断回归。
+
+### 验证结果
+- 首轮专项测试：`39 passed`。
+- 首轮全量测试：`272 passed, 2 failed`。两项失败均来自新门禁发现的恢复语义缺口，不是随机测试波动。
+- 修复 attempt 与 lineage 后，两个恢复定向测试 `2 passed`。
+- attempt/lineage 修复后的中间全量测试：`274 passed in 111.74s`。
+- 增加自然语言 silent early-stop 与跨岗位 Artifact 串线回归后，全量测试：`276 passed in 122.09s`。
+- 增加 plan repair 只补缺失动作的回归后，最终测试结果见本节末尾的最终一致性检查。
+- 最终一致性检查：`277 passed in 147.85s`；`compileall`、`git diff --check`、文档契约测试和密钥扫描通过。
+- 使用独立 `data/runtime/reliability_eval_20260809.sqlite`、空 API Key、`LLM_FALLBACK_ENABLED=true`、hash embedding、关闭 reranker 跑 6-case Agent full-flow：pass/top1/score/trajectory/artifact/langgraph/application packet 均为 `1.0`，3 个低匹配 case 全部按预期被 Fit Gate 阻断。
+- 本轮没有调用外部 LLM，没有新增 DeepSeek Token 消耗。独立评测只证明控制面和确定性工作流，不能替代真实模型质量认证。
+
+### 文档同步
+- `AGENT_DESIGN.md` 新增 Task Contract、Goal Ledger、Completion Gate、有界执行和 RAG Evidence Gate。
+- `ARCHITECTURE.md` 新增 Agent 可靠性控制面及 checkpoint lineage 说明。
+- `EVALUATION.md` 新增 Trajectory V2 指标定义、合法 policy block 和 2026-08-09 确定性结果。
+- `docs/interview/BAD_CASES_AND_DECISIONS.md` 新增假完成、工具成功率误导、恢复轨迹语义和 RAG 错误扩散四个可直接面试讲述的案例。
+
+### 尚未解决与下一步
+1. 2026-07-22 的整轮真实 Agent Release Gate 历史结果仍为失败。本轮没有重跑 24-case 真实 LLM workflow，因此不能宣称整个产品已经通过生产发布认证。
+2. Retrieval confidence 尚未用人工标注的中文真实岗位/简历对做概率校准。下一步应构建 hard-negative、短简历、同名技术、过期 JD 和对抗文本集，比较 BGE multilingual reranker 与当前 CJK lexical route。
+3. Trajectory V2 目前覆盖注册主任务和自然语言动作结果。未来接入 browser_apply/email_send 的正式业务主图时，需要为每种外部工具增加 outcome probe，例如网页确认号、邮件 Message-ID，而不能只验证本地 Tool 返回值。
+4. SQLite checkpointer 适合当前单机部署；多实例生产部署应迁移到 LangGraph Postgres checkpointer，并对 tenant/thread/run 建立一致性约束和灾备演练。
+5. 线上仍需把失败 Trace、用户忽略/选择岗位反馈和人工标注回流到版本化数据集，形成离线回放、Canary 与发布门禁闭环。
+
 ## 2026-08-09 15:01:16 +08:00：补全 LangGraph 崩溃恢复、Checkpoint 历史分支与业务撤回
 
 ### 本轮目标

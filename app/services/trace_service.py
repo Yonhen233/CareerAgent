@@ -7,6 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.core.redis_client import RedisUnavailableError, get_redis_client, redis_key
 from app.models.entities import AgentArtifact, AgentEvent, AgentRun, AgentStep
+from app.core.config import get_settings
+from app.services.agent_reliability import AgentExecutionBudgetExceeded
 
 T = TypeVar("T")
 
@@ -50,6 +52,12 @@ class TraceService:
         input_json: dict[str, Any] | None,
         handler: Callable[[], Awaitable[T]],
     ) -> T:
+        self._enforce_execution_budget(
+            db,
+            run_id=run_id,
+            tool_name=tool_name,
+            input_json=input_json,
+        )
         started = time.perf_counter()
         step = AgentStep(
             run_id=run_id,
@@ -105,6 +113,48 @@ class TraceService:
                 },
             )
             raise
+
+    def _enforce_execution_budget(
+        self,
+        db: Session,
+        *,
+        run_id: int,
+        tool_name: str,
+        input_json: dict[str, Any] | None,
+    ) -> None:
+        settings = get_settings()
+        steps = db.query(AgentStep).filter(AgentStep.run_id == run_id).all()
+        if len(steps) >= settings.agent_max_tool_steps:
+            payload = {
+                "reason": "max_tool_steps_exceeded",
+                "actual_steps": len(steps),
+                "max_steps": settings.agent_max_tool_steps,
+                "next_tool": tool_name,
+            }
+            self.add_event(db, run_id=run_id, event_type="execution_budget_rejected", payload=payload)
+            raise AgentExecutionBudgetExceeded(
+                f"Agent run {run_id} exceeded max_tool_steps={settings.agent_max_tool_steps}."
+            )
+
+        signature = json.dumps(input_json or {}, ensure_ascii=False, sort_keys=True, default=str)
+        identical_count = sum(
+            1
+            for step in steps
+            if step.tool_name == tool_name
+            and json.dumps(step.input_json or {}, ensure_ascii=False, sort_keys=True, default=str) == signature
+        )
+        if identical_count >= settings.agent_max_identical_tool_calls:
+            payload = {
+                "reason": "repeated_tool_call_without_new_inputs",
+                "tool_name": tool_name,
+                "input_json": input_json or {},
+                "previous_identical_calls": identical_count,
+                "max_identical_calls": settings.agent_max_identical_tool_calls,
+            }
+            self.add_event(db, run_id=run_id, event_type="execution_budget_rejected", payload=payload)
+            raise AgentExecutionBudgetExceeded(
+                f"Agent run {run_id} repeated {tool_name} with identical inputs more than allowed."
+            )
 
     def add_artifact(self, db: Session, *, run_id: int, artifact_type: str, payload: dict[str, Any]) -> AgentArtifact:
         artifact = AgentArtifact(run_id=run_id, artifact_type=artifact_type, artifact_json=payload)

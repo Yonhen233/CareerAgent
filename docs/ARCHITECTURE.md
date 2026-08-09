@@ -259,6 +259,21 @@ Reranker：
 
 岗位源 MCP 化同样要服从中文主场景：优先考虑中文互联网公司自有招聘站和国内常见招聘平台，不把 Greenhouse 这类中国岗位覆盖弱的海外 ATS 当作主路径。
 
+## Agent 可靠性控制面
+
+主 LangGraph 的终点前统一增加 Completion Gate。`app/services/agent_reliability.py` 维护任务契约和 Trajectory V2 策略，`agent_artifacts` 保存 `task_contract`、`completion_verification` 与 checkpoint lineage。控制流如下：
+
+```text
+Plan -> Execute Tools -> Build Business Artifact -> Completion Gate
+                                                |-> completed
+                                                |-> waiting_for_confirmation
+                                                `-> failed_explicitly
+```
+
+Completion Gate 检查目标账本、Artifact、工具参数与顺序、审批、跨产物 ID 一致性和业务 Validator。`TraceService.step` 在工具执行前检查总步骤预算和相同调用预算。历史 checkpoint fork 会复制 checkpoint 时间点以前的 Artifact，并用 `checkpoint_inherited_trajectory` 保存逻辑轨迹前缀；恢复后的新步骤与继承前缀共同参加完成判定。
+
+RAG 控制面由 `RetrievalQualityService` 提供。SQLite 仍是 chunk、metadata 与 embedding 的事实源；Profile 证据使用 semantic-field multi-query、RRF 和 single rerank。`match_results.retrieval_quality_json` 与 `job_search_sessions.retrieval_quality_json` 保存质量诊断，生成节点只接受通过门禁的证据。
+
 ## FastAPI 并发设计
 
 已使用的并发点：

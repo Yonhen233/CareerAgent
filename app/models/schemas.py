@@ -271,6 +271,7 @@ class JobDiscoverySessionSummary(BaseModel):
     source_mode: str
     status: str
     source_errors_json: dict[str, str]
+    retrieval_quality_json: dict[str, Any] = Field(default_factory=dict)
     result_count: int
     created_at: datetime
     updated_at: datetime
@@ -308,6 +309,7 @@ class MatchResponse(BaseModel):
     matched_skills_json: list[str]
     missing_skills_json: list[str]
     relevant_evidence_json: list[dict[str, Any]]
+    retrieval_quality_json: dict[str, Any] = Field(default_factory=dict)
     suggestions_json: list[str]
     idempotency_key: str | None = None
     created_at: datetime

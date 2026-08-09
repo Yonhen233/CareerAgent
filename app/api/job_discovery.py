@@ -13,6 +13,7 @@ from app.models.schemas import (
     JobResponse,
 )
 from app.services.job_discovery import JobDiscoveryService
+from app.services.retrieval_quality import RetrievalQualityError
 
 router = APIRouter(prefix="/job-discovery", tags=["job-discovery"])
 
@@ -29,6 +30,11 @@ async def create_discovery_session(
 ) -> JobDiscoverySessionResponse:
     try:
         session = await JobDiscoveryService().discover(db, payload, tenant_id=auth.tenant_id)
+    except RetrievalQualityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"message": str(exc), "retrieval_quality": exc.report},
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:

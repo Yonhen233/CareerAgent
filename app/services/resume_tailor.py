@@ -14,6 +14,7 @@ from app.services.context_compressor import ContextCompressor
 from app.services.guardrails import ResumeGuardrailService
 from app.services.matcher import MatcherService
 from app.services.prompt_injection_guard import PromptInjectionGuard
+from app.services.retrieval_quality import RetrievalQualityError, retrieval_failure_message
 
 
 NEGATIVE_EVIDENCE_CUES = [
@@ -54,8 +55,36 @@ class ResumeTailorService:
             existing = db.query(ResumeVersion).filter(ResumeVersion.idempotency_key == idempotency_key).first()
             if existing is not None:
                 return existing
-        raw_evidence = self.matcher.retrieve_evidence(db, profile.id, job, top_k=10)
+        raw_evidence, retrieval_quality = self.matcher.retrieve_evidence_with_quality(
+            db,
+            profile.id,
+            job,
+            top_k=10,
+        )
+        if not retrieval_quality.get("passed"):
+            raise RetrievalQualityError(
+                retrieval_failure_message(retrieval_quality),
+                report=retrieval_quality,
+            )
         evidence, injection_risks = self.injection_guard.sanitize_evidence(raw_evidence, source="resume_rag")
+        usable_evidence_count = sum(bool(str(item.get("text") or "").strip()) for item in evidence)
+        retrieval_quality["post_sanitization_evidence_count"] = usable_evidence_count
+        if usable_evidence_count < self.settings.rag_min_evidence_chunks:
+            retrieval_quality.update(
+                {
+                    "passed": False,
+                    "decision": "insufficient_evidence_after_injection_sanitization",
+                    "downstream_policy": "block_evidence-dependent_generation",
+                    "reasons": [
+                        *(retrieval_quality.get("reasons") or []),
+                        "prompt-injection sanitization removed too much usable evidence",
+                    ],
+                }
+            )
+            raise RetrievalQualityError(
+                retrieval_failure_message(retrieval_quality),
+                report=retrieval_quality,
+            )
         compressed_context = self.context_compressor.compress_tailor_context(
             profile=profile,
             job=job,
@@ -109,6 +138,7 @@ class ResumeTailorService:
                     "detected": bool(injection_risks),
                     "risks": injection_risks,
                 },
+                "retrieval_quality": retrieval_quality,
             },
             source_evidence_json=evidence,
             verification_json=verification,

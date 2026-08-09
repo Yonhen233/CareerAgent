@@ -13,6 +13,11 @@ from app.services.job_search import JobSearchService
 from app.services.matcher import MatcherService
 from app.services.reranker import RerankerService
 from app.services.vector_index import SQLiteVectorIndex
+from app.services.retrieval_quality import (
+    RetrievalQualityError,
+    RetrievalQualityService,
+    retrieval_failure_message,
+)
 
 
 @dataclass
@@ -44,6 +49,7 @@ class JobDiscoveryService:
         self.matcher = matcher or MatcherService()
         self.vector_index = vector_index or SQLiteVectorIndex()
         self.reranker = reranker or RerankerService()
+        self.retrieval_quality = RetrievalQualityService(self.settings)
 
     async def discover(
         self,
@@ -73,6 +79,7 @@ class JobDiscoveryService:
         db.refresh(session)
 
         source_errors: dict[str, str] = {}
+        retrieval_quality: dict[str, Any] = {}
         try:
             if payload.source_mode in {"live", "hybrid"}:
                 live_jobs, source_errors = await self.job_search.search(
@@ -89,7 +96,7 @@ class JobDiscoveryService:
                         job.tenant_id = tenant_id
                         db.add(job)
                     db.commit()
-            candidates = self._retrieve_candidates(
+            candidates, retrieval_quality = self._retrieve_candidates(
                 db,
                 query=resolved_query,
                 location=location,
@@ -97,6 +104,12 @@ class JobDiscoveryService:
                 tenant_id=tenant_id,
                 limit=payload.limit,
             )
+            session.retrieval_quality_json = retrieval_quality
+            if not retrieval_quality.get("passed"):
+                raise RetrievalQualityError(
+                    retrieval_failure_message(retrieval_quality),
+                    report=retrieval_quality,
+                )
             if profile:
                 self._attach_matches(db, profile, candidates)
             self._persist_results(db, session, candidates[: payload.limit])
@@ -112,6 +125,7 @@ class JobDiscoveryService:
             if stored is not None:
                 stored.status = "failed"
                 stored.source_errors_json = source_errors
+                stored.retrieval_quality_json = retrieval_quality
                 db.commit()
             raise
 
@@ -136,7 +150,7 @@ class JobDiscoveryService:
         internship_only: bool,
         tenant_id: str | None,
         limit: int,
-    ) -> list[DiscoveryCandidate]:
+    ) -> tuple[list[DiscoveryCandidate], dict[str, Any]]:
         rows_query = db.query(Job)
         if self.settings.rbac_enabled:
             rows_query = rows_query.filter(Job.tenant_id == tenant_id)
@@ -153,7 +167,8 @@ class JobDiscoveryService:
                 or "远程" in (job.location or "")
             ]
         if not jobs:
-            return []
+            quality = self.retrieval_quality.assess(query, [], min_evidence_chunks=1)
+            return [], quality
 
         lightweight_candidates: list[tuple[Job, Any]] = [
             (job, score_job_posting(job, query)) for job in jobs
@@ -202,7 +217,12 @@ class JobDiscoveryService:
             raw_candidates[: max(30, limit * 3)],
             top_k=max(30, limit * 3),
         )
-        return [
+        quality = self.retrieval_quality.assess(query, reranked, min_evidence_chunks=1)
+        quality["query_strategy"] = {
+            "name": "metadata_filter_then_hybrid_retrieval_and_rerank",
+            "candidate_pool_size": len(raw_candidates),
+        }
+        candidates = [
             DiscoveryCandidate(
                 job=item["job"],
                 retrieval_score=round(float(item["score"]) * 100, 2),
@@ -214,6 +234,7 @@ class JobDiscoveryService:
             )
             for item in reranked
         ]
+        return candidates, quality
 
     def _attach_matches(self, db: Session, profile: Profile, candidates: list[DiscoveryCandidate]) -> None:
         for candidate in candidates:

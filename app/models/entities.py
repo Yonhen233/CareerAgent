@@ -136,6 +136,7 @@ class JobSearchSession(Base):
     source_mode: Mapped[str] = mapped_column(String(32), nullable=False, default="hybrid")
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="running", index=True)
     source_errors_json: Mapped[dict[str, str]] = mapped_column(JSON, nullable=False, default=dict)
+    retrieval_quality_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     result_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
@@ -206,6 +207,7 @@ class MatchResult(Base):
     matched_skills_json: Mapped[list[str]] = mapped_column(JSON, nullable=False)
     missing_skills_json: Mapped[list[str]] = mapped_column(JSON, nullable=False)
     relevant_evidence_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False)
+    retrieval_quality_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     suggestions_json: Mapped[list[str]] = mapped_column(JSON, nullable=False)
     idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)

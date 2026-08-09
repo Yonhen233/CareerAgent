@@ -16,10 +16,15 @@ from sqlalchemy.orm import Session
 from app.agents.tools import AgentPlanner
 from app.core.config import get_settings
 from app.core.redis_client import RedisUnavailableError, get_redis_client, redis_key
-from app.models.entities import AgentRun
+from app.models.entities import AgentArtifact, AgentRun, AgentStep
 from app.models.entities import Application, Job, MatchResult, Profile, ResumeVersion
 from app.models.schemas import AgentRunRequest
 from app.services.approval_service import ApprovalService
+from app.services.agent_reliability import (
+    AgentTaskContractService,
+    AgentTaskIncompleteError,
+    format_completion_failure,
+)
 from app.services.application_service import ApplicationService
 from app.services.interview_prep import InterviewPrepService
 from app.services.job_search import JobSearchService
@@ -43,6 +48,9 @@ class CareerAgentGraphState(TypedDict, total=False):
     run_id: int
     task_type: TaskType
     execution_plan: dict[str, Any]
+    task_contract: dict[str, Any]
+    goal_ledger: list[dict[str, Any]]
+    completion_verification: dict[str, Any]
     profile_id: int | None
     job_id: int | None
     resume_version_id: int | None
@@ -92,6 +100,7 @@ class LangGraphAgentOrchestrator:
         self.interview_prep = interview_prep or InterviewPrepService()
         self.planner = planner or AgentPlanner()
         self.approvals = approvals or ApprovalService()
+        self.task_contracts = AgentTaskContractService()
         self.settings = get_settings()
         self._runtime_dbs: dict[int, Session] = {}
         self._runtime_plans: dict[int, dict[str, Any]] = {}
@@ -629,6 +638,12 @@ class LangGraphAgentOrchestrator:
             db.add(fork_run)
             db.commit()
             db.refresh(fork_run)
+            inherited = self._inherit_checkpoint_provenance(
+                db,
+                source_run=source_run,
+                fork_run=fork_run,
+                checkpoint_created_at=snapshot.created_at,
+            )
 
             event_payload = {
                 "source_run_id": source_run.id,
@@ -639,6 +654,7 @@ class LangGraphAgentOrchestrator:
                 "next_nodes": list(snapshot.next or ()),
                 "reason": reason,
                 "actor": actor,
+                "inherited_provenance": inherited,
             }
             self.trace.add_event(
                 db,
@@ -695,6 +711,94 @@ class LangGraphAgentOrchestrator:
             "selected_job_id": values.get("selected_job_id"),
             "overall_score": values.get("overall_score"),
             **artifact_fields,
+        }
+
+    def _inherit_checkpoint_provenance(
+        self,
+        db: Session,
+        *,
+        source_run: AgentRun,
+        fork_run: AgentRun,
+        checkpoint_created_at: str | None,
+    ) -> dict[str, Any]:
+        if not checkpoint_created_at:
+            raise ValueError("Checkpoint provenance cannot be inherited without checkpoint_created_at.")
+        try:
+            cutoff = datetime.fromisoformat(str(checkpoint_created_at).replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError(
+                f"Checkpoint provenance has an invalid created_at value: {checkpoint_created_at}"
+            ) from exc
+
+        def before_checkpoint(value: datetime) -> bool:
+            left = value
+            right = cutoff
+            if left.tzinfo is None and right.tzinfo is not None:
+                left = left.replace(tzinfo=timezone.utc)
+            elif left.tzinfo is not None and right.tzinfo is None:
+                right = right.replace(tzinfo=timezone.utc)
+            return left <= right
+
+        source_steps = (
+            db.query(AgentStep)
+            .filter(AgentStep.run_id == source_run.id)
+            .order_by(AgentStep.id.asc())
+            .all()
+        )
+        inherited_steps = [
+            {
+                "step_name": step.step_name,
+                "tool_name": step.tool_name,
+                "status": step.status,
+                "input_json": step.input_json or {},
+                "output_json": step.output_json or {},
+                "latency_ms": step.latency_ms,
+                "source_step_id": step.id,
+            }
+            for step in source_steps
+            if before_checkpoint(step.created_at)
+        ]
+        source_artifacts = (
+            db.query(AgentArtifact)
+            .filter(AgentArtifact.run_id == source_run.id)
+            .order_by(AgentArtifact.id.asc())
+            .all()
+        )
+        copied_artifacts: list[str] = []
+        for artifact in source_artifacts:
+            if not before_checkpoint(artifact.created_at):
+                continue
+            payload = dict(artifact.artifact_json or {})
+            payload["checkpoint_inheritance"] = {
+                "source_run_id": source_run.id,
+                "source_artifact_id": artifact.id,
+                "source_checkpoint_created_at": checkpoint_created_at,
+            }
+            db.add(
+                AgentArtifact(
+                    run_id=fork_run.id,
+                    artifact_type=artifact.artifact_type,
+                    artifact_json=payload,
+                )
+            )
+            copied_artifacts.append(artifact.artifact_type)
+        db.add(
+            AgentArtifact(
+                run_id=fork_run.id,
+                artifact_type="checkpoint_inherited_trajectory",
+                artifact_json={
+                    "source_run_id": source_run.id,
+                    "source_checkpoint_created_at": checkpoint_created_at,
+                    "steps": inherited_steps,
+                    "artifact_types": copied_artifacts,
+                },
+            )
+        )
+        db.commit()
+        return {
+            "source_run_id": source_run.id,
+            "step_count": len(inherited_steps),
+            "artifact_types": copied_artifacts,
         }
 
     async def _invoke_graph(
@@ -789,6 +893,7 @@ class LangGraphAgentOrchestrator:
         graph.add_node("finalize_quick_apply", self._node_finalize_quick_apply)
         graph.add_node("finalize_interview", self._node_finalize_interview)
         graph.add_node("finalize_full_flow", self._node_finalize_full_flow)
+        graph.add_node("completion_gate", self._node_completion_gate)
 
         graph.add_edge(START, "plan_task")
         graph.add_conditional_edges(
@@ -856,11 +961,12 @@ class LangGraphAgentOrchestrator:
                 "finalize_full_flow": "finalize_full_flow",
             },
         )
-        graph.add_edge("finalize_find_jobs", END)
-        graph.add_edge("finalize_tailor", END)
-        graph.add_edge("finalize_quick_apply", END)
-        graph.add_edge("finalize_interview", END)
-        graph.add_edge("finalize_full_flow", END)
+        graph.add_edge("finalize_find_jobs", "completion_gate")
+        graph.add_edge("finalize_tailor", "completion_gate")
+        graph.add_edge("finalize_quick_apply", "completion_gate")
+        graph.add_edge("finalize_interview", "completion_gate")
+        graph.add_edge("finalize_full_flow", "completion_gate")
+        graph.add_edge("completion_gate", END)
         return graph.compile(checkpointer=self.checkpointer)
 
     async def _ensure_graph(self):
@@ -905,7 +1011,14 @@ class LangGraphAgentOrchestrator:
         )
         self._runtime_plans[state["run_id"]] = plan
         self.trace.add_artifact(db, run_id=state["run_id"], artifact_type="execution_plan", payload=plan)
-        return {"execution_plan": plan}
+        task_contract = self.task_contracts.build_contract(request.task_type, request.model_dump())
+        self.trace.add_artifact(
+            db,
+            run_id=state["run_id"],
+            artifact_type="task_contract",
+            payload=task_contract,
+        )
+        return {"execution_plan": plan, "task_contract": task_contract}
 
     async def _node_load_profile(self, state: CareerAgentGraphState) -> dict[str, Any]:
         db = self._db_from_state(state)
@@ -1060,7 +1173,14 @@ class LangGraphAgentOrchestrator:
         existing = self._resume_by_idempotency_key(db, key)
         if existing is not None:
             self._record_idempotency_reuse(db, state["run_id"], "resume_version", key, existing.id)
-            return self._tailor_payload(state, profile, job, existing, idempotency_reused=True)
+            result = self._tailor_payload(state, profile, job, existing, idempotency_reused=True)
+            self.trace.add_artifact(
+                db,
+                run_id=state["run_id"],
+                artifact_type="tailored_resume",
+                payload=result["tailor"],
+            )
+            return result
         version = await self.trace.step(
             db,
             run_id=state["run_id"],
@@ -1141,6 +1261,12 @@ class LangGraphAgentOrchestrator:
             payload["fit_gate"] = state.get("fit_gate")
             payload["human_confirmation"] = confirmation
             payload["idempotency_reused"] = True
+            self.trace.add_artifact(
+                db,
+                run_id=state["run_id"],
+                artifact_type="application_packet",
+                payload=payload,
+            )
             return {"application": payload}
         application = await self.trace.step(
             db,
@@ -1165,6 +1291,12 @@ class LangGraphAgentOrchestrator:
         payload["fit_gate"] = state.get("fit_gate")
         payload["human_confirmation"] = confirmation
         payload["idempotency_reused"] = False
+        self.trace.add_artifact(
+            db,
+            run_id=state["run_id"],
+            artifact_type="application_packet",
+            payload=payload,
+        )
         return {"application": payload}
 
     async def _node_generate_interview_prep(self, state: CareerAgentGraphState) -> dict[str, Any]:
@@ -1262,6 +1394,39 @@ class LangGraphAgentOrchestrator:
         db = self._db_from_state(state)
         self.trace.add_artifact(db, run_id=state["run_id"], artifact_type="full_career_flow", payload=payload)
         return {"output": payload}
+
+    async def _node_completion_gate(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        db = self._db_from_state(state)
+        request = self._request(state)
+        report = self.task_contracts.verify(
+            db,
+            run_id=state["run_id"],
+            task_type=state["task_type"],
+            request=request.model_dump(),
+            state=dict(state),
+        )
+        self.trace.add_artifact(
+            db,
+            run_id=state["run_id"],
+            artifact_type="completion_verification",
+            payload=report,
+        )
+        self.trace.add_event(
+            db,
+            run_id=state["run_id"],
+            event_type="completion_gate_passed" if report["passed"] else "completion_gate_rejected",
+            node_name="completion_gate",
+            payload=report,
+        )
+        if not report["passed"]:
+            raise AgentTaskIncompleteError(format_completion_failure(report))
+        output = dict(state.get("output") or {})
+        output["completion_verification"] = report
+        return {
+            "goal_ledger": report["goal_ledger"],
+            "completion_verification": report,
+            "output": output,
+        }
 
     def _route_after_plan(self, state: CareerAgentGraphState) -> str:
         return str(state["task_type"])

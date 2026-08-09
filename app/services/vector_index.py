@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from dataclasses import replace
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -93,6 +94,67 @@ class SQLiteVectorIndex:
             top_k=top_k,
             type_boost_chunks={"project", "experience", "skill"},
         )
+
+    def query_profile_chunks_multi(
+        self,
+        db: Session,
+        profile_id: int,
+        query_texts: list[str],
+        *,
+        top_k: int = 8,
+    ) -> list[RetrievedChunk]:
+        queries = list(dict.fromkeys(text.strip() for text in query_texts if text and text.strip()))
+        if not queries:
+            return []
+        if not self.settings.rag_multi_query_enabled or len(queries) == 1:
+            return self.query_profile_chunks(db, profile_id, queries[0], top_k=top_k)
+
+        rows = db.query(ResumeChunk).filter(ResumeChunk.profile_id == profile_id).all()
+        first_stage_limit = max(top_k, self.settings.reranker_top_n)
+        ranked_lists = [
+            self._query_rows(
+                db=db,
+                rows=rows,
+                query_text=query,
+                top_k=first_stage_limit,
+                type_boost_chunks={"project", "experience", "skill"},
+                rerank=False,
+            )
+            for query in queries
+        ]
+        by_uid: dict[str, RetrievedChunk] = {}
+        rrf_scores: dict[str, float] = {}
+        query_hits: dict[str, list[int]] = {}
+        for query_index, ranked in enumerate(ranked_lists):
+            for rank, chunk in enumerate(ranked, start=1):
+                by_uid.setdefault(chunk.chunk_uid, chunk)
+                rrf_scores[chunk.chunk_uid] = rrf_scores.get(chunk.chunk_uid, 0.0) + 1.0 / (
+                    self.settings.rag_multi_query_rrf_k + rank
+                )
+                query_hits.setdefault(chunk.chunk_uid, []).append(query_index)
+        max_rrf = max(rrf_scores.values(), default=1.0)
+        fused: list[RetrievedChunk] = []
+        for uid, chunk in by_uid.items():
+            normalized_rrf = rrf_scores[uid] / max(max_rrf, 1e-9)
+            fused_score = round(float(chunk.score) * 0.70 + normalized_rrf * 0.30, 6)
+            metadata = dict(chunk.metadata or {})
+            retrieval = dict(metadata.get("retrieval") or {})
+            retrieval["multi_query"] = {
+                "strategy": "rrf_then_single_rerank",
+                "query_count": len(queries),
+                "hit_count": len(query_hits.get(uid, [])),
+                "query_indexes": query_hits.get(uid, []),
+                "rrf_k": self.settings.rag_multi_query_rrf_k,
+                "rrf_score": round(rrf_scores[uid], 8),
+                "rrf_score_normalized": round(normalized_rrf, 6),
+            }
+            metadata["retrieval"] = retrieval
+            fused.append(replace(chunk, score=fused_score, metadata=metadata))
+        fused.sort(key=lambda item: item.score, reverse=True)
+        candidates = fused[:first_stage_limit]
+        if self.settings.reranker_enabled:
+            return self.reranker.rerank_chunks(queries[0], candidates, top_k=top_k)
+        return candidates[:top_k]
 
     def upsert_job_chunks(self, db: Session, job_id: int, chunks: list[TextChunk]) -> int:
         db.query(JobChunk).filter(JobChunk.job_id == job_id).delete()

@@ -2,6 +2,8 @@
 
 > 2026-07-22 最新的分层 Agent 系统真实评测、指标解释、成本与失败样本见 [CareerAgent Agent 系统评测报告](AGENT_SYSTEM_EVALUATION_2026-07-22.md)。本轮严格发布门禁未通过，不能只依据单项满分判断系统已经可上线。
 
+> 2026-08-09 新增 Task Contract、Completion Gate、Trajectory V2 和 RAG Evidence Gate。离线全量代码回归为 `277 passed`；独立 SQLite 数据库上的 6-case Agent 全流程确定性评测通过率、Trajectory V2、Artifact、LangGraph、岗位 Top1 和投递包门禁均为 `1.0`，3 个低匹配 case 均被 Fit Gate 按预期阻断。该结果证明新的确定性控制面和固定评测场景通过，不替代 24-case 真实 LLM workflow 重跑，也不改写 2026-07-22 整体 Release Gate 仍为失败的历史结论。
+
 ## 面试 Agentic RAG v3 成本与质量门禁
 
 面试评测不再只检查题目数量和回答长度，还检查完整链路契约：
@@ -422,6 +424,36 @@ SQLite 权威存储 + Chroma 可选向量库镜像
 - 后续如果需要规模化，可替换为 Qdrant、Milvus、pgvector 或云向量库。
 
 ## Agent 全流程评测
+
+### Trajectory V2 与完成语义
+
+旧指标的 `tool_success_rate` 只统计 Tool 是否正常返回，`trace_passed` 只检查 `plan_task` 是否完成，无法发现工具选错、参数错、顺序错、重复调用或 Agent 提前结束。当前 `careeragent-trajectory-eval-v2` 增加：
+
+- required step：必要步骤是否执行；
+- allowed tool：是否调用当前任务无权使用的工具；
+- argument invariant：`profile_id/job_id/resume_version_id` 是否存在并与请求一致；
+- precedence constraint：parse/load/match/tailor/approval/application/interview 的先后关系；
+- duplicate signature：同一工具与参数是否无进展重复；
+- approval invariant：投递工具执行前是否存在 approved action；
+- outcome artifact：完成 run 是否有 `completion_verification`；
+- policy-block trajectory：Fit Gate 正确阻断必须停在投递工具之前，不能当普通执行失败。
+
+任务完成率不再由最终文本判断，而由 Goal Ledger、业务表、Artifact 和 Validator 联合判断。Checkpoint recovery 采用“同签名最后一次 attempt”语义；checkpoint rewind 的轨迹由继承前缀和分支新步骤共同组成。
+
+2026-08-09 离线验证结果：
+
+| 指标 | 结果 |
+| --- | ---: |
+| case 数 | 6 |
+| 全流程通过率 | 1.0 |
+| Top1 岗位准确率 | 1.0 |
+| Trajectory V2 通过率 | 1.0 |
+| Artifact 通过率 | 1.0 |
+| LangGraph 通过率 | 1.0 |
+| 投递包通过率 | 1.0 |
+| 预期 Fit Gate 阻断 | 3/3 |
+
+运行使用 `LLM_API_KEY=''`、`LLM_FALLBACK_ENABLED=true`、hash embedding 和关闭 reranker，只验证编排与控制面，不产生 DeepSeek Token，也不能作为真实模型质量指标。
 
 接口：
 

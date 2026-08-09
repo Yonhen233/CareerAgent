@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.agents.natural_language import NaturalLanguageAgentService
 from app.agents.orchestrator import AgentOrchestrator
 from app.core.config import get_settings
-from app.models.entities import AgentArtifact, AgentStep, EvaluationRun, Job, JobChunk, Profile
+from app.models.entities import AgentArtifact, AgentRun, AgentStep, EvaluationRun, Job, JobChunk, Profile
 from app.models.schemas import AgentRunRequest, GuidedProfileRequest, NaturalLanguageAgentRequest
 from app.services.context_compressor import ContextCompressor
 from app.services.application_guardrails import ApplicationPacketGuardrail
@@ -33,6 +33,7 @@ from app.services.job_relevance import (
 )
 from app.services.job_search import JobSearchService
 from app.services.prompt_injection_guard import PromptInjectionGuard
+from app.services.agent_reliability import AgentTrajectoryEvaluator
 from app.services.job_sources import JobPosting, JobSourceRegistry
 from app.services.resume_tailor import ResumeTailorService
 from app.core.llm import LLMClient, LLMConfigurationError, LLMResponseError, format_exception, llm_trace_context
@@ -1087,8 +1088,20 @@ class EvaluationService:
                     application_packet_passed = packet_validation.get("passed") is True
 
             runs = [run for run in [find_run, tailor_run, quick_apply_run] if run is not None]
-            trace_passed = all(self._run_has_completed_plan(db, run.id) for run in runs)
-            artifact_passed = all(self._run_has_artifact(db, run.id, "execution_plan") for run in runs)
+            run_traces = [self._agent_run_trace(db, run.id) for run in runs]
+            trace_passed = all(
+                (trace.get("trajectory_evaluation") or {}).get("passed") is True
+                for trace in run_traces
+            )
+            artifact_passed = all(
+                self._run_has_artifact(db, run.id, "completion_verification")
+                or (
+                    run.status == "failed"
+                    and "Fit gate blocked" in str(run.error_message or "")
+                    and self._run_has_artifact(db, run.id, "execution_plan")
+                )
+                for run in runs
+            )
             langgraph_passed = all(self._run_uses_langgraph(run) for run in runs)
             result.update(
                 {
@@ -1114,7 +1127,7 @@ class EvaluationService:
                     "resume_version_id": resume_version_id,
                     "application_id": application_id,
                     "matches": matches,
-                    "run_trace": [self._agent_run_trace(db, run.id) for run in runs],
+                    "run_trace": run_traces,
                 }
             )
             result["case_passed"] = self._agent_full_flow_case_passed(result, case)
@@ -1770,6 +1783,7 @@ class EvaluationService:
         )
 
     def _agent_run_trace(self, db: Session, run_id: int) -> dict[str, Any]:
+        run = db.query(AgentRun).filter(AgentRun.id == run_id).first()
         steps = (
             db.query(AgentStep)
             .filter(AgentStep.run_id == run_id)
@@ -1789,12 +1803,20 @@ class EvaluationService:
                     "step_name": step.step_name,
                     "tool_name": step.tool_name,
                     "status": step.status,
+                    "input_json": step.input_json or {},
+                    "output_json": step.output_json or {},
                     "latency_ms": step.latency_ms,
                     "error_message": step.error_message,
                 }
                 for step in steps
             ],
             "artifacts": [artifact.artifact_type for artifact in artifacts],
+            "trajectory_evaluation": AgentTrajectoryEvaluator().evaluate(
+                db,
+                run_id=run_id,
+                task_type=run.task_type if run else "find_jobs_for_profile",
+                request=(run.input_json or {}) if run else {},
+            ),
         }
 
     def _agent_full_flow_case_passed(self, result: dict[str, Any], case: dict[str, Any]) -> bool:
@@ -1846,11 +1868,13 @@ class EvaluationService:
             "trace_pass_rate": self._avg_bool(case_results, "trace_passed"),
             "artifact_pass_rate": self._avg_bool(case_results, "artifact_passed"),
             "langgraph_pass_rate": self._avg_bool(case_results, "langgraph_passed"),
+            "trajectory_v2_pass_rate": self._avg_bool(case_results, "trace_passed"),
             "avg_top_job_score": self._avg_number(case_results, "top_job_score"),
             "avg_ranking_margin": self._avg_number(case_results, "ranking_margin"),
             "failure_breakdown": self._agent_full_flow_failure_breakdown(case_results),
             "notes": [
                 "覆盖 find_jobs_for_profile、tailor_resume_for_job、quick_apply、Trace、Artifact、RAG 证据和 Guardrail。",
+                "Trajectory V2 检查必要步骤、工具参数、先后依赖、重复调用、审批约束与 Completion Artifact。",
                 "所有 Agent run 必须通过 LangGraph 主编排，input/output/execution_plan 均需标记 orchestration_framework=langgraph。",
                 "岗位源使用可控评测源，避免外部招聘站波动影响全链路回归；真实岗位抓取由 job source 单独测试。",
                 "低匹配 quick_apply 应被 fit_gate 阻断，失败直接写入 Agent step trace。",

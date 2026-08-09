@@ -79,6 +79,10 @@ def _ensure_sqlite_columns() -> None:
             columns = {column["name"] for column in inspector.get_columns(table_name)}
             if "idempotency_key" not in columns:
                 statements.append(f"ALTER TABLE {table_name} ADD COLUMN idempotency_key VARCHAR(255)")
+            if table_name == "match_results" and "retrieval_quality_json" not in columns:
+                statements.append(
+                    "ALTER TABLE match_results ADD COLUMN retrieval_quality_json JSON NOT NULL DEFAULT '{}'"
+                )
     for table_name in ["resume_versions", "interview_preps"]:
         if table_name in tables:
             columns = {column["name"] for column in inspector.get_columns(table_name)}
@@ -96,6 +100,12 @@ def _ensure_sqlite_columns() -> None:
             statements.append("ALTER TABLE applications ADD COLUMN withdrawn_at DATETIME")
         if "withdrawal_reason" not in application_columns:
             statements.append("ALTER TABLE applications ADD COLUMN withdrawal_reason TEXT")
+    if "job_search_sessions" in tables:
+        job_search_columns = {column["name"] for column in inspector.get_columns("job_search_sessions")}
+        if "retrieval_quality_json" not in job_search_columns:
+            statements.append(
+                "ALTER TABLE job_search_sessions ADD COLUMN retrieval_quality_json JSON NOT NULL DEFAULT '{}'"
+            )
 
     with engine.begin() as conn:
         for statement in statements:

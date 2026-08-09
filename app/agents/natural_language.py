@@ -23,6 +23,7 @@ from app.models.schemas import (
     NaturalLanguageAgentRequest,
 )
 from app.services.job_discovery import JobDiscoveryService
+from app.services.agent_reliability import AgentTaskContractService
 from app.services.jd_parser import JDParserService
 from app.services.resume_parser import ResumeParserService
 from app.services.text_splitter import ResumeTextSplitter
@@ -69,6 +70,8 @@ class NaturalLanguageGraphState(TypedDict, total=False):
     run_id: int
     graph_thread_id: str
     plan: dict[str, Any]
+    task_contract: dict[str, Any]
+    completion_verification: dict[str, Any]
     result: dict[str, Any]
     execution_error: str | None
     repair_attempts: list[dict[str, Any]]
@@ -92,6 +95,7 @@ class NaturalLanguageAgentService:
         self.vector_index = SQLiteVectorIndex()
         self.job_discovery = JobDiscoveryService()
         self.settings = get_settings()
+        self.task_contracts = AgentTaskContractService()
         self._runtime_dbs: dict[int, Session] = {}
         self._checkpoint_conn = None
         self.checkpointer = None
@@ -172,8 +176,10 @@ class NaturalLanguageAgentService:
         graph = StateGraph(NaturalLanguageGraphState)
         graph.add_node("parse_user_request", self._node_parse_user_request)
         graph.add_node("execute_user_plan", self._node_execute_user_plan)
+        graph.add_node("verify_user_plan", self._node_verify_user_plan)
         graph.add_node("repair_user_plan", self._node_repair_user_plan)
         graph.add_node("execute_repaired_user_plan", self._node_execute_repaired_user_plan)
+        graph.add_node("verify_repaired_user_plan", self._node_verify_repaired_user_plan)
         graph.add_node("finalize_success", self._node_finalize_success)
         graph.add_node("finalize_failed", self._node_finalize_failed)
         graph.add_edge(START, "parse_user_request")
@@ -181,12 +187,22 @@ class NaturalLanguageAgentService:
         graph.add_conditional_edges(
             "execute_user_plan",
             self._route_after_execute,
+            {"repair_user_plan": "repair_user_plan", "verify_user_plan": "verify_user_plan"},
+        )
+        graph.add_conditional_edges(
+            "verify_user_plan",
+            self._route_after_verification,
             {"repair_user_plan": "repair_user_plan", "finalize_success": "finalize_success"},
         )
         graph.add_edge("repair_user_plan", "execute_repaired_user_plan")
         graph.add_conditional_edges(
             "execute_repaired_user_plan",
             self._route_after_repaired_execute,
+            {"verify_repaired_user_plan": "verify_repaired_user_plan", "finalize_failed": "finalize_failed"},
+        )
+        graph.add_conditional_edges(
+            "verify_repaired_user_plan",
+            self._route_after_repaired_verification,
             {"finalize_success": "finalize_success", "finalize_failed": "finalize_failed"},
         )
         graph.add_edge("finalize_success", END)
@@ -249,7 +265,20 @@ class NaturalLanguageAgentService:
             handler=lambda: self._build_plan(db, request),
         )
         self.trace.add_artifact(db, run_id=state["run_id"], artifact_type="natural_language_plan", payload=plan)
-        return {"plan": plan}
+        contract = {
+            "version": "careeragent-natural-task-contract-v1",
+            "intent": plan.get("intent"),
+            "required_actions": list(plan.get("actions") or []),
+            "completion_rule": "Every requested action must have an outcome or a human interrupt before success.",
+            "repair_budget": 1,
+        }
+        self.trace.add_artifact(
+            db,
+            run_id=state["run_id"],
+            artifact_type="task_contract",
+            payload=contract,
+        )
+        return {"plan": plan, "task_contract": contract}
 
     async def _node_execute_user_plan(self, state: NaturalLanguageGraphState) -> dict[str, Any]:
         request = NaturalLanguageAgentRequest(**state["request"])
@@ -279,7 +308,13 @@ class NaturalLanguageAgentService:
             step_name="repair_user_plan",
             tool_name="llm.intent_planner",
             input_json={"error": str(error), "plan": plan},
-            handler=lambda: self._repair_plan(db, request, plan, error),
+            handler=lambda: self._repair_plan(
+                db,
+                request,
+                plan,
+                error,
+                completed_result=state.get("result") or {},
+            ),
         )
         repair_attempts = [
             *(state.get("repair_attempts") or []),
@@ -304,11 +339,52 @@ class NaturalLanguageAgentService:
                 step_name="execute_repaired_user_plan",
                 tool_name="NaturalLanguageAgentService",
                 input_json={"intent": plan.get("intent")},
-                handler=lambda: self._execute_plan(db, request, plan),
+                handler=lambda: self._execute_plan(
+                    db,
+                    request,
+                    plan,
+                    prior_result=state.get("result") or {},
+                ),
             )
             return {"result": result, "execution_error": None}
         except Exception as exc:  # noqa: BLE001
             return {"execution_error": str(exc), "result": {"error": str(exc)}}
+
+    async def _node_verify_user_plan(self, state: NaturalLanguageGraphState) -> dict[str, Any]:
+        return self._verify_natural_language_completion(state, repaired=False)
+
+    async def _node_verify_repaired_user_plan(self, state: NaturalLanguageGraphState) -> dict[str, Any]:
+        return self._verify_natural_language_completion(state, repaired=True)
+
+    def _verify_natural_language_completion(
+        self,
+        state: NaturalLanguageGraphState,
+        *,
+        repaired: bool,
+    ) -> dict[str, Any]:
+        report = self.task_contracts.verify_natural_language(
+            plan=state.get("plan") or {},
+            result=state.get("result") or {},
+        )
+        report["after_repair"] = repaired
+        db = self._db_from_state(state)
+        self.trace.add_artifact(
+            db,
+            run_id=state["run_id"],
+            artifact_type="natural_language_completion_verification",
+            payload=report,
+        )
+        self.trace.add_event(
+            db,
+            run_id=state["run_id"],
+            event_type="completion_gate_passed" if report["passed"] else "completion_gate_rejected",
+            node_name="verify_repaired_user_plan" if repaired else "verify_user_plan",
+            payload=report,
+        )
+        if report["passed"]:
+            return {"completion_verification": report, "execution_error": None}
+        error = f"任务未完成，缺少动作结果：{', '.join(report['missing_actions'])}"
+        return {"completion_verification": report, "execution_error": error}
 
     async def _node_finalize_success(self, state: NaturalLanguageGraphState) -> dict[str, Any]:
         plan = state.get("plan") or {}
@@ -321,6 +397,7 @@ class NaturalLanguageAgentService:
             "plan_json": plan,
             "result_json": result,
             "repair_attempts": state.get("repair_attempts") or [],
+            "completion_verification": state.get("completion_verification") or {},
         }
         return {"output": payload}
 
@@ -337,9 +414,15 @@ class NaturalLanguageAgentService:
         return {"output": payload}
 
     def _route_after_execute(self, state: NaturalLanguageGraphState) -> str:
+        return "repair_user_plan" if state.get("execution_error") else "verify_user_plan"
+
+    def _route_after_verification(self, state: NaturalLanguageGraphState) -> str:
         return "repair_user_plan" if state.get("execution_error") else "finalize_success"
 
     def _route_after_repaired_execute(self, state: NaturalLanguageGraphState) -> str:
+        return "finalize_failed" if state.get("execution_error") else "verify_repaired_user_plan"
+
+    def _route_after_repaired_verification(self, state: NaturalLanguageGraphState) -> str:
         return "finalize_failed" if state.get("execution_error") else "finalize_success"
 
     def _db_from_state(self, state: NaturalLanguageGraphState) -> Session:
@@ -517,6 +600,8 @@ profile_context={json.dumps(request.profile_context or {}, ensure_ascii=False)}
         request: NaturalLanguageAgentRequest,
         plan: dict[str, Any],
         error: Exception,
+        *,
+        completed_result: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         system_prompt = "你是 Agent 计划修复器。只返回 JSON；不得绕过事实校验、投递门禁或人工确认边界。"
         user_prompt = f"""
@@ -527,6 +612,9 @@ profile_context={json.dumps(request.profile_context or {}, ensure_ascii=False)}
 
 原计划:
 {json.dumps(plan, ensure_ascii=False)}
+
+已经完成且不得重复执行的结果:
+{json.dumps(self._completed_result_summary(completed_result or {}), ensure_ascii=False)}
 
 用户需求:
 {request.instruction}
@@ -541,6 +629,7 @@ query={request.query}
 如果用户想完整处理但缺少岗位，请使用 full_flow。
 如果用户明确不要投递或不要申请，不要使用 full_flow/quick_apply；可改为 tailor_resume 和 interview_prep。
 如果是投递匹配分不足，不要绕过 fit_gate，可改为生成定制简历和面试准备建议。
+修复计划可以保留完整目标，但执行器只会补齐缺失结果，不得要求重复外发或重复创建已有产物。
 返回与原计划相同 JSON schema。
 """
         with llm_trace_context(stage="natural_language_repair", agent_run_task="natural_language_request"):
@@ -559,22 +648,28 @@ query={request.query}
         db: Session,
         request: NaturalLanguageAgentRequest,
         plan: dict[str, Any],
+        *,
+        prior_result: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         intent = plan["intent"]
-        profile = self._resolve_profile(db, request.profile_id)
+        prior = dict(prior_result or {})
+        prior_profile_id = (prior.get("profile") or {}).get("id")
+        prior_job_id = (prior.get("job") or {}).get("id")
+        profile = self._resolve_profile(db, request.profile_id or prior_profile_id)
         if intent == "update_profile":
             profile = self._create_profile_from_plan(db, plan, request=request, base_profile=profile)
         elif profile is None and (plan.get("profile") or request.profile_context):
             profile = self._create_profile_from_plan(db, plan, request=request, base_profile=None)
 
-        job = self._resolve_job(db, request.job_id)
+        job = self._resolve_job(db, request.job_id or prior_job_id)
         if job is None and (request.jd_text or (plan.get("job") or {}).get("jd_text")):
             job = await self._create_job_from_plan(db, request, plan)
 
         result: dict[str, Any] = {
+            **prior,
             "profile": self._profile_payload(profile),
             "job": self._job_payload(job),
-            "agent_runs": [],
+            "agent_runs": list(prior.get("agent_runs") or []),
         }
 
         selected_actions = {self._canonical_action(action) for action in (plan.get("actions") or [])}
@@ -599,7 +694,9 @@ query={request.query}
 
         downstream_actions = {"tailor_resume", "quick_apply", "interview_prep"}
         if "search_jobs" in effective_actions and intent != "full_flow":
-            if profile is not None:
+            if result.get("matches"):
+                pass
+            elif profile is not None:
                 run = await self.orchestrator.run(
                     db,
                     AgentRunRequest(
@@ -684,49 +781,63 @@ query={request.query}
             job = self._require_job(job)
 
         if wants_tailor:
-            tailor_run = await self.orchestrator.run(
-                db,
-                AgentRunRequest(task_type="tailor_resume_for_job", profile_id=profile.id, job_id=job.id),
-            )
-            self._assert_run_completed(tailor_run, "定制简历")
-            result["tailor"] = self._completed_run_output(
-                db,
-                tailor_run,
-                artifact_type="tailored_resume",
-                required_key="resume_version_id",
-            )
-            result["agent_runs"].append(self._run_payload(tailor_run))
+            if not (result.get("tailor") or {}).get("resume_version_id"):
+                tailor_run = await self.orchestrator.run(
+                    db,
+                    AgentRunRequest(task_type="tailor_resume_for_job", profile_id=profile.id, job_id=job.id),
+                )
+                self._assert_run_completed(tailor_run, "定制简历")
+                result["tailor"] = self._completed_run_output(
+                    db,
+                    tailor_run,
+                    artifact_type="tailored_resume",
+                    required_key="resume_version_id",
+                )
+                result["agent_runs"].append(self._run_payload(tailor_run))
         if wants_interview:
-            interview_run = await self.orchestrator.run(
-                db,
-                AgentRunRequest(task_type="prepare_interview_for_job", profile_id=profile.id, job_id=job.id),
-            )
-            self._assert_run_completed(interview_run, "面试准备")
-            result["interview_prep"] = self._completed_run_output(
-                db,
-                interview_run,
-                artifact_type="interview_prep",
-                required_key="interview_prep_id",
-            )
-            result["agent_runs"].append(self._run_payload(interview_run))
+            if not (result.get("interview_prep") or {}).get("interview_prep_id"):
+                interview_run = await self.orchestrator.run(
+                    db,
+                    AgentRunRequest(task_type="prepare_interview_for_job", profile_id=profile.id, job_id=job.id),
+                )
+                self._assert_run_completed(interview_run, "面试准备")
+                result["interview_prep"] = self._completed_run_output(
+                    db,
+                    interview_run,
+                    artifact_type="interview_prep",
+                    required_key="interview_prep_id",
+                )
+                result["agent_runs"].append(self._run_payload(interview_run))
         if intent == "quick_apply" or "quick_apply" in selected_actions:
-            apply_run = await self.orchestrator.run(
-                db,
-                AgentRunRequest(
-                    task_type="quick_apply",
-                    profile_id=profile.id,
-                    job_id=job.id,
-                    resume_version_id=(result.get("tailor") or {}).get("resume_version_id") or request.resume_version_id,
-                ),
-            )
-            result["agent_runs"].append(self._run_payload(apply_run))
-            if apply_run.status == "waiting_for_confirmation":
-                result["requires_confirmation"] = apply_run.output_json
+            if not (result.get("application") or {}).get("application_id") and not result.get("requires_confirmation"):
+                apply_run = await self.orchestrator.run(
+                    db,
+                    AgentRunRequest(
+                        task_type="quick_apply",
+                        profile_id=profile.id,
+                        job_id=job.id,
+                        resume_version_id=(result.get("tailor") or {}).get("resume_version_id") or request.resume_version_id,
+                    ),
+                )
+                result["agent_runs"].append(self._run_payload(apply_run))
+                if apply_run.status == "waiting_for_confirmation":
+                    result["requires_confirmation"] = apply_run.output_json
+                    result["application"] = apply_run.output_json
+                    return result
+                self._assert_run_completed(apply_run, "投递包")
                 result["application"] = apply_run.output_json
-                return result
-            self._assert_run_completed(apply_run, "投递包")
-            result["application"] = apply_run.output_json
         return result
+
+    def _completed_result_summary(self, result: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "profile_id": (result.get("profile") or {}).get("id"),
+            "job_id": (result.get("job") or {}).get("id"),
+            "match_count": len(result.get("matches") or []),
+            "resume_version_id": (result.get("tailor") or {}).get("resume_version_id"),
+            "application_id": (result.get("application") or {}).get("application_id"),
+            "interview_prep_id": (result.get("interview_prep") or {}).get("interview_prep_id"),
+            "waiting_for_confirmation": bool(result.get("requires_confirmation")),
+        }
 
     def _normalize_plan(self, plan: dict[str, Any], request: NaturalLanguageAgentRequest) -> dict[str, Any]:
         intent = str(plan.get("intent") or "").strip()
