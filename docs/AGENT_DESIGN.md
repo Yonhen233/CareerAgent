@@ -264,10 +264,12 @@ JD、PDF 简历、RAG chunk 和导入面经都被视为 untrusted content。`Pro
 - 计划、步骤、artifact、event 和错误仍写入 SQLite trace 表，前端无需访问 LangGraph 内部对象即可展示。
 - `execution_plan.langgraph_decision.migrated=true`，运行输入输出都带有 `orchestration_framework=langgraph`。
 - SQLite checkpointer 已持久化 LangGraph checkpoint；`POST /agent/runs/{run_id}/resume` 可以在新 Orchestrator 实例中按 `graph_thread_id` 恢复。
+- Redis worker 崩溃后，stale scanner 会在 heartbeat 和 run lock 都消失时把 run 重新入队；Orchestrator 读取最新 checkpoint，并以 `ainvoke(None)` 从 `snapshot.next` 继续。恢复超过配置次数才进入失败终态。
+- `GET /agent/runs/{run_id}/checkpoints` 暴露安全的 checkpoint 历史摘要；用户选择历史节点时会派生新的 AgentRun 和 LangGraph thread，不修改原 run。checkpoint 克隆使用 LangGraph `uuid6()` 保持 saver 的时间排序语义。
 - `quick_apply` 和 `full_career_flow` 会在生成投递包前触发 LangGraph interrupt；确认前不会写入 `applications`。
 - `POST /agent/runs/background` 支持后台启动 queued run，并通过 RedisTaskRunner 入队；`scripts/run_agent_worker.py` 独立消费执行 LangGraph。
 - 每个后台 run 执行前会获取 Redis run lock；节点开始前检查 SQLite 状态和 Redis cancel flag。
-- 简历版本、投递包、面试包写库节点都有业务幂等键，checkpoint 重放或重复 resume 会复用已有产物。
+- 匹配结果、简历版本、投递包、面试包的首次 INSERT 都携带唯一业务幂等键，checkpoint 重放、worker retry 或重复 resume 会复用已有产物；这覆盖“业务提交成功、checkpoint 尚未保存”时崩溃的窗口。
 - 投递包 interrupt 前会创建 `agent_approvals` 审批记录，resume 确认/拒绝/取消都有审计状态。
 - `agent_approvals` 的动作类型已经扩展到 `application_packet`、`browser_apply`、`email_draft`、`email_send`；浏览器辅助填写、邮件草稿和邮件发送必须通过高风险工具网关检查 approved approval 后才会执行真实 Playwright/SMTP/EML 工具。
 - `ops_audit_events` 记录 DLQ 重放/丢弃和高风险工具放行等跨 run 运维审计事件。
@@ -275,6 +277,7 @@ JD、PDF 简历、RAG chunk 和导入面经都被视为 untrusted content。`Pro
 - 运维接口支持多租户 RBAC header，上线时可替换成 OIDC/SSO。
 - `GET /agent/runs/{run_id}/events/stream` 支持 LangGraph SSE 事件流，`TraceService` 写 SQLite event 后也会发布 Redis pub/sub 通知。
 - 首页一键流程已经改成单个后台 `full_career_flow` run，通过 SSE 推进阶段状态。
+- 运行控制支持业务撤回：只停用本 run 生成的简历版本、投递材料和面试包，取消未执行审批，保留共享 Profile/Job/MatchResult 和全部 trace。已发送邮件或已提交网页表单会阻止撤回，避免把不可逆外部事实伪装成未发生。
 
 迁移中特别处理的问题：
 

@@ -18,6 +18,10 @@ async def quick_apply(payload: QuickApplyRequest, db: Session = Depends(get_db))
     version = None
     if payload.resume_version_id:
         version = db.query(ResumeVersion).filter(ResumeVersion.id == payload.resume_version_id).first()
+        if version is None:
+            raise HTTPException(status_code=404, detail="Resume version not found.")
+        if version.lifecycle_status != "active":
+            raise HTTPException(status_code=409, detail="Withdrawn resume version cannot be used for application materials.")
     application = await ApplicationService().create_quick_apply_packet(
         db,
         profile=profile,

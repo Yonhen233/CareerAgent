@@ -159,6 +159,10 @@ a {
   margin-bottom: 18px;
 }
 
+.workspace-grid > * {
+  min-width: 0;
+}
+
 .span-5 {
   grid-column: span 5;
 }
@@ -3045,7 +3049,7 @@ button svg,
 
 .event-row {
   display: grid;
-  grid-template-columns: 112px 1fr;
+  grid-template-columns: minmax(96px, 112px) minmax(0, 1fr);
   gap: 10px;
   align-items: start;
   padding: 8px 10px;
@@ -3061,6 +3065,7 @@ button svg,
 .event-row small {
   color: var(--muted);
   font-size: 0.78rem;
+  overflow-wrap: anywhere;
 }
 
 .event-row.running {
@@ -3204,6 +3209,47 @@ button svg,
   max-height: min(390px, calc(100vh - 210px));
   overflow-y: auto;
   border-bottom: 1px solid var(--line);
+}
+
+.checkpoint-list {
+  display: grid;
+  gap: 8px;
+  max-height: 420px;
+  overflow: auto;
+}
+
+.checkpoint-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface, #fff);
+}
+
+.run-control-card .flow-result-actions {
+  margin-top: 10px;
+}
+
+.compact-control-action {
+  padding-block: 9px;
+}
+
+@media (max-width: 760px) {
+  .event-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .checkpoint-row {
+    grid-template-columns: 1fr;
+  }
+
+  .checkpoint-row .button {
+    width: 100%;
+  }
 }
 
 .active-run-row {

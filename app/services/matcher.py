@@ -2,6 +2,7 @@ from difflib import SequenceMatcher
 import re
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.entities import Job, MatchResult, Profile
@@ -158,7 +159,18 @@ class MatcherService:
             "suggestions": self._suggestions(missing, dimension_scores),
         }
 
-    def create_match_result(self, db: Session, profile: Profile, job: Job) -> MatchResult:
+    def create_match_result(
+        self,
+        db: Session,
+        profile: Profile,
+        job: Job,
+        *,
+        idempotency_key: str | None = None,
+    ) -> MatchResult:
+        if idempotency_key:
+            existing = db.query(MatchResult).filter(MatchResult.idempotency_key == idempotency_key).first()
+            if existing is not None:
+                return existing
         payload = self.build_match_payload(db, profile, job)
         result = MatchResult(
             profile_id=profile.id,
@@ -169,11 +181,21 @@ class MatcherService:
             missing_skills_json=payload["missing_skills"],
             relevant_evidence_json=payload["relevant_evidence"],
             suggestions_json=payload["suggestions"],
+            idempotency_key=idempotency_key,
         )
         db.add(result)
-        db.commit()
-        db.refresh(result)
-        return result
+        try:
+            db.commit()
+            db.refresh(result)
+            return result
+        except IntegrityError:
+            db.rollback()
+            if not idempotency_key:
+                raise
+            existing = db.query(MatchResult).filter(MatchResult.idempotency_key == idempotency_key).first()
+            if existing is None:
+                raise
+            return existing
 
     def retrieve_evidence(self, db: Session, profile_id: int, job: Job, top_k: int = 8) -> list[dict[str, Any]]:
         job_data = job.structured_jd_json or {}

@@ -90,3 +90,33 @@ class ApprovalService:
             db.add(row)
         db.commit()
         return len(rows)
+
+    def cancel_unexecuted_for_run(
+        self,
+        db: Session,
+        *,
+        run_id: int,
+        executed_approval_ids: set[int] | None = None,
+        note: str | None = None,
+    ) -> int:
+        executed = executed_approval_ids or set()
+        rows = (
+            db.query(AgentApproval)
+            .filter(
+                AgentApproval.run_id == run_id,
+                AgentApproval.status.in_(["pending", "approved"]),
+            )
+            .all()
+        )
+        now = datetime.now(timezone.utc)
+        cancelled = 0
+        for row in rows:
+            if row.id in executed:
+                continue
+            row.status = "cancelled"
+            row.note = note
+            row.decided_at = now
+            db.add(row)
+            cancelled += 1
+        db.commit()
+        return cancelled

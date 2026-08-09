@@ -16,6 +16,8 @@ from app.core.database import SessionLocal
 from app.core.redis_client import RedisLike, get_redis_client, redis_key
 from app.models.entities import AgentRun
 from app.services.ops_audit import OpsAuditService
+from app.services.run_control import RunControlService
+from app.services.stale_runs import StaleRunService
 from app.services.task_queue import TaskQueueService
 from app.services.trace_service import TraceService
 
@@ -164,6 +166,8 @@ class RedisTaskRunner:
             "dead_letter_preview": [decoded for _, _, decoded in self._dead_letter_items(limit=5)],
             "worker_max_attempts": self.settings.redis_worker_max_attempts,
             "queued_recovery_after_minutes": self.settings.redis_queued_recovery_after_minutes,
+            "stale_recovery_after_minutes": self.settings.agent_run_stale_after_minutes,
+            "max_crash_recovery_attempts": self.settings.agent_run_max_recovery_attempts,
         }
 
     def replay_dead_letter(self, db: Session, *, dlq_index: int, actor: str | None = None) -> dict:
@@ -259,6 +263,170 @@ class RedisTaskRunner:
                 "recovered_at": datetime.now(timezone.utc).isoformat(),
             }
             trace.add_event(db, run_id=run.id, event_type="queued_run_recovered", payload=payload)
+            recovered.append(payload)
+        return recovered
+
+    def recover_stale_agent_runs(self, db: Session, *, older_than_minutes: int | None = None) -> list[dict]:
+        stale_items = StaleRunService().find_stale(db, threshold_minutes=older_than_minutes)
+        recovered: list[dict] = []
+        trace = TraceService()
+        control = RunControlService()
+        for item in stale_items:
+            run = db.query(AgentRun).filter(AgentRun.id == int(item["run_id"])).first()
+            if run is None or run.status != "running":
+                continue
+            heartbeat_key = redis_key("career_agent", "runs", "heartbeat", run.id)
+            lock_key = redis_key("career_agent", "runs", "lock", run.id)
+            if self.redis.get(heartbeat_key) or self.redis.get(lock_key):
+                continue
+            input_json = dict(run.input_json or {})
+            output_json = dict(run.output_json or {})
+            execution_plan = input_json.get("execution_plan") or output_json.get("execution_plan") or {}
+            graph_thread_id = (
+                input_json.get("graph_thread_id")
+                or output_json.get("graph_thread_id")
+                or execution_plan.get("graph_thread_id")
+            )
+            if not graph_thread_id:
+                run.status = "failed"
+                run.error_message = "Agent run cannot be crash-recovered because graph_thread_id is missing."
+                run.output_json = {
+                    **output_json,
+                    "error_type": "crash_recovery_unavailable",
+                    "recovery_reason": "missing_graph_thread_id",
+                    "last_stale_stage": item.get("last_stage"),
+                }
+                db.add(run)
+                db.commit()
+                db.refresh(run)
+                payload = {
+                    "reason": "missing_graph_thread_id",
+                    "last_stage": item.get("last_stage"),
+                    "last_event_at": item.get("last_event_at"),
+                }
+                trace.add_event(
+                    db,
+                    run_id=run.id,
+                    event_type="crash_recovery_unavailable",
+                    payload=payload,
+                )
+                control.create_action(
+                    db,
+                    run_id=run.id,
+                    action_type="crash_recovery",
+                    status="failed",
+                    actor="redis_recovery_scanner",
+                    payload=payload,
+                )
+                OpsAuditService().record(
+                    db,
+                    event_type="agent_run_crash_recovery_unavailable",
+                    target_type="agent_run",
+                    target_id=run.id,
+                    actor="redis_recovery_scanner",
+                    payload=payload,
+                )
+                continue
+            recovery_attempt = int(input_json.get("recovery_attempt") or 0) + 1
+            if recovery_attempt > self.settings.agent_run_max_recovery_attempts:
+                run.status = "failed"
+                run.error_message = (
+                    "Agent run exceeded automatic crash recovery attempts: "
+                    f"{self.settings.agent_run_max_recovery_attempts}."
+                )
+                run.output_json = {
+                    **(run.output_json or {}),
+                    "error_type": "crash_recovery_exhausted",
+                    "recovery_attempt": recovery_attempt - 1,
+                    "last_stale_stage": item.get("last_stage"),
+                }
+                db.add(run)
+                db.commit()
+                db.refresh(run)
+                trace.add_event(
+                    db,
+                    run_id=run.id,
+                    event_type="crash_recovery_exhausted",
+                    payload={
+                        "max_attempts": self.settings.agent_run_max_recovery_attempts,
+                        "last_stage": item.get("last_stage"),
+                        "last_event_at": item.get("last_event_at"),
+                    },
+                )
+                control.create_action(
+                    db,
+                    run_id=run.id,
+                    action_type="crash_recovery",
+                    status="failed",
+                    actor="redis_recovery_scanner",
+                    payload={
+                        "reason": "max_attempts_exceeded",
+                        "max_attempts": self.settings.agent_run_max_recovery_attempts,
+                    },
+                )
+                continue
+
+            recovery_key = redis_key("career_agent", "runs", "crash_recovery", run.id, recovery_attempt)
+            if not self.redis.set(recovery_key, "1", nx=True, ex=self.settings.redis_run_lock_ttl_seconds):
+                continue
+            recovered_at = datetime.now(timezone.utc).isoformat()
+            run.input_json = {
+                **input_json,
+                "execution_mode": "checkpoint_resume",
+                "recovery_attempt": recovery_attempt,
+                "recovered_from_stage": item.get("last_stage"),
+                "recovered_from_event_id": item.get("last_event_id"),
+            }
+            run.status = "queued"
+            run.error_message = None
+            run.output_json = {
+                **(run.output_json or {}),
+                "recovery": {
+                    "status": "scheduled",
+                    "attempt": recovery_attempt,
+                    "last_stage": item.get("last_stage"),
+                    "last_event_at": item.get("last_event_at"),
+                    "scheduled_at": recovered_at,
+                },
+            }
+            db.add(run)
+            db.commit()
+            db.refresh(run)
+            self.enqueue_payload(
+                {
+                    "kind": "agent_run",
+                    "run_id": run.id,
+                    "attempts": 0,
+                    "priority": "high",
+                    "execution_mode": "checkpoint_resume",
+                    "recovery_attempt": recovery_attempt,
+                }
+            )
+            payload = {
+                "run_id": run.id,
+                "task_type": run.task_type,
+                "recovery_attempt": recovery_attempt,
+                "last_stage": item.get("last_stage"),
+                "last_event_at": item.get("last_event_at"),
+                "scheduled_at": recovered_at,
+            }
+            trace.add_event(db, run_id=run.id, event_type="crash_recovery_scheduled", payload=payload)
+            control.create_action(
+                db,
+                run_id=run.id,
+                action_type="crash_recovery",
+                status="completed",
+                actor="redis_recovery_scanner",
+                payload={**payload, "stage": "scheduled"},
+            )
+            OpsAuditService().record(
+                db,
+                event_type="agent_run_crash_recovery_scheduled",
+                target_type="agent_run",
+                target_id=run.id,
+                actor="redis_recovery_scanner",
+                payload=payload,
+            )
             recovered.append(payload)
         return recovered
 
@@ -422,6 +590,20 @@ def recover_queued_agent_runs_once(
         db.close()
 
 
+def recover_stale_agent_runs_once(
+    *,
+    redis_client: RedisLike | None = None,
+    settings: Settings | None = None,
+    older_than_minutes: int | None = None,
+) -> list[dict]:
+    runner = RedisTaskRunner(redis_client=redis_client, settings=settings or get_settings())
+    db = SessionLocal()
+    try:
+        return runner.recover_stale_agent_runs(db, older_than_minutes=older_than_minutes)
+    finally:
+        db.close()
+
+
 def run_redis_worker_forever() -> None:
     settings = get_settings()
     next_recovery_at = 0.0
@@ -429,6 +611,7 @@ def run_redis_worker_forever() -> None:
         now = time.monotonic()
         if now >= next_recovery_at:
             recover_queued_agent_runs_once(settings=settings)
+            recover_stale_agent_runs_once(settings=settings)
             next_recovery_at = now + settings.redis_worker_recovery_interval_seconds
         asyncio.run(consume_redis_queue_once(timeout_seconds=settings.redis_worker_poll_timeout_seconds))
 

@@ -6,6 +6,7 @@ from typing import Any
 from urllib.parse import quote_plus
 from uuid import uuid4
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -72,7 +73,12 @@ class InterviewPrepService:
         llm_question_sets: list[dict[str, Any]] | None = None,
         generation_mode: str = "questions_only_v1",
         persist: bool = True,
+        idempotency_key: str | None = None,
     ) -> InterviewPrep:
+        if persist and idempotency_key:
+            existing = db.query(InterviewPrep).filter(InterviewPrep.idempotency_key == idempotency_key).first()
+            if existing is not None:
+                return existing
         match = match_result or self.matcher.create_match_result(db, profile, job)
         evidence = self._evidence(match)
         experience_rows = self.experience_service.find_relevant_for_job(
@@ -187,11 +193,21 @@ class InterviewPrepService:
             source_evidence_json=source_evidence,
             coverage_json=coverage,
             generation_mode=generation_mode,
+            idempotency_key=idempotency_key,
         )
         if persist:
             db.add(prep)
-            db.commit()
-            db.refresh(prep)
+            try:
+                db.commit()
+                db.refresh(prep)
+            except IntegrityError:
+                db.rollback()
+                if not idempotency_key:
+                    raise
+                existing = db.query(InterviewPrep).filter(InterviewPrep.idempotency_key == idempotency_key).first()
+                if existing is None:
+                    raise
+                return existing
         return prep
 
     async def create_interview_prep_with_llm(
@@ -202,7 +218,12 @@ class InterviewPrepService:
         job: Job,
         match_result: MatchResult | None = None,
         experience_ids: list[int] | None = None,
+        idempotency_key: str | None = None,
     ) -> InterviewPrep:
+        if idempotency_key:
+            existing = db.query(InterviewPrep).filter(InterviewPrep.idempotency_key == idempotency_key).first()
+            if existing is not None:
+                return existing
         if not self.llm.available and not self.settings.llm_fallback_enabled:
             raise LLMConfigurationError(
                 "LLM is required for interview preparation. Configure LLM_API_KEY before starting the workflow."
@@ -229,6 +250,7 @@ class InterviewPrepService:
                     experience_ids=experience_ids,
                     budget=budget,
                     workflow_run_id=workflow_run_id,
+                    idempotency_key=idempotency_key,
                 )
 
     async def _create_interview_prep_with_llm_budgeted(
@@ -241,6 +263,7 @@ class InterviewPrepService:
         experience_ids: list[int] | None,
         budget: LLMCallBudget,
         workflow_run_id: str,
+        idempotency_key: str | None,
     ) -> InterviewPrep:
         match = match_result or self.matcher.create_match_result(db, profile, job)
         evidence = self._evidence(match)
@@ -269,6 +292,7 @@ class InterviewPrepService:
             llm_question_sets=llm_question_sets,
             generation_mode="interview_agentic_rag_generating",
             persist=False,
+            idempotency_key=idempotency_key,
         )
         rag_result = await self.agentic_rag.run(
             db,
@@ -330,10 +354,20 @@ class InterviewPrepService:
                     ensure_ascii=False,
                 )
             )
+        draft.idempotency_key = idempotency_key
         db.add(draft)
-        db.commit()
-        db.refresh(draft)
-        return draft
+        try:
+            db.commit()
+            db.refresh(draft)
+            return draft
+        except IntegrityError:
+            db.rollback()
+            if not idempotency_key:
+                raise
+            existing = db.query(InterviewPrep).filter(InterviewPrep.idempotency_key == idempotency_key).first()
+            if existing is None:
+                raise
+            return existing
 
     def _attach_question_metadata(self, question_sets: list[dict[str, Any]], *, missing: list[str] | None = None) -> None:
         missing_norm = {normalize_skill(item) for item in missing or [] if normalize_skill(item)}

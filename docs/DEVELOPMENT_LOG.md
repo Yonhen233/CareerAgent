@@ -1,5 +1,53 @@
 # 开发日志
 
+## 2026-08-09 15:01:16 +08:00：补全 LangGraph 崩溃恢复、Checkpoint 历史分支与业务撤回
+
+### 本轮目标
+- 把原来仅支持人工确认 `resume` 的 checkpoint 能力扩展为真正的 worker 崩溃自动恢复：运行中的进程消失后，scanner 能判断是否仍有存活心跳和锁，从最近持久化 checkpoint 继续，而不是直接把 run 标成失败。
+- 提供 checkpoint 历史查询和“从这里创建新流程”，允许用户回到某个未结束节点重新执行，同时保留原 run、原 trace 和原业务产物，不篡改历史。
+- 判断 CareerAgent 是否需要“会话撤回”。结论是需要，但产品语义应是**撤回某次求职流程产生的内部材料**，而不是删除聊天消息或抹掉已经发生的外部操作。
+- 全程使用本地测试和持久化 fixture，不调用外部 LLM，不消耗 DeepSeek 余额。
+
+### 开发中遇到的关键问题与 Bad Case
+1. **旧 stale 策略不是真正恢复。** queued run 可以重新入队，但 running run 超时后只能由运维标记为 failed。这样 worker 被杀、机器重启或进程崩溃时，即使 SQLite checkpoint 完好，也无法继续执行。
+2. **“有 checkpoint”不等于恢复安全。** 最危险的崩溃窗口是节点已经提交业务表，但 LangGraph 尚未保存下一份 checkpoint。直接从旧 checkpoint 重放会再次创建 MatchResult、ResumeVersion、Application 或 InterviewPrep。原实现只有后三类部分节点在创建后补写幂等键，第一次 INSERT 本身仍可能重复。
+3. **只用 Redis lock 会遗漏两类故障。** 锁过期不代表 worker 一定死亡，长节点仍可能运行；锁还存在也不代表进程一定健康。因此 recovery scanner 同时检查分阶段 heartbeat 和 run lock，任何一个仍活跃都不抢占，二者都消失且 SQLite run 超过 stale 阈值才恢复。
+4. **历史回溯不能改写原 thread。** 如果把旧 checkpoint 直接设为当前状态，原 run 的“当时发生了什么”会被覆盖，审批和产物也无法区分来自哪条时间线。本轮采用 fork 语义：新建 AgentRun、新 `graph_thread_id`，复制选定 checkpoint，并在新 state 中替换 `run_id`。
+5. **Checkpoint ID 不能随便用 UUIDv4。** LangGraph SQLite saver 依赖 checkpoint ID 的可排序性确定最新记录；随机 UUIDv4 会让克隆后的 checkpoint 可能排在父 checkpoint 前面，`aget_state()` 读到错误版本。最终使用 LangGraph 自带的 `uuid6()` 生成单调可排序 ID。
+6. **“撤回”不能等价于删除。** 用户可能选错岗位或生成了不满意的简历，需要让这批材料退出活动视图；但 Profile、Job 和 MatchResult 是共享事实，trace 和审批是审计证据，不能级联删除。邮件已发送、网页表单已提交更不可能撤销。
+7. **异常阶段边界需要分开。** 回溯 API 起初把“复制 checkpoint 失败”和“新 run 入 Redis 失败”放在同一个异常块，前者发生时可能引用尚未创建的 `fork_run`。现已拆成创建分支与队列入队两个阶段，分别返回 409 和可追踪的 503。
+8. **真实启动发现 worker CLI 依赖工作目录并不可靠。** 文档命令 `python scripts/run_agent_worker.py` 会把 `scripts/` 放在 `sys.path[0]`，未安装为 site-package 时无法导入 `app`。服务层测试没有覆盖进程入口；脚本现显式加入仓库根目录，直接运行和 supervisor 拉起都使用同一解释器依赖。
+9. **迁移前旧 run 不具备恢复条件。** 第一次启动真实 worker 后，scanner 找到一条没有 `graph_thread_id` 的旧 stale run，原逻辑无意义重试 3 次后才进 DLQ。现在 scanner 在入队前检查 thread 标识；不可恢复的旧 run 直接写 `crash_recovery_unavailable`、控制审计和 OpsAudit，不消耗队列重试预算。
+10. **接口正确但前端仍空白。** 内置浏览器能看到“流程版本”容器，API 也返回 checkpoint/撤回预览，但页面没有内容。根因是 `base.html` 仍使用旧静态资源版本号，浏览器命中 7 月脚本缓存。更新 cache-busting 版本并增加前端契约断言后，刷新会强制加载本轮 JS/CSS。
+11. **移动端 checkpoint 行不溢出，页面却仍横向滚动。** 浏览器在 390px 视口测得文档宽 445px；逐元素定位后发现 12 列 Grid 虽在媒体查询改成单列，但 `.panel` 保留默认 `min-width:auto`，被历史列表的固有宽度撑开。为所有 `.workspace-grid > *` 设置 `min-width:0` 后，Grid 子项才允许收缩到可用宽度。
+12. **修复 Grid 后仍剩 37px 溢出。** 第二次元素级检查定位到事件流固定 `112px + 1fr`，第二列时间戳的默认最小内容宽度仍会撑开详情面板。把第二列改为 `minmax(0, 1fr)`、时间文本允许换行，并在 760px 以下改为单列事件卡，最终移动端文档宽与视口一致。
+
+### 实现与设计决策
+- `RedisTaskRunner` 增加 stale-running recovery scanner。它从 SQLite 找到超时 running run，确认 heartbeat/run lock 均不存在后，将 run 改回 queued，并写入 `execution_mode=checkpoint_resume`、恢复次数和阶段，再放入 high priority 队列；超过 `AGENT_RUN_MAX_RECOVERY_ATTEMPTS=3` 才终止为 failed。
+- Orchestrator 在 `checkpoint_resume` 模式下读取 `graph_thread_id` 的最新 state，调用 `graph.ainvoke(None, config)` 从 `snapshot.next` 继续；仅当该 thread 完全没有 checkpoint 时才从输入重建，并记录明确 trace。
+- MatchResult、ResumeVersion、Application、InterviewPrep 的业务幂等键改为首次 INSERT 同事务写入并建立唯一索引；遇到并发唯一键冲突时回滚并读取已有产物。恢复执行不再依赖“先查再插”的竞态窗口。
+- 新增 checkpoint history API，返回 checkpoint ID、父 checkpoint、下一节点、interrupt 和安全 state 摘要；回溯时只允许选择有后续节点的 checkpoint，并创建独立 run/thread。源 run 与新 run 都记录 `AgentRunControlAction` 和 trace 事件。
+- 新增 `agent_run_control_actions` 审计表，统一记录 crash recovery、checkpoint rewind、withdraw 等控制面操作及 actor、源 checkpoint、新 run 和结果。
+- 新增流程级业务撤回：本次 run 生成的简历版本和面试包标记 `lifecycle_status=withdrawn`，内部投递材料标记 `status=withdrawn`，未执行的审批取消；Profile、Job、MatchResult、trace、artifact 和审计保留。
+- 外部邮件已经发送或浏览器已经提交时，撤回请求返回 409 并列出不可逆 artifact。高风险工具执行前也会检查父 run 是否已取消/撤回，防止审批通过后又在撤回窗口执行。
+- 历史记录页新增 checkpoint 时间线、控制操作历史、“从这里创建新流程”和“撤回本次生成材料”；材料列表明确显示“已撤回”。控制台 stale run 增加“立即恢复”。
+
+### 验证结果
+- 新增 6 组关键场景测试：定制节点崩溃后从 checkpoint 继续且不重跑规划/匹配；历史 checkpoint fork 后状态和 thread 隔离；存活 heartbeat/lock 不被误恢复；缺少 graph thread 的旧 run 不进入无意义重试；撤回补偿内部产物并取消待执行审批；已发邮件阻止伪撤回。
+- 定向扩展回归 `55 passed`。
+- 完整执行 `python -m compileall -q app`、`git diff --check` 和 `python -m pytest -q --basetemp=.tmp_test/recovery-full`，结果 `269 passed in 106.91s`。
+- 使用当前业务库 run `#233` 的 `finalize_find_jobs` 前 checkpoint 通过 HTTP 创建分支 `#236`；新 run 先返回 queued，随后由真实 Redis worker 完成，`output_json.recovery.mode=checkpoint_rewind`，源控制审计正确关联 target run `#236`。
+- 随后撤回测试分支 `#236`：状态变为 withdrawn，控制操作 completed，`run_withdrawn` 事件 1 条，源 run `#233` 仍为 completed，证明分支隔离和撤回不改写原流程。
+- 内置浏览器在桌面视口加载 9 个可回溯节点和 1 个撤回按钮；390px 移动端最终测得 `clientWidth=scrollWidth=375`，checkpoint/event 内部溢出均为 0。
+- 最终全量回归在全部修复后重新执行，结果 `270 passed in 114.42s`；Redis、API `8071` 和独立 worker 均保持运行，队列为 0，验证过程中由旧 run `#19` 产生的 2 条 DLQ 通过正式 discard service 清理并留下 OpsAudit，最终 DLQ 为 0。
+
+### 面试表达与当前边界
+- 可以把这次问题概括为：**checkpoint 解决控制流位置，业务幂等解决副作用重放，heartbeat + lock 解决故障判定，审计表解决谁做了恢复或撤回；四者缺一不可。**
+- 当前自动恢复面向 Redis worker 承载的后台 Agent run；同步请求若在 API 进程内执行，不由 worker scanner 接管。
+- 回溯是从历史 checkpoint 派生新流程，不是把原流程倒带；这与 Git 分支类似，但业务产物仍通过 run 级幂等键隔离。
+- 当前没有通用多轮聊天 message store，因此没有做“撤回某一句对话”。CareerAgent 的真实需求是撤回一次任务的交付物和后续动作，现有实现与业务风险更匹配。
+- SMTP 发送和网页表单提交只能阻止未来动作、不能补偿外部事实；如果未来接入支持撤销的第三方 API，应为每种工具单独实现 compensation，而不是在通用层假装成功。
+
 ## 2026-07-22 23:49:02 +08:00：基于重构后代码和评测库重建完整面试材料，修正文档事实漂移与指标口径混淆
 
 ### 本轮目标

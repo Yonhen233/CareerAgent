@@ -59,6 +59,11 @@ class HighRiskActionToolService:
             raise ValueError(f"Approval {approval_id} was not found.")
         if approval.action_type not in HIGH_RISK_TOOL_ACTIONS:
             raise ValueError(f"Approval {approval_id} is not bound to a high-risk tool action.")
+        run = db.query(AgentRun).filter(AgentRun.id == approval.run_id).first()
+        if run is None or run.status in {"cancelled", "withdrawn"}:
+            raise ApprovalRequiredError(
+                f"{approval.action_type} cannot execute because Agent run {approval.run_id} is cancelled or withdrawn."
+            )
         if approval.status != "approved":
             raise ApprovalRequiredError(
                 f"{approval.action_type} requires an approved approval record before tool execution."

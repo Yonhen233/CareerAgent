@@ -409,11 +409,14 @@ def test_agent_runs_page_exposes_langgraph_event_timeline():
     assert "selected-run-title" in response.text
     assert "run-history-grid" in response.text
     assert "run-history-grid" in style_css
+    assert ".workspace-grid > *" in style_css
     assert "run-history-list" in style_css
     assert "run-history-select" in style_css
     assert "我的求职流程" not in response.text
     assert "agent-run-form" not in response.text
     assert "run-confirmation" in response.text
+    assert "run-control-actions" in response.text
+    assert "run-checkpoints" in response.text
     assert "run-events" in response.text
     assert "事件流" in response.text
     assert "renderRunConfirmation" in main_js
@@ -430,8 +433,15 @@ def test_agent_runs_page_exposes_langgraph_event_timeline():
     assert "run-confirmation-dialog" in response.text
     assert "loadRunEvents" in main_js
     assert "subscribeAgentRunEvents" in main_js
+    assert "/checkpoints?limit=30" in main_js
+    assert "data-rewind-run" in main_js
+    assert "data-withdraw-run" in main_js
+    assert "/withdrawal-preview" in main_js
+    assert "20260809-run-recovery-3" in response.text
+    assert "20260722-ops-console-1" not in response.text
     assert "event-timeline" in style_css
     assert "event-row" in style_css
+    assert "checkpoint-row" in style_css
 
 
 def test_profiles_page_exposes_complete_chinese_resume_sections():

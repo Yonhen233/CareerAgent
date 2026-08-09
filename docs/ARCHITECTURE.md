@@ -275,6 +275,16 @@ Reranker：
 
 长任务已经通过 Redis 外部优先级队列和独立 worker 执行；API 进程不再用进程内 BackgroundTasks 承载 Agent run。多个 worker 可并发消费不同 run，单个 run 内仍对岗位搜索和 JD 解析做受控并发。SQLite 写入保持顺序事务，run lock、Profile active/rate limit、业务幂等键、heartbeat、stale recovery 和 DLQ 共同处理重复消费与异常恢复。
 
+## 崩溃恢复、历史分支与撤回
+
+三种运行控制语义彼此独立：
+
+1. **Crash recovery**：只处理 worker 异常退出。Scanner 确认 stale running run 没有 Redis heartbeat 和 run lock 后，将其重新入队；LangGraph 从该 thread 的最新 checkpoint 继续。恢复次数有上限并写控制审计。
+2. **Checkpoint rewind**：面向用户重新选择历史决策。系统不会修改原 run，而是复制选定 checkpoint 到新的 `graph_thread_id`，创建新 AgentRun 后继续执行。两条时间线的 trace、审批和业务幂等键完全隔离。
+3. **Business withdrawal**：面向用户撤销本次流程的内部交付物和后续动作。生成的简历版本、投递材料和面试包软撤回，待执行审批取消；共享事实和审计不删除。邮件发送和浏览器提交属于不可逆副作用，会阻止整轮流程被标记为已撤回。
+
+Checkpoint 只回答“下一节点是什么”，不能保证副作用没有发生。所有可重放写库节点必须在首次事务中写入 run 级唯一幂等键；恢复时即使遇到“业务 commit 后、checkpoint commit 前”崩溃，也只会读取同一产物。`agent_run_control_actions` 单独记录恢复、回溯和撤回，避免把控制面操作埋在普通 event 文本中。
+
 后续如果吞吐量超过单节点 SQLite 的写入边界，再将权威业务库迁移到 PostgreSQL/async SQLAlchemy；不是为了“异步化”提前改写全部领域代码。
 
 ## 业务摘要与原始 Trace

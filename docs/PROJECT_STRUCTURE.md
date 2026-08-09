@@ -77,6 +77,7 @@ CareerAgent/
 │   │   ├── task_queue.py                     # Redis 优先级队列、DLQ、HA 和 recovery
 │   │   ├── task_runner.py                    # 队列任务执行入口
 │   │   ├── stale_runs.py                     # heartbeat 与 stale run 管理
+│   │   ├── run_control.py                    # Checkpoint 分支、流程撤回与控制操作审计
 │   │   ├── ops_audit.py                      # 运维与高风险动作审计
 │   │   ├── llm_usage.py                      # 供应商 Token 用量的时间窗与 workflow 聚合
 │   │   ├── session_auth.py                   # Session 用户、租户和角色

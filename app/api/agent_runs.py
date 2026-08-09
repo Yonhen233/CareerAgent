@@ -11,16 +11,21 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal, get_db
 from app.core.redis_client import RedisUnavailableError, get_redis_client, redis_key
 from app.core.security import AuthContext, optional_auth_context
-from app.models.entities import AgentApproval, AgentEvent, AgentRun, AgentStep
+from app.models.entities import AgentApproval, AgentEvent, AgentRun, AgentRunControlAction, AgentStep
 from app.models.schemas import (
     AgentApprovalResponse,
+    AgentCheckpointResponse,
     AgentEventResponse,
     AgentRunCancelRequest,
+    AgentRunControlActionResponse,
     AgentRunRequest,
+    AgentRunRewindRequest,
     AgentRunResponse,
     AgentRunResumeRequest,
+    AgentRunWithdrawRequest,
     AgentStepResponse,
 )
+from app.services.run_control import ACTIVE_RUN_STATUSES, RunControlService, RunWithdrawalConflict
 from app.services.trace_service import TraceService
 from app.services.run_business_summary import RunBusinessSummaryService
 from app.services.task_runner import get_task_runner
@@ -126,6 +131,123 @@ async def cancel_agent_run(
     return AgentRunResponse.model_validate(run)
 
 
+@router.get("/{run_id}/checkpoints", response_model=list[AgentCheckpointResponse])
+async def list_agent_run_checkpoints(
+    run_id: int,
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(optional_auth_context),
+) -> list[AgentCheckpointResponse]:
+    run = _tenant_query(db.query(AgentRun), auth).filter(AgentRun.id == run_id).first()
+    if run is None:
+        raise HTTPException(status_code=404, detail="Agent run not found.")
+    try:
+        rows = await AgentOrchestrator().checkpoint_history(run, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return [AgentCheckpointResponse.model_validate(row) for row in rows]
+
+
+@router.post("/{run_id}/checkpoints/{checkpoint_id}/rewind", response_model=AgentRunResponse, status_code=status.HTTP_202_ACCEPTED)
+async def rewind_agent_run_checkpoint(
+    run_id: int,
+    checkpoint_id: str,
+    payload: AgentRunRewindRequest | None = None,
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(optional_auth_context),
+) -> AgentRunResponse:
+    if _tenant_query(db.query(AgentRun), auth).filter(AgentRun.id == run_id).first() is None:
+        raise HTTPException(status_code=404, detail="Agent run not found.")
+    try:
+        fork_run = await AgentOrchestrator().rewind_from_checkpoint(
+            db,
+            run_id=run_id,
+            checkpoint_id=checkpoint_id,
+            actor=auth.actor,
+            reason=payload.reason if payload else None,
+        )
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    try:
+        get_task_runner().enqueue_agent_run(fork_run.id)
+    except RedisUnavailableError as exc:
+        fork_run.status = "failed"
+        fork_run.error_message = f"Checkpoint rewind queue enqueue failed: {exc}"
+        db.add(fork_run)
+        db.commit()
+        db.refresh(fork_run)
+        TraceService().add_event(
+            db,
+            run_id=fork_run.id,
+            event_type="checkpoint_rewind_enqueue_failed",
+            payload={"error": str(exc)},
+        )
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return AgentRunResponse.model_validate(fork_run)
+
+
+@router.get("/{run_id}/withdrawal-preview")
+def get_agent_run_withdrawal_preview(
+    run_id: int,
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(optional_auth_context),
+) -> dict:
+    run = _tenant_query(db.query(AgentRun), auth).filter(AgentRun.id == run_id).first()
+    if run is None:
+        raise HTTPException(status_code=404, detail="Agent run not found.")
+    return RunControlService().withdrawal_preview(db, run)
+
+
+@router.post("/{run_id}/withdraw")
+def withdraw_agent_run(
+    run_id: int,
+    payload: AgentRunWithdrawRequest,
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(optional_auth_context),
+) -> dict:
+    run = _tenant_query(db.query(AgentRun), auth).filter(AgentRun.id == run_id).first()
+    if run is None:
+        raise HTTPException(status_code=404, detail="Agent run not found.")
+    try:
+        if run.status in ACTIVE_RUN_STATUSES:
+            run = AgentOrchestrator().cancel(db, run.id, reason=f"撤回前取消：{payload.reason}")
+        run, action = RunControlService().withdraw(
+            db,
+            run=run,
+            reason=payload.reason,
+            actor=auth.actor,
+        )
+    except RunWithdrawalConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": str(exc), "irreversible_actions": exc.irreversible_actions},
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {
+        "run": AgentRunResponse.model_validate(run).model_dump(mode="json"),
+        "control_action": AgentRunControlActionResponse.model_validate(action).model_dump(mode="json"),
+    }
+
+
+@router.get("/{run_id}/control-actions", response_model=list[AgentRunControlActionResponse])
+def list_agent_run_control_actions(
+    run_id: int,
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(optional_auth_context),
+) -> list[AgentRunControlActionResponse]:
+    if _tenant_query(db.query(AgentRun), auth).filter(AgentRun.id == run_id).first() is None:
+        raise HTTPException(status_code=404, detail="Agent run not found.")
+    rows = (
+        db.query(AgentRunControlAction)
+        .filter(AgentRunControlAction.run_id == run_id)
+        .order_by(AgentRunControlAction.id.desc())
+        .all()
+    )
+    return [AgentRunControlActionResponse.model_validate(row) for row in rows]
+
+
 @router.get("", response_model=list[AgentRunResponse])
 def list_agent_runs(
     limit: int = Query(default=100, ge=1, le=100),
@@ -227,7 +349,7 @@ def stream_agent_events(
 
 async def _agent_event_sse(run_id: int, *, after_id: int, heartbeat_seconds: float) -> AsyncIterator[str]:
     last_id = after_id
-    final_statuses = {"completed", "failed", "waiting_for_confirmation", "cancelled"}
+    final_statuses = {"completed", "failed", "waiting_for_confirmation", "cancelled", "withdrawn"}
     while True:
         db = SessionLocal()
         try:

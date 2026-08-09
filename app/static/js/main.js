@@ -5,7 +5,7 @@ const DISMISSED_RUN_KEY = "careeragent.dismissed_runs";
 const ACTIVE_RUN_COLLAPSED_KEY = "careeragent.active_runs_collapsed";
 const JOB_DISCOVERY_SESSION_KEY = "careeragent.job_discovery_session";
 const RUN_HISTORY_LIMIT = 50;
-const ACTIVE_RUN_TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "canceled"]);
+const ACTIVE_RUN_TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled", "canceled", "withdrawn"]);
 const ACTIVE_RUN_RECENT_TTL_MS = 24 * 60 * 60 * 1000;
 const LLM_DEPENDENT_PAGES = new Set([
   "dashboard",
@@ -1524,11 +1524,16 @@ async function loadRunSteps(runId, { historyMode = null } = {}) {
   if (selectedTitle) selectedTitle.textContent = `#${run.id} ${taskLabel(run.task_type)}`;
   if (selectedTime) selectedTime.textContent = `${new Date(run.created_at).toLocaleString()} · ${activeRunStatusLabel(run.status)}`;
   renderRunConfirmation(run);
-  const [summary, rows] = await Promise.all([
+  const [summary, rows, checkpoints, controlActions, withdrawalPreview] = await Promise.all([
     api(`/agent/runs/${runId}/summary`),
     api(`/agent/runs/${runId}/steps`),
+    api(`/agent/runs/${runId}/checkpoints?limit=30`).catch(() => []),
+    api(`/agent/runs/${runId}/control-actions`).catch(() => []),
+    api(`/agent/runs/${runId}/withdrawal-preview`).catch(() => null),
   ]);
   renderRunBusinessSummary(summary);
+  renderRunControlActions(run, controlActions, withdrawalPreview);
+  renderRunCheckpoints(run, checkpoints);
   renderItems("#run-steps", rows, (row) => `
     <article class="item">
       <div class="item-title"><span>${escapeHtml(stepLabel(row.step_name))}</span><span class="status-pill ${row.status === "completed" ? "ok" : row.status === "failed" ? "risk" : ""}">${row.status === "completed" ? "完成" : row.status === "failed" ? "失败" : escapeHtml(row.status)}</span></div>
@@ -1537,6 +1542,73 @@ async function loadRunSteps(runId, { historyMode = null } = {}) {
   `);
   await loadRunEvents(runId);
   subscribeAgentRunEvents(runId);
+}
+
+function renderRunControlActions(run, actions, preview) {
+  const el = $("#run-control-actions");
+  if (!el) return;
+  const isActive = ["queued", "running", "waiting_for_confirmation"].includes(run.status);
+  const irreversible = preview?.irreversible_actions || [];
+  const latest = (actions || []).slice(0, 3);
+  const actionLabels = {
+    crash_recovery: "崩溃恢复",
+    checkpoint_rewind: "历史节点回溯",
+    withdraw: "流程撤回",
+  };
+  const primaryAction = run.status === "withdrawn"
+    ? `<span class="status-pill">本次流程已撤回</span>`
+    : irreversible.length
+      ? `<div class="validation-risk">检测到 ${irreversible.length} 个不可逆外部操作，不能把流程标记为已撤回。</div>`
+      : `<button class="button ghost" type="button" data-withdraw-run="${run.id}">
+          <i data-lucide="undo-2"></i> ${isActive ? "取消并撤回本次流程" : "撤回本次生成材料"}
+        </button>`;
+  el.innerHTML = `
+    <article class="item run-control-card">
+      <div class="item-title"><span>本次流程控制</span><span class="status-pill">${escapeHtml(activeRunStatusLabel(run.status))}</span></div>
+      <p class="meta">撤回不会删除原始简历档案、岗位或审计轨迹；已发送邮件和已提交表单无法撤销。</p>
+      <div class="flow-result-actions">${primaryAction}</div>
+    </article>
+    ${latest.length ? latest.map((action) => `
+      <article class="item compact-control-action">
+        <div class="item-title"><span>${escapeHtml(actionLabels[action.action_type] || action.action_type)}</span><span class="status-pill ${action.status === "failed" || action.status === "blocked" ? "risk" : "ok"}">${escapeHtml(action.status)}</span></div>
+        <div class="meta">${new Date(action.created_at).toLocaleString()}${action.target_run_id ? ` · 新流程 #${escapeHtml(action.target_run_id)}` : ""}</div>
+      </article>
+    `).join("") : ""}
+  `;
+  if (window.lucide) window.lucide.createIcons();
+}
+
+function renderRunCheckpoints(run, checkpoints) {
+  const el = $("#run-checkpoints");
+  if (!el) return;
+  const replayable = (checkpoints || []).filter((row) => row.replayable).slice(0, 12);
+  if (!replayable.length) {
+    el.innerHTML = `<article class="item meta">这条记录没有可回溯的 LangGraph checkpoint。</article>`;
+    return;
+  }
+  el.innerHTML = replayable.map((row, index) => {
+    const nextText = (row.next_nodes || []).map(stepLabel).join("、") || "流程结束";
+    const summary = row.state_summary || {};
+    const details = [
+      summary.job_count ? `岗位 ${summary.job_count}` : "",
+      summary.match_count ? `匹配 ${summary.match_count}` : "",
+      summary.has_tailored_resume ? "已有定制简历" : "",
+      summary.has_application_packet ? "已有投递材料" : "",
+      summary.has_interview_prep ? "已有面试包" : "",
+    ].filter(Boolean).join(" · ");
+    return `
+      <article class="checkpoint-row">
+        <div>
+          <div class="item-title"><span>历史节点 ${replayable.length - index}</span><span class="status-pill">下一步：${escapeHtml(nextText)}</span></div>
+          <div class="meta">${row.created_at ? new Date(row.created_at).toLocaleString() : ""}${details ? ` · ${escapeHtml(details)}` : ""}</div>
+        </div>
+        <button class="button ghost" type="button" data-rewind-run="${run.id}" data-checkpoint-id="${escapeHtml(row.checkpoint_id)}">
+          <i data-lucide="git-branch"></i> 从这里创建新流程
+        </button>
+      </article>
+    `;
+  }).join("");
+  if (window.lucide) window.lucide.createIcons();
 }
 
 function confirmationContext(run) {
@@ -1681,6 +1753,14 @@ function eventLabel(eventType, nodeName = "") {
     run_created: "创建流程",
     run_started: "开始运行",
     run_resumed: "恢复运行",
+    run_recovery_started: "崩溃恢复开始",
+    checkpoint_recovery_loaded: "已加载恢复点",
+    checkpoint_recovery_fallback_to_start: "恢复点缺失，重新开始",
+    crash_recovery_scheduled: "已安排崩溃恢复",
+    checkpoint_rewind_forked: "已创建历史分支",
+    checkpoint_rewind_created: "从历史节点创建",
+    run_withdrawn: "流程已撤回",
+    withdrawal_reconciled_after_worker_stop: "撤回补偿完成",
     run_finished: "流程结束",
     run_closed: "连接关闭",
     graph_started: "图开始",
@@ -1818,7 +1898,7 @@ async function loadResumes() {
   }
   el.innerHTML = rows.map((row, index) => `
     <article class="resume-card">
-      <div class="item-title"><span>#${row.id} ${escapeHtml(row.title)}</span><span class="status-pill ${row.verification_json.passed ? "ok" : "risk"}">${row.verification_json.passed ? "事实检查通过" : "需检查"}</span></div>
+      <div class="item-title"><span>#${row.id} ${escapeHtml(row.title)}</span><span class="status-pill ${row.lifecycle_status === "withdrawn" ? "" : row.verification_json.passed ? "ok" : "risk"}">${row.lifecycle_status === "withdrawn" ? "已撤回" : row.verification_json.passed ? "事实检查通过" : "需检查"}</span></div>
       <p class="meta">简历 ${row.profile_id} · 岗位 ${row.job_id}</p>
       ${index < 3
         ? `<iframe class="resume-preview-frame" src="/resumes/${row.id}/html" loading="lazy" title="定制简历 #${row.id} 预览"></iframe>`
@@ -1858,7 +1938,7 @@ async function loadApplications() {
     const packageId = userPackageId(row);
     return `
     <article class="item application-card">
-      <div class="item-title"><span>${escapeHtml(packageLabel(packageId))} · 岗位 ${escapeHtml(row.job_id)}</span><span class="status-pill ${row.status === "ready" ? "ok" : ""}">${row.status === "ready" ? "准备好了" : escapeHtml(row.status)}</span></div>
+      <div class="item-title"><span>${escapeHtml(packageLabel(packageId))} · 岗位 ${escapeHtml(row.job_id)}</span><span class="status-pill ${row.status === "ready" ? "ok" : ""}">${row.status === "ready" ? "准备好了" : row.status === "withdrawn" ? "已撤回" : escapeHtml(row.status)}</span></div>
       <div class="meta">投递材料 · 定制简历 ${row.resume_version_id || "-"}</div>
       ${row.apply_url ? `<p><a class="button ghost" href="${escapeHtml(row.apply_url)}" target="_blank"><i data-lucide="external-link"></i> 打开投递页</a></p>` : ""}
       ${applicationValidation(row)}
@@ -1881,7 +1961,7 @@ async function loadInterviewPreps({ selectPrepId = null } = {}) {
         <button class="interview-prep-select" type="button" data-open-interview-prep="${row.id}" aria-pressed="false">
           <span class="interview-prep-select-head">
             <span class="interview-prep-number">计划 #${row.id}</span>
-            <span class="status-pill ${coverage.passed ? "ok" : ""}">${coverage.passed ? "可练习" : "需补充"}</span>
+            <span class="status-pill ${row.lifecycle_status === "withdrawn" ? "" : coverage.passed ? "ok" : ""}">${row.lifecycle_status === "withdrawn" ? "已撤回" : coverage.passed ? "可练习" : "需补充"}</span>
           </span>
           <strong class="interview-prep-role">${escapeHtml(planTitle)}</strong>
           <span class="interview-prep-facts"><span>${questionCount} 道题</span><span>匹配 ${escapeHtml(summary.overall_score ?? "-")}</span></span>
@@ -1899,7 +1979,8 @@ async function loadInterviewPreps({ selectPrepId = null } = {}) {
   const profileId = Number($("#interview-prep-form")?.elements?.profile_id?.value || params.get("profile_id") || 0);
   const jobId = Number($("#interview-prep-form")?.elements?.job_id?.value || params.get("job_id") || 0);
   const selected = interviewPrepRows.find((row) => Number(row.id) === requestedPrepId)
-    || interviewPrepRows.find((row) => (!profileId || Number(row.profile_id) === profileId) && (!jobId || Number(row.job_id) === jobId))
+    || interviewPrepRows.find((row) => row.lifecycle_status !== "withdrawn" && (!profileId || Number(row.profile_id) === profileId) && (!jobId || Number(row.job_id) === jobId))
+    || interviewPrepRows.find((row) => row.lifecycle_status !== "withdrawn")
     || interviewPrepRows[0];
   await openInterviewPrepWorkspace(selected.id, { updateUrl: Boolean(selectPrepId) });
 }
@@ -2764,6 +2845,7 @@ function activeRunStatusLabel(status) {
     failed: "失败",
     cancelled: "已取消",
     canceled: "已取消",
+    withdrawn: "已撤回",
     unknown: "状态待同步",
   };
   return labels[status] || status || "状态待同步";
@@ -2780,7 +2862,8 @@ function renderActiveRunMonitor(rows) {
     completed: 4,
     cancelled: 5,
     canceled: 5,
-    unknown: 6,
+    withdrawn: 6,
+    unknown: 7,
   };
   const uniqueRows = Array.from(new Map((rows || []).map((row) => [Number(row.run_id || row.id), row])).values());
   const orderedRows = uniqueRows.sort((left, right) => {
@@ -4699,6 +4782,12 @@ function bindForms() {
     await loadOpsPage();
   });
 
+  $("#recover-stale-runs")?.addEventListener("click", async () => {
+    const result = await api("/ops/queue/recover-stale", { method: "POST" });
+    toast(`已安排崩溃恢复：${result.recovered_count || 0} 条`);
+    await loadOpsPage();
+  });
+
   $("#mark-stale-runs")?.addEventListener("click", async () => {
     const result = await api("/ops/agent-runs/mark-stale", { method: "POST" });
     toast(`已标记 stale run：${result.length || 0}`);
@@ -4776,6 +4865,52 @@ function bindForms() {
     const closeRunConfirmationButton = event.target.closest("[data-close-run-confirmation]");
     if (closeRunConfirmationButton) {
       closeDialog("#run-confirmation-dialog");
+      return;
+    }
+    const rewindRunButton = event.target.closest("[data-rewind-run]");
+    if (rewindRunButton) {
+      const runId = Number(rewindRunButton.dataset.rewindRun);
+      const checkpointId = rewindRunButton.dataset.checkpointId;
+      if (!window.confirm("确定从这个历史节点创建一条新流程吗？原流程和原材料不会被修改。")) return;
+      const reason = window.prompt("可选：记录这次回溯的原因", "从历史节点重新处理") || null;
+      rewindRunButton.disabled = true;
+      api(`/agent/runs/${runId}/checkpoints/${encodeURIComponent(checkpointId)}/rewind`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      })
+        .then(async (forkRun) => {
+          trackActiveRun(forkRun);
+          toast(`已创建历史分支 #${forkRun.id}，正在从 checkpoint 继续`);
+          await loadRuns();
+          await restoreActiveRuns();
+        })
+        .catch((error) => toast(error.message))
+        .finally(() => {
+          rewindRunButton.disabled = false;
+        });
+      return;
+    }
+    const withdrawRunButton = event.target.closest("[data-withdraw-run]");
+    if (withdrawRunButton) {
+      const runId = Number(withdrawRunButton.dataset.withdrawRun);
+      const reason = window.prompt("请说明撤回原因。系统会停用本次生成的内部材料，但保留审计记录。", "选择错误或不再使用本次结果");
+      if (!reason?.trim()) return;
+      if (!window.confirm("确认撤回本次流程吗？已发送邮件或已提交表单无法撤销。")) return;
+      withdrawRunButton.disabled = true;
+      api(`/agent/runs/${runId}/withdraw`, {
+        method: "POST",
+        body: JSON.stringify({ reason: reason.trim() }),
+      })
+        .then(async (result) => {
+          updateTrackedRun(result.run);
+          toast(`流程 #${runId} 已撤回，内部材料已停止使用`);
+          await loadRuns();
+          await restoreActiveRuns();
+        })
+        .catch((error) => toast(error.message))
+        .finally(() => {
+          withdrawRunButton.disabled = false;
+        });
       return;
     }
     const openRunConfirmationButton = event.target.closest("[data-open-run-confirmation]");

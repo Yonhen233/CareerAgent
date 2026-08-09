@@ -57,7 +57,7 @@ flowchart LR
 消息队列通常只能保证至少一次投递，不能假设一个 run 只被消费一次。CareerAgent 使用三层防重：
 
 1. **Redis run lock**：worker 执行前 `SET NX EX`，避免两个 worker 同时执行同一 run。
-2. **SQLite 业务幂等键**：`resume_versions`、`applications`、`interview_preps` 有唯一 idempotency key。节点恢复或消息重放时先查询，命中则复用产物并写 `idempotency_reused` 事件。
+2. **SQLite 业务幂等键**：`match_results`、`resume_versions`、`applications`、`interview_preps` 有唯一 idempotency key。键在第一次 INSERT 的同一事务中写入；节点恢复或消息重放时命中唯一键则复用产物并写 `idempotency_reused` 事件。
 3. **审批级单次执行**：浏览器和邮件工具以 approval 为边界，一个审批只能对应一次高风险执行。
 
 锁只避免并发，幂等才保证锁过期、进程崩溃或人工重放后不会创建重复业务产物。
@@ -81,11 +81,13 @@ Worker 心跳不是一个布尔值，而是记录阶段，例如：
 
 DLQ 保存 payload、error、worker_id、失败时间和 `dlq_id`。控制台可以人工 replay 或 discard，两种操作都会写 `ops_audit_events`。
 
+Running run 还有独立的 crash scanner。它只在 SQLite 状态超过 stale 阈值，且 Redis heartbeat 与 run lock 都不存在时执行恢复；满足任意活跃信号就跳过，避免把仍在长节点中的任务重复消费。恢复 payload 标记 `checkpoint_resume` 并进入 high priority 队列，默认最多 3 次，超过后才记录 `run_recovery_exhausted` 并失败。迁移前没有 `graph_thread_id` 的旧 run 无法定位 checkpoint，会直接记录 `crash_recovery_unavailable`，不会无意义入队重试。
+
 ## 6. LangGraph checkpoint 与业务数据库为什么都需要
 
 Checkpoint 保存“图执行到哪个节点、下一步等待什么”；业务表保存“已经创建了哪些可查询产物、审批和审计”。只有 checkpoint 没有业务表，页面难以查询岗位和简历；只有业务表没有 checkpoint，人工确认后不知道从图的哪个位置继续。
 
-恢复协议是：
+人工确认恢复协议是：
 
 1. 用 `agent_runs.graph_thread_id` 定位 checkpoint；
 2. API 校验 run 当前确实处于等待状态；
@@ -93,6 +95,19 @@ Checkpoint 保存“图执行到哪个节点、下一步等待什么”；业务
 4. 使用 `Command(resume=payload)` 恢复；
 5. 下游写库节点再次检查幂等键；
 6. 事件流记录 interrupt、resume、节点完成和终态。
+
+进程崩溃恢复协议是：
+
+1. scanner 用 SQLite stale 时间、Redis heartbeat 和 run lock 判断 worker 已失联；
+2. run 重新进入 queued，并记录 recovery attempt；
+3. Orchestrator 读取原 `graph_thread_id` 的最新 checkpoint；
+4. 调用 `graph.ainvoke(None, config)` 从 `snapshot.next` 继续，而不是从输入重新规划；
+5. 每个业务写节点使用首次事务唯一幂等键，覆盖“业务已提交、checkpoint 未提交”的崩溃窗口；
+6. 恢复、跳过和耗尽都进入 trace、OpsAudit 和 `agent_run_control_actions`。
+
+历史回溯使用分支而非原地改写：复制用户选中的非终态 checkpoint 到新 thread，使用 LangGraph `uuid6()` 生成可排序 checkpoint ID，并创建新的 AgentRun。原 run 的 checkpoint、trace、审批和产物保持不变。
+
+业务撤回也不等于数据库删除。它软撤回本 run 生成的 ResumeVersion、Application 和 InterviewPrep，取消未执行审批并保留审计；若存在已发送邮件或已提交浏览器表单，则拒绝标记为已撤回，因为这些副作用已经无法由本地事务补偿。
 
 ## 7. 人工审批和高风险工具网关
 

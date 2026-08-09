@@ -82,6 +82,7 @@ class Settings(BaseSettings):
     redis_worker_poll_timeout_seconds: int = 10
     redis_worker_recovery_interval_seconds: int = 60
     agent_run_stale_after_minutes: int = 30
+    agent_run_max_recovery_attempts: int = 3
     agent_active_run_limit_per_profile: int = 3
     rbac_enabled: bool = False
     rbac_trusted_header_auth: bool = True

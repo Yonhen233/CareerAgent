@@ -74,11 +74,28 @@ def _ensure_sqlite_columns() -> None:
         app_user_columns = {column["name"] for column in inspector.get_columns("app_users")}
         if "password_hash" not in app_user_columns:
             statements.append("ALTER TABLE app_users ADD COLUMN password_hash VARCHAR(512)")
-    for table_name in ["resume_versions", "applications", "interview_preps"]:
+    for table_name in ["match_results", "resume_versions", "applications", "interview_preps"]:
         if table_name in tables:
             columns = {column["name"] for column in inspector.get_columns(table_name)}
             if "idempotency_key" not in columns:
                 statements.append(f"ALTER TABLE {table_name} ADD COLUMN idempotency_key VARCHAR(255)")
+    for table_name in ["resume_versions", "interview_preps"]:
+        if table_name in tables:
+            columns = {column["name"] for column in inspector.get_columns(table_name)}
+            if "lifecycle_status" not in columns:
+                statements.append(
+                    f"ALTER TABLE {table_name} ADD COLUMN lifecycle_status VARCHAR(32) NOT NULL DEFAULT 'active'"
+                )
+            if "withdrawn_at" not in columns:
+                statements.append(f"ALTER TABLE {table_name} ADD COLUMN withdrawn_at DATETIME")
+            if "withdrawal_reason" not in columns:
+                statements.append(f"ALTER TABLE {table_name} ADD COLUMN withdrawal_reason TEXT")
+    if "applications" in tables:
+        application_columns = {column["name"] for column in inspector.get_columns("applications")}
+        if "withdrawn_at" not in application_columns:
+            statements.append("ALTER TABLE applications ADD COLUMN withdrawn_at DATETIME")
+        if "withdrawal_reason" not in application_columns:
+            statements.append("ALTER TABLE applications ADD COLUMN withdrawal_reason TEXT")
 
     with engine.begin() as conn:
         for statement in statements:
@@ -90,7 +107,7 @@ def _ensure_sqlite_columns() -> None:
                     "ON llm_call_logs(created_at)"
                 )
             )
-        for table_name in ["resume_versions", "applications", "interview_preps"]:
+        for table_name in ["match_results", "resume_versions", "applications", "interview_preps"]:
             if table_name in tables:
                 index_name = f"ix_{table_name}_idempotency_key"
                 indexes = {index["name"] for index in inspector.get_indexes(table_name)}

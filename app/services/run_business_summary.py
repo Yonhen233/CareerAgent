@@ -401,6 +401,8 @@ class RunBusinessSummaryService:
             return f"{job_text or '本次任务'}处理失败，可在 Trace 中定位原因"
         if status == "cancelled":
             return "本次求职任务已取消"
+        if status == "withdrawn":
+            return "本次求职任务及其内部材料已撤回"
         return f"{job_text or '本次求职任务'}正在处理"
 
     def _count_key(self, value: Any, key: str, expected: Any) -> int:

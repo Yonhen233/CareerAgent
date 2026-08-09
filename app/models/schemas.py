@@ -309,6 +309,7 @@ class MatchResponse(BaseModel):
     missing_skills_json: list[str]
     relevant_evidence_json: list[dict[str, Any]]
     suggestions_json: list[str]
+    idempotency_key: str | None = None
     created_at: datetime
 
 
@@ -331,6 +332,9 @@ class ResumeVersionResponse(BaseModel):
     verification_json: dict[str, Any]
     diff_text: str | None
     idempotency_key: str | None = None
+    lifecycle_status: str = "active"
+    withdrawn_at: datetime | None = None
+    withdrawal_reason: str | None = None
     created_at: datetime
 
 
@@ -359,6 +363,40 @@ class AgentRunResumeRequest(BaseModel):
 
 class AgentRunCancelRequest(BaseModel):
     reason: str | None = None
+
+
+class AgentRunRewindRequest(BaseModel):
+    reason: str | None = None
+
+
+class AgentRunWithdrawRequest(BaseModel):
+    reason: str = Field(min_length=2, max_length=500)
+
+
+class AgentCheckpointResponse(BaseModel):
+    checkpoint_id: str
+    parent_checkpoint_id: str | None = None
+    created_at: datetime | None = None
+    step: int | None = None
+    next_nodes: list[str] = Field(default_factory=list)
+    state_summary: dict[str, Any] = Field(default_factory=dict)
+    has_interrupt: bool = False
+    replayable: bool = False
+
+
+class AgentRunControlActionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    run_id: int
+    action_type: str
+    status: str
+    actor: str | None
+    source_checkpoint_id: str | None
+    target_run_id: int | None
+    payload_json: dict[str, Any]
+    created_at: datetime
+    completed_at: datetime | None
 
 
 class AgentRunResponse(BaseModel):
@@ -555,6 +593,8 @@ class ApplicationResponse(BaseModel):
     checklist_json: list[str]
     automation_result_json: dict[str, Any] | None
     idempotency_key: str | None = None
+    withdrawn_at: datetime | None = None
+    withdrawal_reason: str | None = None
     created_at: datetime
 
 
@@ -580,6 +620,9 @@ class InterviewPrepResponse(BaseModel):
     coverage_json: dict[str, Any]
     generation_mode: str
     idempotency_key: str | None = None
+    lifecycle_status: str = "active"
+    withdrawn_at: datetime | None = None
+    withdrawal_reason: str | None = None
     created_at: datetime
 
 

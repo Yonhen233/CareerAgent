@@ -20,9 +20,12 @@ class StaleRunService:
         self.trace = trace or TraceService()
 
     def find_stale(self, db: Session, *, threshold_minutes: int | None = None) -> list[dict[str, Any]]:
-        threshold = datetime.now(timezone.utc) - timedelta(
-            minutes=threshold_minutes or self.settings.agent_run_stale_after_minutes
+        effective_minutes = (
+            self.settings.agent_run_stale_after_minutes
+            if threshold_minutes is None
+            else threshold_minutes
         )
+        threshold = datetime.now(timezone.utc) - timedelta(minutes=effective_minutes)
         rows = db.query(AgentRun).filter(AgentRun.status == "running").all()
         stale: list[dict[str, Any]] = []
         for run in rows:

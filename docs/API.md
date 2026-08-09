@@ -455,6 +455,49 @@ GET /agent/runs/{run_id}/graph-state
 
 返回当前 checkpoint 的 `next` 节点、`interrupts`、`checkpoint_id` 和已保存的 state 摘要，用于排查等待确认和跨请求恢复。
 
+### 查询 Checkpoint 历史
+
+```http
+GET /agent/runs/{run_id}/checkpoints?limit=50
+```
+
+按新到旧返回 checkpoint、父 checkpoint、下一节点、interrupt、创建时间和安全 state 摘要。`replayable=true` 表示该 checkpoint 还有待执行节点，可以用于派生新流程。
+
+### 从历史 Checkpoint 创建新流程
+
+```http
+POST /agent/runs/{run_id}/checkpoints/{checkpoint_id}/rewind
+Content-Type: application/json
+
+{
+  "reason": "重新选择岗位后再生成材料"
+}
+```
+
+该操作不会倒写原 run。系统创建新的 AgentRun 和 `graph_thread_id`，复制所选 checkpoint，替换 state 中的运行标识，并把新 run 放入 Redis 高优先级队列。响应为 `202`；源 run 和新 run 都可通过 trace/控制审计查询关联关系。
+
+### 预览并撤回一次求职流程
+
+```http
+GET /agent/runs/{run_id}/withdrawal-preview
+POST /agent/runs/{run_id}/withdraw
+Content-Type: application/json
+
+{
+  "reason": "选择了错误的目标岗位"
+}
+```
+
+撤回会停用该 run 生成的简历版本、投递材料和面试包，并取消未执行审批；不会删除简历档案、岗位、匹配记录、checkpoint、trace 和审计。运行中的流程会先设置取消，再执行幂等补偿。若邮件已经发送或网页表单已经提交，接口返回 `409` 和不可逆操作列表。
+
+### 查询运行控制审计
+
+```http
+GET /agent/runs/{run_id}/control-actions
+```
+
+返回 crash recovery、checkpoint rewind 和 withdraw 等控制操作，包括 actor、源 checkpoint、派生 run、状态和结构化原因。
+
 ### 搜索并排序岗位
 
 ```http

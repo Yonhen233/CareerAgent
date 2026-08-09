@@ -168,6 +168,8 @@ def queue_status(_: AuthContext = Depends(require_admin)) -> dict:
             "dead_letter_preview": [],
             "worker_max_attempts": settings.redis_worker_max_attempts,
             "queued_recovery_after_minutes": settings.redis_queued_recovery_after_minutes,
+            "stale_recovery_after_minutes": settings.agent_run_stale_after_minutes,
+            "max_crash_recovery_attempts": settings.agent_run_max_recovery_attempts,
         }
     try:
         return RedisTaskRunner().queue_status()
@@ -186,6 +188,22 @@ def recover_queued_runs(
         raise HTTPException(status_code=503, detail="Redis is disabled.")
     try:
         recovered = RedisTaskRunner().recover_queued_agent_runs(db, older_than_minutes=older_than_minutes)
+    except RedisUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {"recovered_count": len(recovered), "recovered_runs": recovered}
+
+
+@router.post("/queue/recover-stale")
+def recover_stale_runs(
+    older_than_minutes: int | None = Query(default=None, ge=0),
+    db: Session = Depends(get_db),
+    _: AuthContext = Depends(require_admin),
+) -> dict:
+    settings = get_settings()
+    if not settings.redis_enabled:
+        raise HTTPException(status_code=503, detail="Redis is disabled.")
+    try:
+        recovered = RedisTaskRunner().recover_stale_agent_runs(db, older_than_minutes=older_than_minutes)
     except RedisUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return {"recovered_count": len(recovered), "recovered_runs": recovered}

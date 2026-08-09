@@ -1,5 +1,6 @@
 import json
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -23,7 +24,12 @@ class ApplicationService:
         job: Job,
         resume_version: ResumeVersion | None,
         browser_assist: bool = False,
+        idempotency_key: str | None = None,
     ) -> Application:
+        if idempotency_key:
+            existing = db.query(Application).filter(Application.idempotency_key == idempotency_key).first()
+            if existing is not None:
+                return existing
         cover_letter = await self._cover_letter(db, profile, job, resume_version)
         outreach = await self._outreach_message(profile, job)
         checklist = [
@@ -62,11 +68,21 @@ class ApplicationService:
             outreach_message=outreach,
             checklist_json=checklist,
             automation_result_json=automation_result,
+            idempotency_key=idempotency_key,
         )
         db.add(application)
-        db.commit()
-        db.refresh(application)
-        return application
+        try:
+            db.commit()
+            db.refresh(application)
+            return application
+        except IntegrityError:
+            db.rollback()
+            if not idempotency_key:
+                raise
+            existing = db.query(Application).filter(Application.idempotency_key == idempotency_key).first()
+            if existing is None:
+                raise
+            return existing
 
     async def _cover_letter(
         self,

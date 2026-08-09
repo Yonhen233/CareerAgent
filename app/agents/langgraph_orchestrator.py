@@ -1,9 +1,13 @@
+import copy
+import inspect
 import time
+from datetime import datetime, timezone
 from typing import Any, Literal, TypedDict
 from uuid import uuid4
 
 import aiosqlite
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+from langgraph.checkpoint.base import uuid6
 from langgraph.errors import GraphInterrupt
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
@@ -13,7 +17,7 @@ from app.agents.tools import AgentPlanner
 from app.core.config import get_settings
 from app.core.redis_client import RedisUnavailableError, get_redis_client, redis_key
 from app.models.entities import AgentRun
-from app.models.entities import Application, Job, Profile, ResumeVersion
+from app.models.entities import Application, Job, MatchResult, Profile, ResumeVersion
 from app.models.schemas import AgentRunRequest
 from app.services.approval_service import ApprovalService
 from app.services.application_service import ApplicationService
@@ -21,6 +25,7 @@ from app.services.interview_prep import InterviewPrepService
 from app.services.job_search import JobSearchService
 from app.services.matcher import MatcherService
 from app.services.resume_tailor import ResumeTailorService
+from app.services.run_control import RunControlService
 from app.services.trace_service import TraceService
 
 
@@ -136,7 +141,15 @@ class LangGraphAgentOrchestrator:
         request = AgentRunRequest(**request_payload)
         graph_thread_id = self._graph_thread_id_from_run(run)
         started = time.perf_counter()
-        return await self._execute_run(db, run, request, graph_thread_id, started)
+        execution_mode = str(payload.get("execution_mode") or "initial")
+        return await self._execute_run(
+            db,
+            run,
+            request,
+            graph_thread_id,
+            started,
+            resume_from_checkpoint=execution_mode in {"checkpoint_resume", "checkpoint_rewind"},
+        )
 
     async def _execute_run(
         self,
@@ -145,6 +158,7 @@ class LangGraphAgentOrchestrator:
         request: AgentRunRequest,
         graph_thread_id: str,
         started: float,
+        resume_from_checkpoint: bool = False,
     ) -> AgentRun:
         self._runtime_dbs[run.id] = db
         run.status = "running"
@@ -154,30 +168,60 @@ class LangGraphAgentOrchestrator:
         self.trace.add_event(
             db,
             run_id=run.id,
-            event_type="run_started",
-            payload={"task_type": request.task_type, "graph_thread_id": graph_thread_id},
+            event_type="run_recovery_started" if resume_from_checkpoint else "run_started",
+            payload={
+                "task_type": request.task_type,
+                "graph_thread_id": graph_thread_id,
+                "execution_mode": (run.input_json or {}).get("execution_mode") or "initial",
+                "recovery_attempt": int((run.input_json or {}).get("recovery_attempt") or 0),
+            },
         )
         try:
             graph = await self._ensure_graph()
+            config = {"configurable": {"thread_id": graph_thread_id}}
+            graph_input: dict[str, Any] | Command | None = {
+                "request": request.model_dump(),
+                "run_id": run.id,
+                "task_type": request.task_type,
+                "profile_id": request.profile_id,
+                "job_id": request.job_id,
+                "resume_version_id": request.resume_version_id,
+                "query": request.query,
+                "location": request.location,
+                "limit": request.limit,
+                "application_confirmed": request.application_confirmed,
+                "graph_thread_id": graph_thread_id,
+            }
+            if resume_from_checkpoint:
+                snapshot = await graph.aget_state(config)
+                if snapshot.values:
+                    graph_input = None
+                    self._runtime_plans[run.id] = (snapshot.values or {}).get("execution_plan") or {}
+                    self.trace.add_event(
+                        db,
+                        run_id=run.id,
+                        event_type="checkpoint_recovery_loaded",
+                        payload={
+                            "checkpoint_id": (snapshot.config or {}).get("configurable", {}).get("checkpoint_id"),
+                            "next_nodes": list(snapshot.next or ()),
+                            "has_interrupt": bool(getattr(snapshot, "interrupts", ()) or ()),
+                        },
+                    )
+                else:
+                    self.trace.add_event(
+                        db,
+                        run_id=run.id,
+                        event_type="checkpoint_recovery_fallback_to_start",
+                        payload={"reason": "checkpoint_not_found", "graph_thread_id": graph_thread_id},
+                    )
             final_state = await self._invoke_graph(
                 graph,
-                {
-                    "request": request.model_dump(),
-                    "run_id": run.id,
-                    "task_type": request.task_type,
-                    "profile_id": request.profile_id,
-                    "job_id": request.job_id,
-                    "resume_version_id": request.resume_version_id,
-                    "query": request.query,
-                    "location": request.location,
-                    "limit": request.limit,
-                    "application_confirmed": request.application_confirmed,
-                    "graph_thread_id": graph_thread_id,
-                },
+                graph_input,
                 db=db,
                 run_id=run.id,
-                config={"configurable": {"thread_id": graph_thread_id}},
+                config=config,
             )
+            self._raise_if_cancelled(db, run.id)
             interrupts = self._interrupt_payloads(final_state)
             if interrupts:
                 output = self._confirmation_output(
@@ -198,8 +242,31 @@ class LangGraphAgentOrchestrator:
             output["execution_plan"] = final_state.get("execution_plan") or {}
             output["orchestration_framework"] = "langgraph"
             output["graph_thread_id"] = graph_thread_id
+            if resume_from_checkpoint:
+                output["recovery"] = {
+                    "mode": (run.input_json or {}).get("execution_mode"),
+                    "attempt": int((run.input_json or {}).get("recovery_attempt") or 0),
+                    "checkpoint_id": final_state.get("checkpoint_id"),
+                }
             return self.trace.finish_run(db, run=run, status="completed", output_json=output, started_at=started)
         except AgentRunCancelled as exc:
+            db.expire_all()
+            current_run = db.query(AgentRun).filter(AgentRun.id == run.id).first() or run
+            if current_run.status == "withdrawn":
+                withdrawal = (current_run.output_json or {}).get("withdrawal") or {}
+                reconciled, _ = RunControlService().withdraw(
+                    db,
+                    run=current_run,
+                    reason=str(withdrawal.get("reason") or "用户撤回流程"),
+                    actor="worker_withdrawal_reconciliation",
+                )
+                self.trace.add_event(
+                    db,
+                    run_id=reconciled.id,
+                    event_type="withdrawal_reconciled_after_worker_stop",
+                    payload={"error": str(exc)},
+                )
+                return reconciled
             return self.trace.finish_run(
                 db,
                 run=run,
@@ -278,6 +345,7 @@ class LangGraphAgentOrchestrator:
                 run_id=run.id,
                 config={"configurable": {"thread_id": graph_thread_id}},
             )
+            self._raise_if_cancelled(db, run.id)
             interrupts = self._interrupt_payloads(final_state)
             if interrupts:
                 output = self._confirmation_output(
@@ -299,6 +367,23 @@ class LangGraphAgentOrchestrator:
             output["graph_thread_id"] = graph_thread_id
             return self.trace.finish_run(db, run=run, status="completed", output_json=output, started_at=started)
         except AgentRunCancelled as exc:
+            db.expire_all()
+            current_run = db.query(AgentRun).filter(AgentRun.id == run.id).first() or run
+            if current_run.status == "withdrawn":
+                withdrawal = (current_run.output_json or {}).get("withdrawal") or {}
+                reconciled, _ = RunControlService().withdraw(
+                    db,
+                    run=current_run,
+                    reason=str(withdrawal.get("reason") or "用户撤回流程"),
+                    actor="worker_withdrawal_reconciliation",
+                )
+                self.trace.add_event(
+                    db,
+                    run_id=reconciled.id,
+                    event_type="withdrawal_reconciled_after_worker_stop",
+                    payload={"error": str(exc)},
+                )
+                return reconciled
             return self.trace.finish_run(
                 db,
                 run=run,
@@ -397,10 +482,225 @@ class LangGraphAgentOrchestrator:
         finally:
             await self._close_checkpoint()
 
+    async def checkpoint_history(self, run: AgentRun, *, limit: int = 50) -> list[dict[str, Any]]:
+        graph_thread_id = self._graph_thread_id_from_run(run)
+        graph = await self._ensure_graph()
+        history: list[dict[str, Any]] = []
+        try:
+            async for snapshot in graph.aget_state_history(
+                {"configurable": {"thread_id": graph_thread_id}},
+                limit=limit,
+            ):
+                values = dict(snapshot.values or {})
+                if values.get("run_id") not in {None, run.id}:
+                    continue
+                config = (snapshot.config or {}).get("configurable", {})
+                parent = (snapshot.parent_config or {}).get("configurable", {})
+                checkpoint_id = str(config.get("checkpoint_id") or "")
+                if not checkpoint_id:
+                    continue
+                next_nodes = [str(item) for item in snapshot.next or ()]
+                interrupts = list(getattr(snapshot, "interrupts", ()) or ())
+                history.append(
+                    {
+                        "checkpoint_id": checkpoint_id,
+                        "parent_checkpoint_id": parent.get("checkpoint_id"),
+                        "created_at": snapshot.created_at,
+                        "step": (snapshot.metadata or {}).get("step"),
+                        "next_nodes": next_nodes,
+                        "state_summary": self._checkpoint_state_summary(values),
+                        "has_interrupt": bool(interrupts),
+                        "replayable": bool(next_nodes),
+                    }
+                )
+            return history
+        finally:
+            await self._close_checkpoint()
+
+    async def rewind_from_checkpoint(
+        self,
+        db: Session,
+        *,
+        run_id: int,
+        checkpoint_id: str,
+        actor: str | None = None,
+        reason: str | None = None,
+    ) -> AgentRun:
+        source_run = db.query(AgentRun).filter(AgentRun.id == run_id).first()
+        if source_run is None:
+            raise ValueError(f"Agent run {run_id} not found.")
+        if source_run.status == "running":
+            raise ValueError("A running Agent run must be cancelled or completed before checkpoint rewind.")
+        if source_run.status == "withdrawn":
+            raise ValueError("A withdrawn Agent run cannot be used as a checkpoint rewind source.")
+
+        source_thread_id = self._graph_thread_id_from_run(source_run)
+        graph = await self._ensure_graph()
+        control = RunControlService()
+        action = control.create_action(
+            db,
+            run_id=source_run.id,
+            action_type="checkpoint_rewind",
+            actor=actor,
+            source_checkpoint_id=checkpoint_id,
+            payload={"reason": reason},
+        )
+        fork_run: AgentRun | None = None
+        new_thread_id: str | None = None
+        try:
+            source_config = {
+                "configurable": {
+                    "thread_id": source_thread_id,
+                    "checkpoint_id": checkpoint_id,
+                }
+            }
+            snapshot = await graph.aget_state(source_config)
+            actual_checkpoint_id = (snapshot.config or {}).get("configurable", {}).get("checkpoint_id")
+            if actual_checkpoint_id != checkpoint_id or not snapshot.values:
+                raise ValueError(f"Checkpoint {checkpoint_id} was not found for Agent run {run_id}.")
+            if int((snapshot.values or {}).get("run_id") or 0) != source_run.id:
+                raise ValueError("Checkpoint does not belong to the selected Agent run.")
+            if not snapshot.next:
+                raise ValueError("The selected checkpoint is terminal; choose an earlier checkpoint with a next node.")
+
+            checkpoint_tuple = await self.checkpointer.aget_tuple(source_config)
+            if checkpoint_tuple is None:
+                raise ValueError(f"Checkpoint {checkpoint_id} payload was not found.")
+
+            new_thread_id = f"agent-run-{uuid4().hex}"
+            source_input = dict(source_run.input_json or {})
+            request_payload = {
+                key: source_input.get(key)
+                for key in AgentRunRequest.model_fields
+                if key in source_input
+            }
+            fork_input = {
+                **request_payload,
+                "orchestration_framework": "langgraph",
+                "graph_thread_id": new_thread_id,
+                "execution_mode": "checkpoint_rewind",
+                "rewind_of_run_id": source_run.id,
+                "origin_checkpoint_id": checkpoint_id,
+                "rewind_reason": reason,
+            }
+            fork_run = self.trace.create_run(
+                db,
+                task_type=source_run.task_type,
+                profile_id=source_run.profile_id,
+                job_id=source_run.job_id,
+                status="queued",
+                input_json=fork_input,
+            )
+            fork_run.tenant_id = source_run.tenant_id
+            db.add(fork_run)
+            db.commit()
+            db.refresh(fork_run)
+
+            checkpoint = copy.deepcopy(checkpoint_tuple.checkpoint)
+            checkpoint["id"] = str(uuid6())
+            checkpoint["ts"] = datetime.now(timezone.utc).isoformat()
+            channel_values = checkpoint.setdefault("channel_values", {})
+            channel_values["run_id"] = fork_run.id
+            channel_values["graph_thread_id"] = new_thread_id
+            execution_plan = dict(channel_values.get("execution_plan") or {})
+            if execution_plan:
+                execution_plan["graph_thread_id"] = new_thread_id
+                execution_plan["rewind_of_run_id"] = source_run.id
+                execution_plan["origin_checkpoint_id"] = checkpoint_id
+                channel_values["execution_plan"] = execution_plan
+            metadata = {
+                **(checkpoint_tuple.metadata or {}),
+                "source": "checkpoint_rewind",
+                "parents": {},
+                "source_run_id": source_run.id,
+                "source_checkpoint_id": checkpoint_id,
+            }
+            fork_config = await self.checkpointer.aput(
+                {"configurable": {"thread_id": new_thread_id, "checkpoint_ns": ""}},
+                checkpoint,
+                metadata,
+                checkpoint.get("channel_versions") or {},
+            )
+            fork_checkpoint_id = fork_config.get("configurable", {}).get("checkpoint_id")
+            fork_run.input_json = {
+                **(fork_run.input_json or {}),
+                "fork_checkpoint_id": fork_checkpoint_id,
+            }
+            db.add(fork_run)
+            db.commit()
+            db.refresh(fork_run)
+
+            event_payload = {
+                "source_run_id": source_run.id,
+                "source_checkpoint_id": checkpoint_id,
+                "target_run_id": fork_run.id,
+                "target_graph_thread_id": new_thread_id,
+                "target_checkpoint_id": fork_checkpoint_id,
+                "next_nodes": list(snapshot.next or ()),
+                "reason": reason,
+                "actor": actor,
+            }
+            self.trace.add_event(
+                db,
+                run_id=source_run.id,
+                event_type="checkpoint_rewind_forked",
+                payload=event_payload,
+            )
+            self.trace.add_event(
+                db,
+                run_id=fork_run.id,
+                event_type="checkpoint_rewind_created",
+                payload=event_payload,
+            )
+            control.complete_action(
+                db,
+                action,
+                status="completed",
+                target_run_id=fork_run.id,
+                payload=event_payload,
+            )
+            return fork_run
+        except Exception as exc:
+            if fork_run is not None:
+                fork_run.status = "failed"
+                fork_run.error_message = f"Checkpoint rewind creation failed: {exc}"
+                db.add(fork_run)
+                db.commit()
+            control.complete_action(
+                db,
+                action,
+                status="failed",
+                target_run_id=fork_run.id if fork_run else None,
+                payload={"error": f"{exc.__class__.__name__}: {exc}"},
+            )
+            if new_thread_id and self.checkpointer is not None:
+                await self.checkpointer.adelete_thread(new_thread_id)
+            raise
+        finally:
+            await self._close_checkpoint()
+
+    def _checkpoint_state_summary(self, values: dict[str, Any]) -> dict[str, Any]:
+        artifact_fields = {
+            "job_count": len(values.get("job_ids") or []),
+            "match_count": len(values.get("matches") or []),
+            "has_tailored_resume": bool(values.get("resume_version_id") or values.get("tailor")),
+            "has_application_packet": bool(values.get("application")),
+            "has_interview_prep": bool(values.get("interview_prep")),
+        }
+        return {
+            "run_id": values.get("run_id"),
+            "task_type": values.get("task_type"),
+            "profile_id": values.get("profile_id"),
+            "job_id": values.get("job_id"),
+            "selected_job_id": values.get("selected_job_id"),
+            "overall_score": values.get("overall_score"),
+            **artifact_fields,
+        }
+
     async def _invoke_graph(
         self,
         graph,
-        payload: dict[str, Any] | Command,
+        payload: dict[str, Any] | Command | None,
         *,
         db: Session,
         run_id: int,
@@ -645,13 +945,16 @@ class LangGraphAgentOrchestrator:
         matches: list[dict[str, Any]] = []
         for job_id in state.get("job_ids", []):
             job = await self._load_job(db, int(job_id))
+            idempotency_key = self._idempotency_key(state, "match_search", profile.id, job.id)
             match = await self.trace.step(
                 db,
                 run_id=state["run_id"],
                 step_name=f"match_job_{job.id}",
                 tool_name="matcher.match_job",
                 input_json={"profile_id": profile.id, "job_id": job.id},
-                handler=lambda job=job: self._async_value(self.matcher.create_match_result(db, profile, job)),
+                handler=lambda job=job, key=idempotency_key: self._async_value(
+                    self._create_match_result(db, profile, job, idempotency_key=key)
+                ),
             )
             matches.append(
                 {
@@ -719,13 +1022,16 @@ class LangGraphAgentOrchestrator:
         db = self._db_from_state(state)
         profile = await self._load_profile(db, state.get("profile_id"))
         job = await self._load_job(db, state.get("job_id"))
+        idempotency_key = self._idempotency_key(state, "match_primary", profile.id, job.id)
         match = await self.trace.step(
             db,
             run_id=state["run_id"],
             step_name="match_job",
             tool_name="matcher.match_job",
             input_json={"profile_id": profile.id, "job_id": job.id},
-            handler=lambda: self._async_value(self.matcher.create_match_result(db, profile, job)),
+            handler=lambda: self._async_value(
+                self._create_match_result(db, profile, job, idempotency_key=idempotency_key)
+            ),
         )
         payload = {
             "match_result_id": match.id,
@@ -761,7 +1067,7 @@ class LangGraphAgentOrchestrator:
             step_name="tailor_resume_with_rag",
             tool_name="resume_tailor.tailor_resume",
             input_json={"profile_id": profile.id, "job_id": job.id},
-            handler=lambda: self.tailor.tailor_resume(db, profile, job),
+            handler=lambda: self._tailor_resume_with_idempotency(db, profile, job, key),
         )
         self._assign_idempotency_key(db, version, key)
         payload = self._tailor_payload(state, profile, job, version, idempotency_reused=False)["tailor"]
@@ -782,14 +1088,20 @@ class LangGraphAgentOrchestrator:
             step_name="fit_gate",
             tool_name="matcher.match_job",
             input_json={"profile_id": profile.id, "job_id": job.id, "min_score": 55},
-            handler=lambda: self._async_value(self._fit_gate(db, profile, job)),
+            handler=lambda: self._async_value(self._fit_gate(db, profile, job, state=state)),
         )
         self.trace.add_artifact(db, run_id=state["run_id"], artifact_type="fit_gate", payload=fit_gate)
         return {"fit_gate": fit_gate}
 
     async def _node_ensure_resume_version(self, state: CareerAgentGraphState) -> dict[str, Any]:
         if state.get("resume_version_id"):
-            return {"resume_version_id": int(state["resume_version_id"])}
+            db = self._db_from_state(state)
+            version = db.query(ResumeVersion).filter(ResumeVersion.id == int(state["resume_version_id"])).first()
+            if version is None:
+                raise ValueError(f"ResumeVersion {state['resume_version_id']} not found.")
+            if version.lifecycle_status != "active":
+                raise ValueError(f"ResumeVersion {version.id} is withdrawn and cannot be used for application materials.")
+            return {"resume_version_id": version.id}
         db = self._db_from_state(state)
         profile = await self._load_profile(db, state.get("profile_id"))
         job = await self._load_job(db, state.get("job_id"))
@@ -804,7 +1116,7 @@ class LangGraphAgentOrchestrator:
             step_name="create_missing_tailored_resume",
             tool_name="resume_tailor.tailor_resume",
             input_json={"profile_id": profile.id, "job_id": job.id},
-            handler=lambda: self.tailor.tailor_resume(db, profile, job),
+            handler=lambda: self._tailor_resume_with_idempotency(db, profile, job, key),
         )
         self._assign_idempotency_key(db, version, key)
         return {"resume_version_id": version.id}
@@ -816,6 +1128,8 @@ class LangGraphAgentOrchestrator:
         resume_version = db.query(ResumeVersion).filter(ResumeVersion.id == state.get("resume_version_id")).first()
         if resume_version is None:
             raise ValueError(f"ResumeVersion {state.get('resume_version_id')} not found.")
+        if resume_version.lifecycle_status != "active":
+            raise ValueError(f"ResumeVersion {resume_version.id} is withdrawn and cannot be used for application materials.")
         confirmation = self._application_confirmation(state, job, resume_version)
         if not confirmation.get("confirmed"):
             raise ValueError("Application confirmation rejected by user.")
@@ -836,10 +1150,14 @@ class LangGraphAgentOrchestrator:
             input_json={"profile_id": profile.id, "job_id": job.id, "resume_version_id": resume_version.id},
             handler=lambda: self.application.create_quick_apply_packet(
                 db,
-                profile=profile,
-                job=job,
-                resume_version=resume_version,
-                browser_assist=False,
+                **self._supported_kwargs(
+                    self.application.create_quick_apply_packet,
+                    profile=profile,
+                    job=job,
+                    resume_version=resume_version,
+                    browser_assist=False,
+                    idempotency_key=key,
+                ),
             ),
         )
         self._assign_idempotency_key(db, application, key)
@@ -861,7 +1179,16 @@ class LangGraphAgentOrchestrator:
             payload["idempotency_reused"] = True
             self.trace.add_artifact(db, run_id=state["run_id"], artifact_type="interview_prep", payload=payload)
             return {"interview_prep": payload}
-        match_result = self.matcher.create_match_result(db, profile, job)
+        match_result = None
+        if state.get("match_result_id"):
+            match_result = db.query(MatchResult).filter(MatchResult.id == int(state["match_result_id"])).first()
+        if match_result is None:
+            match_result = self._create_match_result(
+                db,
+                profile,
+                job,
+                idempotency_key=self._idempotency_key(state, "match_interview", profile.id, job.id),
+            )
         prep = await self.trace.step(
             db,
             run_id=state["run_id"],
@@ -869,7 +1196,14 @@ class LangGraphAgentOrchestrator:
             tool_name="interview_prep.generate_packet",
             input_json={"profile_id": profile.id, "job_id": job.id, "match_result_id": match_result.id},
             handler=lambda: self.interview_prep.create_interview_prep_with_llm(
-                db, profile=profile, job=job, match_result=match_result
+                db,
+                **self._supported_kwargs(
+                    self.interview_prep.create_interview_prep_with_llm,
+                    profile=profile,
+                    job=job,
+                    match_result=match_result,
+                    idempotency_key=key,
+                ),
             ),
         )
         self._assign_idempotency_key(db, prep, key)
@@ -1102,8 +1436,24 @@ class LangGraphAgentOrchestrator:
     async def _async_value(self, value):
         return value
 
-    def _fit_gate(self, db: Session, profile: Profile, job: Job) -> dict[str, Any]:
-        match = self.matcher.create_match_result(db, profile, job)
+    def _fit_gate(
+        self,
+        db: Session,
+        profile: Profile,
+        job: Job,
+        *,
+        state: CareerAgentGraphState,
+    ) -> dict[str, Any]:
+        match = None
+        if state.get("match_result_id"):
+            match = db.query(MatchResult).filter(MatchResult.id == int(state["match_result_id"])).first()
+        if match is None:
+            match = self._create_match_result(
+                db,
+                profile,
+                job,
+                idempotency_key=self._idempotency_key(state, "match_fit_gate", profile.id, job.id),
+            )
         payload = {
             "match_result_id": match.id,
             "overall_score": match.overall_score,
@@ -1173,6 +1523,46 @@ class LangGraphAgentOrchestrator:
     def _idempotency_key(self, state: CareerAgentGraphState, kind: str, *parts: object) -> str:
         return ":".join(["agent_run", str(state["run_id"]), kind, *(str(part) for part in parts)])
 
+    def _create_match_result(
+        self,
+        db: Session,
+        profile: Profile,
+        job: Job,
+        *,
+        idempotency_key: str,
+    ) -> MatchResult:
+        kwargs = self._supported_kwargs(
+            self.matcher.create_match_result,
+            idempotency_key=idempotency_key,
+        )
+        result = self.matcher.create_match_result(db, profile, job, **kwargs)
+        if getattr(result, "idempotency_key", None) is None:
+            self._assign_idempotency_key(db, result, idempotency_key)
+        return result
+
+    async def _tailor_resume_with_idempotency(
+        self,
+        db: Session,
+        profile: Profile,
+        job: Job,
+        idempotency_key: str,
+    ) -> ResumeVersion:
+        kwargs = self._supported_kwargs(
+            self.tailor.tailor_resume,
+            idempotency_key=idempotency_key,
+        )
+        return await self.tailor.tailor_resume(db, profile, job, **kwargs)
+
+    @staticmethod
+    def _supported_kwargs(callable_obj, **kwargs: Any) -> dict[str, Any]:
+        try:
+            parameters = inspect.signature(callable_obj).parameters
+        except (TypeError, ValueError):
+            return {}
+        if any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()):
+            return kwargs
+        return {key: value for key, value in kwargs.items() if key in parameters}
+
     def _resume_by_idempotency_key(self, db: Session, key: str) -> ResumeVersion | None:
         return db.query(ResumeVersion).filter(ResumeVersion.idempotency_key == key).first()
 
@@ -1215,7 +1605,7 @@ class LangGraphAgentOrchestrator:
             pass
         run = db.query(AgentRun).filter(AgentRun.id == run_id).first()
         redis_cancelled = self._redis_cancel_requested(run_id)
-        if run is not None and (run.status == "cancelled" or redis_cancelled):
+        if run is not None and (run.status in {"cancelled", "withdrawn"} or redis_cancelled):
             raise AgentRunCancelled(f"Agent run {run_id} was cancelled.")
 
     def _set_redis_cancel_flag(self, run_id: int) -> None:

@@ -3,6 +3,7 @@ import json
 import re
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -41,7 +42,18 @@ class ResumeTailorService:
         self.context_compressor = ContextCompressor()
         self.injection_guard = PromptInjectionGuard()
 
-    async def tailor_resume(self, db: Session, profile: Profile, job: Job) -> ResumeVersion:
+    async def tailor_resume(
+        self,
+        db: Session,
+        profile: Profile,
+        job: Job,
+        *,
+        idempotency_key: str | None = None,
+    ) -> ResumeVersion:
+        if idempotency_key:
+            existing = db.query(ResumeVersion).filter(ResumeVersion.idempotency_key == idempotency_key).first()
+            if existing is not None:
+                return existing
         raw_evidence = self.matcher.retrieve_evidence(db, profile.id, job, top_k=10)
         evidence, injection_risks = self.injection_guard.sanitize_evidence(raw_evidence, source="resume_rag")
         compressed_context = self.context_compressor.compress_tailor_context(
@@ -101,11 +113,21 @@ class ResumeTailorService:
             source_evidence_json=evidence,
             verification_json=verification,
             diff_text=self._build_diff(profile.raw_resume_text, markdown),
+            idempotency_key=idempotency_key,
         )
         db.add(version)
-        db.commit()
-        db.refresh(version)
-        return version
+        try:
+            db.commit()
+            db.refresh(version)
+            return version
+        except IntegrityError:
+            db.rollback()
+            if not idempotency_key:
+                raise
+            existing = db.query(ResumeVersion).filter(ResumeVersion.idempotency_key == idempotency_key).first()
+            if existing is None:
+                raise
+            return existing
 
     def _needs_repair(self, verification: dict[str, Any]) -> bool:
         return verification.get("risk_level") == "high" or not bool(verification.get("passed"))
