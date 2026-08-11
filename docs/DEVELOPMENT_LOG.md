@@ -1,5 +1,79 @@
 # 开发日志
 
+## 2026-08-11 13:18:52 +08:00：建立用户旅程 SLO，完成中英跨语言 RAG 校准并修复证据误放
+
+### 本轮目标
+- 不再用“测试通过”代替线上可靠性，正式建立用户 API、Agent 有效终态、端到端时延与 Completion Gate 完整性的 SLI/SLO、测量窗口和误差预算。
+- 针对中文为主、少量英文 JD/简历的真实场景，新增成对多语言 RAG 数据，量化同一概念在 `zh_zh/en_en/zh_en/en_zh` 和中英混写上的召回差异。
+- 使用本机真实多语言 embedding 和 reranker 做阈值扫描，不调用 DeepSeek；开发期探针增加 LLMCallLog 零增量门禁，避免再次意外消耗余额。
+
+### 开发前审计发现的问题
+1. FastAPI 只有进程内请求数与平均时延，重启即丢失；AgentRun 虽有 latency/status，却没有窗口、最小样本量、用户取消排除、Completion Gate 完整率和误差预算。
+2. 旧 180-case RAG 数据有四档难度和多种噪声，但没有同一概念的中英文配对，无法判断语言方向差异；也没有把错误 chunk 当负类校准“是否允许下游生成”。
+3. Evidence Gate v2 使用 `query_coverage >= 0.08 OR first_stage >= 0.08`。在 1,440 个正负证据对上，144 个正例全部通过，但 1,296 个负例中误放 1,259 个，FPR 高达 `97.15%`。
+4. 当前 reranker 是英文 MS MARCO cross-encoder。中文走词面启发式后会改写一阶段头部排序，不能因为有二阶段就假定质量更高。
+5. LangGraph checkpoint SQLite 未设置 WAL/busy timeout；错误分类只识别 SQLAlchemy `OperationalError`，不识别原生 `sqlite3.OperationalError`。
+
+### 实现：持久化 SLI、窗口化 SLO 与控制台
+- 新增 `http_request_metrics`，持久化 method、route template、状态码、服务端时延和 `real/synthetic` 流量类型；指标写入失败不改变用户响应。
+- 新增 `evals/slo_policy.json` 和 `SLOService`，支持 7/30 天窗口、最小样本、P95、Wilson 95% 下界与按样本折算的误差预算。
+- 正式追踪从 `2026-08-11 12:00:00 +08:00` 开始，避免历史开发 Run 被当成真实用户流量；真实与合成结果永远分开。
+- SLO 包含用户 API 非 5xx 比例、API P95、Agent 有效终态率、Agent P95 和 completed Run 的 Completion Gate 完整率。
+- 新增 `GET /ops/slo` 和控制台 SLO 面板，并排展示真实流量与合成探针；样本不足返回 `insufficient_data/partial`，不伪装成通过。
+- `run_slo_probes` 执行 75 个 HTTP 请求和 20 次真实 LangGraph 岗位检索，探针期间 LLMCallLog 只要增加就立即判定无效。
+
+### 实现：144-case 多语言 RAG 与 Evidence Gate v3
+- 新增 24 个 Agent 工程概念，每个概念 6 个语言组合，共 144 case、1,440 个 query-chunk 对；每个 case 有 1 个正确证据和 9 个 hard negative。
+- 噪声覆盖同主题错误实现、计划学习、失败方案、相邻 Agent 技术和跨域干扰；与原 180 case 合计 324 个检索 case。
+- 新增批量真实 embedding 评测、语言桶分解、vector/hybrid/reranker 策略比较和 378 组证据门禁阈值扫描。
+- Evidence Gate v3 采用 `vector >= 0.50 OR (lexical >= 0.10 AND first_stage >= 0.45)`，不再让低词面分或低语义分单独放行。
+- 门禁阈值按 embedding provider 绑定：真实多语言模型继续使用上述校准阈值；离线 hash embedding 使用独立的 `0.28/0.30` 测试阈值，并在报告中记录 provider。生产 release gate 仍拒绝 hash，不能拿测试模型分布反向放宽生产门禁。
+- 简历证据门禁前移 EvidenceClassifier：负向、coursework、planned learning 和 missing-skill disclosure 不计为生成支持，但仍可保留做差距分析。
+- 最终门禁 Recall `95.83%`、Precision `85.19%`、F1 `90.20%`、错误证据 FPR `1.85%`；83 组候选阈值满足整体与分语言 release gate，当前配置为其中 F1 最优且 FPR 较低的组合。
+
+### 排序与语言差异结果
+- 多语言纯向量：Top1 `97.92%`、Recall@5 `100%`、MRR `0.9896`。
+- 生产混合一阶段：Top1 `97.22%`、Recall@5 `100%`、MRR `0.9850`。
+- 修复前 Top20 reranker：Top1 `93.06%`；中文查英文从 `91.67%` 降到 `79.17%`。
+- 修复后 Top20 reranker：Top1 恢复为 `97.22%`，与一阶段一致，不再退化，但本数据集上也没有增益。
+- 纯向量 `zh_en` Top1 为 `91.67%`，低于 `en_zh` 的 `100%`；两者 Recall@5 均为 `100%`。结论是跨语言目标可召回，但中文查英文的头部排序仍弱，不能只报告总平均。
+- 尝试多语言 `mmarco-mMiniLMv2-L12-H384-v1`，本机 CPU 对 1,440 对评分超过 10 分钟未完成，因延迟不合格终止，不进入默认生产路由。
+
+### 开发中遇到的 Bad Case 与处理
+1. **生成器索引错位。** 第一版 VARIANT 映射把中文 query 指向 concept ID、把中英文 positive 下标互换。生成前抽样检查发现并修复；以后生成数据必须做语言、query/positive 语义和正例数 invariant 测试，不能只检查 JSON 数量。
+2. **阈值 Recall 很高但几乎所有负例也通过。** 旧门禁 Recall 100% 看似漂亮，Precision 只有 10.26%。原因是只在正例排序集上调参，没有负类决策评测。本轮增加 1,296 个负证据并把 FPR 纳入 release gate。
+3. **Reranker 产生负增益。** 英文 cross-encoder 遇到中文 query 时改走 lexical heuristic，并允许越过一阶段 anchor，导致正确 Top1 下沉。修复为语言降级路由只能重排 anchor 之后的候选；二阶段必须用数据证明增益。
+4. **相关不等于支持。** “投递前审批”和“邮件发出后才确认”embedding 分数很高，因为主题相关，但后者不能支持前者。修复不是继续抬高阈值，而是把 retrieval relevance、evidence type/polarity 和 claim guardrail 分层。
+5. **`without` 规则误杀成功经历。** `Detected repeated calls without new artifacts and terminated...` 被判成 missing disclosure。根因是规则只看局部否定词。修复为识别无新产物/无进展这类运行触发条件，并保留回归；长期不能无限追加词表，需要 query-conditioned entailment 标注。
+6. **第一版 SLO 探针分母错误。** 完整评测混入未配置 LLM 时必然失败的定制/投递任务，导致“可靠性”被探针前置条件污染。修复为只运行依赖就绪的岗位检索旅程，其他记录标为 diagnostic。
+7. **终止 shell 后 Python 子进程仍运行。** 旧探针继续写库，造成 traffic class 再次污染。通过进程审计和按任务类型重分类修复；CI 后续应使用进程组或容器确保级联终止。
+8. **第 19 次重复 Agent Run 出现 SQLite lock。** 所有 Tool 与 Completion Gate 均成功，最终 checkpoint 写入失败。增加 checkpoint WAL、30 秒 busy timeout 和 NORMAL synchronous，并把原生 sqlite OperationalError 分类为可重试 dependency_transient。修复后新增 20 次连续探针全部完成。
+9. **测试命令使用了不同 Python。** 直接 `pytest` 指向系统 Python，缺 `aiosqlite`；`python -m pytest` 指向 workspace Python。项目同时补充显式 `aiosqlite` 依赖，避免依赖环境偶然安装。
+10. **岗位浏览被简历事实门禁误杀。** 新 Evidence Gate 上线后，4 个岗位发现用例返回 422。根因不是岗位不相关，而是岗位聚合候选没有把底层向量分、规则分和一阶段融合分写入统一 retrieval metadata，门禁读到的全是 0；同时不能把“浏览相关 JD”和“用个人经历生成事实”视为同一种支持语义。修复为岗位检索显式保存三类分数，浏览只要求相关 JD，Matcher/ResumeTailor 才启用 `require_supportive_evidence`。
+11. **一段经历同时有成果和能力边界时被整段丢弃。** `Built ... A/B tests but did not implement ranking models` 既包含真实交付，也包含缺失技能；旧分类器只要看到否定词就把整个 project chunk 判成 negative，导致真实经历无法用于定制。新增 `mixed_delivery_disclosure/mixed`，允许已交付部分进入上下文，同时保留否定句约束 LLM 和 Guardrail。
+12. **中文否定词包含正向动作子串。** 第一版 mixed 判定把“没有实现投递前审批”中的“实现”当成正向交付，纯负例被错误放行。修复为先消除 `没有实现/未部署/did not implement` 等完整否定动作短语，再判断是否存在独立交付动作，并增加纯负向与混合证据成对回归。
+13. **真实 embedding 阈值不能直接套到 hash 测试模型。** 多语言模型 `0.50/0.45` 阈值用于 hash 后，一条真实 A/B 项目证据只有 `vector=0.289`，全流程测试被拒绝。没有降低生产阈值，而是增加 provider-aware policy；质量报告同时输出 provider 与两组阈值，避免离线回归和生产校准互相污染。
+
+### SLO 测试结果
+- HTTP 合成样本 `375/375` 非 5xx，availability `100%`，P95 `110.457ms`。
+- Agent 岗位检索累计 `67/69` 到达 completed，valid terminal rate `97.1014%`，P95 `54,917ms`；最新追加的 20 次连续探针全部完成。
+- completed Run 的 Completion Gate 完整率 `67/67=100%`。
+- 两次失败均为修复前 checkpoint lock；69 个样本下 95% SLO 允许 3 次失败，因此当前合成窗口 Agent 误差预算剩余为 1。
+- 真实用户流量尚未建立，真实窗口应显示样本不足；上述结果只能作为发布前合成证据。
+
+### 测试与文档
+- SLO、ErrorClassifier、Reranker、Evidence Gate、Matcher 专项最终通过；多语言 release gate 通过。
+- 最终全量回归 `309 passed in 97.99s`；真实多语言模型复跑 144 case/1,440 pair 与文档指标一致；最新 SLO 探针 20/20 Agent 完成且最近 LLMCallLog 增量为 0。
+- 新增 `docs/SLO.md` 和 `docs/RAG_MULTILINGUAL_CALIBRATION.md`，`EVALUATION.md`、README 和运维控制台同步。
+- 所有多语言与 SLO 评测没有调用 DeepSeek，最近 LLMCallLog 增量为 0。
+
+### 尚未解决与下一步
+1. 上线后需要真实 7/30 天流量校准目标，并增加 1h/6h/3d burn-rate 告警；当前没有资格声称真实 SLO 达标。
+2. 中文查英文 Top1 仍是最弱桶，需要补真实中文求职需求、英文 JD 与人工相关性等级，不应只继续生成模板数据。
+3. 逐请求写 SQLite 适合当前规模；多实例高并发应迁移到 Prometheus/OpenTelemetry 聚合，并使用 PostgreSQL 存业务权威状态。
+4. 现有 reranker 在新数据上只做到不退化，没有增益。多语言候选模型必须通过延迟预算后才能替换，不能只凭模型卡选型。
+5. EvidenceClassifier 仍是确定性规则层，适合作为低成本前置门禁，但不能替代 query-conditioned entailment 与最终 claim guardrail。
+
 ## 2026-08-11 11:26:36 +08:00：成熟 Agent 二次审计，补齐证据、Tool、完成语义与成本上限
 
 ### 本轮目标与成熟度判断

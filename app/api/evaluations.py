@@ -6,6 +6,7 @@ from app.models.entities import EvaluationRun
 from app.models.schemas import EvaluationRunResponse
 from app.services.evaluation_service import EvaluationService
 from app.services.interview_claim_evaluation import InterviewClaimVerifierEvaluationService
+from app.services.multilingual_rag_evaluation import MultilingualRAGEvaluationService
 
 router = APIRouter(prefix="/evaluations", tags=["evaluations"])
 
@@ -25,6 +26,12 @@ def run_pdf_chunk_strategy_evaluation(db: Session = Depends(get_db)) -> Evaluati
 @router.post("/rag-strategies", response_model=EvaluationRunResponse, status_code=status.HTTP_201_CREATED)
 def run_rag_strategy_evaluation(db: Session = Depends(get_db)) -> EvaluationRunResponse:
     run = EvaluationService().run_rag_strategy_evaluation(db)
+    return EvaluationRunResponse.model_validate(run)
+
+
+@router.post("/rag-multilingual-calibration", response_model=EvaluationRunResponse, status_code=status.HTTP_201_CREATED)
+def run_multilingual_rag_calibration(db: Session = Depends(get_db)) -> EvaluationRunResponse:
+    run = MultilingualRAGEvaluationService().run(db)
     return EvaluationRunResponse.model_validate(run)
 
 

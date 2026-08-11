@@ -2360,6 +2360,44 @@ function renderOpsReadiness(readiness) {
   `;
 }
 
+function renderSLOReportGroup(report, label) {
+  const objectives = report.objectives || [];
+  return `
+    <article class="item">
+      <div class="item-title">
+        <span>${escapeHtml(label)}</span>
+        <span class="status-pill ${statusClass(report.status)}">${escapeHtml(report.status || "unknown")}</span>
+      </div>
+      <p class="meta">窗口 ${escapeHtml(String(report.window_days || "-"))} 天 · HTTP ${escapeHtml(String(report.sample_counts?.http_user_api ?? 0))} · Agent ${escapeHtml(String(report.sample_counts?.agent_runs ?? 0))}</p>
+      <div class="result-list compact-list">
+        ${objectives.map((objective) => {
+          const target = objective.target !== undefined ? `>= ${objective.target}` : `<= ${objective.target_max}`;
+          const budget = objective.error_budget;
+          return `
+            <div class="item ${objective.status === "breached" ? "validation-risk" : objective.status === "met" ? "validation-ok" : ""}">
+              <div class="item-title">
+                <span>${escapeHtml(objective.name)}</span>
+                <span class="status-pill ${statusClass(objective.status)}">${escapeHtml(objective.status)}</span>
+              </div>
+              <div class="meta">当前 ${escapeHtml(String(objective.value))} · 目标 ${escapeHtml(target)} · 样本 ${escapeHtml(String(objective.total_samples ?? 0))}/${escapeHtml(String(objective.minimum_samples ?? 0))}</div>
+              ${budget ? `<div class="meta">误差预算：允许 ${budget.allowed_bad_samples}，已消耗 ${budget.consumed_bad_samples}，剩余 ${budget.remaining_bad_samples}</div>` : ""}
+            </div>
+          `;
+        }).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderOpsSLO(reports) {
+  return `
+    <div class="workspace-grid">
+      <div class="span-6">${renderSLOReportGroup(reports.real || {}, "真实用户流量")}</div>
+      <div class="span-6">${renderSLOReportGroup(reports.synthetic || {}, "合成用户旅程")}</div>
+    </div>
+  `;
+}
+
 function renderOpsMetrics(metrics) {
   const app = metrics.app || {};
   const database = metrics.database || {};
@@ -2652,6 +2690,10 @@ async function loadOpsPage() {
   updateAdminTokenState();
   await Promise.all([
     loadOpsSection("#ops-readiness", api("/ops/readiness"), renderOpsReadiness),
+    loadOpsSection("#ops-slo", Promise.all([
+      api("/ops/slo?window_days=7&traffic_class=real"),
+      api("/ops/slo?window_days=7&traffic_class=synthetic"),
+    ]).then(([real, synthetic]) => ({ real, synthetic })), renderOpsSLO),
     loadOpsSection("#ops-metrics", api("/ops/metrics"), renderOpsMetrics),
     loadOpsSection("#ops-config", api("/ops/config"), renderOpsConfig),
     loadOpsSection("#ops-llm-usage", api("/ops/llm-usage?hours=24"), renderOpsLLMUsage),

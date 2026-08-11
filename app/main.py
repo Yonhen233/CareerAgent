@@ -27,7 +27,7 @@ from app.api.tasks import router as tasks_router
 from app.core.config import get_settings
 from app.core.database import init_db
 from app.core.security import request_has_mutation_access
-from app.core.telemetry import telemetry
+from app.core.telemetry import persist_request_metric, telemetry
 from app.services.session_auth import SessionAuthService
 from app.frontend.routes import router as frontend_router
 
@@ -78,19 +78,45 @@ async def record_request_metrics(request, call_next):
             status_code=401,
             content={"detail": "Admin token is required for write operations."},
         )
+        latency_ms = (time.perf_counter() - started) * 1000
         telemetry.record(
             path=request.url.path,
             status_code=response.status_code,
-            latency_ms=(time.perf_counter() - started) * 1000,
+            latency_ms=latency_ms,
         )
+        _persist_http_metric(request, response.status_code, latency_ms)
         return response
     response = await call_next(request)
+    latency_ms = (time.perf_counter() - started) * 1000
     telemetry.record(
         path=request.url.path,
         status_code=response.status_code,
-        latency_ms=(time.perf_counter() - started) * 1000,
+        latency_ms=latency_ms,
     )
+    _persist_http_metric(request, response.status_code, latency_ms)
     return response
+
+
+def _persist_http_metric(request, status_code: int, latency_ms: float) -> None:
+    route = request.scope.get("route")
+    route_template = getattr(route, "path", None) or request.url.path
+    traffic_class = "synthetic" if request.headers.get("x-careeragent-synthetic-probe") == "1" else "real"
+    from app.core.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        persist_request_metric(
+            db,
+            method=request.method,
+            route_template=route_template,
+            status_code=status_code,
+            latency_ms=latency_ms,
+            traffic_class=traffic_class,
+        )
+    except Exception:  # Metrics must never change the user-visible request outcome.
+        db.rollback()
+    finally:
+        db.close()
 
 app.include_router(frontend_router)
 app.include_router(health_router)

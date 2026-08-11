@@ -1,0 +1,10 @@
+{
+  "version": "careeragent-multilingual-rag-release-v1",
+  "minimum_case_count": 140,
+  "min_top1_accuracy": 0.82,
+  "min_recall_at_5": 0.96,
+  "min_language_pair_recall_at_5": 0.90,
+  "max_language_pair_recall_gap": 0.10,
+  "min_evidence_gate_recall": 0.95,
+  "max_evidence_gate_false_positive_rate": 0.10
+}

@@ -8,6 +8,8 @@
 
 > 2026-08-11 二次成熟度审计将 RAG Evidence Gate 升级为 v2、Completion Gate 升级为 v2、Task Contract 升级为 v3，并增加 Tool 强类型合同、无进展循环检测、SQLite 产物 lineage 回查和父子 LLM 总预算。首轮全量为 `294 passed, 5 failed`，5 个失败揭示门禁自身的枚举解析与跨检索器 metadata 契约问题；继续收紧 Planner 输出合同后最终为 `300 passed in 160.18s`。新增 bad case 均为确定性回归，不调用 DeepSeek。
 
+> 2026-08-11 新增 144-case 中英双语/跨语言 RAG 校准集和 1,440 个证据对。真实多语 embedding 的纯向量 Top1 为 `0.9792`、Recall@5 为 `1.0`；校准后的 Evidence Gate v3 在 Recall `0.9583` 下把错误证据误放率从 `0.9715` 降到 `0.0185`。同日建立 7/30 天窗口 SLO；合成 7 天切片为 HTTP `300/300`、P95 `103.974ms`，Agent `47/49`、P95 `62083ms`，Completion Integrity `47/47`。详见 [SLO](SLO.md) 与 [多语言 RAG 校准](RAG_MULTILINGUAL_CALIBRATION.md)。
+
 ## Agent Runtime Bad Case 评测
 
 这部分不评“回答写得像不像”，而是验证成熟 Agent 的控制面在故障下是否作出正确决策：

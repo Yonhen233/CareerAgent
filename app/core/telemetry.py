@@ -2,6 +2,10 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field
 
+from sqlalchemy.orm import Session
+
+from app.models.entities import HttpRequestMetric
+
 
 @dataclass
 class AppTelemetry:
@@ -30,3 +34,24 @@ class AppTelemetry:
 
 
 telemetry = AppTelemetry()
+
+
+def persist_request_metric(
+    db: Session,
+    *,
+    method: str,
+    route_template: str,
+    status_code: int,
+    latency_ms: float,
+    traffic_class: str = "real",
+) -> None:
+    db.add(
+        HttpRequestMetric(
+            method=method[:12],
+            route_template=(route_template or "unmatched")[:255],
+            status_code=status_code,
+            latency_ms=max(float(latency_ms), 0.0),
+            traffic_class="synthetic" if traffic_class == "synthetic" else "real",
+        )
+    )
+    db.commit()

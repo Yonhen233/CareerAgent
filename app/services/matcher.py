@@ -248,6 +248,7 @@ class MatcherService:
             expected_chunk_types=expected_types,
             min_evidence_chunks=2,
             expected_query_count=len(queries),
+            require_supportive_evidence=True,
         )
         recovery_attempts = [
             {
@@ -271,6 +272,7 @@ class MatcherService:
                 expected_chunk_types=expected_types,
                 min_evidence_chunks=2,
                 expected_query_count=len(queries),
+                require_supportive_evidence=True,
             )
             recovery_attempts.append(
                 {

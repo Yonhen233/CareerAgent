@@ -1,4 +1,5 @@
 import asyncio
+import sqlite3
 
 import pytest
 from fastapi import HTTPException
@@ -24,6 +25,7 @@ from app.models.entities import (
 )
 from app.models.schemas import AgentFeedbackCreateRequest, AgentMemoryCreateRequest
 from app.services.agent_runtime import (
+    AgentErrorClassifier,
     AgentToolCircuitOpenError,
     AgentToolContractError,
     AgentToolRuntime,
@@ -32,6 +34,14 @@ from app.services.memory_feedback import AgentFeedbackService, CareerMemoryServi
 from app.services.online_quality import OnlineAgentQualityService
 from app.core.redaction import SecurityRedactor
 from app.services.trace_service import TraceService
+
+
+def test_sqlite_lock_is_classified_as_retryable_dependency_failure():
+    envelope = AgentErrorClassifier().classify(sqlite3.OperationalError("database is locked"))
+
+    assert envelope.category == "dependency_transient"
+    assert envelope.retryable is True
+    assert envelope.recovery_action == "bounded_retry_then_dlq"
 
 
 def test_runtime_rejects_wrong_input_type_before_tool_execution(db_session):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
@@ -92,7 +93,10 @@ class AgentErrorClassifier:
             return "dependency_circuit_open", False, "wait_for_cooldown_or_manual_probe"
         if isinstance(exc, (AgentToolTimeoutError, asyncio.TimeoutError, httpx.TimeoutException)):
             return "dependency_timeout", True, "bounded_retry_then_dlq"
-        if isinstance(exc, (httpx.TransportError, ConnectionError, RedisUnavailableError, OperationalError)):
+        if isinstance(
+            exc,
+            (httpx.TransportError, ConnectionError, RedisUnavailableError, OperationalError, sqlite3.OperationalError),
+        ):
             return "dependency_transient", True, "bounded_retry_then_dlq"
         if isinstance(exc, RetrievalQualityError):
             return "insufficient_evidence", False, "request_better_evidence_or_change_query"

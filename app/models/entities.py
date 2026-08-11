@@ -562,6 +562,20 @@ class LLMCallLog(Base):
     )
 
 
+class HttpRequestMetric(Base):
+    __tablename__ = "http_request_metrics"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    method: Mapped[str] = mapped_column(String(12), nullable=False, index=True)
+    route_template: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    status_code: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    latency_ms: Mapped[float] = mapped_column(nullable=False, default=0.0)
+    traffic_class: Mapped[str] = mapped_column(String(24), nullable=False, default="real", index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False, index=True
+    )
+
+
 class EvaluationRun(Base):
     __tablename__ = "evaluation_runs"
 

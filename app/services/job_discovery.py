@@ -208,6 +208,12 @@ class JobDiscoveryService:
                         "rule_score": relevance.score,
                         "semantic_score": semantic,
                         "reasons": relevance.reasons,
+                        "retrieval": {
+                            "vector_score": semantic,
+                            "lexical_score": rule_norm,
+                            "first_stage_score": retrieval_score,
+                            "retrieval_route": "job_metadata_hybrid",
+                        },
                     },
                 }
             )

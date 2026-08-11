@@ -147,8 +147,11 @@ class Settings(BaseSettings):
     rag_multi_query_enabled: bool = True
     rag_multi_query_rrf_k: int = Field(default=60, ge=1, le=200)
     rag_min_evidence_chunks: int = Field(default=1, ge=1, le=20)
-    rag_min_query_coverage: float = Field(default=0.08, ge=0.0, le=1.0)
-    rag_min_first_stage_score: float = Field(default=0.08, ge=-1.0, le=1.0)
+    rag_min_vector_score: float = Field(default=0.50, ge=-1.0, le=1.0)
+    rag_min_query_coverage: float = Field(default=0.10, ge=0.0, le=1.0)
+    rag_min_first_stage_score: float = Field(default=0.45, ge=-1.0, le=1.0)
+    rag_hash_min_vector_score: float = Field(default=0.28, ge=-1.0, le=1.0)
+    rag_hash_min_first_stage_score: float = Field(default=0.30, ge=-1.0, le=1.0)
     job_ingest_concurrency: int = 6
 
     job_search_timeout_seconds: float = 18.0

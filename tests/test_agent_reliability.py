@@ -171,6 +171,86 @@ def test_retrieval_quality_rejects_wrong_semantic_chunk_type_even_with_high_scor
     assert "no expected semantic chunk type was retrieved" in report["reasons"]
 
 
+def test_retrieval_quality_does_not_count_negative_or_planned_chunks_as_generation_support():
+    report = RetrievalQualityService().assess(
+        "投递前需要人工审批，并使用 LangGraph checkpoint 恢复",
+        [
+            {
+                "text": "邮件已经发送后才显示确认提示，没有实现投递前人工审批。",
+                "chunk_type": "project",
+                "score": 0.95,
+                "metadata": {
+                    "retrieval": {
+                        "vector_score": 0.88,
+                        "first_stage_score": 0.80,
+                        "lexical_score": 0.50,
+                    }
+                },
+            },
+            {
+                "text": "计划学习 LangGraph checkpoint，目前没有实现恢复。",
+                "chunk_type": "project",
+                "score": 0.90,
+                "metadata": {
+                    "retrieval": {
+                        "vector_score": 0.82,
+                        "first_stage_score": 0.76,
+                        "lexical_score": 0.42,
+                    }
+                },
+            },
+        ],
+        expected_chunk_types={"project", "experience"},
+        min_evidence_chunks=2,
+        require_supportive_evidence=True,
+    )
+
+    assert report["passed"] is False
+    assert report["supporting_evidence_count"] == 0
+    assert report["blocked_weak_evidence_count"] == 2
+
+
+def test_retrieval_quality_uses_provider_specific_hash_thresholds_without_lowering_production_gate():
+    report = RetrievalQualityService().assess(
+        "Recommendation Ranking Metrics",
+        [
+            {
+                "text": "Built experiment dashboards and analyzed A/B tests, but did not implement ranking models.",
+                "chunk_type": "project",
+                "score": 0.56,
+                "metadata": {
+                    "retrieval": {
+                        "query_embedding": {"provider": "hash"},
+                        "vector_score": 0.29,
+                        "first_stage_score": 0.31,
+                        "lexical_score": 0.25,
+                    }
+                },
+            },
+            {
+                "text": "Metrics",
+                "chunk_type": "skill",
+                "score": 0.44,
+                "metadata": {
+                    "retrieval": {
+                        "query_embedding": {"provider": "hash"},
+                        "vector_score": 0.31,
+                        "first_stage_score": 0.21,
+                        "lexical_score": 0.05,
+                    }
+                },
+            },
+        ],
+        expected_chunk_types={"project", "experience", "skill"},
+        min_evidence_chunks=2,
+        require_supportive_evidence=True,
+    )
+
+    assert report["passed"] is True
+    assert report["embedding_providers"] == ["hash"]
+    assert report["thresholds"]["min_vector_score"] == 0.5
+
+
 def test_natural_language_completion_gate_detects_silent_early_stop():
     report = AgentTaskContractService().verify_natural_language(
         plan={

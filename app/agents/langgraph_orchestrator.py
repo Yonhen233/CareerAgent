@@ -1005,6 +1005,9 @@ class LangGraphAgentOrchestrator:
         path = self.settings.langgraph_checkpoint_path
         path.parent.mkdir(parents=True, exist_ok=True)
         self._checkpoint_conn = await aiosqlite.connect(str(path))
+        await self._checkpoint_conn.execute("PRAGMA busy_timeout=30000")
+        await self._checkpoint_conn.execute("PRAGMA journal_mode=WAL")
+        await self._checkpoint_conn.execute("PRAGMA synchronous=NORMAL")
         self.checkpointer = AsyncSqliteSaver(self._checkpoint_conn)
         await self.checkpointer.setup()
         self._graph = self._build_graph()

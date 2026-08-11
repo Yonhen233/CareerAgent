@@ -64,7 +64,7 @@ class RerankerService:
                 reranked.append(candidate)
 
         if info.get("language_route") == "cjk_lexical":
-            return sorted(reranked, key=self._score, reverse=True)[:top_k]
+            return self._anchored_sort(reranked)[:top_k]
         return self._anchored_sort(reranked)[:top_k]
 
     def rerank_dicts(self, query: str, candidates: list[dict[str, Any]], *, top_k: int) -> list[dict[str, Any]]:
@@ -178,7 +178,7 @@ class RerankerService:
             reranked.append(item)
 
         if info.get("language_route") == "cjk_lexical":
-            return sorted(reranked, key=self._score, reverse=True)[:top_k]
+            return self._anchored_sort(reranked)[:top_k]
         return self._anchored_sort(reranked)[:top_k]
 
     def _score_pairs(

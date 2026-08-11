@@ -91,6 +91,31 @@ MISSING_DISCLOSURE_CUES = [
     "缺少",
 ]
 
+NON_DISCLOSURE_WITHOUT_PHRASES = [
+    "without new artifacts",
+    "without any new artifacts",
+    "without progress",
+    "without state changes",
+]
+
+NEGATED_DELIVERY_PHRASES = [
+    "did not build",
+    "did not implement",
+    "not built",
+    "not implemented",
+    "no built",
+    "no implemented",
+    "没有构建",
+    "没有实现",
+    "没有开发",
+    "没有部署",
+    "未构建",
+    "未实现",
+    "未开发",
+    "未部署",
+    "未交付",
+]
+
 
 @dataclass(frozen=True)
 class EvidenceClassification:
@@ -118,10 +143,25 @@ class EvidenceClassifier:
 
     def classify(self, text: str, *, chunk_type: str | None = None, source: str | None = None) -> EvidenceClassification:
         lowered = (text or "").lower()
+        disclosure_text = lowered
+        for phrase in NON_DISCLOSURE_WITHOUT_PHRASES:
+            disclosure_text = disclosure_text.replace(phrase, "")
+        positive_text = lowered
+        for phrase in NEGATED_DELIVERY_PHRASES:
+            positive_text = positive_text.replace(phrase, "")
         chunk_type_norm = (chunk_type or "").lower()
         source_norm = (source or "").lower()
 
-        if self._has_any(lowered, MISSING_DISCLOSURE_CUES):
+        has_missing_disclosure = self._has_any(disclosure_text, MISSING_DISCLOSURE_CUES)
+        has_delivered_work = self._has_any(positive_text, POSITIVE_DELIVERY_CUES)
+        if has_missing_disclosure and has_delivered_work and chunk_type_norm in {"project", "experience"}:
+            return EvidenceClassification(
+                evidence_type="mixed_delivery_disclosure",
+                polarity="mixed",
+                confidence=0.9,
+                reason="chunk contains both delivered work and an explicit missing-skill boundary",
+            )
+        if has_missing_disclosure:
             return EvidenceClassification(
                 evidence_type="missing_skill_disclosure",
                 polarity="negative",
@@ -142,14 +182,14 @@ class EvidenceClassifier:
                 confidence=0.86,
                 reason="chunk comes from coursework, reading, tutorial, or education context",
             )
-        if self._has_any(lowered, METRIC_CUES) and self._has_any(lowered, POSITIVE_DELIVERY_CUES):
+        if self._has_any(lowered, METRIC_CUES) and has_delivered_work:
             return EvidenceClassification(
                 evidence_type="metric_evidence",
                 polarity="positive",
                 confidence=0.86,
                 reason="chunk includes delivered work with measurement or evaluation signal",
             )
-        if chunk_type_norm in {"project", "experience"} and self._has_any(lowered, POSITIVE_DELIVERY_CUES):
+        if chunk_type_norm in {"project", "experience"} and has_delivered_work:
             return EvidenceClassification(
                 evidence_type="shipped_project",
                 polarity="positive",

@@ -1,5 +1,7 @@
 # CareerAgent
 
+最新的可靠性与检索校准结果见 [SLO 与误差预算](docs/SLO.md) 和 [中文、英文与跨语言 RAG 校准](docs/RAG_MULTILINGUAL_CALIBRATION.md)。
+
 CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Agent。它不是单次 Prompt 演示，而是一个工程化工作流：从自然语言需求、PDF 简历或问答式信息采集开始，解析候选人画像，搜索真实招聘站岗位，存储并检索职位 JD，做岗位匹配评分，基于 RAG 证据定制简历，记录 LLM 调用与 Agent Trace，生成可人工确认的投递包，并根据 JD、简历项目、RAG 证据、缺口技能和面经参考链接整理面试准备包。
 
 默认演示场景是中文求职场景下的“Agent 开发实习生”，英文岗位只作为少量辅助测试；数据模型和服务层可以扩展到其他技术岗位。

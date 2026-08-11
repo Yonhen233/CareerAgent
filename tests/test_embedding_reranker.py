@@ -111,7 +111,7 @@ def test_english_cross_encoder_is_not_used_for_chinese_query(monkeypatch):
     assert "English-only" in reranked[0]["metadata"]["rerank"]["fallback_reason"]
 
 
-def test_chinese_language_route_can_promote_beyond_cross_encoder_anchor():
+def test_chinese_language_route_preserves_high_confidence_first_stage_anchor():
     service = RerankerService(
         enabled=True,
         provider="cross_encoder",
@@ -141,8 +141,9 @@ def test_chinese_language_route_can_promote_beyond_cross_encoder_anchor():
         top_k=6,
     )
 
-    assert reranked[0]["uid"] == "fastapi"
-    assert reranked[0]["metadata"]["rerank"]["language_route"] == "cjk_lexical"
+    assert [item["uid"] for item in reranked[:5]] == [f"noise-{index}" for index in range(5)]
+    assert reranked[5]["uid"] == "fastapi"
+    assert reranked[5]["metadata"]["rerank"]["language_route"] == "cjk_lexical"
 
 
 def test_cross_encoder_reranks_multiple_query_groups_in_one_predict_call(monkeypatch):

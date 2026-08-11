@@ -107,6 +107,8 @@ def test_preference_only_search_does_not_require_profile(db_session):
     assert session.result_count == 2
     assert session.results[0].job_id == agent_job.id
     assert session.results[0].match_score is None
+    assert session.retrieval_quality_json["passed"] is True
+    assert session.retrieval_quality_json["top_vector_score"] > 0
     assert db_session.query(JobSearchSession).count() == 1
     assert db_session.query(JobSearchResult).count() == 2
 

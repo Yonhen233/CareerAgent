@@ -22,6 +22,7 @@ from app.services.approval_service import ApprovalService
 from app.services.high_risk_action_tools import ApprovalRequiredError, HighRiskActionToolService
 from app.services.llm_usage import LLMUsageService
 from app.services.outbound_tools import OutboundToolError
+from app.services.slo_service import SLOService
 from app.services.stale_runs import StaleRunService
 from app.services.task_runner import RedisTaskRunner
 
@@ -83,6 +84,19 @@ def metrics(db: Session = Depends(get_db)) -> dict:
         if latest_eval
         else None,
     }
+
+
+@router.get("/slo")
+def slo_report(
+    window_days: int = Query(default=30),
+    traffic_class: str = Query(default="real"),
+    db: Session = Depends(get_db),
+    _: AuthContext = Depends(require_admin),
+) -> dict:
+    try:
+        return SLOService().report(db, window_days=window_days, traffic_class=traffic_class)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/config")
