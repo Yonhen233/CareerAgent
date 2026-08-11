@@ -258,16 +258,29 @@ class AgentToolRuntime:
     @staticmethod
     def _validate_input(contract: AgentToolSpec, payload: dict[str, Any]) -> None:
         missing: list[str] = []
+        invalid: list[str] = []
         for field_name, type_name in contract.input_schema.items():
             alternatives = [item.strip() for item in field_name.split("|") if item.strip()]
             optional = "None" in type_name or "optional" in type_name.lower()
-            if optional:
-                continue
-            if alternatives and not any(payload.get(name) is not None for name in alternatives):
+            present = [name for name in alternatives if payload.get(name) is not None]
+            if not optional and alternatives and not present:
                 missing.append(field_name)
+                continue
+            for name in present:
+                value = payload[name]
+                if not AgentToolRuntime._matches_type(value, type_name):
+                    invalid.append(f"{name} expected {type_name}, got {type(value).__name__}")
+                    continue
+                if (name == "id" or name.endswith("_id") or name in {"limit", "top_k"}) and isinstance(value, int):
+                    if value <= 0:
+                        invalid.append(f"{name} must be greater than zero")
         if missing:
             raise AgentToolContractError(
                 f"Tool {contract.name} is missing required input fields: {', '.join(missing)}."
+            )
+        if invalid:
+            raise AgentToolContractError(
+                f"Tool {contract.name} has invalid input fields: {'; '.join(invalid)}."
             )
 
     @staticmethod
@@ -277,11 +290,96 @@ class AgentToolRuntime:
         if contract.name in {"LangGraph.AgentPlanner", "llm.intent_planner", "NaturalLanguageAgentService"}:
             if not isinstance(output, dict):
                 raise AgentToolContractError(f"Tool {contract.name} must return a dictionary.")
+        if contract.name == "LangGraph.AgentPlanner":
+            if not isinstance(output.get("task_type"), str) or not isinstance(output.get("steps"), list):
+                raise AgentToolContractError(
+                    "LangGraph.AgentPlanner output must include task_type and executable steps."
+                )
+        if contract.name == "llm.intent_planner":
+            if not isinstance(output.get("intent"), str) or not isinstance(output.get("actions"), list):
+                raise AgentToolContractError(
+                    "llm.intent_planner output must include normalized intent and actions."
+                )
         if contract.name == "job_search.search_jobs":
-            if not isinstance(output, tuple) or len(output) != 2 or not isinstance(output[0], list):
+            if (
+                not isinstance(output, tuple)
+                or len(output) != 2
+                or not isinstance(output[0], list)
+                or not isinstance(output[1], dict)
+            ):
                 raise AgentToolContractError("job_search.search_jobs must return (jobs, source_errors).")
         if contract.name == "matcher.match_job" and not hasattr(output, "overall_score") and not isinstance(output, dict):
             raise AgentToolContractError("matcher.match_job returned an invalid match result.")
+        entity_contracts = {
+            "profile_repository.load_profile": "Profile",
+            "job_repository.load_job": "Job",
+            "resume_tailor.tailor_resume": "ResumeVersion",
+            "application.create_quick_apply_packet": "Application",
+            "interview_prep.generate_packet": "InterviewPrep",
+            "interview_experience.import_text": "InterviewExperience",
+        }
+        expected_entity = entity_contracts.get(contract.name)
+        if expected_entity and output.__class__.__name__ != expected_entity:
+            raise AgentToolContractError(
+                f"Tool {contract.name} expected {expected_entity}, got {output.__class__.__name__}."
+            )
+        if contract.name == "vector_index.upsert_job_chunks" and not AgentToolRuntime._matches_type(output, "int"):
+            raise AgentToolContractError("vector_index.upsert_job_chunks must return an integer.")
+        if contract.name in {"guardrail.verify_resume", "browser_apply", "email_draft", "email_send"}:
+            if not isinstance(output, dict):
+                raise AgentToolContractError(f"Tool {contract.name} must return a dictionary.")
+            missing = [field for field in contract.output_schema if output.get(field) is None]
+            if missing:
+                raise AgentToolContractError(
+                    f"Tool {contract.name} is missing output fields: {', '.join(missing)}."
+                )
+            invalid = [
+                f"{field} expected {type_name}, got {type(output[field]).__name__}"
+                for field, type_name in contract.output_schema.items()
+                if not AgentToolRuntime._matches_type(output[field], type_name)
+            ]
+            if invalid:
+                raise AgentToolContractError(
+                    f"Tool {contract.name} has invalid output fields: {'; '.join(invalid)}."
+                )
+
+    @staticmethod
+    def _matches_type(value: Any, type_name: str) -> bool:
+        expression = str(type_name or "Any").strip()
+        options = [item.strip() for item in expression.split("|") if item.strip()]
+        if "None" in options and value is None:
+            return True
+        options = [item for item in options if item not in {"None", "optional"}]
+        if len(options) > 1 and all(
+            item not in {"str", "int", "float", "bool", "dict", "list", "datetime", "Any"}
+            and not item.startswith("list[")
+            for item in options
+        ):
+            return isinstance(value, str) and value in options
+        if len(options) > 1:
+            return any(AgentToolRuntime._matches_type(value, item) for item in options)
+        option = options[0] if options else "Any"
+        if option == "Any":
+            return True
+        if option == "str":
+            return isinstance(value, str)
+        if option == "int":
+            return isinstance(value, int) and not isinstance(value, bool)
+        if option == "float":
+            return isinstance(value, (int, float)) and not isinstance(value, bool)
+        if option == "bool":
+            return isinstance(value, bool)
+        if option == "dict":
+            return isinstance(value, dict)
+        if option == "list":
+            return isinstance(value, list)
+        if option == "datetime":
+            return isinstance(value, (datetime, str))
+        if option.startswith("list["):
+            return isinstance(value, list)
+        if option and option[0].islower():
+            return isinstance(value, str) and value == option
+        return value.__class__.__name__ == option
 
     @staticmethod
     def _scope_key(contract: AgentToolSpec) -> str:

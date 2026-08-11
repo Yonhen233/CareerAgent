@@ -1,5 +1,25 @@
 # 成熟 Agent 运行治理与 Bad Case 处理
 
+## 0. 2026-08-11 二次成熟度审计结论
+
+CareerAgent 当前不是靠“LLM 自己反思”处理所有失败，而是采用分层闭环：
+
+```text
+计划契约 -> Tool 强类型 preflight -> 有界执行 -> 结果合同
+        -> RAG Evidence Gate / 业务 Guardrail
+        -> SQLite 产物与 lineage 回查 -> Completion Gate
+        -> Online Quality / 人工复核 / bad case 回流
+```
+
+本轮新增四个关键边界：
+
+- RAG v2 对证据正文去重，统计每条支持度、语义类型和 multi-query 覆盖；不足时只做一次类型过滤检索修复，然后明确拒绝生成。
+- Tool Runtime 不再只验字段存在，而是校验类型、正 ID/TopK、ORM 输出和外发状态枚举。
+- Trace 除相同输入外，还识别“参数在变但结果不变”的无进展循环。
+- Completion Gate v2 不信任 LangGraph state 中孤立的 ID，会回查 SQLite 的实体存在性、profile/job lineage 和 lifecycle。
+
+因此，RAG 错误不会直接污染简历，Tool 返回 200/正常 return 也不自动等于成功，图到达 `END` 更不自动等于业务完成。
+
 ## 1. 这次升级解决的不是“再加几个节点”
 
 CareerAgent 已经有 LangGraph、RAG、审批、Redis worker、checkpoint 和 Completion Gate，但在这次升级前仍有五个生产级缺口：
@@ -199,4 +219,3 @@ CareerAgent 的规则是：
 3. 类型化记忆已经有 API 和 Prompt 注入，但尚未做基于 embedding 的大规模 memory retrieval；当前数据量下按 scope、类型和新鲜度读取更可解释。
 4. Prompt 指纹能定位版本，不能自动证明 Prompt 更好；发布时仍需用固定数据集比较。
 5. 浏览器提交和邮件发送的最终 outcome 还应增加招聘站确认号、邮件 Message-ID 等外部状态核验。
-

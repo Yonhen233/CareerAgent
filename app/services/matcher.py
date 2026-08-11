@@ -234,24 +234,68 @@ class MatcherService:
                 *[str(item) for item in (job_data.get("qualifications") or [])[:5]],
             ]
         ).strip()
+        queries = [item for item in [query, focused_requirements, responsibility_query] if item]
+        expected_types = {"project", "experience", "skill"}
         chunks = self.vector_index.query_profile_chunks_multi(
             db,
             profile_id,
-            [query, focused_requirements, responsibility_query],
+            queries,
             top_k=top_k,
         )
+        quality = self.retrieval_quality.assess(
+            query,
+            chunks,
+            expected_chunk_types=expected_types,
+            min_evidence_chunks=2,
+            expected_query_count=len(queries),
+        )
+        recovery_attempts = [
+            {
+                "strategy": "semantic_field_multi_query_rrf",
+                "passed": quality["passed"],
+                "confidence": quality["confidence"],
+                "evidence_count": quality["evidence_count"],
+            }
+        ]
+        if not quality["passed"]:
+            restricted_chunks = self.vector_index.query_profile_chunks_multi(
+                db,
+                profile_id,
+                queries,
+                top_k=top_k,
+                allowed_chunk_types=expected_types,
+            )
+            restricted_quality = self.retrieval_quality.assess(
+                query,
+                restricted_chunks,
+                expected_chunk_types=expected_types,
+                min_evidence_chunks=2,
+                expected_query_count=len(queries),
+            )
+            recovery_attempts.append(
+                {
+                    "strategy": "semantic_type_filtered_retry",
+                    "passed": restricted_quality["passed"],
+                    "confidence": restricted_quality["confidence"],
+                    "evidence_count": restricted_quality["evidence_count"],
+                }
+            )
+            if restricted_quality["passed"] or restricted_quality["confidence"] > quality["confidence"]:
+                chunks = restricted_chunks
+                quality = restricted_quality
         evidence = [
             self.evidence_classifier.classify_dict(chunk.as_dict())
             for chunk in chunks
         ]
-        quality = self.retrieval_quality.assess(
-            query,
-            chunks,
-            expected_chunk_types={"project", "experience", "skill"},
-        )
+        quality["retrieval_recovery"] = {
+            "attempted": len(recovery_attempts) > 1,
+            "recovered": len(recovery_attempts) > 1 and quality["passed"],
+            "attempts": recovery_attempts,
+            "max_attempts": 2,
+        }
         quality["query_strategy"] = {
             "name": "semantic_field_multi_query_rrf",
-            "query_count": len([item for item in [query, focused_requirements, responsibility_query] if item]),
+            "query_count": len(queries),
             "single_rerank_after_fusion": True,
         }
         return evidence, quality

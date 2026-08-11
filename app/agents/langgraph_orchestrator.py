@@ -1132,6 +1132,7 @@ class LangGraphAgentOrchestrator:
             matches.append(
                 {
                     "job_id": job.id,
+                    "match_result_id": match.id,
                     "title": job.title,
                     "company": job.company,
                     "overall_score": match.overall_score,
@@ -1195,22 +1196,44 @@ class LangGraphAgentOrchestrator:
         db = self._db_from_state(state)
         profile = await self._load_profile(db, state.get("profile_id"))
         job = await self._load_job(db, state.get("job_id"))
+        selected_match_id = int((state.get("selected_job") or {}).get("match_result_id") or 0)
+        selected_match = None
+        if selected_match_id:
+            selected_match = db.query(MatchResult).filter(MatchResult.id == selected_match_id).first()
+            if (
+                selected_match is None
+                or selected_match.profile_id != profile.id
+                or selected_match.job_id != job.id
+            ):
+                raise ValueError(
+                    f"Selected match result #{selected_match_id} does not belong to profile #{profile.id} "
+                    f"and job #{job.id}."
+                )
         idempotency_key = self._idempotency_key(state, "match_primary", profile.id, job.id)
+        if selected_match is not None:
+            match_handler = lambda: self._async_value(selected_match)
+        else:
+            match_handler = lambda: self._async_value(
+                self._create_match_result(db, profile, job, idempotency_key=idempotency_key)
+            )
         match = await self.trace.step(
             db,
             run_id=state["run_id"],
             step_name="match_job",
             tool_name="matcher.match_job",
-            input_json={"profile_id": profile.id, "job_id": job.id},
-            handler=lambda: self._async_value(
-                self._create_match_result(db, profile, job, idempotency_key=idempotency_key)
-            ),
+            input_json={
+                "profile_id": profile.id,
+                "job_id": job.id,
+                "reuse_match_result_id": selected_match_id or None,
+            },
+            handler=match_handler,
         )
         payload = {
             "match_result_id": match.id,
             "overall_score": match.overall_score,
             "matched_skills": match.matched_skills_json,
             "missing_skills": match.missing_skills_json,
+            "match_reused": selected_match is not None,
         }
         if state["task_type"] == "full_career_flow":
             payload["selected_job"] = {

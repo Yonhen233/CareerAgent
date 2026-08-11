@@ -102,14 +102,26 @@ class SQLiteVectorIndex:
         query_texts: list[str],
         *,
         top_k: int = 8,
+        allowed_chunk_types: set[str] | None = None,
     ) -> list[RetrievedChunk]:
         queries = list(dict.fromkeys(text.strip() for text in query_texts if text and text.strip()))
         if not queries:
             return []
-        if not self.settings.rag_multi_query_enabled or len(queries) == 1:
+        if (not self.settings.rag_multi_query_enabled or len(queries) == 1) and not allowed_chunk_types:
             return self.query_profile_chunks(db, profile_id, queries[0], top_k=top_k)
 
-        rows = db.query(ResumeChunk).filter(ResumeChunk.profile_id == profile_id).all()
+        rows_query = db.query(ResumeChunk).filter(ResumeChunk.profile_id == profile_id)
+        if allowed_chunk_types:
+            rows_query = rows_query.filter(ResumeChunk.chunk_type.in_(allowed_chunk_types))
+        rows = rows_query.all()
+        if not self.settings.rag_multi_query_enabled or len(queries) == 1:
+            return self._query_rows(
+                db=db,
+                rows=rows,
+                query_text=queries[0],
+                top_k=top_k,
+                type_boost_chunks={"project", "experience", "skill"},
+            )
         first_stage_limit = max(top_k, self.settings.reranker_top_n)
         ranked_lists = [
             self._query_rows(

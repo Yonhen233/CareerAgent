@@ -8,7 +8,22 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.models.entities import AgentApproval, AgentArtifact, AgentRun, AgentStep
+from app.models.entities import (
+    AgentApproval,
+    AgentArtifact,
+    AgentRun,
+    AgentStep,
+    Application,
+    InterviewPrep,
+    Job,
+    MatchResult,
+    Profile,
+    ResumeVersion,
+)
+
+
+TASK_CONTRACT_VERSION = "careeragent-task-contract-v3"
+COMPLETION_GATE_VERSION = "careeragent-completion-gate-v2"
 
 
 class AgentTaskIncompleteError(RuntimeError):
@@ -187,7 +202,7 @@ class AgentTaskContractService:
         if task_type == "full_career_flow" and not request.get("job_id"):
             required_artifacts.extend(["ranked_jobs", "selected_job"])
         return {
-            "version": "careeragent-task-contract-v1",
+            "version": TASK_CONTRACT_VERSION,
             "task_type": task_type,
             "required_goals": list(policy.required_goals),
             "required_artifacts": required_artifacts,
@@ -231,14 +246,20 @@ class AgentTaskContractService:
             require_completion_artifact=False,
         )
         integrity_violations = self._state_integrity_violations(task_type, state)
+        database_integrity_violations = self._database_integrity_violations(
+            db,
+            task_type=task_type,
+            state=state,
+        )
         passed = (
             not missing_goals
             and not missing_artifacts
             and not integrity_violations
+            and not database_integrity_violations
             and trajectory["passed"]
         )
         return {
-            "version": "careeragent-completion-gate-v1",
+            "version": COMPLETION_GATE_VERSION,
             "passed": passed,
             "terminal_decision": "completed" if passed else "failed_explicitly",
             "task_contract": contract,
@@ -246,6 +267,7 @@ class AgentTaskContractService:
             "missing_goals": missing_goals,
             "missing_artifacts": missing_artifacts,
             "integrity_violations": integrity_violations,
+            "database_integrity_violations": database_integrity_violations,
             "trajectory": trajectory,
             "repair": {
                 "eligible": False,
@@ -263,7 +285,9 @@ class AgentTaskContractService:
         *,
         plan: dict[str, Any],
         result: dict[str, Any],
+        request: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        request = request or {}
         intent = str(plan.get("intent") or "")
         actions = {str(item) for item in plan.get("actions") or []}
         implicit = {
@@ -298,14 +322,91 @@ class AgentTaskContractService:
         if not checks:
             checks["recognized_result"] = bool(result.get("profile") or result.get("job") or result.get("matches"))
         missing = [name for name, passed in checks.items() if not passed]
+        integrity_violations = self._natural_result_integrity_violations(
+            request=request,
+            result=result,
+        )
         return {
-            "version": "careeragent-natural-completion-v1",
-            "passed": not missing,
-            "terminal_decision": "waiting_for_confirmation" if waiting and not missing else "completed" if not missing else "repair",
+            "version": "careeragent-natural-completion-v2",
+            "passed": not missing and not integrity_violations,
+            "terminal_decision": (
+                "waiting_for_confirmation"
+                if waiting and not missing and not integrity_violations
+                else "completed"
+                if not missing and not integrity_violations
+                else "repair"
+            ),
             "required_actions": sorted(actions),
             "action_checks": checks,
             "missing_actions": missing,
+            "integrity_violations": integrity_violations,
         }
+
+    @staticmethod
+    def _natural_result_integrity_violations(
+        *,
+        request: dict[str, Any],
+        result: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        violations: list[dict[str, Any]] = []
+
+        def compare(section: str, field: str, actual: Any, expected: Any) -> None:
+            if expected in {None, ""} or actual in {None, ""}:
+                return
+            if str(actual) != str(expected):
+                violations.append(
+                    {
+                        "section": section,
+                        "field": field,
+                        "actual": actual,
+                        "expected": expected,
+                    }
+                )
+
+        profile = result.get("profile") or {}
+        job = result.get("job") or {}
+        compare("profile", "id", profile.get("id"), request.get("profile_id"))
+        compare("job", "id", job.get("id"), request.get("job_id"))
+
+        profile_id = profile.get("id") or request.get("profile_id")
+        job_id = job.get("id") or request.get("job_id")
+        for section_name in ("tailor", "application", "interview_prep"):
+            section = result.get(section_name) or {}
+            if not isinstance(section, dict):
+                continue
+            compare(section_name, "profile_id", section.get("profile_id"), profile_id)
+            compare(section_name, "job_id", section.get("job_id"), job_id)
+
+        ranked_job_ids = {
+            int(item.get("job_id") or 0)
+            for item in (result.get("matches") or [])
+            if isinstance(item, dict) and int(item.get("job_id") or 0) > 0
+        }
+        if ranked_job_ids and job_id and int(job_id) not in ranked_job_ids:
+            violations.append(
+                {
+                    "section": "job",
+                    "field": "id",
+                    "actual": job_id,
+                    "expected": "one of returned matches",
+                }
+            )
+        invalid_child_runs = [
+            {"run_id": item.get("run_id"), "status": item.get("status")}
+            for item in (result.get("agent_runs") or [])
+            if isinstance(item, dict)
+            and item.get("status") not in {"completed", "waiting_for_confirmation"}
+        ]
+        if invalid_child_runs:
+            violations.append(
+                {
+                    "section": "agent_runs",
+                    "field": "status",
+                    "actual": invalid_child_runs,
+                    "expected": ["completed", "waiting_for_confirmation"],
+                }
+            )
+        return violations
 
     def _goal_checks(
         self,
@@ -420,6 +521,135 @@ class AgentTaskContractService:
                 output.get("interview_prep_id"),
                 int(interview.get("interview_prep_id") or 0),
             )
+        return violations
+
+    def _database_integrity_violations(
+        self,
+        db: Session,
+        *,
+        task_type: str,
+        state: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        violations: list[dict[str, Any]] = []
+        profile_id = int(state.get("profile_id") or 0)
+        job_id = int(state.get("job_id") or 0)
+
+        def missing(entity: str, entity_id: int) -> None:
+            violations.append({"entity": entity, "id": entity_id, "reason": "not_found"})
+
+        if profile_id and db.query(Profile).filter(Profile.id == profile_id).first() is None:
+            missing("profile", profile_id)
+        if job_id and db.query(Job).filter(Job.id == job_id).first() is None:
+            missing("job", job_id)
+
+        for item in (state.get("matches") or [])[:50]:
+            ranked_job_id = int(item.get("job_id") or 0) if isinstance(item, dict) else 0
+            if ranked_job_id and db.query(Job).filter(Job.id == ranked_job_id).first() is None:
+                missing("ranked_job", ranked_job_id)
+
+        match_result_id = int(state.get("match_result_id") or 0)
+        if match_result_id:
+            match = db.query(MatchResult).filter(MatchResult.id == match_result_id).first()
+            if match is None:
+                missing("match_result", match_result_id)
+            elif match.profile_id != profile_id or match.job_id != job_id:
+                violations.append(
+                    {
+                        "entity": "match_result",
+                        "id": match_result_id,
+                        "reason": "lineage_mismatch",
+                        "actual": {"profile_id": match.profile_id, "job_id": match.job_id},
+                        "expected": {"profile_id": profile_id, "job_id": job_id},
+                    }
+                )
+
+        resume_version_id = int(state.get("resume_version_id") or 0)
+        if resume_version_id:
+            version = db.query(ResumeVersion).filter(ResumeVersion.id == resume_version_id).first()
+            if version is None:
+                missing("resume_version", resume_version_id)
+            elif (
+                version.profile_id != profile_id
+                or version.job_id != job_id
+                or version.lifecycle_status != "active"
+            ):
+                violations.append(
+                    {
+                        "entity": "resume_version",
+                        "id": resume_version_id,
+                        "reason": "lineage_or_lifecycle_mismatch",
+                        "actual": {
+                            "profile_id": version.profile_id,
+                            "job_id": version.job_id,
+                            "lifecycle_status": version.lifecycle_status,
+                        },
+                        "expected": {
+                            "profile_id": profile_id,
+                            "job_id": job_id,
+                            "lifecycle_status": "active",
+                        },
+                    }
+                )
+
+        application_id = int((state.get("application") or {}).get("application_id") or 0)
+        if application_id:
+            application = db.query(Application).filter(Application.id == application_id).first()
+            expected_resume_id = resume_version_id or None
+            if application is None:
+                missing("application", application_id)
+            elif (
+                application.profile_id != profile_id
+                or application.job_id != job_id
+                or application.resume_version_id != expected_resume_id
+                or application.withdrawn_at is not None
+            ):
+                violations.append(
+                    {
+                        "entity": "application",
+                        "id": application_id,
+                        "reason": "lineage_or_lifecycle_mismatch",
+                        "actual": {
+                            "profile_id": application.profile_id,
+                            "job_id": application.job_id,
+                            "resume_version_id": application.resume_version_id,
+                            "withdrawn": application.withdrawn_at is not None,
+                        },
+                        "expected": {
+                            "profile_id": profile_id,
+                            "job_id": job_id,
+                            "resume_version_id": expected_resume_id,
+                            "withdrawn": False,
+                        },
+                    }
+                )
+
+        prep_id = int((state.get("interview_prep") or {}).get("interview_prep_id") or 0)
+        if prep_id:
+            prep = db.query(InterviewPrep).filter(InterviewPrep.id == prep_id).first()
+            if prep is None:
+                missing("interview_prep", prep_id)
+            elif (
+                prep.profile_id != profile_id
+                or prep.job_id != job_id
+                or prep.lifecycle_status != "active"
+            ):
+                violations.append(
+                    {
+                        "entity": "interview_prep",
+                        "id": prep_id,
+                        "reason": "lineage_or_lifecycle_mismatch",
+                        "actual": {
+                            "profile_id": prep.profile_id,
+                            "job_id": prep.job_id,
+                            "lifecycle_status": prep.lifecycle_status,
+                        },
+                        "expected": {
+                            "profile_id": profile_id,
+                            "job_id": job_id,
+                            "lifecycle_status": "active",
+                        },
+                    }
+                )
         return violations
 
     def _artifact_types(self, db: Session, run_id: int) -> set[str]:
@@ -658,6 +888,7 @@ def format_completion_failure(report: dict[str, Any]) -> str:
         "missing_goals": report.get("missing_goals") or [],
         "missing_artifacts": report.get("missing_artifacts") or [],
         "integrity_violations": report.get("integrity_violations") or [],
+        "database_integrity_violations": report.get("database_integrity_violations") or [],
         "missing_steps": trajectory.get("missing_steps") or [],
         "failed_steps": trajectory.get("failed_steps") or [],
         "unexpected_tools": trajectory.get("unexpected_tools") or [],

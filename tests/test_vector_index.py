@@ -32,3 +32,13 @@ def test_sqlite_vector_index_retrieves_relevant_project(db_session):
 
     assert hits
     assert any(hit.chunk_type in {"project", "raw_text", "skill"} for hit in hits)
+
+    filtered = index.query_profile_chunks_multi(
+        db_session,
+        profile.id,
+        ["Agent RAG", "FastAPI SQLite"],
+        top_k=5,
+        allowed_chunk_types={"project", "skill"},
+    )
+    assert filtered
+    assert all(hit.chunk_type in {"project", "skill"} for hit in filtered)

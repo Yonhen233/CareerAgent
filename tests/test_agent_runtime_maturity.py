@@ -12,7 +12,7 @@ from app.api.agent_governance import (
 )
 from app.agents.natural_language import NaturalLanguageAgentService
 from app.core.config import Settings, get_settings
-from app.core.llm import LLMClient
+from app.core.llm import LLMCallBudget, LLMClient, LLMBudgetExceededError, llm_call_budget
 from app.core.security import AuthContext
 from app.models.entities import (
     AgentArtifact,
@@ -32,6 +32,82 @@ from app.services.memory_feedback import AgentFeedbackService, CareerMemoryServi
 from app.services.online_quality import OnlineAgentQualityService
 from app.core.redaction import SecurityRedactor
 from app.services.trace_service import TraceService
+
+
+def test_runtime_rejects_wrong_input_type_before_tool_execution(db_session):
+    runtime = AgentToolRuntime(settings=Settings())
+    called = False
+
+    async def handler():
+        nonlocal called
+        called = True
+        return {"intent": "search_jobs"}
+
+    with pytest.raises(AgentToolContractError, match="task_type expected str"):
+        asyncio.run(
+            runtime.execute(
+                db_session,
+                run_id=1,
+                step_name="plan",
+                tool_name="LangGraph.AgentPlanner",
+                input_json={"task_type": 7},
+                handler=handler,
+                event_sink=lambda *_: None,
+            )
+        )
+    assert called is False
+
+
+def test_runtime_rejects_incomplete_planner_output_contract(db_session):
+    runtime = AgentToolRuntime(settings=Settings())
+
+    with pytest.raises(AgentToolContractError, match="executable steps"):
+        asyncio.run(
+            runtime.execute(
+                db_session,
+                run_id=1,
+                step_name="plan",
+                tool_name="LangGraph.AgentPlanner",
+                input_json={"task_type": "full_career_flow"},
+                handler=lambda: asyncio.sleep(0, result={"task_type": "full_career_flow"}),
+                event_sink=lambda *_: None,
+            )
+        )
+
+
+def test_runtime_rejects_invalid_high_risk_tool_outcome(db_session):
+    runtime = AgentToolRuntime(settings=Settings())
+
+    with pytest.raises(AgentToolContractError, match=r"status expected filled\|submitted"):
+        runtime.execute_sync(
+            db_session,
+            step_name="browser_apply",
+            tool_name="browser_apply",
+            input_json={"url": "https://example.com", "fields": {}, "submit_selector": None},
+            handler=lambda: {
+                "status": "success",
+                "final_url": "https://example.com/done",
+                "filled_selectors": [],
+            },
+            event_sink=lambda *_: None,
+        )
+
+
+def test_nested_llm_budget_is_counted_by_parent_and_blocks_overrun():
+    parent = LLMCallBudget("parent", max_calls=1, max_prompt_chars=100, max_completion_tokens=50)
+    child = LLMCallBudget("child", max_calls=3, max_prompt_chars=300, max_completion_tokens=150)
+
+    with llm_call_budget(parent):
+        with llm_call_budget(child):
+            child.reserve(trace_name="first", prompt_chars=10, max_tokens=10)
+            with pytest.raises(LLMBudgetExceededError, match="parent"):
+                child.reserve(trace_name="second", prompt_chars=10, max_tokens=10)
+            child.record_usage(prompt_tokens=4, completion_tokens=3, total_tokens=7)
+
+    assert parent.calls == 1
+    assert child.calls == 1
+    assert parent.actual_total_tokens == 7
+    assert child.actual_total_tokens == 7
 
 
 def test_runtime_retries_only_registered_idempotent_transient_tool(db_session):

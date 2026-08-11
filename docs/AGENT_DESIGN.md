@@ -10,6 +10,9 @@ LangGraph 负责“业务状态下一步走哪里”，`AgentToolRuntime` 负责
 - 自然语言图只对输入/状态缺失和 Completion Gate 缺项做一次 replan，其他错误直接失败；
 - typed memory 只保存 preference/constraint/decision/outcome/correction，不回放整段聊天；
 - Online Quality Gate 不调用 LLM，低质量 run 进入人工复核，用户纠错再进入 correction memory 和后续评测样本。
+- RAG Evidence Gate v2 对证据去重，验证每条支持度、业务语义类型和 multi-query 覆盖；失败只做一次类型过滤检索修复，仍不足则阻止事实敏感生成。
+- Completion Gate v2 回查 SQLite 权威实体和 profile/job lineage，不信任 checkpoint 中孤立的产物 ID。
+- 自然语言父图使用可嵌套 LLM 总预算，子面试流程的调用和 usage 同时计入父预算，避免局部预算都合规但整轮成本失控。
 
 完整恢复矩阵、重试所有权和 Bad Case 见 [成熟 Agent 运行治理](AGENT_RUNTIME_RELIABILITY.md)。
 

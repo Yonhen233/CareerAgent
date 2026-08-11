@@ -1,5 +1,6 @@
 import time
 import json
+import re
 from collections.abc import Callable
 from typing import Any, Awaitable, TypeVar
 
@@ -73,6 +74,7 @@ class TraceService:
         self._enforce_execution_budget(
             db,
             run_id=run_id,
+            step_name=step_name,
             tool_name=tool_name,
             input_json=input_json,
         )
@@ -158,6 +160,7 @@ class TraceService:
         db: Session,
         *,
         run_id: int,
+        step_name: str,
         tool_name: str,
         input_json: dict[str, Any] | None,
     ) -> None:
@@ -193,6 +196,28 @@ class TraceService:
             self.add_event(db, run_id=run_id, event_type="execution_budget_rejected", payload=payload)
             raise AgentExecutionBudgetExceeded(
                 f"Agent run {run_id} repeated {tool_name} with identical inputs more than allowed."
+            )
+
+        step_family = re.sub(r"_\d+$", "", step_name)
+        prior_outputs = [
+            json.dumps(step.output_json or {}, ensure_ascii=False, sort_keys=True, default=str)
+            for step in steps
+            if step.tool_name == tool_name
+            and step.status == "completed"
+            and re.sub(r"_\d+$", "", step.step_name) == step_family
+        ]
+        no_progress_limit = settings.agent_max_no_progress_cycles
+        if len(prior_outputs) >= no_progress_limit and len(set(prior_outputs[-no_progress_limit:])) == 1:
+            payload = {
+                "reason": "repeated_tool_output_without_progress",
+                "tool_name": tool_name,
+                "previous_equal_outputs": no_progress_limit,
+                "max_no_progress_cycles": no_progress_limit,
+                "next_input_json": input_json or {},
+            }
+            self.add_event(db, run_id=run_id, event_type="execution_budget_rejected", payload=payload)
+            raise AgentExecutionBudgetExceeded(
+                f"Agent run {run_id} repeated {tool_name} without observable progress."
             )
 
     def add_artifact(self, db: Session, *, run_id: int, artifact_type: str, payload: dict[str, Any]) -> AgentArtifact:

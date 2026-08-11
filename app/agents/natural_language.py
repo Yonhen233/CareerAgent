@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.agents.orchestrator import AgentOrchestrator
 from app.core.config import get_settings
-from app.core.llm import LLMClient, llm_trace_context
+from app.core.llm import LLMCallBudget, LLMClient, llm_call_budget, llm_trace_context
 from app.models.entities import AgentArtifact, AgentRun, Job, Profile
 from app.models.schemas import (
     AgentRunRequest,
@@ -144,19 +144,36 @@ class NaturalLanguageAgentService:
             event_type="run_started",
             payload={"task_type": "natural_language_request", "graph_thread_id": graph_thread_id},
         )
+        llm_budget = LLMCallBudget(
+            name=f"natural_language_run:{run.id}",
+            max_calls=self.settings.natural_agent_max_llm_calls,
+            max_prompt_chars=self.settings.natural_agent_max_prompt_chars,
+            max_completion_tokens=self.settings.natural_agent_max_completion_tokens,
+        )
         try:
             graph = await self._ensure_graph()
-            final_state = await self._invoke_graph(
-                graph,
-                {
-                    "request": request.model_dump(),
-                    "run_id": run.id,
-                    "graph_thread_id": graph_thread_id,
-                    "repair_attempts": [],
-                },
-                db=db,
+            with llm_trace_context(
+                workflow="natural_language_agent",
+                workflow_run_id=str(run.id),
+                agent_run_id=run.id,
+            ), llm_call_budget(llm_budget):
+                final_state = await self._invoke_graph(
+                    graph,
+                    {
+                        "request": request.model_dump(),
+                        "run_id": run.id,
+                        "graph_thread_id": graph_thread_id,
+                        "repair_attempts": [],
+                    },
+                    db=db,
+                    run_id=run.id,
+                    config={"configurable": {"thread_id": graph_thread_id}},
+                )
+            self.trace.add_artifact(
+                db,
                 run_id=run.id,
-                config={"configurable": {"thread_id": graph_thread_id}},
+                artifact_type="llm_budget",
+                payload=llm_budget.to_dict(),
             )
             payload = dict(final_state.get("output") or {})
             payload["orchestration_framework"] = "langgraph"
@@ -172,6 +189,12 @@ class NaturalLanguageAgentService:
                 started_at=started,
             )
         except Exception as exc:  # noqa: BLE001
+            self.trace.add_artifact(
+                db,
+                run_id=run.id,
+                artifact_type="llm_budget",
+                payload=llm_budget.to_dict(),
+            )
             payload = {
                 "run_id": run.id,
                 "status": "failed",
@@ -467,6 +490,7 @@ class NaturalLanguageAgentService:
         report = self.task_contracts.verify_natural_language(
             plan=state.get("plan") or {},
             result=state.get("result") or {},
+            request=state.get("request") or {},
         )
         report["after_repair"] = repaired
         db = self._db_from_state(state)
@@ -485,7 +509,10 @@ class NaturalLanguageAgentService:
         )
         if report["passed"]:
             return {"completion_verification": report, "execution_error": None}
-        error = f"任务未完成，缺少动作结果：{', '.join(report['missing_actions'])}"
+        error = (
+            f"任务未完成，缺少动作结果：{', '.join(report['missing_actions'])}；"
+            f"结果一致性问题：{json.dumps(report.get('integrity_violations') or [], ensure_ascii=False)}"
+        )
         envelope = self.trace.error_classifier.classify(
             AgentTaskIncompleteError(error),
             tool_name="completion_gate",

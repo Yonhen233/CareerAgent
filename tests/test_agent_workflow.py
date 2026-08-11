@@ -321,6 +321,7 @@ def test_full_career_flow_orchestrator_runs_all_core_stages(db_session):
     assert run.output_json["execution_plan"]["task_type"] == "full_career_flow"
     assert run.output_json["orchestration_framework"] == "langgraph"
     assert run.output_json["execution_plan"]["graph_thread_id"] == run.output_json["graph_thread_id"]
+    assert db_session.query(MatchResult).count() == 1
     event_types = {
         row.event_type
         for row in db_session.query(AgentEvent).filter(AgentEvent.run_id == run.id).all()

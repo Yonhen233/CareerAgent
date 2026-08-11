@@ -1,5 +1,60 @@
 # 开发日志
 
+## 2026-08-11 11:26:36 +08:00：成熟 Agent 二次审计，补齐证据、Tool、完成语义与成本上限
+
+### 本轮目标与成熟度判断
+- 重新回答“用了 LangGraph、RAG、Redis 和很多 Tool 后是否已经是成熟 Agent”。结论是：此前已具备成熟控制面的主体，但仍不能把“节点跑到 END”“TopK 非空”“Tool 返回成功”和“状态中存在产物 ID”直接等同于任务正确完成。
+- 按成熟 Agent 的四类失败面继续加固：RAG 证据假阳性、Tool 契约只验字段存在、Agent 用变化参数绕过循环检测、状态产物与 SQLite 权威数据不一致。
+- 本轮只使用 hash embedding、fake LLM 和本地 SQLite 故障注入，不调用 DeepSeek，不消耗余额。
+
+### 开发前审计发现的问题
+1. `RetrievalQualityService` 只用原始 chunk 数、总 query coverage 和最高一阶段分数判定。重复文本可以凑够证据数；完全错误的 `other` chunk 即使不属于 project/experience/skill，只要分数高仍可通过；多查询有几路真正命中也没有进入决策。
+2. Tool Runtime 只检查必填字段是否存在。`profile_id="abc"`、`limit=0` 或 browser tool 返回 `status="success"` 都可能越过 preflight/postflight，直到更深处才以难定位的错误失败。
+3. 循环保护只能识别“同一 Tool + 完全相同输入”。Agent 只要改变无关参数就能继续调用，即使连续输出完全没有变化。
+4. Completion Gate 读取 LangGraph state 中的 ID 和验证标志，却不回查 SQLite。错误 checkpoint 或代码 bug 可以把不存在的 `resume_version_id`、跨岗位 MatchResult 或已撤回产物伪装成完成。
+5. 自然语言入口没有覆盖整个父图和子图的总 LLM 预算；面试子流程有独立预算，但嵌套 context 会覆盖父预算，无法回答“一次用户请求总共最多花多少”。
+6. 完整流程搜索岗位后已经创建 MatchResult，用户选择岗位后又使用另一个幂等键重新跑 Matcher/RAG，增加 embedding/reranker 开销。
+
+### 实现：RAG Evidence Gate v2 与有界检索修复
+- 证据计数改为归一化文本去重后的 `unique_evidence_count`，同时记录 `duplicate_evidence_count`。
+- 每条 evidence 独立计算 query coverage，并结合底层 lexical/first-stage score 得到 `supporting_evidence_count`；不能再由一条高分证据带着多条噪声通过。
+- 指定 `expected_chunk_types` 后，至少必须命中一个业务语义类型；错误类型高分不再通过。
+- 记录 multi-query 覆盖索引与覆盖率；reranker 降级、重复证据和不足 50% 的 query variant 命中进入 degraded 观测与 Online Quality 扣分。
+- Matcher 初次门禁失败后只允许一次不调用 LLM 的 `semantic_type_filtered_retry`，限定 project/experience/skill 重新检索；仍不足则抛 `RetrievalQualityError`，阻止事实敏感生成。
+
+### 实现：Tool Runtime 强类型合同
+- 输入合同校验 str/int/float/bool/dict/list/datetime、union、list 泛型、ORM 实体名和枚举值；ID、TopK 和 limit 必须大于 0。
+- 输出合同验证 Profile/Job/MatchResult/ResumeVersion/Application/InterviewPrep 实体，browser/email 工具必须返回规定字段和合法状态枚举。
+- 这使“函数正常返回”与“Tool 业务合同成功”分离；合同错误进入稳定 `tool_contract_violation`，不会交给 LLM 猜。
+
+### 实现：完成判定、偏航与成本治理
+- Task Contract 升级为 v3、Completion Gate 升级为 v2。完成前回查 Profile、Job、MatchResult、ResumeVersion、Application 和 InterviewPrep，校验 profile/job/resume lineage 与 lifecycle；自然语言父图也检查请求 ID、下游产物 ID、岗位选择范围和子 run 终态。
+- Trace 新增 `repeated_tool_output_without_progress`：同一 step family 即使输入变化，只要连续两次输出相同，下一次调用前终止。使用 step family 而非纯 tool name，避免把 `match_job` 与使用同一 Matcher 合同的 `fit_gate` 误判成循环。
+- 新增自然语言父工作流总预算：最多 12 次 LLM、140,000 Prompt 字符和 32,000 completion token 预留。`LLMCallBudget` 支持 parent-child 层级，子面试预算的调用与 usage 同时计入父预算，任一层超限都在调用前失败。
+- 岗位搜索结果携带 `match_result_id`；选岗后验证归属并复用该结果。完整流程回归断言只落一个 MatchResult。
+
+### 开发中暴露的 Bad Case 与修复
+1. **条件 lambda 返回函数对象。** 为复用 MatchResult 写的条件表达式受 lambda 优先级影响，handler 在一个分支返回另一个 lambda，Runtime 报 `object function can't be used in 'await' expression`。Trace 定位到 `match_job`；改为显式构造 `match_handler` 两个分支，并回归完整流程。
+2. **无进展检测误把业务复用当循环。** 第一版只按 tool name 聚合输出，`match_job` 和 `fit_gate` 都使用 `matcher.match_job`，可能被混在一起。改为 tool + 去除数字后缀的 step family；`planner_0/1/2` 能识别为循环，`match_job` 与 `fit_gate` 保持独立。
+3. **单值枚举被当成类名。** `draft_created` 没有 `|`，类型解析器最初按 ORM 类名处理，真实邮件草稿被拒绝。最终约定大写开头为实体类型、小写未知 token 为 literal enum，并用真实 HighRiskActionToolService 回归。
+4. **岗位检索结果缺底层 lexical metadata。** JobDiscovery 返回的聚合结果 query coverage 为 1.0，但没有 chunk 级 `lexical_score`，支持证据数被算成 0，4 个岗位发现测试失败。修复为 Gate 从每条正文重新计算 row query coverage，不能假设每种检索器都携带相同 metadata。
+5. **Task/Provenance 版本漂移。** 运行时 Task Contract 仍写 v1，Provenance 却声明 v2。改为共享 `TASK_CONTRACT_VERSION` 常量，避免观测记录声称的策略与真实执行策略不同。
+
+### 测试与当前结果
+- 改动前专项基线：`26 passed`。
+- 新增对抗用例覆盖：重复证据、错误 chunk 类型高分、跨岗位自然语言产物、不存在的数据库产物、变化输入但无进展、错误 Tool 输入类型、非法外发状态、嵌套预算透传和选岗后 MatchResult 复用。
+- 第一轮专项：`51 passed`；完整流程复用继续回归后 `34 passed`。
+- 第一轮全量：`294 passed, 5 failed`。5 个失败全部来自本轮门禁误判，分别为单值枚举和聚合岗位结果缺 retrieval metadata；没有通过放宽门禁解决。
+- 修复失败集：`8 passed`；检索/匹配/岗位发现/完整流程/Runtime 组合回归 `48 passed in 22.70s`。
+- Planner 输出合同继续收紧并增加回归后，最终全量：`300 passed in 160.18s`，覆盖 LangGraph 恢复与 interrupt、RAG、PDF、Tool Runtime、自然语言图、审批/撤回、Redis worker、RBAC、前后端 API、面试 claim verifier 和评测服务。`compileall`、`git diff --check` 通过。
+- 本轮没有真实 LLM 质量重跑，因此结论是控制面和确定性 bad case 回归通过，不把它写成 DeepSeek 输出质量提升。
+
+### 当前仍不能夸大的边界
+1. 控制面已覆盖检索不足、工具错参、早停、无进展、产物串线、预算失控、重试风暴和高风险审批，但“成熟”还需要真实用户流量中的成功率、人工复核结果和长期 SLO 证明。
+2. RAG Gate 是启发式加检索分数的可解释门禁，不是训练后的相关性/蕴含分类器；阈值仍需用更多真实中文简历/JD bad case 校准。
+3. SQLite checkpointer/业务库适合当前单机作品与受控上线；多实例高写入部署仍应迁 PostgreSQL，熔断和队列状态使用 Redis 原子语义。
+4. 浏览器/邮件 Tool 已验证合同、审批和本地结果，但外部最终成功还应记录招聘站确认号、页面提交后状态或 SMTP Message-ID。
+
 ## 2026-08-09 22:41:06 +08:00：Agent Runtime、定向恢复、类型化记忆与在线质量闭环升级
 
 ### 本轮目标

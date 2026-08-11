@@ -52,9 +52,30 @@ class LLMCallBudget:
     actual_completion_tokens: int = 0
     actual_total_tokens: int = 0
     traces: list[str] = field(default_factory=list)
+    parent: "LLMCallBudget | None" = field(default=None, repr=False)
 
     def reserve(self, *, trace_name: str, prompt_chars: int, max_tokens: int | None) -> None:
         completion_tokens = max(0, int(max_tokens or 0))
+        chain = self._budget_chain()
+        for budget in chain:
+            budget._assert_capacity(
+                trace_name=trace_name,
+                prompt_chars=prompt_chars,
+                completion_tokens=completion_tokens,
+            )
+        for budget in chain:
+            budget.calls += 1
+            budget.prompt_chars += prompt_chars
+            budget.reserved_completion_tokens += completion_tokens
+            budget.traces.append(trace_name)
+
+    def _assert_capacity(
+        self,
+        *,
+        trace_name: str,
+        prompt_chars: int,
+        completion_tokens: int,
+    ) -> None:
         if self.calls + 1 > self.max_calls:
             raise LLMBudgetExceededError(
                 f"LLM budget {self.name} exceeds max_calls={self.max_calls} before {trace_name}."
@@ -68,10 +89,16 @@ class LLMCallBudget:
                 "LLM budget "
                 f"{self.name} exceeds max_completion_tokens={self.max_completion_tokens} before {trace_name}."
             )
-        self.calls += 1
-        self.prompt_chars += prompt_chars
-        self.reserved_completion_tokens += completion_tokens
-        self.traces.append(trace_name)
+
+    def _budget_chain(self) -> list["LLMCallBudget"]:
+        chain: list[LLMCallBudget] = []
+        current: LLMCallBudget | None = self
+        seen: set[int] = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            chain.append(current)
+            current = current.parent
+        return chain
 
     def record_usage(
         self,
@@ -80,9 +107,10 @@ class LLMCallBudget:
         completion_tokens: int,
         total_tokens: int,
     ) -> None:
-        self.actual_prompt_tokens += max(0, prompt_tokens)
-        self.actual_completion_tokens += max(0, completion_tokens)
-        self.actual_total_tokens += max(0, total_tokens)
+        for budget in self._budget_chain():
+            budget.actual_prompt_tokens += max(0, prompt_tokens)
+            budget.actual_completion_tokens += max(0, completion_tokens)
+            budget.actual_total_tokens += max(0, total_tokens)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -103,6 +131,7 @@ class LLMCallBudget:
                 "total_tokens": self.actual_total_tokens,
             },
             "traces": list(self.traces),
+            "parent_budget": self.parent.name if self.parent is not None else None,
         }
 
 
@@ -126,6 +155,9 @@ def llm_trace_context(**metadata: Any):
 
 @contextmanager
 def llm_call_budget(budget: LLMCallBudget):
+    parent = _LLM_CALL_BUDGET.get()
+    if parent is not budget and budget.parent is None:
+        budget.parent = parent
     token = _LLM_CALL_BUDGET.set(budget)
     try:
         yield budget

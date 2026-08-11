@@ -6,6 +6,8 @@
 
 > 2026-08-09 Agent Runtime v2 增加执行时 Tool 合同、ErrorEnvelope、单一重试所有权、持久化熔断、typed memory、在线质量复核和 Prompt 指纹。最终全量回归为 `291 passed in 103.21s`；新增用例全部使用本地故障注入，没有调用 DeepSeek。该结果证明运行控制面通过确定性回归，不替代真实 LLM 输出质量评测。
 
+> 2026-08-11 二次成熟度审计将 RAG Evidence Gate 升级为 v2、Completion Gate 升级为 v2、Task Contract 升级为 v3，并增加 Tool 强类型合同、无进展循环检测、SQLite 产物 lineage 回查和父子 LLM 总预算。首轮全量为 `294 passed, 5 failed`，5 个失败揭示门禁自身的枚举解析与跨检索器 metadata 契约问题；继续收紧 Planner 输出合同后最终为 `300 passed in 160.18s`。新增 bad case 均为确定性回归，不调用 DeepSeek。
+
 ## Agent Runtime Bad Case 评测
 
 这部分不评“回答写得像不像”，而是验证成熟 Agent 的控制面在故障下是否作出正确决策：
@@ -22,6 +24,11 @@
 | Negative-feedback review rate | incorrect/incomplete/unsafe 或低评分是否创建复核项 | 1.0 |
 | Diagnostic secret leakage | Key/Bearer/邮箱/手机号是否进入预览 | 0 |
 | Prompt provenance coverage | LLM 日志是否具备 prompt hash、route 和 policy version | 1.0 |
+| Duplicate evidence rejection | 重复正文能否被用于凑够最小证据数 | 100% 拒绝 |
+| Semantic type gate | 高分但错误类型 chunk 能否进入事实敏感生成 | 100% 拒绝 |
+| No-progress loop rejection | 输入变化但连续输出相同的循环是否在下一次调用前停止 | 100% 拒绝 |
+| Artifact lineage integrity | 不存在、跨 profile/job 或已撤回产物能否通过完成门禁 | 100% 拒绝 |
+| Nested LLM budget coverage | 子工作流调用和 usage 是否同时计入父工作流预算 | 1.0 |
 
 上述门禁由 `tests/test_agent_runtime_maturity.py` 和 Redis hardening 测试完成。它们使用真实 SQLAlchemy 状态迁移和异步 timeout/retry 逻辑，不调用 LLM。Online Quality score 只表示运行控制面的可疑程度，不应被解释为用户满意度或答案正确率。
 

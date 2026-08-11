@@ -10,6 +10,32 @@
 
 以下案例都来自项目真实开发过程，历史实现已经被替换的地方会明确说明。
 
+## 案例负一：TopK 有结果，为什么 RAG 仍可能是错的
+
+### 现象与根因
+
+旧门禁看到 `TopK` 非空、总 query coverage 较高或最高分超过阈值就允许下游生成。这会漏掉三类假阳性：同一段文本重复入榜凑够数量、一条强相关结果带着多条噪声、以及完全错误的 `other` 类型 chunk 因 embedding 分数较高通过。
+
+### 最终方案
+
+`RetrievalQualityService v2` 先按归一化正文去重，再逐条计算 query coverage/first-stage support，要求支持证据数达到阈值；简历检索还必须命中 project/experience/skill 业务类型。初次失败只允许一次不调用 LLM 的类型过滤重检，仍失败就抛 `RetrievalQualityError`，只允许展示能力缺口，不允许生成声称有事实依据的定制简历。
+
+### 开发中的反例
+
+门禁加强后，岗位检索的 4 个测试突然失败。不是岗位不相关，而是 JobDiscovery 的聚合结果没有底层 chunk 的 `lexical_score` metadata。总 query coverage 是 1.0，支持数却为 0。最终让 Gate 从每条正文自行计算 row coverage，不再要求所有检索器使用完全相同的内部 metadata。
+
+### 面试表达
+
+> RAG 不能用“有没有返回 TopK”判断成功。我把 retrieval success 拆成唯一证据数量、逐条支持度、语义类型和多查询覆盖；检索失败只做一次有边界的 query/filter repair，之后 abstain。门禁本身也要做跨检索器契约测试，否则会把 metadata 差异误判成质量失败。
+
+## 案例负零点五：图到 END 了，产物 ID 也有，为什么仍不能算完成
+
+旧 Completion Gate 检查 state 中是否有 `resume_version_id`、application 和 verification。问题是 checkpoint 串线或代码 bug 可以写入不存在的 ID，甚至把岗位 A 的 MatchResult 配给岗位 B。
+
+现在 Completion Gate v2 在终止前回查 SQLite：Profile/Job 是否存在，MatchResult、ResumeVersion、Application、InterviewPrep 是否属于同一 profile/job，简历和面试包是否仍为 active，投递材料是否已撤回。自然语言父图同时检查请求 ID、子 run 终态和自动选中的岗位是否来自当前搜索结果。
+
+> 我把“状态完整”与“业务结果真实存在”分开。LangGraph state 是工作状态，SQLite 才是权威业务事实；完成判定必须同时满足 Goal、Trajectory、Artifact、Guardrail 和数据库 lineage。
+
 ## 案例零：已经有 Tool Policy，为什么仍不算成熟 Agent
 
 ### 现象与影响

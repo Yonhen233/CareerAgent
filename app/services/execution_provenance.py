@@ -7,6 +7,7 @@ from typing import Any
 
 from app.agents.tools import tool_policies_for_names
 from app.core.config import Settings, get_settings
+from app.services.agent_reliability import TASK_CONTRACT_VERSION
 
 
 class ExecutionProvenanceService:
@@ -49,9 +50,8 @@ class ExecutionProvenanceService:
                 "rrf_k": self.settings.rag_multi_query_rrf_k,
             },
             "safety_policy": {
-                "completion_gate": "careeragent-task-contract-v2",
+                "completion_gate": TASK_CONTRACT_VERSION,
                 "prompt_injection_detector": self.settings.prompt_injection_classifier_enabled,
                 "diagnostic_pii_redaction": self.settings.diagnostic_redact_pii,
             },
         }
-

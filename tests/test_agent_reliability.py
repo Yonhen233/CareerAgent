@@ -64,7 +64,7 @@ def test_trace_budget_rejects_third_identical_tool_call(db_session):
     run = trace.create_run(db_session, task_type="natural_language_request", input_json={})
 
     async def invoke():
-        return {"ok": True}
+        return {"task_type": "same", "steps": []}
 
     asyncio.run(
         trace.step(
@@ -132,6 +132,45 @@ def test_retrieval_quality_distinguishes_supported_and_insufficient_evidence():
     assert bad["downstream_policy"] == "allow_gap_detection_but_block_evidence-dependent_generation"
 
 
+def test_retrieval_quality_deduplicates_evidence_before_counting_support():
+    duplicate = {
+        "text": "CareerAgent 使用 FastAPI 和 RAG 构建岗位匹配流程",
+        "chunk_type": "project",
+        "score": 0.8,
+        "metadata": {"retrieval": {"first_stage_score": 0.6, "lexical_score": 0.5}},
+    }
+    report = RetrievalQualityService().assess(
+        "Agent FastAPI RAG",
+        [duplicate, dict(duplicate)],
+        expected_chunk_types={"project", "experience"},
+        min_evidence_chunks=2,
+    )
+
+    assert report["passed"] is False
+    assert report["evidence_count"] == 2
+    assert report["unique_evidence_count"] == 1
+    assert report["duplicate_evidence_count"] == 1
+
+
+def test_retrieval_quality_rejects_wrong_semantic_chunk_type_even_with_high_score():
+    report = RetrievalQualityService().assess(
+        "Agent FastAPI RAG",
+        [
+            {
+                "text": "Agent FastAPI RAG",
+                "chunk_type": "other",
+                "score": 0.99,
+                "metadata": {"retrieval": {"first_stage_score": 0.95, "lexical_score": 1.0}},
+            }
+        ],
+        expected_chunk_types={"project", "experience", "skill"},
+    )
+
+    assert report["passed"] is False
+    assert report["expected_type_coverage"] == 0
+    assert "no expected semantic chunk type was retrieved" in report["reasons"]
+
+
 def test_natural_language_completion_gate_detects_silent_early_stop():
     report = AgentTaskContractService().verify_natural_language(
         plan={
@@ -144,6 +183,74 @@ def test_natural_language_completion_gate_detects_silent_early_stop():
     assert report["passed"] is False
     assert report["missing_actions"] == ["tailor_resume", "interview_prep"]
     assert report["terminal_decision"] == "repair"
+
+
+def test_natural_language_completion_gate_rejects_cross_job_result():
+    report = AgentTaskContractService().verify_natural_language(
+        plan={"intent": "tailor_resume", "actions": ["tailor_resume"]},
+        request={"profile_id": 7, "job_id": 9},
+        result={
+            "profile": {"id": 7},
+            "job": {"id": 10},
+            "tailor": {"resume_version_id": 20, "profile_id": 7, "job_id": 10},
+            "agent_runs": [{"run_id": 3, "status": "completed"}],
+        },
+    )
+
+    assert report["passed"] is False
+    assert report["missing_actions"] == []
+    assert report["integrity_violations"][0]["section"] == "job"
+
+
+def test_database_integrity_rejects_nonexistent_state_artifacts(db_session):
+    violations = AgentTaskContractService()._database_integrity_violations(
+        db_session,
+        task_type="tailor_resume_for_job",
+        state={
+            "profile_id": 98701,
+            "job_id": 98702,
+            "match_result_id": 98703,
+            "resume_version_id": 98704,
+        },
+    )
+
+    assert {item["entity"] for item in violations} == {
+        "profile",
+        "job",
+        "match_result",
+        "resume_version",
+    }
+
+
+def test_trace_budget_rejects_changed_inputs_with_identical_outputs(db_session):
+    trace = TraceService()
+    run = trace.create_run(db_session, task_type="natural_language_request", input_json={})
+
+    async def invoke():
+        return {"task_type": "search_jobs", "steps": []}
+
+    for index in range(2):
+        asyncio.run(
+            trace.step(
+                db_session,
+                run_id=run.id,
+                step_name=f"planner_{index}",
+                tool_name="LangGraph.AgentPlanner",
+                input_json={"task_type": f"search_{index}"},
+                handler=invoke,
+            )
+        )
+    with pytest.raises(AgentExecutionBudgetExceeded, match="without observable progress"):
+        asyncio.run(
+            trace.step(
+                db_session,
+                run_id=run.id,
+                step_name="planner_2",
+                tool_name="LangGraph.AgentPlanner",
+                input_json={"task_type": "search_2"},
+                handler=invoke,
+            )
+        )
 
 
 def test_completion_integrity_rejects_cross_job_artifact_mixup():
