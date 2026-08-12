@@ -400,6 +400,7 @@ pytest -q
 ## 文档
 
 - [文档导航](docs/README.md)
+- [完整系统设计、评测与 Bad Case 治理](docs/CAREER_AGENT_SYSTEM_DESIGN_AND_EVALUATION.md)
 - [项目目录说明](docs/PROJECT_STRUCTURE.md)
 - [架构设计](docs/ARCHITECTURE.md)
 - [Agent 设计说明](docs/AGENT_DESIGN.md)

@@ -1,5 +1,48 @@
 # 开发日志
 
+## 2026-08-12 20:07:08 +08:00：生成统一系统设计文档，建立架构、指标与 Bad Case 的单一讲解入口
+
+### 本轮目标
+- 不再要求读者在架构、Agent、RAG、PDF、SLO、Runtime 和面试材料之间自行拼接当前实现，生成一份从用户流程到源码实现的中文权威总览。
+- 系统解释当前各模块如何协作，统一列出架构规模、LangGraph、Skill/SubAgent/Tool、RAG、简历、岗位、投递、面试、队列、恢复、安全、上下文和 SLO。
+- 把历史失败、修复后定向回归、当前确定性回归和合成 SLO 分开陈述；Bad Case 统一使用“现象/根因/处理方案”口径，方便开发复盘和面试讲解。
+
+### 开发前审计发现的问题
+1. 当前实现分散在十余份专题文档中。单份 `ARCHITECTURE.md` 足够解释运行时，但无法同时回答“用户怎么使用、每个模块怎么实现、指标怎么样、失败过什么、为什么这样设计”。
+2. 旧材料中的规模数字已经漂移。当前源码实际为 126 条 FastAPI route、29 张表、18 个 Tool、7 个 Skill、7 个职责型 SubAgent、18 个主图节点；继续引用早期 110 route/23 表/15 Tool 会让面试讲解与源码冲突。
+3. 评测存在多个有效时间层：2026-07-22 的整轮真实系统基线、之后的真实定向复测、当前 309 项确定性回归、2026-08-11 的多语言 RAG 和合成 SLO。把这些结果放进一个“最新通过率”会产生错误结论。
+4. 本地 `evaluation_runs` 中某些最新记录来自初版 SLO diagnostic 或显式 heuristic fallback，不一定是该 Suite 的权威发布结果。仅按 `created_at desc limit 1` 取数字，会把探针前提错误或运行模式差异当成产品回归。
+5. Bad Case 已经记录很多，但分散在开发日志和专题面试文档中，读者很难建立“检索错误、LLM 错误、Tool 错误、恢复错误、安全错误、评测器错误”之间的分类关系。
+
+### 实现内容
+- 新增 `docs/CAREER_AGENT_SYSTEM_DESIGN_AND_EVALUATION.md`，作为当前系统的统一技术入口。
+- 文档先从无简历搜索、只提供简历、简历+偏好三种用户模式讲起，再解释 FastAPI/LangGraph/Service/SQLite/Redis/LLM/外部工具的完整数据流。
+- 明确主 LangGraph 18 节点、自然语言图 8 节点、面试 Agentic RAG 7 节点的责任，并解释为什么主流程采用 Plan-Execute、ReAct 只用于有界局部修复。
+- 列出 7 个 Skill、7 个 SubAgent 职责、18 个 Tool 和 29 张表的领域归属，说明 Skill 渐进披露、Tool Runtime、Task Contract、Completion Gate 和 typed memory 的边界。
+- 逐模块说明 PDF/Profile、JD/岗位发现、混合 RAG、Matcher、定制简历、审批外发、面试 Agentic RAG、上下文治理、Redis worker、checkpoint/回溯/撤回、RBAC、安全和 SLO。
+- 汇总 12 类评测集、当前 309 项全量回归、PDF、180-case RAG、144-case 多语言 RAG、Evidence Gate、岗位排序、投递、注入、面试、真实 LLM 历史和合成 SLO 指标。
+- 将 50 余个开发问题归纳为 RAG/证据、LLM 解析生成、Agent/Tool 完成语义、持久化恢复、安全多租户和评测可观测性六大类，并给出根因与已实施方案。
+- 更新根 README 和 `docs/README.md`，把统一文档放到文档导航首位。
+
+### 文档口径与 Bad Case 处理
+1. **不能用最新一条数据库记录代表最新能力。** 例如初版 SLO diagnostic 会创建失败的 full-flow EvaluationRun，较新的 JD fallback 运行也和真实 LLM 运行模式不同。主文档按 `run + provider + dataset + gate` 描述，不按 ID 新旧覆盖事实。
+2. **不能用 309 passed 代替真实 LLM 质量。** 309 项证明确定性控制面和固定回归，真实 LLM 整轮历史仍保留自然语言 0.85、24-case E2E 0.75、6-case full-flow 0.8333 的失败结论；修复后的局部回归只证明对应 Bad Case 已处理。
+3. **不能用 Top1 满分隐藏长尾召回。** 文档同时解释 RAG Top1=1.0 与 Recall@5=0.7292 的含义，并保留 `coursework_vs_shipped=0.0521` 这一 PDF Chunk 弱项。
+4. **不能把合成 SLO 写成线上 SLO。** API 375/375、Agent 67/69 明确标为 synthetic；真实流量仍为 `insufficient_data`。
+5. **Bad Case 不能只列现象。** 每项至少说明根因和处理，例如相关性不等于蕴含、重试错误不等于副作用可重放、checkpoint 存在不等于副作用安全、END 不等于任务完成。
+
+### 验证
+- 从运行时代码导入并核对：126 routes、29 tables、18 tools、7 skills、7 subagents。
+- 直接检查主图源码确认 18 个节点；自然语言图 8 节点；面试 Agentic RAG 7 节点。
+- 新文档共 600 余行，包含模块说明、架构图、17 个以上指标/设计表和完整相对链接；所有 Markdown 相对链接存在。
+- 本轮只修改文档和导航，没有调用 DeepSeek，没有产生 LLM Token 消耗。
+
+### 尚未解决与下一步
+1. 统一文档是当前实现的讲解入口，但专题文档仍可能继续漂移；后续功能变更必须同步主文档或在开发日志中明确它不受影响。
+2. 当前版本尚未重跑 24-case 真实 LLM 全量发布评测，不能把历史 Pro 18-case 满分或局部定向通过写成当前全量认证。
+3. 真实用户 SLO、用户满意度、投递成功、面试邀请和录用 outcome 仍缺数据，文档只给出受控上线边界。
+4. 后续可以从本主文档派生一份 10 分钟面试讲述稿，但讲述稿应引用当前指标，不能再独立维护另一套架构事实。
+
 ## 2026-08-11 13:18:52 +08:00：建立用户旅程 SLO，完成中英跨语言 RAG 校准并修复证据误放
 
 ### 本轮目标
