@@ -22,7 +22,7 @@
 8. 数据模型与事实边界
 9. LangGraph 主工作流
 10. 自然语言 Agent
-11. Tool、Skill 与 SubAgent
+11. Tool、Skill 与责任角色
 12. 简历建档与 PDF 解析
 13. PDF Chunk 策略
 14. 岗位采集、JD 解析与岗位库
@@ -168,6 +168,49 @@ CareerAgent 因此采用：
 - **最终停止：统一 Completion Gate 决定。**
 
 这个设计保留了模型处理模糊语言和生成内容的能力，同时把副作用和停止条件交给确定性控制面。
+
+### 2.5 什么是 Agent Harness
+
+“Agent Harness”不是某一家框架规定的固定类名，也不是再套一层 Prompt。本文把它定义为：**围绕模型和状态图，负责约束、执行、恢复、观察和评测 Agent 的非模型运行系统**。
+
+```text
+Agent = 目标理解 + 决策/生成
+Harness = 状态机 + 工具边界 + 上下文 + 持久化 + 策略 + Trace + Eval
+```
+
+模型可以提出下一步，但 Harness 决定这一步是否有权限、参数是否合法、是否需要审批、失败能否重试、怎样记录结果以及何时允许结束。因此 LangGraph 是 Harness 的编排与持久化基础之一，不等于完整 Harness；RAG、Redis 和 SQLite 也都只是其中一个部件。
+
+本文采用的现代 Harness 基线来自三类公开的一手设计原则：LangGraph 强调 durable execution、interrupt、streaming 和 human-in-the-loop；OpenAI Agents SDK 把有界 runner loop、tool/guardrail、handoff、tracing 和 approval 作为运行时能力；Anthropic 则强调先使用能解决问题的最简单组合，在确有收益时再增加 evaluator、subagent 或动态规划。参考：[LangGraph overview](https://docs.langchain.com/oss/python/langgraph/overview)、[LangGraph durable execution](https://docs.langchain.com/oss/python/langgraph/durable-execution)、[OpenAI Agents SDK runner](https://openai.github.io/openai-agents-python/running_agents/)、[Anthropic Building effective agents](https://www.anthropic.com/research/building-effective-agents)。
+
+CareerAgent 的 Harness 必须满足以下可执行约束，而不是只在文档中声称具备：
+
+1. **有界控制循环**：最大步骤、相同调用、无进展循环和局部 Repair 都有预算。
+2. **显式状态与完成语义**：Typed State、Task Contract、Goal Ledger 和 Completion Gate 共同决定终态。
+3. **工具是受管能力**：Tool descriptor、JSON Schema 和实际 callable 绑定为同一个 `BoundAgentTool`，不能把工具名 A 与处理函数 B 分开传入。
+4. **最小权限在执行时复核**：Planner 先做 Skill 权限检查，`AgentToolRuntime` 每次调用再按 Run 的 `task_type` fail closed。
+5. **副作用受审批和重放策略控制**：高风险 Tool 必须携带与当前 Run、动作、Payload 绑定的 approved `approval_id`；仅有 Prompt 中的“用户同意”不算授权。
+6. **上下文和记忆有作用域**：原文、结构化事实、Top evidence、用户记忆和运行 State 分层，不能把全量历史无差别回放。
+7. **恢复遵守副作用边界**：Checkpoint 负责控制流位置，业务幂等键负责数据库效果，外发动作不能因图重放而自动重复。
+8. **错误有稳定语义**：输入、策略、证据不足、临时依赖、模型结构、完成门禁和内部错误分别处理；返回 `failed` 也必须被 Worker 识别，不能当作成功消费。
+9. **过程可观察、结果可评测**：Run、Step、Event、Artifact、LLM usage、trajectory、online review 和 release gate 形成同一证据链。
+10. **生产拓扑有硬门禁**：开发可用 SQLite；生产多实例必须使用共享业务数据库、PostgreSQL checkpointer、Redis、真实身份/RBAC 和非默认 Session Secret。
+
+### 2.6 本轮 Harness 审视结论
+
+审视前，文档的大方向是现代的，但有几处“设计意图已经写出，运行时仍依赖调用方自觉”的问题。这些问题已经同步修入代码和本文：
+
+| 原问题 | 为什么不符合成熟 Harness | 当前设计 |
+| --- | --- | --- |
+| Tool 名称和 handler 分开传入 | 契约 A 可能执行实现 B，Trace 也会错误归因 | 使用不可拆分的 `BoundAgentTool(spec, handler)`，Runtime 再比对注册表中的不可变合同 |
+| Skill 权限只在 Planner 检查 | 节点、恢复路径或未来动态规划可能绕过 Planner | Planner 预检 + Runtime 按 Run task type 二次授权 |
+| 审批主要由业务 Service 检查 | 新节点直接调用 Runtime 时可能漏掉审批 | Runtime 对所有声明 `approval_requirement` 的 Tool 统一验证审批记录及 Payload 绑定 |
+| `SubAgent` 实际只是职责标签 | 会误导为七个独立模型循环，夸大 Multi-Agent 复杂度 | 正名为责任角色 `AgentRoleSpec`；旧 `/subagents` 仅保留兼容，新增 `/agent/roles` |
+| Tool Schema 只是字符串字典 | 不利于模型工具调用、API 暴露和自动验证 | Registry 同时导出 JSON Schema Draft 2020-12；Python Entity 返回由 Runtime adapter 验证 |
+| 图返回 `failed` 仍算队列消费成功 | 临时基础设施失败不会重排或进入 DLQ | Worker 检查 ErrorEnvelope；retryable failure 改回 queued 并 checkpoint resume，耗尽后 DLQ |
+| SQLite Checkpointer 被笼统描述为生产持久化 | 单机持久化不等于跨主机共享恢复 | `sqlite/postgres` 后端可配置；production readiness 强制 PostgreSQL checkpointer |
+| 进程内 DB/Plan 映射容易被理解为状态 | 这些对象不可序列化，也不能跨 worker 迁移 | 明确其只是单次执行依赖注入；权威状态只在 Checkpoint、业务表和 Artifact |
+
+因此，当前设计符合“领域有界、策略可执行、可持久化、可观察、可评测”的 Agent Harness 范式。这里的“符合”指代码结构和控制约束符合，不代表已经完成大规模真实生产验证；生产就绪仍由 `/agent/tools/harness` 返回的 readiness checks 和真实 SLO 决定。
 
 ## 3. CareerAgent 要解决什么问题
 
@@ -318,14 +361,15 @@ flowchart TB
     OPS --> API
 
     API --> AUTH["Session / RBAC / Tenant Scope"]
-    API --> NL["自然语言 LangGraph"]
-    API --> MAIN["CareerAgent 主 LangGraph"]
+    API --> HARNESS["Agent Harness"]
+    HARNESS --> NL["自然语言 LangGraph"]
+    HARNESS --> MAIN["CareerAgent 主 LangGraph"]
     API --> DOMAIN["简历 / 岗位 / 评测领域 API"]
 
     NL --> MAIN
     MAIN --> PLANNER["Task Contract + Planner"]
     MAIN --> RUNTIME["AgentToolRuntime"]
-    RUNTIME --> POLICY["Schema / Permission / Timeout / Retry / Circuit"]
+    RUNTIME --> POLICY["Binding / Schema / Capability / Approval / Retry / Circuit"]
     POLICY --> SERVICES["领域服务"]
 
     SERVICES --> RESUME["PDF / Profile / Resume"]
@@ -342,7 +386,7 @@ flowchart TB
     REDIS --> WORKER["多 Worker Supervisor"]
     WORKER --> MAIN
 
-    MAIN --> CP["LangGraph SQLite Checkpointer"]
+    MAIN --> CP["LangGraph Checkpointer\n开发 SQLite / 生产 PostgreSQL"]
     MAIN --> TRACE["Run / Step / Event / Artifact"]
     RUNTIME --> TRACE
     TRACE --> SSE["SSE 进度与刷新恢复"]
@@ -356,7 +400,8 @@ flowchart TB
 | 前端 | 收集需求、展示产物、恢复运行状态 | 用户不应该接触队列和数据库字段 |
 | FastAPI | HTTP 协议、鉴权、Schema 校验、SSE | 让业务服务不依赖 Web 框架 |
 | Agent 图 | 状态、路由、中断、停止条件 | 显式表达长流程和恢复点 |
-| Tool Runtime | 工具合同、权限、超时、重试、熔断 | 防止各节点随意调用 Python 函数 |
+| Agent Harness | 把图、工具、策略、上下文、持久化和评测组成受控运行系统 | 模型和框架本身不负责生产约束 |
+| Tool Runtime | 工具绑定、合同、能力权限、审批、超时、重试、熔断 | 防止各节点随意调用 Python 函数 |
 | 领域服务 | 简历、岗位、RAG、匹配、生成 | 承载可测试的业务规则 |
 | SQLite | 权威业务事实和审计 | 恢复后仍能验证产物是否真实存在 |
 | Redis | 调度、锁、Heartbeat、DLQ | 不把长任务绑在 API 进程内 |
@@ -578,7 +623,7 @@ current_project/
 │  ├─ frontend/                   HTML 页面路由
 │  ├─ templates/                  Jinja2 用户页与控制台
 │  ├─ static/                     CSS 和浏览器端 JavaScript
-│  ├─ agents/                     LangGraph、Planner、Tool、Skill、SubAgent
+│  ├─ agents/                     LangGraph、Planner、Tool、Skill、责任角色
 │  ├─ services/                   领域服务和工程控制面
 │  ├─ models/                     SQLAlchemy Entity 与 Pydantic Schema
 │  └─ core/                       配置、数据库、LLM、Redis、安全、遥测
@@ -910,13 +955,13 @@ Repair 最多一次，且只补缺失动作，不从头重放已经成功的副�
 4. Repair 只执行缺失动作；
 5. 仍缺失则显式失败。
 
-## 11. Tool、Skill 与 SubAgent
+## 11. Tool、Skill 与责任角色
 
 ### 11.1 Tool 是什么
 
 Tool 是 Agent 可以调用的外部能力。它可能是纯读取，也可能写数据库、调用 LLM、访问网络或发送邮件。
 
-当前 18 个 Tool：
+当前 19 个 Tool：
 
 | 类别 | Tool | 主要副作用 |
 | --- | --- | --- |
@@ -929,6 +974,7 @@ Tool 是 Agent 可以调用的外部能力。它可能是纯读取，也可能�
 | 岗位 | `jd_parser.parse_jd` | LLM 日志 |
 | 索引 | `vector_index.upsert_job_chunks` | SQLite、Embedding、可选 Chroma |
 | 匹配 | `matcher.match_job` | MatchResult、Embedding、Reranker |
+| 门禁 | `matcher.enforce_fit_gate` | 无；读取既有匹配证据并决定是否放行 |
 | 证据 | `vector_index.retrieve_resume_evidence` | Embedding、Reranker |
 | 定制 | `resume_tailor.tailor_resume` | LLM、ResumeVersion |
 | 校验 | `guardrail.verify_resume` | 无 |
@@ -941,13 +987,14 @@ Tool 是 Agent 可以调用的外部能力。它可能是纯读取，也可能�
 
 ### 11.2 Tool Contract
 
-每个 Tool 声明：
+每个 Tool 声明输入输出、执行模式和副作用策略：
 
 ```python
 AgentToolSpec(
     name="email_send",
-    input_schema={"to": "str", "subject": "str", "body": "str"},
+    input_schema={"to": "str", "subject": "str", "body": "str", "approval_id": "int"},
     output_schema={"status": "email_sent", "sent_at": "datetime"},
+    execution_mode="sync",
     risk_level="high",
     approval_requirement="email_send",
     idempotency_policy="approval_id binds one audited execution",
@@ -956,16 +1003,18 @@ AgentToolSpec(
 )
 ```
 
-这意味着模型不能只输出“调用 email_send”。Runtime 还要验证参数、Skill 权限、审批、熔断、超时和输出结构。
+Registry 会把上述字段同时导出为 JSON Schema Draft 2020-12。模型不能只输出“调用 email_send”，节点也不能把字符串工具名和任意 Python handler 拼在一起；调用点必须先构造 `bind_agent_tool("email_send", handler)`。Runtime 随后验证不可变合同、参数、Skill 能力、审批、熔断、超时和输出结构。
 
 ### 11.3 Tool Runtime 的调用顺序
 
 ```text
 工具是否注册
--> 当前 Skill 是否允许
+-> descriptor 与 callable 是否为同一绑定
 -> 输入 Schema 是否满足
+-> 当前 Run 的 Skill 能力是否允许
+-> Run 是否仍允许执行
+-> 高风险 approval_id 是否属于当前 Run/动作/Payload 且为 approved
 -> Circuit 是否打开
--> 是否需要审批
 -> 是否存在可复用幂等结果
 -> 执行 timeout/retry
 -> 输出 Schema 是否满足
@@ -1022,11 +1071,11 @@ Planner 一开始只加载 Skill 名称、简介和权限元数据。进入具�
 第三层：Skill instructions，执行节点时才注入
 ```
 
-### 11.8 SubAgent 的含义
+### 11.8 责任角色不是伪 Multi-Agent
 
-当前 7 个 SubAgent 是职责和上下文边界：
+当前 7 个 Agent Role 是职责和上下文边界：
 
-| SubAgent | 读取 | 写入 |
+| Role | 读取 | 写入 |
 | --- | --- | --- |
 | `profile_analyst` | 简历原文、表单 | Profile、ResumeChunk |
 | `job_analyst` | 原始 JD | Structured JD、JobChunk |
@@ -1036,9 +1085,9 @@ Planner 一开始只加载 Skill 名称、简介和权限元数据。进入具�
 | `application_operator` | 最终简历和岗位摘要 | Application packet |
 | `interview_coach` | JD、Match、Evidence | InterviewPrep |
 
-它们不是七个自由自治、互相聊天的 Agent。这样设计是因为当前任务有清晰 DAG 和共享事务，强行拆成七次模型对话会增加 Token、延迟和状态同步问题。
+它们对应 `AgentRoleSpec`，不是七个自由自治、互相聊天且各自带模型循环的 SubAgent。当前任务有清晰 DAG 和共享事务，强行拆成七次模型对话会增加 Token、延迟和状态同步问题。旧 `/agent/subagents` 只为兼容保留，新的语义入口是 `/agent/roles`。
 
-上下文压缩也不是单独 SubAgent。压缩是确定性 Runtime Policy，没有必要为了“管理上下文”再调用一次 LLM。
+上下文压缩也不是单独 Role 或 SubAgent。压缩是确定性 Runtime Policy，没有必要为了“管理上下文”再调用一次 LLM。
 
 # 第四部分：简历、岗位与 RAG
 
@@ -1958,6 +2007,15 @@ Interrupt 负责暂停图，Approval Table 负责持久化审计。二者不能�
 
 `approval_id` 绑定一次外发执行。即使客户端重复点击或 Worker 收到重复消息，已消费的 Approval 不会再次触发发送。
 
+真实浏览器/邮件外发使用原子状态流：
+
+```text
+pending -> approved -> executing -> executed
+                               \-> execution_failed
+```
+
+执行器只允许通过条件更新把 `approved` 改成 `executing`。并发请求中只有一个能取得执行权；`executed` 和 `execution_failed` 都不能用同一审批自动重放。投递包生成属于本地、带业务幂等键的产物，使用 `approval_bound_idempotent`，恢复时可复用已有 Application，但不会把它表述为已完成外部投递。
+
 ```text
 网络读取失败：可以自动重试
 数据库唯一键冲突：读取已存在结果
@@ -2148,7 +2206,7 @@ Ranked evidence layer
 Prompt packet budget guard
 ```
 
-每层有独立预算和一次缩减策略。它不是六次 LLM 摘要，也没有 `context_manager` SubAgent。
+每层有独立预算和一次缩减策略。它不是六次 LLM 摘要，也没有 `context_manager` SubAgent/Role。
 
 ### 22.3 Profile Layer
 
@@ -2267,7 +2325,7 @@ FastAPI 提供：
 - SSE 事件流；
 - 健康检查和 SLO metrics。
 
-当前源码注册 127 条 Route，覆盖用户功能和控制台，不意味着每个业务动作都在请求进程内执行。
+当前源码注册 129 条 Route，覆盖用户功能、责任角色和 Harness Manifest 控制面，不意味着每个业务动作都在请求进程内执行。
 
 ### 23.2 哪些流程可以并行
 
@@ -2348,6 +2406,18 @@ finalizing
 
 重放不是简单把消息塞回队列，还要检查 Run 状态、幂等 Scope 和高风险副作用。
 
+Worker 不只处理“抛出异常”的失败。Orchestrator 为了保留完整 Trace，会把部分异常转换成 `AgentRun(status="failed", error_envelope=...)` 返回。如果 Worker 只看 Python 是否抛异常，这类失败会被误认为消费成功。当前 Worker 会解释返回 Run：
+
+```text
+returned failed Run
+-> 读取 ErrorEnvelope.retryable
+-> retryable：改回 queued + execution_mode=checkpoint_resume + 重新入队
+-> 达到最大次数：进入 DLQ
+-> non-retryable：保留明确业务失败，不做盲目重试
+```
+
+Graph 层负责记录失败，Queue 层负责决定是否重投；二者通过稳定的 ErrorEnvelope 协作。
+
 ### 23.9 Supervisor
 
 Supervisor 启动多个 Worker，提供：
@@ -2378,7 +2448,13 @@ SQLite 支持多个读者但同一时刻写者有限。系统启用 WAL、busy t
 
 ### 24.2 Checkpoint 配置
 
-主图使用 `AsyncSqliteSaver`，启动时设置：
+Checkpointer 通过统一生命周期组件选择后端：
+
+- `sqlite`：本地开发、单机评测和受控演示；
+- `postgres`：生产多 API/多 Worker 的共享持久化；
+- production 环境若没有 PostgreSQL DSN，Harness readiness 在 FastAPI 启动前直接失败。
+
+SQLite 模式使用 `AsyncSqliteSaver`，启动时设置：
 
 ```sql
 PRAGMA busy_timeout=30000;
@@ -2387,6 +2463,10 @@ PRAGMA synchronous=NORMAL;
 ```
 
 每个 Run 有唯一 `graph_thread_id`。Checkpoint ID 使用 LangGraph 可排序 `uuid6()`，避免 UUIDv4 在历史排序中的错误。
+
+PostgreSQL 模式使用 `AsyncPostgresSaver`。它解决跨进程共享 checkpoint；业务表同样必须位于共享数据库。只把 Checkpointer 换成 PostgreSQL、业务事实仍留在某台机器的 SQLite，并不能形成可恢复的生产拓扑。
+
+图 State 只保存 JSON 可序列化的业务标识、决策和中间结果。SQLAlchemy Session、服务实例和进程内执行计划映射由 Worker 在每次运行或恢复时重新注入，不属于 Checkpoint 权威状态。
 
 ### 24.3 Crash Recovery
 
@@ -3790,17 +3870,17 @@ traffic_type 分为 diagnostic、synthetic、real，独立分母和窗口。真�
 
 ## 30. 成熟度判断与上线边界
 
-### 30.1 一个成熟 Agent 应具备什么
+### 30.1 一个成熟 Agent Harness 应具备什么
 
 可以从七个维度判断：
 
 | 维度 | 成熟特征 |
 | --- | --- |
 | 任务 | 有明确合同、成功/失败/等待终态 |
-| 工具 | 有 Schema、权限、超时、重试、幂等和审计 |
+| 工具 | descriptor 与 callable 绑定，有 JSON Schema、运行时权限、审批、超时、重试、幂等和审计 |
 | 知识 | RAG 有正负例、质量门禁、引用和恢复 |
 | 生成 | 有 Grounding、Claim 验证和局部 Repair |
-| 运行 | 可异步、可恢复、可回溯、可撤回 |
+| 运行 | 可异步、可恢复、可回溯、可撤回，返回失败不会被队列误判为成功 |
 | 安全 | 多租户、审批、注入防护、脱敏和纵深防御 |
 | 评测 | 组件、轨迹、终态、可靠性、成本和 SLO 分层 |
 
@@ -3809,15 +3889,16 @@ traffic_type 分为 diagnostic、synthetic、real，独立分母和窗口。真�
 - LangGraph 主图、自然语言图和面试 Agentic RAG；
 - Typed State、Conditional Edge、Interrupt 和 Checkpoint；
 - Task Contract、Goal Ledger 和 Completion Gate；
-- 18 个 Tool 的合同和 AgentToolRuntime；
+- 19 个 Tool 的机器可读合同、BoundAgentTool 和 AgentToolRuntime；
 - 7 个 Skill 的渐进式披露；
-- 7 个责任型 SubAgent 边界；
+- 7 个 Agent Role 责任与上下文边界，不伪装成独立 SubAgent；
 - PDF/JD Chunk、真实 Embedding、混合检索、RRF、Top20 Reranker；
 - EvidenceClassifier、RetrievalQuality 和 Claim Guardrail；
 - 简历定制 Repair 和投递事实校验；
 - 审批表、浏览器和邮件高风险工具；
 - Redis 队列、Heartbeat、DLQ、Recovery Scanner、Supervisor；
-- SQLite 业务幂等、Checkpoint 恢复、Rewind 和 Withdrawal；
+- SQLite 本地后端、PostgreSQL 生产 Checkpointer 入口、业务幂等、Checkpoint 恢复、Rewind 和 Withdrawal；
+- 可查询的 Harness Manifest 和生产启动 readiness gate；
 - Session/RBAC、tenant scope、Prompt Injection、防泄露；
 - Run/Step/Event/Artifact/Approval/LLM usage Trace；
 - 多层评测、发布门禁和合成 SLO。
@@ -3831,13 +3912,14 @@ traffic_type 分为 diagnostic、synthetic、real，独立分母和窗口。真�
 - 至少 10 个关键 Case x 3 的 `pass^k`；
 - 真实招聘站长期接口稳定性；
 - 多副本高写入下的数据库方案；
+- PostgreSQL 业务库与 Checkpointer 的真实故障切换、连接池和多 Worker 压测；
 - 真实投递、面试和录用结果；
 - OIDC/企业 SSO 的完整生产接入；
 - 专业集中式日志、Tracing 和告警平台。
 
 ### 30.4 当前准确表述
 
-> CareerAgent 是一个具备现代 Agent 控制面、完整中文求职流程、可恢复执行、RAG 证据治理、高风险审批和分层评测的工程化候选产品。它已经超出 Toy Demo，但仍处于受控上线和真实流量校准阶段，不能宣称已经经过大规模生产验证。
+> CareerAgent 是一个具备领域有界 Agent Harness、完整中文求职流程、可恢复执行、RAG 证据治理、高风险审批和分层评测的工程化候选产品。工具能力、审批和完成语义由运行时强制执行，开发与生产持久化拓扑也有明确门禁。它已经超出 Toy Demo，但仍处于受控上线和真实流量校准阶段，不能宣称已经经过大规模生产验证。
 
 ### 30.5 为什么它不是 Toy Demo
 
@@ -3878,7 +3960,7 @@ CareerAgent 处理了 Demo 常被忽略的内容：
 
 ### 31.3 为什么不做无限 Multi-Agent
 
-> Profile、JD、RAG、匹配和投递之间有明确依赖，而且共享同一业务事务。拆成多个自由对话 Agent 会增加上下文重复、Token、延迟和状态同步难度。因此我保留了七个责任型 SubAgent 边界，用它们限制读写范围和 Skill 权限，但主流程仍是一个有界 LangGraph。只有面试这种需要检索、生成、验证和局部修复的开放内容使用独立 Agentic RAG 子图。
+> Profile、JD、RAG、匹配和投递之间有明确依赖，而且共享同一业务事务。拆成多个自由对话 Agent 会增加上下文重复、Token、延迟和状态同步难度。因此我定义了七个 Agent Role 来限制读写范围和 Skill 权限，但不把它们包装成七个独立 SubAgent；主流程仍是一个有界 LangGraph。只有面试这种需要检索、生成、验证和局部修复的开放内容使用独立 Agentic RAG 子图。
 
 ### 31.4 Chunk 策略怎样选择
 
@@ -4029,7 +4111,8 @@ python -m scripts.run_real_job_source_eval
 | Edge | 节点之间的连接或条件路由 |
 | Tool | Agent 可调用的受合同约束能力 |
 | Skill | 能力说明、权限和上下文策略 |
-| SubAgent | 责任和上下文边界，不一定是独立模型进程 |
+| Agent Harness | 围绕模型和图提供工具、策略、状态、恢复、Trace 与 Eval 的运行系统 |
+| Agent Role | 责任、上下文和 Skill 所有权边界，不是独立模型循环 |
 | RAG | 检索证据后再生成 |
 | Embedding | 把文本映射到向量空间 |
 | Reranker | 对第一阶段候选做更精细的二次排序 |
@@ -4057,7 +4140,9 @@ python -m scripts.run_real_job_source_eval
 | 自然语言图 | `app/agents/natural_language.py` |
 | Tool Registry/Planner | `app/agents/tools.py` |
 | Skill Registry | `app/agents/skills.py` |
-| SubAgent 边界 | `app/agents/subagents.py` |
+| Agent Role 边界（文件名保留兼容） | `app/agents/subagents.py` |
+| Harness Manifest/生产门禁 | `app/services/agent_harness.py` |
+| Checkpointer 生命周期 | `app/services/langgraph_checkpointer.py` |
 | Task Contract/Completion Gate | `app/services/agent_reliability.py` |
 | Agent Tool Runtime | `app/services/agent_runtime.py` |
 | PDF/Profile Parser | `app/services/resume_parser.py` |

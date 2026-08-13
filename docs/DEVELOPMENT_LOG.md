@@ -1,5 +1,64 @@
 # 开发日志
 
+## 2026-08-13 11:29:42 +08:00：按现代 Agent Harness 范式重审设计，并把文档约束下沉为运行时强制策略
+
+### 本轮目标
+- 用户要求审视大型系统文档是否真正符合现代 Agent Harness 范式，而不是只检查是否出现 LangGraph、RAG、Tool、Memory 等技术名词。
+- 以“模型/图之外，谁负责约束工具、状态、恢复、副作用、Trace 和 Eval”为主线，对照 LangGraph durable execution/interrupt、主流 bounded runner/tool guardrail 和简洁优先的 Agent 设计原则，逐项核对文档与源码。
+- 发现文档已经声称但代码仍依赖调用方约定的能力时，不只改文字，直接把约束下沉到 Harness runtime，并新增回归测试。
+
+### 审视结论
+1. 原设计的总体方向是正确的：有界 LangGraph、Task Contract、Completion Gate、持久化 Run/Artifact、HITL、RAG 质量门禁、上下文预算、错误分类、Redis worker 和分层评测都属于现代 Harness 的核心组成。
+2. 原文仍把“使用了 LangGraph”与“具备完整 Harness”贴得过近，没有单独定义 Brain、Control Plane、Hands、Context、Memory、Durability、Observability 和 Evaluation 的责任关系。
+3. 最严重的问题不是 Prompt，而是工具合同和真实执行函数分开传入。调用点可以写 `tool_name=A, handler=B`，Runtime 和 Trace 会相信名称 A，无法证明实际执行的函数与合同一致。
+4. Skill 工具权限只在 Planner 构造固定计划时检查。恢复路径、新节点或未来动态规划如果直接调用 Runtime，缺少执行时的最小权限复核。
+5. 高风险审批主要由 `HighRiskActionToolService` 自觉检查；普通 Trace/Runtime 调用如果新增了高风险 Tool，统一层没有强制验证 `approval_id` 与 Run、action、Payload 的绑定。
+6. 代码中的七个“SubAgent”没有独立模型会话、调度循环或消息协议，实际只是责任、读写和上下文边界。继续叫 SubAgent 会误导面试官，也会掩盖系统选择有界单图而非自由 Multi-Agent 的真实理由。
+7. Worker 只在 Orchestrator 抛异常时重排。Orchestrator 为保存完整 Trace 返回 `AgentRun(status=failed)` 时，临时依赖失败会被误判成队列消费成功。
+8. SQLite Checkpointer 能提供单机跨请求恢复，但不能等同于生产多主机共享恢复。原文虽然提过 SQLite 并发限制，却没有用启动门禁阻止 production 继续使用本地 Checkpoint。
+
+### Harness 重构
+- 新增 `BoundAgentTool`：注册合同和本次唯一 callable 在调用点绑定；`TraceService.step()`、主 LangGraph、自然语言图和高风险工具全部改为消费绑定对象，不再接受彼此独立的 `tool_name/handler`。
+- Tool Registry 升级为 contract v3，导出 JSON Schema Draft 2020-12，正确表达 `instruction|error` 这类“至少一个字段”约束，并为每个工具暴露 `execution_mode` 和 replay safety；同步/异步执行器用错时直接拒绝。
+- 新增独立 `matcher.enforce_fit_gate` Tool，避免把“生成 MatchResult”和“读取结果执行策略门禁”伪装成同一个工具；Tool 总数由 18 增为 19。
+- `AgentToolRuntime` 在每次调用时查询当前 AgentRun，拒绝 cancelled/withdrawn Run，按 task type 的 Skill capability 做二次授权；未知 task 不会隐式获得业务工具权限。
+- 所有声明 `approval_requirement` 的工具由 Runtime 统一验证审批记录。审批必须属于当前 Run 和 action，状态合法，且审批摘要与本次执行的同名 Payload 字段一致。
+- 真实浏览器和邮件外发加入原子审批状态流 `approved -> executing -> executed/execution_failed`。条件更新只允许一个并发执行器取得消费权，同一审批不能再次发送；投递包生成仍使用 approval-bound 业务幂等复用。
+- 将 `SubAgentSpec` 正名为 `AgentRoleSpec`，Planner 主字段改为 `roles`，Skill front matter 改为 `owner_role`；旧类名、`subagents` 字段和 `/agent/subagents` 仅保留兼容，新增 `/agent/roles`。
+- 新增 `LangGraphCheckpointerLifecycle`，支持本地 SQLite 和共享 PostgreSQL 两种后端；SQLite 继续配置 WAL/busy timeout，PostgreSQL 使用 `AsyncPostgresSaver`。
+- 新增 `AgentHarnessService` 和 `/agent/tools/harness` Manifest，列出 Harness 组件、Tool/Skill/Role 数量和生产 readiness。production 启动会强制检查共享业务库、PostgreSQL Checkpointer、Redis、非可信 Header RBAC、非默认 Session Secret、严格工具合同和注入门禁。
+- Execution Provenance 升级为 v3，记录 Harness/runtime 版本、角色和 Checkpoint 策略，方便历史 Run 复现当时的执行条件。
+
+### 开发过程中发现的 Bad Case 与处理
+1. **返回失败不等于抛出异常。** 初版 Worker 把图返回的 `failed` Run 直接 return，导致 retryable dependency failure 永久终止。修复为读取稳定 ErrorEnvelope：可重试错误改为 `queued + checkpoint_resume` 并重排，达到预算后进入 DLQ；业务/策略错误保持明确终态。
+2. **重排顺序存在竞态。** 第一版修复先向 Redis `LPUSH`，再把数据库状态改回 queued。另一个 Worker 可能在两次操作之间拿到消息并看到旧 failed 状态。最终改为先提交可恢复数据库状态，再发布队列消息；若 Redis 发布失败，由 queued recovery scanner 补偿。
+3. **审批存在重复消费窗口。** 仅验证 `status=approved` 时，客户端重复点击或两个 Worker 并发都可能执行 `email_send`。最终使用条件更新抢占 `executing`，成功后写 `executed`，失败写 `execution_failed`；二者都要求新审批才能再次外发。状态扩展后又发现 Business Summary 只把 `approved` 当合法授权，会把已经执行成功的 `executed` 误报成 approval bypass；已把授权态集合与审批状态机统一并增加回归。
+4. **修改 Tool 名后 Completion Gate 反而拒绝正确轨迹。** Fit Gate 从 `matcher.match_job` 拆为独立工具后，四个完整流程测试到达终点却被 trajectory evaluator 报 `unexpected_tools`。根因是 Harness 的执行注册表和评测允许表没有一起版本化。已同步更新 TaskPolicy、Planner 和 argument validator，并保留这个 Case 说明“评测器也是系统合同的一部分”。
+5. **测试解释器漂移。** 首次测试使用了没有 LangGraph 的系统 Python，收集阶段报 `ModuleNotFoundError`。确认业务代码尚未执行后，切回 Codex 项目 Python，并安装新增 PostgreSQL Checkpointer 依赖；没有把环境错误误记成业务回归。
+6. **机器可读 Schema 与 Python Entity 返回不是同一层。** Registry 的 JSON Schema描述逻辑工具输出，内部 Python handler 可能返回 ORM Entity 或 `(jobs, source_errors)` tuple。当前由 Runtime adapter 做类型验证；文档明确这一边界，避免声称所有内部返回都已经物理转换成 JSON envelope。
+7. **执行器模式不能只写在元数据里。** 最终 lint 发现匹配节点用 lambda 包装异步返回值，虽然功能正确，但会削弱 `execution_mode=async` 的可读性和静态检查价值。已改为显式 `async def` callable，并由 Runtime 对合同声明与真实 callable 做同步/异步一致性校验。
+
+### 文档改写
+- 在 `CAREER_AGENT_SYSTEM_DESIGN_AND_EVALUATION.md` 增加 Agent Harness 定义、十条可执行基线和“原问题/不合规范原因/当前设计”审视表。
+- 总体架构图新增 Harness 层，Tool policy 补 Binding、Capability 和 Approval；Checkpointer 改为“开发 SQLite / 生产 PostgreSQL”。
+- Tool/Skill/SubAgent 章节改为 Tool/Skill/责任角色，更新 19 个工具、BoundAgentTool、双重权限检查、审批 Payload 绑定和 Role 语义。
+- Checkpoint 章节区分单机持久化与跨 Worker 共享持久化，明确进程内 Session/Service 映射不是 State；队列章节增加 returned-failure reconciliation。
+- 成熟度章节改为 Agent Harness 维度，并明确“架构范式符合”不等于“已经通过大规模生产验证”。
+- 更新 `.env.example`、`DEVELOPMENT.md` 和 requirements，加入 PostgreSQL Checkpointer 的配置与依赖。
+
+### 验证
+- 未调用 DeepSeek 或任何外部 LLM，没有产生 Token 费用。
+- `python -m compileall -q app tests`：通过。
+- Harness/Runtime/Workflow/Health/Hardening 重点回归：`68 passed`；新增 Harness readiness、执行时能力拒绝、跨绑定审批拒绝、Role API、Manifest API、返回失败重排和审批单次消费测试。
+- 本次改动涉及的全部 Python 文件通过 `python -m ruff check`；全仓仍有 7 个位于未改动模块的历史未使用导入，本轮不混入无关清理。
+- `python -m pytest -q` 最终完整回归：`315 passed in 95.94s`；production PostgreSQL/Redis 多实例故障切换仍需真实容器环境验证，不能由 SQLite 单机测试替代。
+
+### 尚未解决与下一步
+1. PostgreSQL Checkpointer 已具备代码路径和启动门禁，但本轮没有启动 PostgreSQL 集群做连接中断、主从切换和多 Worker 压测；这仍是部署验证项，不是自动通过项。
+2. Tool Registry 当前同时保留内部 Python 返回适配和逻辑 JSON Schema。若未来让外部模型动态直连 Tool，应增加统一 envelope adapter，确保所有模型可见结果只出现 JSON 类型。
+3. `app/agents/subagents.py` 文件名和兼容 API 暂时保留，避免一次性破坏已有前端/测试；后续大版本可迁移到 `roles.py` 并正式弃用旧入口。
+4. Harness readiness 是配置与拓扑前置门禁，不替代真实 SLO、RAG 质量门禁和 24-case 真实 LLM 发布认证。
+
 ## 2026-08-13 09:53:31 +08:00：将系统总览重写为从零可读的 4,000 行独立 Agent 实现手册
 
 ### 本轮目标

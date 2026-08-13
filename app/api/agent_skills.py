@@ -3,7 +3,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 
 from app.agents.skills import get_agent_skill, list_agent_skills
-from app.agents.subagents import list_subagents
+from app.agents.subagents import list_agent_roles, list_subagents
 
 
 router = APIRouter(prefix="/agent", tags=["agent-capabilities"])
@@ -25,3 +25,8 @@ def get_agent_skill_detail(skill_name: str) -> dict[str, Any]:
 @router.get("/subagents")
 def get_agent_subagents() -> list[dict[str, Any]]:
     return list_subagents()
+
+
+@router.get("/roles")
+def get_agent_roles() -> list[dict[str, Any]]:
+    return list_agent_roles()

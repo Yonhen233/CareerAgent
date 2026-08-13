@@ -5,15 +5,13 @@ from datetime import datetime, timezone
 from typing import Any, Literal, TypedDict
 from uuid import uuid4
 
-import aiosqlite
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.checkpoint.base import uuid6
 from langgraph.errors import GraphInterrupt
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 from sqlalchemy.orm import Session
 
-from app.agents.tools import AgentPlanner
+from app.agents.tools import AgentPlanner, bind_agent_tool
 from app.core.config import get_settings
 from app.core.redis_client import RedisUnavailableError, get_redis_client, redis_key
 from app.models.entities import AgentArtifact, AgentRun, AgentStep
@@ -29,6 +27,7 @@ from app.services.application_service import ApplicationService
 from app.services.execution_provenance import ExecutionProvenanceService
 from app.services.interview_prep import InterviewPrepService
 from app.services.job_search import JobSearchService
+from app.services.langgraph_checkpointer import LangGraphCheckpointerLifecycle
 from app.services.matcher import MatcherService
 from app.services.memory_feedback import CareerMemoryService
 from app.services.resume_tailor import ResumeTailorService
@@ -107,7 +106,7 @@ class LangGraphAgentOrchestrator:
         self.settings = get_settings()
         self._runtime_dbs: dict[int, Session] = {}
         self._runtime_plans: dict[int, dict[str, Any]] = {}
-        self._checkpoint_conn = None
+        self._checkpoint_lifecycle = LangGraphCheckpointerLifecycle(settings=self.settings)
         self.checkpointer = None
         self._graph = None
 
@@ -1002,21 +1001,12 @@ class LangGraphAgentOrchestrator:
     async def _ensure_graph(self):
         if self._graph is not None:
             return self._graph
-        path = self.settings.langgraph_checkpoint_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self._checkpoint_conn = await aiosqlite.connect(str(path))
-        await self._checkpoint_conn.execute("PRAGMA busy_timeout=30000")
-        await self._checkpoint_conn.execute("PRAGMA journal_mode=WAL")
-        await self._checkpoint_conn.execute("PRAGMA synchronous=NORMAL")
-        self.checkpointer = AsyncSqliteSaver(self._checkpoint_conn)
-        await self.checkpointer.setup()
+        self.checkpointer = await self._checkpoint_lifecycle.open()
         self._graph = self._build_graph()
         return self._graph
 
     async def _close_checkpoint(self) -> None:
-        if self._checkpoint_conn is not None:
-            await self._checkpoint_conn.close()
-        self._checkpoint_conn = None
+        await self._checkpoint_lifecycle.close()
         self.checkpointer = None
         self._graph = None
 
@@ -1030,16 +1020,18 @@ class LangGraphAgentOrchestrator:
             db,
             run_id=state["run_id"],
             step_name="plan_task",
-            tool_name="LangGraph.AgentPlanner",
             input_json={"task_type": request.task_type},
-            handler=lambda: self._async_value(
-                {
-                    **self.planner.build_plan(request),
-                    "orchestration_framework": "langgraph",
-                    "graph_thread_id": state.get("graph_thread_id"),
-                    "checkpoint_backend": "sqlite",
-                    "interrupt_policy": "quick_apply_requires_application_confirmation",
-                }
+            tool=bind_agent_tool(
+                "LangGraph.AgentPlanner",
+                lambda: self._async_value(
+                    {
+                        **self.planner.build_plan(request),
+                        "orchestration_framework": "langgraph",
+                        "graph_thread_id": state.get("graph_thread_id"),
+                        "checkpoint_backend": self.settings.langgraph_checkpoint_backend,
+                        "interrupt_policy": "quick_apply_requires_application_confirmation",
+                    }
+                ),
             ),
         )
         run = db.query(AgentRun).filter(AgentRun.id == state["run_id"]).one()
@@ -1089,9 +1081,11 @@ class LangGraphAgentOrchestrator:
             db,
             run_id=state["run_id"],
             step_name="load_profile",
-            tool_name="profile_repository.load_profile",
             input_json={"profile_id": state.get("profile_id")},
-            handler=lambda: self._load_profile(db, state.get("profile_id")),
+            tool=bind_agent_tool(
+                "profile_repository.load_profile",
+                lambda: self._load_profile(db, state.get("profile_id")),
+            ),
         )
         query = state.get("query") or " ".join(profile.target_roles_json or []) or "Agent 开发实习生"
         return {"profile_id": profile.id, "query": query}
@@ -1102,15 +1096,17 @@ class LangGraphAgentOrchestrator:
             db,
             run_id=state["run_id"],
             step_name="search_jobs",
-            tool_name="job_search.search_jobs",
             input_json={"query": state.get("query"), "location": state.get("location"), "limit": state.get("limit")},
-            handler=lambda: self.job_search.search(
-                db,
-                query=state.get("query") or "Agent 开发实习生",
-                location=state.get("location"),
-                internship_only=True,
-                limit=int(state.get("limit") or 20),
-                store_results=True,
+            tool=bind_agent_tool(
+                "job_search.search_jobs",
+                lambda: self.job_search.search(
+                    db,
+                    query=state.get("query") or "Agent 开发实习生",
+                    location=state.get("location"),
+                    internship_only=True,
+                    limit=int(state.get("limit") or 20),
+                    store_results=True,
+                ),
             ),
         )
         return {"job_ids": [job.id for job in jobs], "source_errors": source_errors}
@@ -1126,10 +1122,12 @@ class LangGraphAgentOrchestrator:
                 db,
                 run_id=state["run_id"],
                 step_name=f"match_job_{job.id}",
-                tool_name="matcher.match_job",
                 input_json={"profile_id": profile.id, "job_id": job.id},
-                handler=lambda job=job, key=idempotency_key: self._async_value(
-                    self._create_match_result(db, profile, job, idempotency_key=key)
+                tool=bind_agent_tool(
+                    "matcher.match_job",
+                    lambda job=job, key=idempotency_key: self._async_value(
+                        self._create_match_result(db, profile, job, idempotency_key=key)
+                    ),
                 ),
             )
             matches.append(
@@ -1189,9 +1187,11 @@ class LangGraphAgentOrchestrator:
             db,
             run_id=state["run_id"],
             step_name="load_job",
-            tool_name="job_repository.load_job",
             input_json={"job_id": state.get("job_id")},
-            handler=lambda: self._load_job(db, state.get("job_id")),
+            tool=bind_agent_tool(
+                "job_repository.load_job",
+                lambda: self._load_job(db, state.get("job_id")),
+            ),
         )
         return {"job_id": job.id}
 
@@ -1214,22 +1214,21 @@ class LangGraphAgentOrchestrator:
                 )
         idempotency_key = self._idempotency_key(state, "match_primary", profile.id, job.id)
         if selected_match is not None:
-            match_handler = lambda: self._async_value(selected_match)
+            async def match_handler():
+                return selected_match
         else:
-            match_handler = lambda: self._async_value(
-                self._create_match_result(db, profile, job, idempotency_key=idempotency_key)
-            )
+            async def match_handler():
+                return self._create_match_result(db, profile, job, idempotency_key=idempotency_key)
         match = await self.trace.step(
             db,
             run_id=state["run_id"],
             step_name="match_job",
-            tool_name="matcher.match_job",
             input_json={
                 "profile_id": profile.id,
                 "job_id": job.id,
                 "reuse_match_result_id": selected_match_id or None,
             },
-            handler=match_handler,
+            tool=bind_agent_tool("matcher.match_job", match_handler),
         )
         payload = {
             "match_result_id": match.id,
@@ -1271,9 +1270,11 @@ class LangGraphAgentOrchestrator:
             db,
             run_id=state["run_id"],
             step_name="tailor_resume_with_rag",
-            tool_name="resume_tailor.tailor_resume",
             input_json={"profile_id": profile.id, "job_id": job.id},
-            handler=lambda: self._tailor_resume_with_idempotency(db, profile, job, key),
+            tool=bind_agent_tool(
+                "resume_tailor.tailor_resume",
+                lambda: self._tailor_resume_with_idempotency(db, profile, job, key),
+            ),
         )
         self._assign_idempotency_key(db, version, key)
         payload = self._tailor_payload(state, profile, job, version, idempotency_reused=False)["tailor"]
@@ -1292,9 +1293,11 @@ class LangGraphAgentOrchestrator:
             db,
             run_id=state["run_id"],
             step_name="fit_gate",
-            tool_name="matcher.match_job",
             input_json={"profile_id": profile.id, "job_id": job.id, "min_score": 55},
-            handler=lambda: self._async_value(self._fit_gate(db, profile, job, state=state)),
+            tool=bind_agent_tool(
+                "matcher.enforce_fit_gate",
+                lambda: self._async_value(self._fit_gate(db, profile, job, state=state)),
+            ),
         )
         self.trace.add_artifact(db, run_id=state["run_id"], artifact_type="fit_gate", payload=fit_gate)
         return {"fit_gate": fit_gate}
@@ -1320,9 +1323,11 @@ class LangGraphAgentOrchestrator:
             db,
             run_id=state["run_id"],
             step_name="create_missing_tailored_resume",
-            tool_name="resume_tailor.tailor_resume",
             input_json={"profile_id": profile.id, "job_id": job.id},
-            handler=lambda: self._tailor_resume_with_idempotency(db, profile, job, key),
+            tool=bind_agent_tool(
+                "resume_tailor.tailor_resume",
+                lambda: self._tailor_resume_with_idempotency(db, profile, job, key),
+            ),
         )
         self._assign_idempotency_key(db, version, key)
         return {"resume_version_id": version.id}
@@ -1358,17 +1363,24 @@ class LangGraphAgentOrchestrator:
             db,
             run_id=state["run_id"],
             step_name="create_application_packet",
-            tool_name="application.create_quick_apply_packet",
-            input_json={"profile_id": profile.id, "job_id": job.id, "resume_version_id": resume_version.id},
-            handler=lambda: self.application.create_quick_apply_packet(
-                db,
-                **self._supported_kwargs(
-                    self.application.create_quick_apply_packet,
-                    profile=profile,
-                    job=job,
-                    resume_version=resume_version,
-                    browser_assist=False,
-                    idempotency_key=key,
+            input_json={
+                "profile_id": profile.id,
+                "job_id": job.id,
+                "resume_version_id": resume_version.id,
+                "approval_id": confirmation["approval_id"],
+            },
+            tool=bind_agent_tool(
+                "application.create_quick_apply_packet",
+                lambda: self.application.create_quick_apply_packet(
+                    db,
+                    **self._supported_kwargs(
+                        self.application.create_quick_apply_packet,
+                        profile=profile,
+                        job=job,
+                        resume_version=resume_version,
+                        browser_assist=False,
+                        idempotency_key=key,
+                    ),
                 ),
             ),
         )
@@ -1411,16 +1423,18 @@ class LangGraphAgentOrchestrator:
             db,
             run_id=state["run_id"],
             step_name="generate_interview_prep",
-            tool_name="interview_prep.generate_packet",
             input_json={"profile_id": profile.id, "job_id": job.id, "match_result_id": match_result.id},
-            handler=lambda: self.interview_prep.create_interview_prep_with_llm(
-                db,
-                **self._supported_kwargs(
-                    self.interview_prep.create_interview_prep_with_llm,
-                    profile=profile,
-                    job=job,
-                    match_result=match_result,
-                    idempotency_key=key,
+            tool=bind_agent_tool(
+                "interview_prep.generate_packet",
+                lambda: self.interview_prep.create_interview_prep_with_llm(
+                    db,
+                    **self._supported_kwargs(
+                        self.interview_prep.create_interview_prep_with_llm,
+                        profile=profile,
+                        job=job,
+                        match_result=match_result,
+                        idempotency_key=key,
+                    ),
                 ),
             ),
         )

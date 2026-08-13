@@ -1,5 +1,6 @@
-from dataclasses import asdict, dataclass, field
-from typing import Any
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
+from typing import Any, Generic, TypeVar
 
 from app.agents.skills import (
     active_skill_names_for_task,
@@ -7,7 +8,68 @@ from app.agents.skills import (
     skill_names_for_tool,
     validate_tool_permissions,
 )
-from app.agents.subagents import subagents_for_task
+from app.agents.subagents import roles_for_task
+
+
+T = TypeVar("T")
+
+
+def _json_schema_for_type(type_name: str) -> dict[str, Any]:
+    expression = str(type_name or "Any").strip()
+    options = [item.strip() for item in expression.split("|") if item.strip()]
+    nullable = "None" in options or "optional" in {item.lower() for item in options}
+    options = [item for item in options if item not in {"None", "optional"}]
+    if len(options) > 1 and all(item not in {"str", "int", "float", "bool", "dict", "list", "datetime", "Any"} for item in options):
+        schema: dict[str, Any] = {"type": "string", "enum": options}
+    elif len(options) > 1:
+        schema = {"anyOf": [_json_schema_for_type(item) for item in options]}
+    else:
+        option = options[0] if options else "Any"
+        primitive = {
+            "str": {"type": "string"},
+            "int": {"type": "integer"},
+            "float": {"type": "number"},
+            "bool": {"type": "boolean"},
+            "dict": {"type": "object"},
+            "list": {"type": "array"},
+            "datetime": {"type": "string", "format": "date-time"},
+            "Any": {},
+        }
+        if option.startswith("list[") and option.endswith("]"):
+            schema = {"type": "array", "items": _json_schema_for_type(option[5:-1])}
+        else:
+            schema = primitive.get(option, {"type": "object", "x-python-type": option})
+    if nullable:
+        schema = {"anyOf": [schema, {"type": "null"}]}
+    return schema
+
+
+def _object_schema(fields: dict[str, str]) -> dict[str, Any]:
+    properties: dict[str, Any] = {}
+    required: list[str] = []
+    alternative_requirements: list[dict[str, Any]] = []
+    for field_name, type_name in fields.items():
+        alternatives = [item.strip() for item in field_name.split("|") if item.strip()]
+        alternatives = alternatives or [field_name]
+        for alternative in alternatives:
+            properties[alternative] = _json_schema_for_type(type_name)
+        optional = "None" in type_name or "optional" in type_name.lower()
+        if not optional and len(alternatives) == 1:
+            required.append(alternatives[0])
+        elif not optional:
+            alternative_requirements.append(
+                {"anyOf": [{"required": [alternative]} for alternative in alternatives]}
+            )
+    schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": True,
+    }
+    if alternative_requirements:
+        schema["allOf"] = alternative_requirements
+    return schema
 
 
 @dataclass(frozen=True)
@@ -17,6 +79,7 @@ class AgentToolSpec:
     input_schema: dict[str, str]
     output_schema: dict[str, str]
     side_effects: list[str]
+    execution_mode: str = "async"
     risk_level: str = "low"
     approval_requirement: str = "none"
     idempotency_policy: str = "read_only"
@@ -25,14 +88,60 @@ class AgentToolSpec:
         default_factory=lambda: {"max_attempts": 1, "retryable_errors": []}
     )
     retry_owner: str = "runtime"
-    contract_version: str = "careeragent-tool-contract-v2"
+    contract_version: str = "careeragent-tool-contract-v3"
+    schema_version: str = "2020-12"
     audit_events: list[str] = field(default_factory=lambda: ["step_started", "step_completed", "step_failed"])
     mcp_candidate: bool = False
 
     def as_dict(self) -> dict[str, Any]:
-        payload = asdict(self)
+        payload = {
+            "name": self.name,
+            "purpose": self.purpose,
+            "input_schema": self.input_schema,
+            "output_schema": self.output_schema,
+            "input_json_schema": _object_schema(self.input_schema),
+            "output_json_schema": _object_schema(self.output_schema),
+            "side_effects": self.side_effects,
+            "execution_mode": self.execution_mode,
+            "risk_level": self.risk_level,
+            "approval_requirement": self.approval_requirement,
+            "idempotency_policy": self.idempotency_policy,
+            "replay_safety": self.replay_safety,
+            "timeout_seconds": self.timeout_seconds,
+            "retry_policy": self.retry_policy,
+            "retry_owner": self.retry_owner,
+            "contract_version": self.contract_version,
+            "schema_version": self.schema_version,
+            "audit_events": self.audit_events,
+            "mcp_candidate": self.mcp_candidate,
+        }
         payload["allowed_skills"] = skill_names_for_tool(self.name)
         return payload
+
+    @property
+    def replay_safety(self) -> str:
+        if not self.side_effects or self.idempotency_policy == "read_only":
+            return "read_only"
+        if "external_email_send" in self.side_effects or "optional_form_submission" in self.side_effects:
+            return "non_replayable_without_new_human_decision"
+        if self.approval_requirement != "none":
+            return "approval_bound_idempotent"
+        return "idempotent_with_business_key"
+
+
+@dataclass(frozen=True)
+class BoundAgentTool(Generic[T]):
+    """Couple a registered tool contract with the only callable used for one invocation."""
+
+    spec: AgentToolSpec
+    handler: Callable[[], T | Awaitable[T]]
+    binding_version: str = "careeragent-bound-tool-v1"
+
+
+def bind_agent_tool(name: str, handler: Callable[[], T | Awaitable[T]]) -> BoundAgentTool[T]:
+    if not callable(handler):
+        raise TypeError(f"Tool {name} handler must be callable.")
+    return BoundAgentTool(spec=get_agent_tool(name), handler=handler)
 
 
 AGENT_TOOLS: list[AgentToolSpec] = [
@@ -127,6 +236,15 @@ AGENT_TOOLS: list[AgentToolSpec] = [
         timeout_seconds=120,
     ),
     AgentToolSpec(
+        name="matcher.enforce_fit_gate",
+        purpose="在高风险投递路径前依据既有 MatchResult 和证据质量执行适配度策略门禁。",
+        input_schema={"profile_id": "int", "job_id": "int", "min_score": "float"},
+        output_schema={"passed": "bool", "overall_score": "float", "min_score": "float"},
+        side_effects=[],
+        risk_level="medium",
+        timeout_seconds=30,
+    ),
+    AgentToolSpec(
         name="vector_index.retrieve_resume_evidence",
         purpose="基于 JD 查询简历 chunk，一阶段 Top20 检索后用 reranker 二阶段排序。",
         input_schema={"profile_id": "int", "query": "str", "top_k": "int"},
@@ -157,7 +275,7 @@ AGENT_TOOLS: list[AgentToolSpec] = [
     AgentToolSpec(
         name="application.create_quick_apply_packet",
         purpose="生成投递包、求职信、外联文案、清单和投递链接。",
-        input_schema={"profile_id": "int", "job_id": "int", "resume_version_id": "int"},
+        input_schema={"profile_id": "int", "job_id": "int", "resume_version_id": "int", "approval_id": "int"},
         output_schema={"application": "Application"},
         side_effects=["sqlite_write", "llm_call", "llm_call_log"],
         risk_level="high",
@@ -194,9 +312,10 @@ AGENT_TOOLS: list[AgentToolSpec] = [
     AgentToolSpec(
         name="browser_apply",
         purpose="审批后使用 Playwright 填写或提交招聘页面。",
-        input_schema={"url": "str", "fields": "dict", "submit_selector": "str|None"},
+        input_schema={"url": "str", "fields": "dict", "submit_selector": "str|None", "approval_id": "int"},
         output_schema={"status": "filled|submitted", "final_url": "str", "filled_selectors": "list"},
         side_effects=["external_browser_write", "optional_form_submission"],
+        execution_mode="sync",
         risk_level="high",
         approval_requirement="browser_apply",
         idempotency_policy="approval_id binds one audited execution",
@@ -208,9 +327,10 @@ AGENT_TOOLS: list[AgentToolSpec] = [
     AgentToolSpec(
         name="email_draft",
         purpose="审批后生成可审阅的 EML 邮件草稿。",
-        input_schema={"to": "str", "subject": "str", "body": "str"},
+        input_schema={"to": "str", "subject": "str", "body": "str", "approval_id": "int"},
         output_schema={"status": "draft_created", "draft_path": "str"},
         side_effects=["filesystem_write"],
+        execution_mode="sync",
         risk_level="high",
         approval_requirement="email_draft",
         idempotency_policy="approval_id binds one audited execution",
@@ -222,9 +342,10 @@ AGENT_TOOLS: list[AgentToolSpec] = [
     AgentToolSpec(
         name="email_send",
         purpose="审批后通过 SMTP 发送邮件。",
-        input_schema={"to": "str", "subject": "str", "body": "str"},
+        input_schema={"to": "str", "subject": "str", "body": "str", "approval_id": "int"},
         output_schema={"status": "email_sent", "sent_at": "datetime"},
         side_effects=["external_email_send"],
+        execution_mode="sync",
         risk_level="high",
         approval_requirement="email_send",
         idempotency_policy="approval_id binds one audited execution",
@@ -271,7 +392,7 @@ class AgentPlanner:
                 self._step("retrieve_resume_evidence", "vector_index.retrieve_resume_evidence", "检索 Top evidence 支撑定制。"),
                 self._step("tailor_resume", "resume_tailor.tailor_resume", "生成面向目标 JD 的定制简历。"),
                 self._step("verify_resume", "guardrail.verify_resume", "验证事实边界和关键词覆盖。"),
-                self._step("fit_gate", "matcher.match_job", "投递前检查适配度是否达到阈值。"),
+                self._step("fit_gate", "matcher.enforce_fit_gate", "投递前检查适配度是否达到阈值。"),
                 self._step(
                     "create_application_packet",
                     "application.create_quick_apply_packet",
@@ -324,6 +445,7 @@ class AgentPlanner:
                 self._step("load_profile", "profile_repository.load_profile", "读取候选人档案。"),
                 self._step("load_job", "job_repository.load_job", "读取目标岗位。"),
                 self._step("ensure_resume_version", "resume_tailor.tailor_resume", "缺少定制简历时先生成。"),
+                self._step("fit_gate", "matcher.enforce_fit_gate", "人工确认前执行适配度与证据门禁。"),
                 self._step(
                     "create_application_packet",
                     "application.create_quick_apply_packet",
@@ -364,7 +486,8 @@ class AgentPlanner:
                 "instructions_in_plan": False,
                 "detail_endpoint": "/agent/skills/{skill_name}",
             },
-            "subagents": subagents_for_task(task_type),
+            "roles": roles_for_task(task_type),
+            "subagents": roles_for_task(task_type),  # Deprecated response compatibility.
             "context_policy": self._context_policy(task_type),
             "steps": steps,
             "tool_policies": tool_policies_for_names(tool_names),

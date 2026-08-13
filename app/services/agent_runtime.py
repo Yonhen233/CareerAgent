@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, TypeVar
@@ -12,11 +12,12 @@ import httpx
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
-from app.agents.tools import AgentToolSpec, get_agent_tool
+from app.agents.skills import TASK_SKILL_MAPPING, get_skill_registry
+from app.agents.tools import AgentToolSpec, BoundAgentTool, get_agent_tool
 from app.core.config import Settings, get_settings
 from app.core.llm import LLMBudgetExceededError, LLMConfigurationError, LLMResponseError
 from app.core.redis_client import RedisUnavailableError
-from app.models.entities import ToolCircuitState
+from app.models.entities import AgentApproval, AgentRun, ToolCircuitState
 from app.services.agent_reliability import (
     AgentExecutionBudgetExceeded,
     AgentTaskIncompleteError,
@@ -29,6 +30,10 @@ EventSink = Callable[[str, dict[str, Any]], None]
 
 
 class AgentToolContractError(RuntimeError):
+    pass
+
+
+class AgentToolPolicyError(RuntimeError):
     pass
 
 
@@ -118,6 +123,8 @@ class AgentErrorClassifier:
             return "insufficient_or_invalid_evidence", False, "inspect_retrieval_and_claim_trace"
         if name in {"ApprovalRequiredError", "RunWithdrawalConflict", "AgentRunCancelled"}:
             return "policy_or_human_interrupt", False, "wait_for_human_or_stop"
+        if isinstance(exc, AgentToolPolicyError):
+            return "tool_policy_rejected", False, "request_authorized_capability_or_valid_approval"
         if isinstance(exc, AgentToolContractError):
             return "tool_contract_violation", False, "fix_tool_arguments_or_output_contract"
         if isinstance(exc, (ValueError, FileNotFoundError)):
@@ -135,6 +142,11 @@ class AgentToolRuntime:
         "dependency_transient": "connection_error",
         "model_response_invalid": "invalid_json",
     }
+    CONTROL_PLANE_TOOLS = {
+        "LangGraph.AgentPlanner",
+        "llm.intent_planner",
+        "NaturalLanguageAgentService",
+    }
 
     def __init__(self, *, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
@@ -146,19 +158,30 @@ class AgentToolRuntime:
         *,
         run_id: int,
         step_name: str,
-        tool_name: str,
         input_json: dict[str, Any] | None,
-        handler: Callable[[], Awaitable[T]],
+        tool: BoundAgentTool[T],
         event_sink: EventSink,
     ) -> T:
-        contract = self._resolve_contract(tool_name)
+        contract = self._validated_binding(tool)
+        if contract.execution_mode != "async":
+            raise AgentToolContractError(
+                f"Tool {contract.name} requires the {contract.execution_mode} runtime executor."
+            )
+        tool_name = contract.name
         self._validate_input(contract, input_json or {})
+        self._assert_runtime_policy(
+            db,
+            run_id=run_id,
+            contract=contract,
+            payload=input_json or {},
+            event_sink=event_sink,
+        )
         self._assert_circuit_allows(db, contract, event_sink=event_sink)
         max_attempts = self._runtime_attempts(contract)
 
         for attempt in range(1, max_attempts + 1):
             try:
-                output = await asyncio.wait_for(handler(), timeout=contract.timeout_seconds)
+                output = await asyncio.wait_for(tool.handler(), timeout=contract.timeout_seconds)
                 self._validate_output(contract, output)
                 self._record_success(db, contract)
                 if attempt > 1:
@@ -208,18 +231,30 @@ class AgentToolRuntime:
         self,
         db: Session,
         *,
+        run_id: int,
         step_name: str,
-        tool_name: str,
         input_json: dict[str, Any],
-        handler: Callable[[], T],
+        tool: BoundAgentTool[T],
         event_sink: EventSink,
     ) -> T:
         """Guard sync outbound tools; their clients own transport-level timeouts."""
-        contract = self._resolve_contract(tool_name)
+        contract = self._validated_binding(tool)
+        if contract.execution_mode != "sync":
+            raise AgentToolContractError(
+                f"Tool {contract.name} requires the {contract.execution_mode} runtime executor."
+            )
+        tool_name = contract.name
         self._validate_input(contract, input_json)
+        self._assert_runtime_policy(
+            db,
+            run_id=run_id,
+            contract=contract,
+            payload=input_json,
+            event_sink=event_sink,
+        )
         self._assert_circuit_allows(db, contract, event_sink=event_sink)
         try:
-            output = handler()
+            output = tool.handler()
             self._validate_output(contract, output)
             self._record_success(db, contract)
             return output
@@ -244,6 +279,90 @@ class AgentToolRuntime:
                 },
             )
             raise
+
+    def _validated_binding(self, tool: BoundAgentTool[T]) -> AgentToolSpec:
+        registered = self._resolve_contract(tool.spec.name)
+        if tool.spec != registered:
+            raise AgentToolContractError(
+                f"Bound tool {tool.spec.name} does not match the registered immutable contract."
+            )
+        return registered
+
+    def _assert_runtime_policy(
+        self,
+        db: Session,
+        *,
+        run_id: int,
+        contract: AgentToolSpec,
+        payload: dict[str, Any],
+        event_sink: EventSink,
+    ) -> None:
+        run = db.query(AgentRun).filter(AgentRun.id == run_id).first()
+        if run is None:
+            raise AgentToolPolicyError(f"Agent run {run_id} was not found for tool policy evaluation.")
+        if run.status in {"cancelled", "withdrawn"}:
+            raise AgentToolPolicyError(f"Agent run {run_id} is {run.status}; tool execution is forbidden.")
+
+        allowed_tools = set(self.CONTROL_PLANE_TOOLS)
+        if run.task_type in TASK_SKILL_MAPPING:
+            allowed_tools.update(get_skill_registry().allowed_tools_for_task(run.task_type))
+        elif run.task_type == "natural_language_request":
+            allowed_tools.update(self.CONTROL_PLANE_TOOLS)
+        else:
+            # Unknown task types do not receive an implicit business capability set.
+            allowed_tools.update(self.CONTROL_PLANE_TOOLS)
+        if contract.name not in allowed_tools:
+            raise AgentToolPolicyError(
+                f"Tool {contract.name} is not authorized for task type {run.task_type}."
+            )
+
+        approval_id: int | None = None
+        if contract.approval_requirement != "none":
+            raw_approval_id = payload.get("approval_id")
+            if not isinstance(raw_approval_id, int) or raw_approval_id <= 0:
+                raise AgentToolPolicyError(
+                    f"Tool {contract.name} requires an approved {contract.approval_requirement} approval_id."
+                )
+            approval = (
+                db.query(AgentApproval)
+                .filter(
+                    AgentApproval.id == raw_approval_id,
+                    AgentApproval.run_id == run_id,
+                    AgentApproval.action_type == contract.approval_requirement,
+                )
+                .first()
+            )
+            allowed_approval_statuses = {"approved"}
+            if contract.name in {"browser_apply", "email_draft", "email_send"}:
+                allowed_approval_statuses.add("executing")
+            if approval is None or approval.status not in allowed_approval_statuses:
+                raise AgentToolPolicyError(
+                    f"Approval {raw_approval_id} is missing, not approved, or not bound to run {run_id} "
+                    f"and action {contract.approval_requirement}."
+                )
+            summary = approval.payload_summary_json or {}
+            mismatched = [
+                key for key, value in summary.items() if key in payload and payload[key] != value
+            ]
+            if mismatched:
+                raise AgentToolPolicyError(
+                    f"Approval {raw_approval_id} payload does not match execution fields: "
+                    f"{', '.join(sorted(mismatched))}."
+                )
+            approval_id = approval.id
+
+        event_sink(
+            "tool_policy_checked",
+            {
+                "tool_name": contract.name,
+                "task_type": run.task_type,
+                "capability_authorized": True,
+                "approval_requirement": contract.approval_requirement,
+                "approval_id": approval_id,
+                "binding_version": "careeragent-bound-tool-v1",
+                "contract_version": contract.contract_version,
+            },
+        )
 
     def _resolve_contract(self, tool_name: str) -> AgentToolSpec:
         try:
@@ -314,6 +433,20 @@ class AgentToolRuntime:
                 raise AgentToolContractError("job_search.search_jobs must return (jobs, source_errors).")
         if contract.name == "matcher.match_job" and not hasattr(output, "overall_score") and not isinstance(output, dict):
             raise AgentToolContractError("matcher.match_job returned an invalid match result.")
+        if contract.name == "matcher.enforce_fit_gate":
+            if not isinstance(output, dict):
+                raise AgentToolContractError("matcher.enforce_fit_gate must return a dictionary.")
+            missing = [field for field in contract.output_schema if output.get(field) is None]
+            invalid = [
+                f"{field} expected {type_name}, got {type(output[field]).__name__}"
+                for field, type_name in contract.output_schema.items()
+                if field in output and not AgentToolRuntime._matches_type(output[field], type_name)
+            ]
+            if missing or invalid:
+                details = [*(f"missing {field}" for field in missing), *invalid]
+                raise AgentToolContractError(
+                    f"Tool {contract.name} returned an invalid fit-gate result: {'; '.join(details)}."
+                )
         entity_contracts = {
             "profile_repository.load_profile": "Profile",
             "job_repository.load_job": "Job",

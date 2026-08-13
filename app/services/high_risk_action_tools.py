@@ -9,8 +9,9 @@ from app.models.entities import AgentApproval, AgentRun
 from app.services.approval_service import ApprovalService
 from app.services.agent_runtime import AgentToolRuntime
 from app.services.ops_audit import OpsAuditService
-from app.services.outbound_tools import BrowserApplyTool, EmailOutboundTool, OutboundToolError
+from app.services.outbound_tools import BrowserApplyTool, EmailOutboundTool
 from app.services.trace_service import TraceService
+from app.agents.tools import bind_agent_tool
 
 
 HIGH_RISK_TOOL_ACTIONS = {"browser_apply", "email_draft", "email_send"}
@@ -69,18 +70,36 @@ class HighRiskActionToolService:
             raise ApprovalRequiredError(
                 f"{approval.action_type} requires an approved approval record before tool execution."
             )
-        execution_payload = {**(approval.payload_summary_json or {}), **(tool_payload or {})}
+        claimed = (
+            db.query(AgentApproval)
+            .filter(AgentApproval.id == approval.id, AgentApproval.status == "approved")
+            .update({AgentApproval.status: "executing"}, synchronize_session=False)
+        )
+        db.commit()
+        if claimed != 1:
+            raise ApprovalRequiredError(
+                f"{approval.action_type} approval {approval.id} was already claimed by another executor."
+            )
+        db.refresh(approval)
+        execution_payload = {
+            **(approval.payload_summary_json or {}),
+            **(tool_payload or {}),
+            "approval_id": approval.id,
+        }
         try:
             trace = TraceService()
             tool_result = AgentToolRuntime().execute_sync(
                 db,
+                run_id=approval.run_id,
                 step_name=f"approved_{approval.action_type}",
-                tool_name=approval.action_type,
                 input_json=execution_payload,
-                handler=lambda: self._execute_tool(
-                    action_type=approval.action_type,
-                    payload=execution_payload,
-                    run_id=approval.run_id,
+                tool=bind_agent_tool(
+                    approval.action_type,
+                    lambda: self._execute_tool(
+                        action_type=approval.action_type,
+                        payload=execution_payload,
+                        run_id=approval.run_id,
+                    ),
                 ),
                 event_sink=lambda event_type, payload: trace.add_event(
                     db,
@@ -90,7 +109,11 @@ class HighRiskActionToolService:
                     payload=payload,
                 ),
             )
-        except OutboundToolError as exc:
+        except Exception as exc:
+            approval.status = "execution_failed"
+            approval.note = f"{exc.__class__.__name__}: {exc}"[:2000]
+            db.add(approval)
+            db.commit()
             failure_payload = {
                 "status": "tool_execution_failed",
                 "action_type": approval.action_type,
@@ -115,6 +138,10 @@ class HighRiskActionToolService:
             )
             raise
 
+        approval.status = "executed"
+        db.add(approval)
+        db.commit()
+        db.refresh(approval)
         result = {
             "status": "tool_execution_completed",
             "action_type": approval.action_type,

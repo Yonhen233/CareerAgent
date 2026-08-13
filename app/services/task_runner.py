@@ -581,6 +581,47 @@ async def consume_redis_queue_once(
                 stage=f"langgraph_finished:{result.status}",
                 graph_thread_id=graph_thread_id,
             )
+            if result.status == "failed":
+                error_envelope = dict((result.output_json or {}).get("error_envelope") or {})
+                if error_envelope.get("retryable"):
+                    will_requeue = (
+                        int(payload.get("attempts") or 0) + 1
+                        < settings.redis_worker_max_attempts
+                    )
+                    if will_requeue:
+                        # Persist the resumable state before publishing. Otherwise another
+                        # worker can pop the message while the database still says failed.
+                        result.status = "queued"
+                        result.input_json = {
+                            **(result.input_json or {}),
+                            "execution_mode": "checkpoint_resume",
+                        }
+                        db.add(result)
+                        db.commit()
+                        db.refresh(result)
+                    action = runner.requeue_or_dead_letter(
+                        payload,
+                        error=result.error_message or "Agent graph returned a retryable failed status.",
+                        worker_id=worker_id,
+                        error_envelope=error_envelope,
+                    )
+                    if action == "dead_lettered" and result.status == "queued":
+                        result.status = "failed"
+                        db.add(result)
+                        db.commit()
+                        db.refresh(result)
+                    TraceService().add_event(
+                        db,
+                        run_id=run_id,
+                        event_type="worker_returned_failure_reconciled",
+                        payload={
+                            "action": action,
+                            "worker_id": worker_id,
+                            "error_envelope": error_envelope,
+                            "resume_mode": "checkpoint_resume" if action == "requeued" else None,
+                        },
+                    )
+                    return None if action == "requeued" else result
             return result
         except Exception as exc:  # noqa: BLE001
             envelope = AgentErrorClassifier().classify(exc, step_name="agent_worker").as_dict()

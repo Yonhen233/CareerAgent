@@ -2,7 +2,7 @@
 name: resume_intake_and_structuring
 version: 1.0.0
 status: active
-owner_subagent: profile_analyst
+owner_role: profile_analyst
 purpose: 把 PDF、自然语言或已有档案转换为可检索、可审计的候选人 Profile。
 trigger: 用户上传 PDF、描述经历或选择已有简历档案时。
 required_inputs:

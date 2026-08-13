@@ -6,12 +6,13 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.agents.tools import tool_policies_for_names
+from app.agents.subagents import roles_for_task
 from app.core.config import Settings, get_settings
 from app.services.agent_reliability import TASK_CONTRACT_VERSION
 
 
 class ExecutionProvenanceService:
-    VERSION = "careeragent-execution-provenance-v2"
+    VERSION = "careeragent-execution-provenance-v3"
 
     def __init__(self, *, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
@@ -30,9 +31,15 @@ class ExecutionProvenanceService:
             },
             "task_type": task_type,
             "orchestrator": "langgraph",
-            "runtime_contract_version": "careeragent-tool-runtime-v2",
+            "harness_version": "careeragent-harness-v3",
+            "runtime_contract_version": "careeragent-tool-runtime-v3",
             "tool_contract_sha256": hashlib.sha256(contract_payload.encode("utf-8")).hexdigest(),
             "tool_names": tool_names,
+            "roles": [item["name"] for item in roles_for_task(task_type)],
+            "checkpoint_policy": {
+                "backend": self.settings.langgraph_checkpoint_backend,
+                "shared_backend_required_in_production": True,
+            },
             "model_policy": {
                 "version": "careeragent-model-routing-v2",
                 "routing_enabled": self.settings.llm_routing_enabled,

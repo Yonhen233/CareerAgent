@@ -29,6 +29,7 @@ from app.core.database import init_db
 from app.core.security import request_has_mutation_access
 from app.core.telemetry import persist_request_metric, telemetry
 from app.services.session_auth import SessionAuthService
+from app.services.agent_harness import AgentHarnessService
 from app.frontend.routes import router as frontend_router
 
 settings = get_settings()
@@ -36,6 +37,7 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    AgentHarnessService(settings=settings).assert_production_ready()
     settings.upload_path.mkdir(parents=True, exist_ok=True)
     settings.export_path.mkdir(parents=True, exist_ok=True)
     settings.chroma_path.mkdir(parents=True, exist_ok=True)

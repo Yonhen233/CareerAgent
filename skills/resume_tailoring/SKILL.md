@@ -2,7 +2,7 @@
 name: resume_tailoring
 version: 1.0.0
 status: active
-owner_subagent: resume_writer
+owner_role: resume_writer
 purpose: 基于目标 JD 和原始简历证据生成可投递的定制简历。
 trigger: 用户要求按目标岗位修改简历，或完整流程进入定制阶段时。
 required_inputs:

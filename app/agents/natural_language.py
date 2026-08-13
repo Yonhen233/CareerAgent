@@ -9,12 +9,11 @@ from contextvars import ContextVar
 from typing import Any, TypedDict
 from uuid import uuid4
 
-import aiosqlite
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.graph import END, START, StateGraph
 from sqlalchemy.orm import Session
 
 from app.agents.orchestrator import AgentOrchestrator
+from app.agents.tools import bind_agent_tool
 from app.core.config import get_settings
 from app.core.llm import LLMCallBudget, LLMClient, llm_call_budget, llm_trace_context
 from app.models.entities import AgentArtifact, AgentRun, Job, Profile
@@ -25,6 +24,7 @@ from app.models.schemas import (
     NaturalLanguageAgentRequest,
 )
 from app.services.job_discovery import JobDiscoveryService
+from app.services.langgraph_checkpointer import LangGraphCheckpointerLifecycle
 from app.services.agent_reliability import AgentTaskContractService, AgentTaskIncompleteError
 from app.services.execution_provenance import ExecutionProvenanceService
 from app.services.jd_parser import JDParserService
@@ -107,7 +107,7 @@ class NaturalLanguageAgentService:
         self.settings = get_settings()
         self.task_contracts = AgentTaskContractService()
         self._runtime_dbs: dict[int, Session] = {}
-        self._checkpoint_conn = None
+        self._checkpoint_lifecycle = LangGraphCheckpointerLifecycle(settings=self.settings)
         self.checkpointer = None
         self._graph = None
 
@@ -263,18 +263,12 @@ class NaturalLanguageAgentService:
     async def _ensure_graph(self):
         if self._graph is not None:
             return self._graph
-        path = self.settings.langgraph_checkpoint_path
-        path.parent.mkdir(parents=True, exist_ok=True)
-        self._checkpoint_conn = await aiosqlite.connect(str(path))
-        self.checkpointer = AsyncSqliteSaver(self._checkpoint_conn)
-        await self.checkpointer.setup()
+        self.checkpointer = await self._checkpoint_lifecycle.open()
         self._graph = self._build_graph()
         return self._graph
 
     async def _close_checkpoint(self) -> None:
-        if self._checkpoint_conn is not None:
-            await self._checkpoint_conn.close()
-        self._checkpoint_conn = None
+        await self._checkpoint_lifecycle.close()
         self.checkpointer = None
         self._graph = None
 
@@ -316,9 +310,8 @@ class NaturalLanguageAgentService:
             db,
             run_id=state["run_id"],
             step_name="parse_user_request",
-            tool_name="llm.intent_planner",
             input_json={"instruction": request.instruction},
-            handler=lambda: self._build_plan(db, request),
+            tool=bind_agent_tool("llm.intent_planner", lambda: self._build_plan(db, request)),
         )
         run = db.query(AgentRun).filter(AgentRun.id == state["run_id"]).one()
         memory_context = CareerMemoryService().compact_context(
@@ -379,9 +372,11 @@ class NaturalLanguageAgentService:
                 db,
                 run_id=state["run_id"],
                 step_name="execute_user_plan",
-                tool_name="NaturalLanguageAgentService",
                 input_json={"intent": plan.get("intent")},
-                handler=lambda: self._execute_plan(db, request, plan),
+                tool=bind_agent_tool(
+                    "NaturalLanguageAgentService",
+                    lambda: self._execute_plan(db, request, plan),
+                ),
             )
             return {"result": result, "execution_error": None}
         except Exception as exc:  # noqa: BLE001
@@ -407,14 +402,16 @@ class NaturalLanguageAgentService:
             db,
             run_id=state["run_id"],
             step_name="repair_user_plan",
-            tool_name="llm.intent_planner",
             input_json={"error": str(error), "plan": plan},
-            handler=lambda: self._repair_plan(
-                db,
-                request,
-                plan,
-                error,
-                completed_result=state.get("result") or {},
+            tool=bind_agent_tool(
+                "llm.intent_planner",
+                lambda: self._repair_plan(
+                    db,
+                    request,
+                    plan,
+                    error,
+                    completed_result=state.get("result") or {},
+                ),
             ),
         )
         repair_attempts = [
@@ -447,13 +444,15 @@ class NaturalLanguageAgentService:
                 db,
                 run_id=state["run_id"],
                 step_name="execute_repaired_user_plan",
-                tool_name="NaturalLanguageAgentService",
                 input_json={"intent": plan.get("intent")},
-                handler=lambda: self._execute_plan(
-                    db,
-                    request,
-                    plan,
-                    prior_result=state.get("result") or {},
+                tool=bind_agent_tool(
+                    "NaturalLanguageAgentService",
+                    lambda: self._execute_plan(
+                        db,
+                        request,
+                        plan,
+                        prior_result=state.get("result") or {},
+                    ),
                 ),
             )
             return {"result": result, "execution_error": None}

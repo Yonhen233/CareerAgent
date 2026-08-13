@@ -49,6 +49,7 @@ COMMON_ALLOWED_TOOLS = (
     "job_repository.load_job",
     "job_search.search_jobs",
     "matcher.match_job",
+    "matcher.enforce_fit_gate",
     "resume_tailor.tailor_resume",
     "application.create_quick_apply_packet",
     "interview_prep.generate_packet",
@@ -89,6 +90,7 @@ TASK_POLICIES: dict[str, TaskPolicy] = {
             "profile_repository.load_profile",
             "job_repository.load_job",
             "matcher.match_job",
+            "matcher.enforce_fit_gate",
             "resume_tailor.tailor_resume",
         ),
     ),
@@ -123,6 +125,7 @@ TASK_POLICIES: dict[str, TaskPolicy] = {
             "profile_repository.load_profile",
             "job_repository.load_job",
             "matcher.match_job",
+            "matcher.enforce_fit_gate",
             "resume_tailor.tailor_resume",
             "application.create_quick_apply_packet",
         ),
@@ -848,6 +851,7 @@ class AgentTrajectoryEvaluator:
                     violations.append({"step": step.step_name, "field": "profile_id", "reason": "request_mismatch"})
             if step.tool_name in {
                 "matcher.match_job",
+                "matcher.enforce_fit_gate",
                 "resume_tailor.tailor_resume",
                 "application.create_quick_apply_packet",
                 "interview_prep.generate_packet",

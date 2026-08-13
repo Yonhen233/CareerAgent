@@ -2,7 +2,7 @@
 name: application_packet
 version: 1.0.0
 status: active
-owner_subagent: application_operator
+owner_role: application_operator
 purpose: 生成投递材料，并在任何真实外发动作前执行审批、幂等和审计策略。
 trigger: 用户要求生成投递包、邮件草稿、邮件发送或浏览器辅助填写时。
 required_inputs:

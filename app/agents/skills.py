@@ -21,7 +21,7 @@ TASK_SKILL_MAPPING: dict[str, list[str]] = {
         "fit_assessment",
         "resume_tailoring",
     ],
-    "quick_apply": ["resume_tailoring", "application_packet"],
+    "quick_apply": ["fit_assessment", "resume_tailoring", "application_packet"],
     "prepare_interview_for_job": [
         "evidence_retrieval",
         "fit_assessment",
@@ -48,7 +48,7 @@ class AgentSkillSpec:
     name: str
     version: str
     status: str
-    owner_subagent: str
+    owner_role: str
     purpose: str
     trigger: str
     required_inputs: list[str]
@@ -63,6 +63,7 @@ class AgentSkillSpec:
 
     def as_dict(self, *, include_instructions: bool = False) -> dict[str, Any]:
         payload = asdict(self)
+        payload["owner_subagent"] = payload["owner_role"]  # Deprecated API compatibility.
         instructions = payload.pop("instructions")
         payload["instructions_loaded"] = include_instructions
         payload["instructions_chars"] = len(instructions)
@@ -78,7 +79,7 @@ class SkillRegistry:
         "name",
         "version",
         "status",
-        "owner_subagent",
+        "owner_role",
         "purpose",
         "trigger",
         "required_inputs",
@@ -113,7 +114,7 @@ class SkillRegistry:
                 name=name,
                 version=str(metadata["version"]).strip(),
                 status=str(metadata["status"]).strip(),
-                owner_subagent=str(metadata["owner_subagent"]).strip(),
+                owner_role=str(metadata["owner_role"]).strip(),
                 purpose=str(metadata["purpose"]).strip(),
                 trigger=str(metadata["trigger"]).strip(),
                 required_inputs=self._string_list(metadata["required_inputs"], path, "required_inputs"),

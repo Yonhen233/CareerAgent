@@ -45,6 +45,8 @@ LLM_EVIDENCE_MAX_CHARS=3600
 VECTOR_BACKEND=hybrid
 CHROMA_DIR=data/chroma
 LANGGRAPH_CHECKPOINT_FILE=data/runtime/langgraph_checkpoints.sqlite
+LANGGRAPH_CHECKPOINT_BACKEND=sqlite
+LANGGRAPH_CHECKPOINT_POSTGRES_DSN=
 EMBEDDING_PROVIDER=sentence_transformers
 EMBEDDING_MODEL_NAME=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
 EMBEDDING_PROVIDER_FALLBACK=error
@@ -81,7 +83,9 @@ JOB_SOURCE_BROWSER_TIMEOUT_MS=30000
 - `RERANKER_ANCHOR_TOP_N=5`：保留前 5 条一阶段证据顺序，降低 reranker 牺牲召回的风险。
 - `JOB_INGEST_CONCURRENCY`：并发解析 JD 的最大并发数。
 - `JOB_SOURCE_BROWSER_TIMEOUT_MS`：字节官网签名请求的浏览器超时；失败会进入 source trace，不复用静态签名。
-- `LANGGRAPH_CHECKPOINT_FILE`：LangGraph SQLite checkpoint 文件，用于跨请求恢复 interrupted graph。
+- `LANGGRAPH_CHECKPOINT_BACKEND=sqlite`：仅用于本地开发、单机评测和受控演示。
+- `LANGGRAPH_CHECKPOINT_BACKEND=postgres`：生产共享 Checkpointer；同时必须配置 `LANGGRAPH_CHECKPOINT_POSTGRES_DSN`。
+- `LANGGRAPH_CHECKPOINT_FILE`：SQLite 模式的 checkpoint 文件，用于单机跨请求恢复 interrupted graph，不代表跨主机恢复。
 
 ## LangGraph 编排开发约定
 
@@ -92,7 +96,9 @@ JOB_SOURCE_BROWSER_TIMEOUT_MS=30000
 - 节点内部继续使用 `TraceService.step()` 写入 `agent_steps`，这样前端、评测和排障仍可复用原 trace。
 - 图运行统一通过 `astream_events(version="v2")` 写入 `agent_events`；新增节点时需要确认事件里能看出节点开始、更新、完成、失败或 interrupt。
 - 如果节点有数据库写入副作用，必须保证幂等或先检查已有记录；后续接入 checkpointer/interrupt 后，节点可能因为恢复而重新执行。
-- 当前 LangGraph 使用 SQLite checkpointer，默认文件是 `data/runtime/langgraph_checkpoints.sqlite`。
+- 当前本地开发默认使用 SQLite checkpointer；生产多实例由 Harness readiness 强制使用 PostgreSQL checkpointer 和共享业务数据库。
+- `TraceService.step()` 必须接收 `BoundAgentTool`，不能重新引入彼此独立的 `tool_name` 与 `handler` 参数。
+- Planner 权限检查只是预检，`AgentToolRuntime` 必须在每次执行时按 Run task type、Skill capability 和 approval table 再次 fail closed。
 - `quick_apply` 和 `full_career_flow` 会在生成投递包前触发 interrupt；确认前不得写入 `applications` 或执行浏览器/邮箱等外部副作用。
 - 长流程优先使用 `POST /agent/runs/background` + `/agent/runs/{run_id}/events/stream`，不要在前端串多个独立 run 伪造完整流程。
 - 现阶段 LangGraph 使用运行期 `run_id -> Session` 映射接入现有 FastAPI DB Session；如果后续要支持更长时间跨度的恢复，应把每个节点改成独立打开 Session，并让节点写入保持幂等。

@@ -2,7 +2,7 @@
 name: interview_preparation
 version: 1.0.0
 status: active
-owner_subagent: interview_coach
+owner_role: interview_coach
 purpose: 根据目标 JD、简历项目、证据和缺口生成可练习的中文面试准备包。
 trigger: 用户选择面试准备，或完整流程完成投递材料后。
 required_inputs:

@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     export_dir: str = "data/exports"
     chroma_dir: str = "data/chroma"
     langgraph_checkpoint_file: str = "data/runtime/langgraph_checkpoints.sqlite"
+    langgraph_checkpoint_backend: str = "sqlite"
+    langgraph_checkpoint_postgres_dsn: str | None = None
     redis_enabled: bool = False
     redis_mode: str = "standalone"
     redis_url: str = "redis://localhost:6379/0"

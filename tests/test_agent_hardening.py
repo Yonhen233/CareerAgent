@@ -14,6 +14,7 @@ from app.services.task_runner import RedisTaskRunner, consume_redis_queue_once
 from app.services.evaluation_service import EvaluationService
 from app.services.approval_service import ApprovalService
 from app.services.high_risk_action_tools import ApprovalRequiredError, HighRiskActionToolService
+from app.services.run_business_summary import RunBusinessSummaryService
 from app.services.session_auth import SessionAuthService
 from app.core.security import AuthContext, parse_auth_context, has_admin_access
 from app.api.profiles import list_profiles
@@ -249,6 +250,60 @@ def test_redis_worker_treats_socket_timeout_as_empty_poll():
     assert result is None
 
 
+def test_redis_worker_requeues_retryable_failed_run_before_republishing(
+    db_session, monkeypatch
+):
+    import app.services.task_runner as task_runner_module
+
+    fake = FakeRedis()
+    settings = get_settings()
+    run = AgentRun(task_type="find_jobs_for_profile", status="queued", input_json={})
+    db_session.add(run)
+    db_session.commit()
+    db_session.refresh(run)
+    RedisTaskRunner(redis_client=fake, settings=settings).enqueue_agent_run(run.id)
+
+    class SessionProxy:
+        def __getattr__(self, name):
+            return getattr(db_session, name)
+
+        def close(self):
+            return None
+
+    async def returned_failure(run_id, *, db=None):
+        row = db.query(AgentRun).filter(AgentRun.id == run_id).one()
+        row.status = "failed"
+        row.error_message = "temporary database transport failure"
+        row.output_json = {
+            "error_envelope": {
+                "category": "dependency_transient",
+                "retryable": True,
+            }
+        }
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+        return row
+
+    monkeypatch.setattr(task_runner_module, "SessionLocal", lambda: SessionProxy())
+    monkeypatch.setattr(task_runner_module, "execute_agent_run_once", returned_failure)
+
+    result = asyncio.run(
+        consume_redis_queue_once(redis_client=fake, settings=settings, timeout_seconds=0)
+    )
+    db_session.expire_all()
+    recovered = db_session.query(AgentRun).filter(AgentRun.id == run.id).one()
+
+    assert result is None
+    assert recovered.status == "queued"
+    assert recovered.input_json["execution_mode"] == "checkpoint_resume"
+    assert fake.llen(settings.redis_queue_name) == 1
+    assert db_session.query(AgentEvent).filter(
+        AgentEvent.run_id == run.id,
+        AgentEvent.event_type == "worker_returned_failure_reconciled",
+    ).one()
+
+
 def test_redis_worker_dead_letters_non_retryable_poison_message_immediately():
     fake = FakeRedis()
     settings = get_settings()
@@ -365,10 +420,24 @@ def test_high_risk_action_tool_requires_approved_approval_and_writes_artifact(db
     assert result["status"] == "tool_execution_completed"
     assert result["action_type"] == "email_draft"
     assert result["tool_result"]["status"] == "draft_created"
+    db_session.refresh(approval)
+    assert approval.status == "executed"
+    try:
+        service.execute_after_approval(db_session, approval_id=approval.id, actor="pytest")
+        assert False, "the same approval must not be consumed twice"
+    except ApprovalRequiredError:
+        pass
     artifact = db_session.query(AgentArtifact).filter(AgentArtifact.artifact_type == "email_draft_result").one()
     assert artifact.artifact_json["tool_result"]["draft_path"].endswith(".eml")
     audit = db_session.query(OpsAuditEvent).filter(OpsAuditEvent.event_type == "email_draft_tool_execution_released").one()
     assert audit.target_id == str(approval.id)
+    summary = RunBusinessSummaryService().build(
+        db_session,
+        run=run,
+        output_json={},
+        status=run.status,
+    )
+    assert summary["side_effect_layer"]["approval_bypass_detected"] is False
 
 
 def test_rbac_header_context_grants_admin_role():

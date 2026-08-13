@@ -2,7 +2,7 @@
 name: jd_structuring
 version: 1.0.0
 status: active
-owner_subagent: job_analyst
+owner_role: job_analyst
 purpose: 搜索或读取目标岗位，把原始 JD 转换为职责、硬要求、软要求和可检索 Chunk。
 trigger: 用户搜索岗位、粘贴 JD 或选择岗位池中的目标岗位时。
 required_inputs:

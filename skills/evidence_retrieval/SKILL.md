@@ -2,7 +2,7 @@
 name: evidence_retrieval
 version: 1.0.0
 status: active
-owner_subagent: evidence_curator
+owner_role: evidence_curator
 purpose: 检索并排序能够支持岗位匹配和简历改写的候选人证据。
 trigger: 岗位匹配、适配判断、简历定制和面试准备之前。
 required_inputs:

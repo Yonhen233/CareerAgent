@@ -51,6 +51,14 @@ def test_agent_skills_and_subagents_endpoints_list_context_capabilities():
     assert "resume_writer" in subagent_names
     assert "context_manager" not in subagent_names
 
+    roles_response = client.get("/agent/roles")
+    assert roles_response.status_code == 200
+    assert {item["name"] for item in roles_response.json()} == subagent_names
+
+    harness_response = client.get("/agent/tools/harness")
+    assert harness_response.status_code == 200
+    assert harness_response.json()["architecture"] == "domain_bounded_agent_harness"
+
 
 def test_ops_readiness_and_metrics_endpoints():
     with TestClient(app) as client:

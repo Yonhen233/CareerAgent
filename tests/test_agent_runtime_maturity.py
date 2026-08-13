@@ -12,6 +12,7 @@ from app.api.agent_governance import (
     list_agent_memories,
 )
 from app.agents.natural_language import NaturalLanguageAgentService
+from app.agents.tools import AgentToolSpec, BoundAgentTool, bind_agent_tool
 from app.core.config import Settings, get_settings
 from app.core.llm import LLMCallBudget, LLMClient, LLMBudgetExceededError, llm_call_budget
 from app.core.security import AuthContext
@@ -20,6 +21,7 @@ from app.models.entities import (
     AgentFeedback,
     AgentMemory,
     AgentQualityReview,
+    AgentApproval,
     AgentRun,
     ToolCircuitState,
 )
@@ -29,11 +31,12 @@ from app.services.agent_runtime import (
     AgentToolCircuitOpenError,
     AgentToolContractError,
     AgentToolRuntime,
+    AgentToolPolicyError,
 )
+from app.services.agent_harness import AgentHarnessService
 from app.services.memory_feedback import AgentFeedbackService, CareerMemoryService
 from app.services.online_quality import OnlineAgentQualityService
 from app.core.redaction import SecurityRedactor
-from app.services.trace_service import TraceService
 
 
 def test_sqlite_lock_is_classified_as_retryable_dependency_failure():
@@ -42,6 +45,26 @@ def test_sqlite_lock_is_classified_as_retryable_dependency_failure():
     assert envelope.category == "dependency_transient"
     assert envelope.retryable is True
     assert envelope.recovery_action == "bounded_retry_then_dlq"
+
+
+def _run(db_session, task_type: str) -> AgentRun:
+    row = AgentRun(task_type=task_type, status="running", input_json={})
+    db_session.add(row)
+    db_session.commit()
+    db_session.refresh(row)
+    return row
+
+
+def _approved(db_session, run: AgentRun, action_type: str, payload: dict) -> AgentApproval:
+    from app.services.approval_service import ApprovalService
+
+    row = ApprovalService().get_or_create_pending(
+        db_session,
+        run_id=run.id,
+        action_type=action_type,
+        payload_summary=payload,
+    )
+    return ApprovalService().decide(db_session, approval=row, approved=True)
 
 
 def test_runtime_rejects_wrong_input_type_before_tool_execution(db_session):
@@ -59,9 +82,8 @@ def test_runtime_rejects_wrong_input_type_before_tool_execution(db_session):
                 db_session,
                 run_id=1,
                 step_name="plan",
-                tool_name="LangGraph.AgentPlanner",
                 input_json={"task_type": 7},
-                handler=handler,
+                tool=bind_agent_tool("LangGraph.AgentPlanner", handler),
                 event_sink=lambda *_: None,
             )
         )
@@ -70,35 +92,61 @@ def test_runtime_rejects_wrong_input_type_before_tool_execution(db_session):
 
 def test_runtime_rejects_incomplete_planner_output_contract(db_session):
     runtime = AgentToolRuntime(settings=Settings())
+    run = _run(db_session, "full_career_flow")
 
     with pytest.raises(AgentToolContractError, match="executable steps"):
         asyncio.run(
             runtime.execute(
                 db_session,
-                run_id=1,
+                run_id=run.id,
                 step_name="plan",
-                tool_name="LangGraph.AgentPlanner",
                 input_json={"task_type": "full_career_flow"},
-                handler=lambda: asyncio.sleep(0, result={"task_type": "full_career_flow"}),
+                tool=bind_agent_tool(
+                    "LangGraph.AgentPlanner",
+                    lambda: asyncio.sleep(0, result={"task_type": "full_career_flow"}),
+                ),
                 event_sink=lambda *_: None,
             )
         )
 
 
+def test_runtime_rejects_wrong_sync_or_async_executor(db_session):
+    run = _run(db_session, "full_career_flow")
+
+    with pytest.raises(AgentToolContractError, match="requires the async runtime executor"):
+        AgentToolRuntime(settings=Settings()).execute_sync(
+            db_session,
+            run_id=run.id,
+            step_name="wrong_executor",
+            input_json={"task_type": "full_career_flow"},
+            tool=bind_agent_tool(
+                "LangGraph.AgentPlanner",
+                lambda: {"task_type": "full_career_flow", "steps": []},
+            ),
+            event_sink=lambda *_: None,
+        )
+
+
 def test_runtime_rejects_invalid_high_risk_tool_outcome(db_session):
     runtime = AgentToolRuntime(settings=Settings())
+    run = _run(db_session, "full_career_flow")
+    payload = {"url": "https://example.com", "fields": {}, "submit_selector": None}
+    approval = _approved(db_session, run, "browser_apply", payload)
 
     with pytest.raises(AgentToolContractError, match=r"status expected filled\|submitted"):
         runtime.execute_sync(
             db_session,
+            run_id=run.id,
             step_name="browser_apply",
-            tool_name="browser_apply",
-            input_json={"url": "https://example.com", "fields": {}, "submit_selector": None},
-            handler=lambda: {
-                "status": "success",
-                "final_url": "https://example.com/done",
-                "filled_selectors": [],
-            },
+            input_json={**payload, "approval_id": approval.id},
+            tool=bind_agent_tool(
+                "browser_apply",
+                lambda: {
+                    "status": "success",
+                    "final_url": "https://example.com/done",
+                    "filled_selectors": [],
+                },
+            ),
             event_sink=lambda *_: None,
         )
 
@@ -126,6 +174,7 @@ def test_runtime_retries_only_registered_idempotent_transient_tool(db_session):
         agent_tool_circuit_failure_threshold=10,
     )
     runtime = AgentToolRuntime(settings=settings)
+    run = _run(db_session, "find_jobs_for_profile")
     attempts = 0
     events = []
 
@@ -139,11 +188,10 @@ def test_runtime_retries_only_registered_idempotent_transient_tool(db_session):
     result = asyncio.run(
         runtime.execute(
             db_session,
-            run_id=1,
+            run_id=run.id,
             step_name="search_jobs",
-            tool_name="job_search.search_jobs",
             input_json={"query": "Agent", "location": None, "limit": 10},
-            handler=handler,
+            tool=bind_agent_tool("job_search.search_jobs", handler),
             event_sink=lambda name, payload: events.append((name, payload)),
         )
     )
@@ -156,6 +204,9 @@ def test_runtime_retries_only_registered_idempotent_transient_tool(db_session):
 
 def test_non_idempotent_outbound_tool_is_never_auto_retried(db_session):
     runtime = AgentToolRuntime(settings=Settings(agent_tool_retry_backoff_seconds=0))
+    run = _run(db_session, "full_career_flow")
+    payload = {"to": "a@example.com", "subject": "hello", "body": "body"}
+    approval = _approved(db_session, run, "email_send", payload)
     attempts = 0
 
     def handler():
@@ -166,10 +217,10 @@ def test_non_idempotent_outbound_tool_is_never_auto_retried(db_session):
     with pytest.raises(ConnectionError):
         runtime.execute_sync(
             db_session,
+            run_id=run.id,
             step_name="approved_email_send",
-            tool_name="email_send",
-            input_json={"to": "a@example.com", "subject": "hello", "body": "body"},
-            handler=handler,
+            input_json={**payload, "approval_id": approval.id},
+            tool=bind_agent_tool("email_send", handler),
             event_sink=lambda _name, _payload: None,
         )
     assert attempts == 1
@@ -182,6 +233,8 @@ def test_runtime_opens_persistent_circuit_after_repeated_dependency_failure(db_s
         agent_tool_circuit_cooldown_seconds=120,
     )
     runtime = AgentToolRuntime(settings=settings)
+    run1 = _run(db_session, "find_jobs_for_profile")
+    run2 = _run(db_session, "find_jobs_for_profile")
 
     async def fail():
         raise ConnectionError("source unavailable")
@@ -190,11 +243,10 @@ def test_runtime_opens_persistent_circuit_after_repeated_dependency_failure(db_s
         asyncio.run(
             runtime.execute(
                 db_session,
-                run_id=1,
+                run_id=run1.id,
                 step_name="search_jobs",
-                tool_name="job_search.search_jobs",
                 input_json={"query": "Agent", "location": None, "limit": 10},
-                handler=fail,
+                tool=bind_agent_tool("job_search.search_jobs", fail),
                 event_sink=lambda _name, _payload: None,
             )
         )
@@ -204,11 +256,10 @@ def test_runtime_opens_persistent_circuit_after_repeated_dependency_failure(db_s
         asyncio.run(
             runtime.execute(
                 db_session,
-                run_id=2,
+                run_id=run2.id,
                 step_name="search_jobs",
-                tool_name="job_search.search_jobs",
                 input_json={"query": "Agent", "location": None, "limit": 10},
-                handler=fail,
+                tool=bind_agent_tool("job_search.search_jobs", fail),
                 event_sink=lambda _name, _payload: None,
             )
         )
@@ -220,18 +271,105 @@ def test_runtime_rejects_unregistered_tool_contract(db_session):
     async def handler():
         return {}
 
+    unknown = BoundAgentTool(
+        spec=AgentToolSpec(
+            name="shell.run_anything",
+            purpose="invalid",
+            input_schema={},
+            output_schema={},
+            side_effects=[],
+        ),
+        handler=handler,
+    )
+
     with pytest.raises(AgentToolContractError):
         asyncio.run(
             runtime.execute(
                 db_session,
                 run_id=1,
                 step_name="unknown",
-                tool_name="shell.run_anything",
                 input_json={},
-                handler=handler,
+                tool=unknown,
                 event_sink=lambda _name, _payload: None,
             )
         )
+
+
+def test_runtime_enforces_skill_capability_at_execution_time(db_session):
+    run = _run(db_session, "find_jobs_for_profile")
+    called = False
+
+    async def handler():
+        nonlocal called
+        called = True
+        return {"passed": True, "overall_score": 90.0, "min_score": 55.0}
+
+    with pytest.raises(AgentToolPolicyError, match="not authorized"):
+        asyncio.run(
+            AgentToolRuntime(settings=Settings()).execute(
+                db_session,
+                run_id=run.id,
+                step_name="forbidden_fit_gate",
+                input_json={"profile_id": 1, "job_id": 1, "min_score": 55.0},
+                tool=bind_agent_tool("matcher.enforce_fit_gate", handler),
+                event_sink=lambda *_: None,
+            )
+        )
+    assert called is False
+
+
+def test_runtime_rejects_missing_or_cross_bound_approval(db_session):
+    run = _run(db_session, "full_career_flow")
+    called = False
+
+    def handler():
+        nonlocal called
+        called = True
+        return {"status": "draft_created", "draft_path": "draft.eml"}
+
+    with pytest.raises(AgentToolPolicyError, match="missing, not approved"):
+        AgentToolRuntime(settings=Settings()).execute_sync(
+            db_session,
+            run_id=run.id,
+            step_name="email_draft",
+            input_json={
+                "to": "a@example.com",
+                "subject": "hello",
+                "body": "body",
+                "approval_id": 999,
+            },
+            tool=bind_agent_tool("email_draft", handler),
+            event_sink=lambda *_: None,
+        )
+    assert called is False
+
+
+def test_harness_manifest_distinguishes_local_mode_from_production_readiness():
+    local = AgentHarnessService(settings=Settings()).manifest()
+    assert local["version"] == "careeragent-harness-v3"
+    assert local["inventory"]["tool_count"] == 19
+    assert local["readiness"]["production_ready"] is False
+
+    production = AgentHarnessService(settings=Settings(app_env="production"))
+    with pytest.raises(RuntimeError, match="production readiness gate failed"):
+        production.assert_production_ready()
+
+
+def test_harness_accepts_shared_production_dependencies():
+    settings = Settings(
+        app_env="production",
+        database_url="postgresql+psycopg://app:secret@db/careeragent",
+        langgraph_checkpoint_backend="postgres",
+        langgraph_checkpoint_postgres_dsn="postgresql://app:secret@db/careeragent",
+        redis_enabled=True,
+        rbac_enabled=True,
+        rbac_trusted_header_auth=False,
+        session_secret_key="a-production-secret",
+    )
+    service = AgentHarnessService(settings=settings)
+
+    service.assert_production_ready()
+    assert service.manifest()["readiness"]["production_ready"] is True
 
 
 def test_typed_memory_supersedes_old_value_and_never_replays_raw_chat(db_session):

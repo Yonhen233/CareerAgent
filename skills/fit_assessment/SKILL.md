@@ -2,7 +2,7 @@
 name: fit_assessment
 version: 1.0.0
 status: active
-owner_subagent: fit_judge
+owner_role: fit_judge
 purpose: 根据结构化 JD 和可追溯证据判断岗位适配度、优势和缺口。
 trigger: 用户比较岗位、定制简历、准备投递或生成面试包时。
 required_inputs:
@@ -13,6 +13,7 @@ allowed_tools:
   - profile_repository.load_profile
   - job_repository.load_job
   - matcher.match_job
+  - matcher.enforce_fit_gate
   - vector_index.retrieve_resume_evidence
   - llm.generate_json
   - context_compressor.compress_fit_context

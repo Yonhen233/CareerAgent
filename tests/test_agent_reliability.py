@@ -2,9 +2,10 @@ import asyncio
 
 import pytest
 
-from app.models.entities import AgentArtifact, AgentRun, AgentStep, Job, Profile
+from app.models.entities import AgentArtifact, AgentRun, AgentStep, Profile
 from app.models.schemas import AgentRunRequest
 from app.agents.orchestrator import AgentOrchestrator
+from app.agents.tools import bind_agent_tool
 from app.services.agent_reliability import (
     AgentExecutionBudgetExceeded,
     AgentTaskContractService,
@@ -71,9 +72,8 @@ def test_trace_budget_rejects_third_identical_tool_call(db_session):
             db_session,
             run_id=run.id,
             step_name="first",
-            tool_name="LangGraph.AgentPlanner",
             input_json={"task_type": "same"},
-            handler=invoke,
+            tool=bind_agent_tool("LangGraph.AgentPlanner", invoke),
         )
     )
     asyncio.run(
@@ -81,9 +81,8 @@ def test_trace_budget_rejects_third_identical_tool_call(db_session):
             db_session,
             run_id=run.id,
             step_name="second",
-            tool_name="LangGraph.AgentPlanner",
             input_json={"task_type": "same"},
-            handler=invoke,
+            tool=bind_agent_tool("LangGraph.AgentPlanner", invoke),
         )
     )
     with pytest.raises(AgentExecutionBudgetExceeded):
@@ -92,9 +91,8 @@ def test_trace_budget_rejects_third_identical_tool_call(db_session):
                 db_session,
                 run_id=run.id,
                 step_name="third",
-                tool_name="LangGraph.AgentPlanner",
                 input_json={"task_type": "same"},
-                handler=invoke,
+                tool=bind_agent_tool("LangGraph.AgentPlanner", invoke),
             )
         )
 
@@ -315,9 +313,8 @@ def test_trace_budget_rejects_changed_inputs_with_identical_outputs(db_session):
                 db_session,
                 run_id=run.id,
                 step_name=f"planner_{index}",
-                tool_name="LangGraph.AgentPlanner",
                 input_json={"task_type": f"search_{index}"},
-                handler=invoke,
+                tool=bind_agent_tool("LangGraph.AgentPlanner", invoke),
             )
         )
     with pytest.raises(AgentExecutionBudgetExceeded, match="without observable progress"):
@@ -326,9 +323,8 @@ def test_trace_budget_rejects_changed_inputs_with_identical_outputs(db_session):
                 db_session,
                 run_id=run.id,
                 step_name="planner_2",
-                tool_name="LangGraph.AgentPlanner",
                 input_json={"task_type": "search_2"},
-                handler=invoke,
+                tool=bind_agent_tool("LangGraph.AgentPlanner", invoke),
             )
         )
 

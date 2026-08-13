@@ -1,8 +1,7 @@
 import time
 import json
 import re
-from collections.abc import Callable
-from typing import Any, Awaitable, TypeVar
+from typing import Any, TypeVar
 
 from sqlalchemy.orm import Session
 
@@ -11,6 +10,7 @@ from app.models.entities import AgentArtifact, AgentEvent, AgentRun, AgentStep
 from app.core.config import get_settings
 from app.services.agent_reliability import AgentExecutionBudgetExceeded
 from app.services.agent_runtime import AgentErrorClassifier, AgentToolRuntime
+from app.agents.tools import BoundAgentTool
 from app.core.redaction import SecurityRedactor
 
 T = TypeVar("T")
@@ -67,10 +67,10 @@ class TraceService:
         *,
         run_id: int,
         step_name: str,
-        tool_name: str,
         input_json: dict[str, Any] | None,
-        handler: Callable[[], Awaitable[T]],
+        tool: BoundAgentTool[T],
     ) -> T:
+        tool_name = tool.spec.name
         self._enforce_execution_budget(
             db,
             run_id=run_id,
@@ -101,9 +101,8 @@ class TraceService:
                 db,
                 run_id=run_id,
                 step_name=step_name,
-                tool_name=tool_name,
                 input_json=input_json,
-                handler=handler,
+                tool=tool,
                 event_sink=lambda event_type, payload: self.add_event(
                     db,
                     run_id=run_id,

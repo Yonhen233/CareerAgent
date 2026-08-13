@@ -92,9 +92,13 @@ class RunBusinessSummaryService:
             for row in approvals
         ]
         outbound_results = self._outbound_results(artifacts)
-        approved_actions = {row.action_type for row in approvals if row.status == "approved"}
+        authorized_actions = {
+            row.action_type
+            for row in approvals
+            if row.status in {"approved", "executing", "executed", "execution_failed"}
+        }
         approval_bypass_detected = any(
-            item["action_type"] not in approved_actions for item in outbound_results
+            item["action_type"] not in authorized_actions for item in outbound_results
         )
         approval_status = self._approval_status(approvals, output, high_risk_tools)
         repair_attempts = repair.get("attempts") if isinstance(repair.get("attempts"), list) else []
@@ -149,8 +153,8 @@ class RunBusinessSummaryService:
             },
             "routing_layer": {
                 "selected_skills": selected_skills,
-                "selected_subagents": [
-                    item.get("name") for item in plan.get("subagents", []) if isinstance(item, dict)
+                "selected_roles": [
+                    item.get("name") for item in (plan.get("roles") or plan.get("subagents") or []) if isinstance(item, dict)
                 ],
                 "tool_permission_validation": tool_permission,
             },
