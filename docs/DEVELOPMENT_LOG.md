@@ -1,5 +1,52 @@
 # 开发日志
 
+## 2026-08-13 09:53:31 +08:00：将系统总览重写为从零可读的 4,000 行独立 Agent 实现手册
+
+### 本轮目标
+- 用户反馈 2026-08-12 生成的统一文档仍然过于简略：它更像架构摘要和专题索引，默认读者已经理解 Agent、LangGraph、RAG、Checkpoint、幂等、Completion Gate 和发布门禁。
+- 不再执着于引用已有专题文档，而是把主文档重写为一份可以独立阅读的大型教程，从“什么是 Agent”开始，逐步讲到当前项目的总体架构、实现细节、一次完整运行、评测、Bad Case、上线边界和面试表达。
+- 每个重要模块不仅列出“用了什么”，还说明“为什么需要、输入输出是什么、在一次用户任务中怎样工作、失败时怎样处理、为什么没有选择其他方案”。
+
+### 开发前重新审计
+1. 从运行时重新导入并核对当前源码：`127` 条 FastAPI route、`29` 张 SQLAlchemy 表、`18` 个 Tool、`7` 个文件化 Skill 和 `7` 个职责型 SubAgent；主 LangGraph 为 `18` 个节点，自然语言图为 `8` 个节点，面试 Agentic RAG 为 `7` 个节点。
+2. 重新阅读主图 State/Conditional Edge/Interrupt/Checkpoint、Task Contract/Completion Gate、Tool Runtime、ContextCompressor、PDF Splitter、VectorIndex、Matcher、Redis Worker 和运行控制源码，避免只根据旧专题文档转述。
+3. 核对评测原始 JSON 和开发记录，继续区分确定性回归、真实 LLM 历史、定向修复结果和合成 SLO，不把局部通过覆盖历史整轮失败。
+4. 上一版约 `625` 行，能够做架构评审，但缺少概念铺垫、节点级数据流、公式解释、完整例子、排查过程和面试口述，导致初学者看到大量名词却不知道模块之间为什么这样连接。
+
+### 文档重构内容
+- 将 `docs/CAREER_AGENT_SYSTEM_DESIGN_AND_EVALUATION.md` 重写为 `4,108` 行、约 `8` 万字符的独立手册，包含 `33` 个主章节、`351` 个层级标题、`300` 余行表格和 `4` 张 Mermaid 图。
+- 使用“李明上传中文 PDF，寻找深圳或远程 Agent 实习”的统一案例，贯穿自然语言规划、Profile 建档、真实岗位搜索、JD 入库、混合检索、人工选岗、匹配差距、定制简历、投递审批、面试准备和 Completion Gate。
+- 从普通 LLM 调用讲起，解释 Agent、Workflow、RAG、Plan-Execute、有限 ReAct、Typed State、Node/Edge、Tool/Skill/SubAgent 的区别，避免读者只能记住技术名词。
+- 对主 LangGraph 18 个节点逐项给出输入、处理、输出和失败语义；解释 Task Contract、Goal Ledger、Artifact、数据库回查和 Completion Gate 如何共同防止偷懒早停。
+- 详细说明 PDF 解析、`paragraph_page_900_overlap160`、结构化/原始双 Chunk、JD 语义字段 Chunk、混合检索公式、Multi-query、RRF、Top20 Reranker、Evidence Gate、Matcher 评分公式和证据类型。
+- 解释简历定制的允许/禁止边界、上下文 Packet、事实 Guardrail、一次有界 ReAct repair，以及为什么检查结果和改动摘要必须与简历正文分离。
+- 解释持久化 Approval 与 LangGraph interrupt 的不同职责，说明 browser/email 外发为什么不可自动重放，以及 HighRiskActionToolService、幂等和审计如何配合。
+- 从零讲解 Redis 队列、优先级、Run Lock、Heartbeat Stage、DLQ、Supervisor、SQLite 并发边界、Checkpoint 恢复、最危险的业务 commit/checkpoint commit 崩溃窗口、Rewind 和 Business Withdrawal。
+- 为 PDF、RAG、岗位排序、Evidence Gate、JD Parser、真实 LLM、Token、合成 SLO 等指标补充定义、公式、数据集范围和不能外推的边界。
+- 把开发中积累的问题扩展成 Parser、Chunk/RAG、岗位匹配、LLM、Agent/Tool、队列恢复、安全租户和评测器八类 Bad Case；每个重点 Case 给出现象、根因、修复、验证或残余边界。
+- 增加成熟度清单、不能宣称的生产能力、两分钟项目介绍和 12 个常见面试追问的可直接口述答案，并附运行、排障、评测流程和术语表。
+
+### 本轮发现的文档设计 Bad Case
+1. **信息正确不等于文档可理解。** 上一版列出了 LangGraph、RAG、Tool Runtime 和指标，但没有先建立概念关系。对熟悉项目的人是高密度摘要，对初学者却是关键词堆叠。本轮按“问题 -> 设计约束 -> 组件 -> 数据流 -> 失败处理 -> 指标”重排，而不是继续给原摘要追加表格。
+2. **模块清单不能代替一次真实执行。** 读者知道有 18 个节点，仍不知道用户的一句话怎样变成 Run、在哪里等待选岗、为什么恢复后不会重复投递。本轮用同一案例展示每一步 State、Artifact、Interrupt 和 Completion Gate。
+3. **只写方案会掩盖设计取舍。** 例如“SQLite + Chroma”“不用自由 Multi-Agent”“关闭结构化节点 thinking”如果没有说明数据规模、事务边界、成本和评测依据，面试时容易变成技术栈背诵。本轮同时写明选择理由、限制和迁移条件。
+4. **Bad Case 表格过度压缩。** “现象/根因/处理”一行能做索引，但不能让不了解实现的人复述。本轮对 Token 爆炸、Reranker 负增益、早停、Checkpoint 崩溃窗口等问题展开了输入、错误链路和修复机制。
+5. **架构规模会继续漂移。** 昨日扫描为 126 条 Route，今日当前运行时为 127 条；新版首次校验时仍引用了旧数字。已在提交前改为 127，并保留昨日日志的历史快照，不篡改旧记录。以后总览中的规模数字必须由当前代码导入校验。
+6. **Markdown 视觉换行会触发空白门禁。** 文档头部用行尾双空格强制换行，`git diff --check` 报 trailing whitespace。已改为引用块内空行，保持显示效果同时满足仓库检查。
+
+### 验证
+- Markdown 代码围栏共 `214` 个，数量为偶数；临时分段标记、TODO 和未完成占位均已清除。
+- 运行时核对结果：`127 routes / 29 tables / 18 tools / 7 skills / 7 subagents`。
+- `python -m pytest tests/test_project_structure_docs.py tests/test_agent_runtime_maturity.py -q`：`20 passed in 4.78s`。
+- `python -m pytest -q` 完整回归：`309 passed in 106.03s`。
+- 文档没有调用 DeepSeek 或其他外部 LLM，没有产生 Token 费用，也没有修改业务代码和运行数据。
+
+### 尚未解决与下一步
+1. 大型手册显著提高了从零理解能力，也增加了维护成本；后续架构改动应更新对应章节，并用运行时测试约束 Route、Tool、Skill 和图节点等可自动计算的事实。
+2. 当前文档完整说明了 2026-07-22 严格整轮失败和后续定向修复，但当前版本仍需要一次受预算控制的真实 LLM 24-case 全量认证，不能只依赖历史或确定性结果。
+3. 真实用户 SLO、投递转化和面试结果仍没有足够样本；手册明确保留受控上线边界，后续数据形成后再增加线上指标章节。
+4. 后续可为主文档增加自动目录锚点检查和源码事实生成脚本，减少数字漂移，但不能让自动生成内容取代人工解释设计思路。
+
 ## 2026-08-12 20:07:08 +08:00：生成统一系统设计文档，建立架构、指标与 Bad Case 的单一讲解入口
 
 ### 本轮目标
