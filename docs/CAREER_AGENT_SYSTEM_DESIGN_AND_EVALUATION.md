@@ -180,6 +180,26 @@ Harness = 状态机 + 工具边界 + 上下文 + 持久化 + 策略 + Trace + Ev
 
 模型可以提出下一步，但 Harness 决定这一步是否有权限、参数是否合法、是否需要审批、失败能否重试、怎样记录结果以及何时允许结束。因此 LangGraph 是 Harness 的编排与持久化基础之一，不等于完整 Harness；RAG、Redis 和 SQLite 也都只是其中一个部件。
 
+这里还必须区分三个经常被简称为 Runtime、但不是同一层的概念：
+
+| 名称 | 它是什么 | 在本项目中的职责 |
+| --- | --- | --- |
+| Python Runtime | 执行 Python 字节码的解释器和进程环境 | 运行 FastAPI、Worker 和全部 Python 对象 |
+| LangGraph Runtime | `StateGraph.compile()` 后形成的 Pregel 执行引擎 | 调度 Node、合并 State、执行 Edge、保存 Checkpoint、处理 Interrupt 和 Stream |
+| `AgentToolRuntime` | CareerAgent 自己实现的普通 Python 服务类 | 在 Node 内治理 Tool 的合同、权限、审批、超时、重试、熔断和输出 |
+
+因此不是“LangGraph Runtime 与自研 Runtime 二选一”，也不是 CareerAgent 重写了一套图执行框架。真实关系是：
+
+```text
+LangGraph Pregel Runtime
+-> 调度 CareerAgent Node
+-> Node 通过 TraceService 请求执行 Tool
+-> AgentToolRuntime 校验并调用 handler
+-> Node 把结果作为 State Update 返回给 LangGraph
+```
+
+从职责准确性看，`AgentToolRuntime` 更接近 `GovernedToolExecutor` 或 `ToolPolicyGateway`；保留当前类名是代码兼容选择。它不负责 Node 调度、State 合并、Checkpoint 或 Agent Loop，这些仍由 LangGraph Runtime 负责。
+
 本文采用的现代 Harness 基线来自三类公开的一手设计原则：LangGraph 强调 durable execution、interrupt、streaming 和 human-in-the-loop；OpenAI Agents SDK 把有界 runner loop、tool/guardrail、handoff、tracing 和 approval 作为运行时能力；Anthropic 则强调先使用能解决问题的最简单组合，在确有收益时再增加 evaluator、subagent 或动态规划。参考：[LangGraph overview](https://docs.langchain.com/oss/python/langgraph/overview)、[LangGraph durable execution](https://docs.langchain.com/oss/python/langgraph/durable-execution)、[OpenAI Agents SDK runner](https://openai.github.io/openai-agents-python/running_agents/)、[Anthropic Building effective agents](https://www.anthropic.com/research/building-effective-agents)。
 
 CareerAgent 的 Harness 必须满足以下可执行约束，而不是只在文档中声称具备：
@@ -401,7 +421,8 @@ flowchart TB
 | FastAPI | HTTP 协议、鉴权、Schema 校验、SSE | 让业务服务不依赖 Web 框架 |
 | Agent 图 | 状态、路由、中断、停止条件 | 显式表达长流程和恢复点 |
 | Agent Harness | 把图、工具、策略、上下文、持久化和评测组成受控运行系统 | 模型和框架本身不负责生产约束 |
-| Tool Runtime | 工具绑定、合同、能力权限、审批、超时、重试、熔断 | 防止各节点随意调用 Python 函数 |
+| LangGraph Runtime | Node 调度、State 合并、Edge、Checkpoint、Interrupt、Stream | 执行编译后的有状态图 |
+| Tool Runtime（受治理执行器） | 工具绑定、合同、能力权限、审批、超时、重试、熔断 | 防止各节点随意调用 Python 函数；它运行在 LangGraph Node 内部 |
 | 领域服务 | 简历、岗位、RAG、匹配、生成 | 承载可测试的业务规则 |
 | SQLite | 权威业务事实和审计 | 恢复后仍能验证产物是否真实存在 |
 | Redis | 调度、锁、Heartbeat、DLQ | 不把长任务绑在 API 进程内 |
@@ -487,6 +508,16 @@ SQLite 保存 Profile、Job、ResumeVersion、Application、Run、Approval 等�
 ```
 
 这份合同是之后防止早停的依据。
+
+三个对象分别回答不同问题：
+
+| 对象 | 回答的问题 | 存放位置 |
+| --- | --- | --- |
+| `AgentRun.id` | 这是哪一次业务任务，状态、用户、输入和结果是什么 | 业务数据库 `agent_runs` |
+| `graph_thread_id` | LangGraph 应该把 Checkpoint 保存到哪条线程，恢复时从哪里读取 | `AgentRun.input_json`，同时作为 LangGraph `configurable.thread_id` |
+| Task Contract | 这类任务做到什么才可以被判定为完成 | Graph State + `task_contract` Artifact |
+
+Task Contract 不是 Prompt 中一句“请完成所有步骤”，而是机器可执行的验收规范。`AgentTaskContractService` 根据 `task_type` 选择 `TaskPolicy`，生成 `required_goals`、`required_artifacts`、合法终态和执行限制；最终 `completion_gate` 再查询 State、Step 轨迹、Artifact、审批和业务表。只有全部满足，才允许把 `AgentRun.status` 写成 `completed`。所以 `graph_thread_id` 解决“从哪里继续”，Task Contract 解决“什么时候才算做完”，二者不能互相替代。
 
 ### 6.4 搜索岗位
 
@@ -663,6 +694,8 @@ Tests/Evals  -> 上述各层
 
 因此系统使用结构化业务表和 Agent 运行表。
 
+这里的“表”是 SQLAlchemy Entity 映射到关系数据库后的物理表，不是 Prompt 中的临时 JSON。默认开发配置为 `sqlite:///./data/career_agent.db`，所以本地确实落在 SQLite 文件中；同一套 SQLAlchemy 模型可以通过 `DATABASE_URL` 切换到 PostgreSQL。生产多 Worker 需要共享数据库，不能把每台机器自己的 SQLite 当成同一事实源。
+
 ### 8.2 29 张表的领域分组
 
 | 领域 | 表 | 核心用途 |
@@ -679,6 +712,8 @@ Tests/Evals  -> 上述各层
 | 记忆反馈 | `agent_memories`、`agent_feedback`、`agent_quality_reviews` | 跨任务偏好和线上复核 |
 | 模型任务 | `llm_call_logs`、`task_runs` | Token、模型调用和队列任务 |
 | 评测 SLO | `evaluation_runs`、`http_request_metrics` | 指标结果与 HTTP SLI |
+
+可以把这些表再归纳为两类：业务表保存“求职领域发生了什么”，如 Profile、Job、MatchResult 和 ResumeVersion；Agent 运行表保存“Agent 怎样执行”，如 Run、Step、Event、Artifact 和 Approval。它们都在业务数据库中，但 LangGraph Checkpoint 另有专用存储。Checkpoint 记录可恢复的 State 快照，不取代业务表，也不取代 Agent Trace。
 
 ### 8.3 关键实体关系
 
@@ -743,6 +778,34 @@ erDiagram
 
 这些都是状态图问题。LangGraph 提供 Typed State、Node、Conditional Edge、Checkpoint、Interrupt 和 Command，适合表达这种有界长流程。
 
+理解这套实现前，需要先建立 LangGraph 最小心智模型：
+
+```text
+State = 当前任务的结构化快照
+Node = 读取 State、执行逻辑、返回局部 State Update 的 Python 函数
+Edge = 决定下一个 Node；可以固定，也可以根据 State 条件路由
+StateGraph = 尚未运行的图定义
+compile = 校验图并生成可执行的 Pregel Application
+invoke/stream = 启动编译后的图
+Checkpointer + thread_id = 按步骤持久化和恢复 State
+interrupt + Command(resume=...) = 暂停并接收外部输入后继续
+```
+
+LangGraph 不只是画图 API。广义上它本身就是 orchestration framework and runtime：`StateGraph.compile()` 后由 Pregel Runtime 调度活跃 Node、把 Node 返回值合并进 State，再沿 Edge 推进。多个无依赖 Node 可以处于同一 super-step 并行执行；所有节点不再活跃且没有待传递更新时，图才停止。参考：[LangGraph Graph API](https://docs.langchain.com/oss/python/langgraph/graph-api)、[LangGraph Runtime](https://docs.langchain.com/oss/python/langgraph/pregel)。
+
+CareerAgent 的构图过程是：
+
+```python
+builder = StateGraph(CareerAgentGraphState)
+builder.add_node("load_profile", self._node_load_profile)
+builder.add_node("search_jobs", self._node_search_jobs)
+builder.add_edge("search_jobs", "match_jobs")
+builder.add_conditional_edges("match_job", self._route_after_match_job, {...})
+graph = builder.compile(checkpointer=self.checkpointer)
+```
+
+运行时使用 `graph.astream_events(...)` 获取节点事件，再通过同一个 `thread_id` 读取最终 StateSnapshot。图的结构负责控制流，CareerAgent 的 Run/Step/Event 负责业务可观测性，两者不能混为一套日志。
+
 ### 9.2 Typed State 是什么
 
 主图状态 `CareerAgentGraphState` 不是聊天全文，而是当前任务需要的结构化字段：
@@ -774,6 +837,10 @@ class CareerAgentGraphState(TypedDict, total=False):
 - Completion Gate 能检查 ID 和产物；
 - 前端可以把状态映射为稳定进度；
 - 测试可以断言某字段，而不是模糊比较文本。
+
+进入 Graph State 也不等于进入 LLM Prompt。State 可以保存 `execution_plan`、Role 元数据、ID 和校验报告，但每个 LLM 节点只从中选择当前任务需要的字段构造 Prompt。这个区别是上下文治理的基础：State 追求可恢复和完整，Prompt 追求少量、高信号、与当前推理有关。
+
+数据库 Session、HTTP Client 和 Service 对象也不应该写入 State，因为它们不可序列化，不能由 Checkpointer 跨进程恢复。当前 Orchestrator 用按 `run_id` 建立的进程内映射注入数据库依赖，恢复任务时由新 Worker 重新建立；LangGraph 也提供 `context_schema` 和 `Runtime[Context]` 作为更标准的依赖注入方式。未来把这些进程内依赖迁入 LangGraph Runtime Context 可以减少自定义映射，但不会改变“依赖不属于 Checkpoint State”的原则。
 
 ### 9.3 主图 18 个节点
 
@@ -840,6 +907,18 @@ Node 是图中的业务阶段，Tool 是受合同约束的能力。一个节点�
 - Tool Runtime 关注调用安全和可靠性；
 - Service 关注具体算法；
 - Trace 可以同时记录业务阶段和底层工具。
+
+还可以继续分成五层：
+
+```text
+Node：图上的业务阶段，例如 search_jobs
+Tool Spec：能力合同，例如 job_search.search_jobs
+handler：本次调用真正执行的 Python callable
+AgentToolRuntime：受治理地执行 handler
+Service：承载岗位搜索、RAG、定制等具体业务算法
+```
+
+因此 Node 可以组织多个 Tool 或确定性步骤，Tool 也可以被不同 Node 复用。LangGraph Runtime 负责调度 Node，`AgentToolRuntime` 只治理 Node 内部的 Tool 调用；二者是上下层关系，不是两套竞争 Runtime。
 
 ### 9.6 Task Contract 和 Completion Gate
 
@@ -961,6 +1040,8 @@ Repair 最多一次，且只补缺失动作，不从头重放已经成功的副�
 
 Tool 是 Agent 可以调用的外部能力。它可能是纯读取，也可能写数据库、调用 LLM、访问网络或发送邮件。
 
+LangGraph 本身不要求所有业务函数先注册成 Tool。官方常见的动态 Tool Calling 模式是用 LangChain `@tool` 定义函数、把 Tool Schema 交给模型，再由 `ToolNode` 执行模型返回的 `tool_calls`。CareerAgent 主流程没有采用“模型从全部工具中自由选择并无限循环”的方式，而是让有界 Graph Node 根据已验证计划调用固定能力；自定义 Tool Registry 和 Runtime 再为这些能力补充业务审批、幂等和审计。两种模式都是 LangGraph 之上的合法实现，但控制权不同：前者主要由模型选工具，当前主图主要由 State、Node 和 Edge 选工具。
+
 当前 19 个 Tool：
 
 | 类别 | Tool | 主要副作用 |
@@ -1005,10 +1086,26 @@ AgentToolSpec(
 
 Registry 会把上述字段同时导出为 JSON Schema Draft 2020-12。模型不能只输出“调用 email_send”，节点也不能把字符串工具名和任意 Python handler 拼在一起；调用点必须先构造 `bind_agent_tool("email_send", handler)`。Runtime 随后验证不可变合同、参数、Skill 能力、审批、熔断、超时和输出结构。
 
+`handler` 不是新的 Agent 概念，它就是 Tool 背后真正干活的 Python callable。例如 Tool Spec 说明 `job_search.search_jobs` 接收 `query/location/limit`，handler 则是本次实际调用 `JobSearchService.search(...)` 的闭包或异步函数：
+
+```python
+bound_tool = bind_agent_tool(
+    "job_search.search_jobs",
+    lambda: self.job_search.search(query=query, location=location, limit=limit),
+)
+```
+
+`BoundAgentTool(spec, handler)` 把“声明的能力”和“本次执行函数”作为一个对象交给 Trace 和 Runtime，避免两个参数在多层传递时被意外错配。它能校验注册合同没有被篡改、callable 的同步/异步模式和返回值，但不能从 Python 闭包中数学证明 handler 的业务语义一定与 Tool 名称相同；这仍需强类型 adapter、轨迹测试和代码审查。未来若开放模型动态直连 Tool，应优先让函数签名或 Pydantic Schema 成为单一合同源，进一步减少手写 Schema 与实现漂移。
+
 ### 11.3 Tool Runtime 的调用顺序
 
+`AgentToolRuntime` 是 `TraceService` 在 FastAPI 或 Redis Worker 进程中实例化的普通 Python 类，不是独立服务、框架或第二套图引擎。它的角色类似 Web 系统的鉴权与事务中间件，也可更准确地称为 `GovernedToolExecutor`：LangGraph 已经负责“何时运行哪个 Node”，它负责“这个 Node 请求的 Tool 能否以及如何执行”。
+
 ```text
-工具是否注册
+LangGraph Runtime 调度 Node
+-> Node 构造 BoundAgentTool
+-> TraceService 创建 running AgentStep
+-> AgentToolRuntime 检查工具是否注册
 -> descriptor 与 callable 是否为同一绑定
 -> 输入 Schema 是否满足
 -> 当前 Run 的 Skill 能力是否允许
@@ -1018,7 +1115,9 @@ Registry 会把上述字段同时导出为 JSON Schema Draft 2020-12。模型不
 -> 是否存在可复用幂等结果
 -> 执行 timeout/retry
 -> 输出 Schema 是否满足
--> 写 Step/Event/Artifact/Audit
+-> TraceService 写 Step/Event/Artifact/Audit
+-> Node 返回 State Update
+-> LangGraph Runtime 合并 State 并沿 Edge 继续
 ```
 
 ### 11.4 Retry Ownership
@@ -1087,7 +1186,18 @@ Planner 一开始只加载 Skill 名称、简介和权限元数据。进入具�
 
 它们对应 `AgentRoleSpec`，不是七个自由自治、互相聊天且各自带模型循环的 SubAgent。当前任务有清晰 DAG 和共享事务，强行拆成七次模型对话会增加 Token、延迟和状态同步问题。旧 `/agent/subagents` 只为兼容保留，新的语义入口是 `/agent/roles`。
 
-上下文压缩也不是单独 Role 或 SubAgent。压缩是确定性 Runtime Policy，没有必要为了“管理上下文”再调用一次 LLM。
+真正的 SubAgent 至少应有独立模型调用或 Agent Loop、独立输入上下文、独立工具集合、执行预算、输出合同和 Trace；需要恢复时还应明确独立 State/Subgraph 与父图的边界。早期实现虽然希望通过“SubAgent”减少上下文污染，但七个注册对象并没有这些执行特征，只是 `name/purpose/reads/writes/context_policy` 元数据。把它们改名为 `AgentRoleSpec` 不是把已经运行的 Multi-Agent 降级，而是让名称与真实代码一致。
+
+Planner 会把当前任务的 Role 写入 Execution Plan 和 Provenance，但**进入 State 或 Artifact 不等于注入 LLM Prompt**。Role 本身不会自动复制七份说明给模型；真正决定模型看到什么的是各节点的 Prompt assembly 和 `ContextCompressor`。当前 Tool 权限由 `task_type -> Skill -> allowed_tools` 在 Runtime 强制执行，Role 的 `reads/writes/context_policy` 主要用于职责说明、计划和审计，尚不是字段级 ACL。
+
+两种设计适用边界如下：
+
+| 设计 | 优点 | 限制 | 适合场景 |
+| --- | --- | --- | --- |
+| Role + 单图 + 压缩 Context Packet | Token 少、共享 State 一致、恢复和调试简单 | Role 本身不提供独立上下文窗口 | Profile→JD→RAG→定制→审批这类明确 DAG |
+| 独立 SubAgent/Subgraph | 真正隔离上下文，可并行探索和专门推理 | 增加模型调用、协调、状态同步和恢复成本 | 多来源开放调研、多个专家独立判断后汇总 |
+
+上下文压缩也不是单独 Role 或 SubAgent。当前业务数据有稳定 Profile/JD/Evidence Schema，压缩适合作为确定性 Runtime Policy；为“管理上下文”再启动模型不会天然更准确，反而增加事实丢失、Token、延迟和新的失败点。长时间自由对话或跨多个上下文窗口的开放任务另当别论，可以在会话历史层加入可评测的 LLM compaction，仍不必把压缩包装成自治业务 SubAgent。
 
 # 第四部分：简历、岗位与 RAG
 
@@ -1139,15 +1249,28 @@ Planner 一开始只加载 Skill 名称、简介和权限元数据。进入具�
 
 ### 12.3 PDF 解析流水线
 
+这里的“Parser”不是一个步骤。PDF Parser、LLM Parser、Schema Validator 和 Grounding Gate 解决四个不同问题：
+
+| 组件 | 输入与输出 | 负责什么 | 不负责什么 |
+| --- | --- | --- | --- |
+| PDF 文本提取 | PDF bytes -> 分页文本 | 读取文本层、保留页码 | 不理解“这段是项目还是实习” |
+| LLM Parser | 非结构化文本 -> 候选 JSON | 理解不同栏目表达并映射到业务字段 | 不证明生成字段一定真实 |
+| Pydantic Validator | 候选 JSON -> 合法 Schema | 校验类型、必填结构和规范形式 | 不判断字段是否来自原文 |
+| Grounding Gate | 原文 + 结构化结果 -> 质量报告 | 检查技能、数字和陈述是否有来源支持 | 不替模型补造缺失经历 |
+
+LLM Parser 因此是“让语言模型承担语义解析”的环节，不是传统编译器 Parser，也不是 `pypdf` 的别名。它适合处理“项目经历/实践项目/核心工作”等不固定标题和隐含语义，但输出必须继续经过确定性校验。
+
 ```text
 上传校验
 -> 安全文件名和隔离存储
 -> 按页提取文本
 -> 清洗页眉页脚和重复空行
 -> 保留 page_no 与字符位置
--> LLM 结构化为 Profile Schema
--> Schema normalize
--> 原文与结构化结果交叉检查
+-> Prompt Injection 清理
+-> 启发式提取基础字段
+-> LLM Parser 生成严格 JSON
+-> JSON 提取与 Pydantic Schema normalize
+-> Grounding Gate 与原文交叉检查
 -> 建立 Profile
 -> 生成 Resume Chunk 和 Embedding
 ```
@@ -1165,6 +1288,8 @@ LLM Parser 可能：
 - 把缺失字段返回 `null`。
 
 如果只保存结构化 JSON，后续无法判断错误来自 PDF 抽取还是模型解析。系统同时保存 `raw_resume_text` 和 `structured_profile_json`，并在 Chunk metadata 中保留 source。
+
+这也是为什么“LLM 返回合法 JSON”只代表语法成功，不代表业务解析正确。Parser 可能完整通过 JSON/Pydantic 校验，却漏掉 Agent 技能、把“计划学习 Redis”放进已掌握技能，或者把项目时间当成效果指标；这些必须由原文回指、字段 Recall 和 Grounding 指标暴露。
 
 ### 12.5 Schema Normalization 不是编造兜底
 
@@ -1370,6 +1495,8 @@ source + external_id
 作为来源级唯一身份。缺少 external ID 时使用规范化 URL 或内容指纹。Upsert 更新 JD 和时间，但不会为每次搜索创建无限重复 Job。
 
 ### 14.4 JD 结构化
+
+JD 也使用 LLM Parser，但输入 Schema 和业务门禁与简历不同。它的目标是把招聘语言映射为职责、任职要求、硬技能、加分项和否定项，而不是生成岗位文案。处理链同样遵守：原始 JD 是来源事实，LLM JSON 是候选结构，Pydantic 负责形状，Grounding 和 Parser 评测负责语义质量。
 
 原始 JD 转换为：
 
@@ -2195,6 +2322,8 @@ Exact match
 
 全部塞入 Prompt 不仅贵，还会让模型关注错误内容。上下文窗口很大不代表应该填满。
 
+需要区分三种“上下文”：Graph State 是一次 Run 的可恢复结构化状态；Runtime Context 是数据库连接、用户和服务等不进入 Checkpoint 的执行依赖；LLM Context 才是某次推理真正发送给模型的 Token。一个 Role、Artifact 或完整 Plan 出现在 State 中，不意味着它自动占用模型上下文窗口。Prompt assembly 必须显式选择要暴露的字段。
+
 ### 22.2 当前不是“六级压缩”
 
 系统采用三个业务层和一个总预算：
@@ -2207,6 +2336,10 @@ Prompt packet budget guard
 ```
 
 每层有独立预算和一次缩减策略。它不是六次 LLM 摘要，也没有 `context_manager` SubAgent/Role。
+
+当前策略符合主流 Context Engineering 中“提供最少但足够的高信号信息”这一目标，但只适用于当前有界业务数据，不应外推成“所有 Agent 压缩都不需要 LLM”。CareerAgent 的 Profile、JD 和 Evidence 有稳定 Schema、来源 ID 和排序分数，确定性裁剪能保留可追溯性、避免摘要模型编造、降低成本，并让同一输入得到可复测结果。早期六级压缩和 `context_manager` SubAgent 反而让短上下文因元数据膨胀，且多出一次模型调用，所以被删除。
+
+如果未来增加超长自由对话、开放调研或跨多个上下文窗口的任务，应在会话历史层按评测结果增加：token-aware message trim、旧 Tool result 清理、结构化 note、LLM summarization/compaction，必要时使用带 handoff artifact 的 context reset。主流实现也通常把这些能力放在 Session、Middleware 或 Harness 生命周期策略中，而不是默认创建一个负责压缩的自治 SubAgent。参考：[LangChain Context Engineering](https://docs.langchain.com/oss/python/langchain/context-engineering)、[OpenAI Agents SDK Sessions/Compaction](https://openai.github.io/openai-agents-python/sessions/)、[Anthropic Context Engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)。
 
 ### 22.3 Profile Layer
 

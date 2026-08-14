@@ -1,5 +1,40 @@
 # 开发日志
 
+## 2026-08-14 10:45:46 +08:00：把 Runtime、Role/SubAgent 和 LangGraph 基础解释融入系统设计主线
+
+### 本轮目标
+- 用户在阅读统一设计文档时，发现 Runtime、Task Contract、业务表、handler、AgentRoleSpec、上下文压缩和 LLM Parser 虽然均有定义，但缺少从 LangGraph 执行模型到当前源码的连续解释。
+- 不新增孤立的“阅读问答”章节，而是把知识分别嵌入 Agent Harness、总体架构、一次完整运行、数据模型、LangGraph、Tool/Skill/Role、PDF/JD Parser 和上下文治理章节。
+- 特别澄清“LangGraph 本身是不是 Runtime”“Role 是否仍污染主 Prompt”“当前 Tool 是否由模型自由调用”这三个容易在面试中被追问的边界。
+
+### 文档改进
+- 在 Agent Harness 章节区分 Python Runtime、LangGraph Pregel Runtime 和 CareerAgent `AgentToolRuntime`，明确后者是运行在 Node 内部的受治理 Tool Executor，不是重新实现图引擎；总体架构职责表同步补上两层 Runtime。
+- 在完整流程中把 `AgentRun.id`、`graph_thread_id` 和 Task Contract 分开解释：分别负责业务任务身份、Checkpoint 线程定位和机器可执行完成标准，并说明 Completion Gate 如何查询 State、Trace、Artifact、审批和业务表。
+- 在数据模型章节说明 29 张 SQLAlchemy 表默认物理落在 `career_agent.db` SQLite 中、可通过 `DATABASE_URL` 切换 PostgreSQL；业务/Agent 运行表与独立 LangGraph Checkpoint 存储各有不同权威边界。
+- 在 LangGraph 章节补齐 State、Node、Edge、StateGraph、compile、Pregel Runtime、invoke/stream、Checkpointer/thread_id、interrupt/Command 的最小心智模型，并解释 Graph State、Runtime Context 和 LLM Prompt 不是同一上下文。
+- 在 Tool 章节说明官方 `@tool + ToolNode` 动态模式与本项目“有界 Node 选择 Tool”的差异；展开 Node、Tool Spec、handler、Tool Runtime 和 Service 五层调用关系，也诚实记录 BoundAgentTool 不能从闭包中证明业务语义一致的边界。
+- 在 Role 章节说明真正 SubAgent 需要独立模型循环、上下文、工具、预算、输出合同和 Trace；历史七个对象从未具备这些特征，因此改名是语义纠正，不是把真实 Multi-Agent 降级。Role 进入 Plan/State 不等于进入 LLM Prompt，权限仍由 Skill/Runtime 强制。
+- 在 PDF/JD 章节拆分文件文本提取、LLM Parser、Pydantic Validator 和 Grounding Gate，避免把“解析成功”误解成“合法 JSON”或把 `pypdf` 与语义 Parser 混为一谈。
+- 在上下文章节说明当前确定性 Profile/JD/Evidence 压缩的适用理由，同时补充超长会话应按评测引入 trim、tool-result clearing、LLM compaction 或 context reset，避免把“不需要 context_manager SubAgent”误写成“任何场景都不需要 LLM 压缩”。
+
+### 本轮重新暴露的设计边界
+1. **一个词对应多层对象。** “Runtime”既可指 LangGraph 执行引擎，也可指项目工具治理类；原文只写 Runtime 容易让读者误以为 CareerAgent 替换了 LangGraph Runtime。修复为每次使用时附带具体职责。
+2. **进入 State 不等于消耗 Prompt Token。** Role、Plan 和 Artifact 可以进入可恢复 State，但只有 Prompt assembly 选中的字段才发送给 LLM；上下文污染必须从实际模型输入判断，不能只看 State 字段数量。
+3. **注册表不能制造 SubAgent。** 只有职责元数据而没有独立控制循环和上下文的对象不能宣称为 SubAgent；真正隔离来自独立调用边界，当前主流程则通过确定性 Context Packet 获得更低成本的一致性。
+4. **Tool Registry 不等于 LangGraph 原生动态 Tool Calling。** 当前主图由 Node/Edge 决定调用，Registry 提供合同和治理；这是一种有界 Agent Harness 选择，但必须明确模型没有在 19 个 Tool 中自由循环选择。
+5. **当前依赖注入仍有自定义部分。** 数据库 Session 通过按 Run 的进程内映射注入而不进入 Checkpoint；跨进程恢复会重建映射。LangGraph `context_schema/Runtime[Context]` 是后续可选的标准化迁移方向。
+
+### 验证
+- 本轮只修改中文技术文档和开发日志，没有修改业务代码、数据库或评测数据，也没有调用外部 LLM。
+- 主文档当前 `4,326` 行、Markdown 代码围栏 `230` 个且成对；`git diff --check` 通过，新增外部引用均使用公开一手文档，没有失效的仓库相对链接。
+- 运行时事实重新导入核对：`129 routes / 19 tools / 7 skills / 7 roles`，与正文口径一致。
+- `python -m pytest tests/test_project_structure_docs.py -q`：`2 passed`；`python -m pytest tests/test_agent_runtime_maturity.py tests/test_health.py -q`：`28 passed in 7.23s`。
+
+### 尚未解决与下一步
+1. `AgentToolRuntime` 类名仍容易与 LangGraph Runtime 混淆；本文已给出 `GovernedToolExecutor/ToolPolicyGateway` 的准确语义，但代码改名涉及较多兼容引用，本轮不为文档问题引入无关重构。
+2. Role 的 `reads/writes/context_policy` 当前是计划和审计元数据，不是字段级 ACL；若未来加入真实 SubAgent，应增加独立 Subgraph State、输入输出 Schema、预算、Trace 和父子 Checkpoint 语义，而不是只复制现有 Role。
+3. 当前 Orchestrator 尚未使用 LangGraph `context_schema` 注入数据库和服务依赖；现有恢复路径可工作，但后续可以评估迁移是否能减少进程内映射，同时避免把不可序列化依赖写入 State。
+
 ## 2026-08-13 11:29:42 +08:00：按现代 Agent Harness 范式重审设计，并把文档约束下沉为运行时强制策略
 
 ### 本轮目标
