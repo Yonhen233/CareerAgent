@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import re
+import threading
 from collections import Counter
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -12,6 +13,7 @@ from app.services.text_splitter import PDFPageText
 
 
 _OCR_ENGINE: Any | None = None
+_OCR_ENGINE_LOCK = threading.Lock()
 
 
 class PDFExtractionError(ValueError):
@@ -242,8 +244,6 @@ class PDFExtractionService:
                 "pdf_ocr_unavailable",
                 "An image-based PDF was detected, but the local OCR runtime is unavailable.",
             ) from exc
-        if _OCR_ENGINE is None:
-            _OCR_ENGINE = RapidOCR()
         base_pixels = max(float(page.rect.width) * float(page.rect.height), 1.0)
         requested_dpi = self.settings.pdf_ocr_dpi
         render_pixels = base_pixels * (requested_dpi / 72.0) ** 2
@@ -259,7 +259,10 @@ class PDFExtractionService:
         pixmap = page.get_pixmap(dpi=dpi, alpha=False)
         channels = pixmap.n
         image = np.frombuffer(pixmap.samples, dtype=np.uint8).reshape(pixmap.height, pixmap.width, channels)
-        result, _ = _OCR_ENGINE(image)
+        with _OCR_ENGINE_LOCK:
+            if _OCR_ENGINE is None:
+                _OCR_ENGINE = RapidOCR()
+            result, _ = _OCR_ENGINE(image)
         if not result:
             return "", None, "ocr_empty"
         rows, layout_mode = self._order_ocr_rows(result, image_width=pixmap.width)

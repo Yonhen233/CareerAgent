@@ -1,3 +1,4 @@
+import asyncio
 import re
 from pathlib import Path
 from uuid import uuid4
@@ -86,7 +87,11 @@ class ResumeParserService:
         self.settings.upload_path.mkdir(parents=True, exist_ok=True)
 
     async def create_profile_from_pdf(self, db: Session, *, filename: str, file_bytes: bytes) -> Profile:
-        extraction = self.pdf_extraction.extract(filename=filename, file_bytes=file_bytes)
+        extraction = await asyncio.to_thread(
+            self.pdf_extraction.extract,
+            filename=filename,
+            file_bytes=file_bytes,
+        )
         path = self.settings.upload_path / f"{uuid4().hex}_{safe_filename(filename)}"
         path.write_bytes(file_bytes)
         pages = extraction.pages

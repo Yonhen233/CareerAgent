@@ -36,6 +36,10 @@ class AgentDirectiveService:
             raise ValueError(
                 "The source run is still active. Wait for completion or cancel it before creating a follow-up branch."
             )
+        if source_run.status == "withdrawn":
+            raise ValueError("A withdrawn run cannot be used as the source of a follow-up branch.")
+        instruction = payload.instruction.strip()
+        selected_actions = list(dict.fromkeys(payload.selected_actions))
         idempotency_key = payload.client_request_id or f"directive-{uuid4().hex}"
         existing = (
             db.query(AgentDirective)
@@ -46,6 +50,8 @@ class AgentDirectiveService:
             .first()
         )
         if existing is not None:
+            if existing.instruction != instruction or existing.selected_actions_json != selected_actions:
+                raise ValueError("The idempotency key was already used with a different follow-up payload.")
             return existing
 
         context = self._compact_source_context(source_run)
@@ -53,8 +59,8 @@ class AgentDirectiveService:
             source_run_id=source_run.id,
             tenant_id=source_run.tenant_id,
             user_id=source_run.user_id,
-            instruction=payload.instruction.strip(),
-            selected_actions_json=list(dict.fromkeys(payload.selected_actions)),
+            instruction=instruction,
+            selected_actions_json=selected_actions,
             context_json=context,
             idempotency_key=idempotency_key,
             status="executing",
@@ -83,7 +89,7 @@ class AgentDirectiveService:
             selected_actions=directive.selected_actions_json,
             query=self._value(source_run.input_json, "query") or "Agent 开发实习生",
             location=self._value(source_run.input_json, "location"),
-            limit=max(1, min(int(self._value(source_run.input_json, "limit") or 8), 30)),
+            limit=self._bounded_limit(self._value(source_run.input_json, "limit")),
         )
         try:
             target_run = await self.natural_language.run(
@@ -165,10 +171,13 @@ class AgentDirectiveService:
         )
 
     def _compact_source_context(self, run: AgentRun) -> dict[str, Any]:
-        input_json = run.input_json or {}
-        output = run.output_json or {}
+        input_json = self._mapping(run.input_json)
+        output = self._mapping(run.output_json)
         result = output.get("result_json") if isinstance(output.get("result_json"), dict) else {}
         selected_job = output.get("selected_job") or result.get("selected_job") or {}
+        selected_job = self._mapping(selected_job)
+        application = self._mapping(output.get("application"))
+        interview_prep = self._mapping(output.get("interview_prep"))
         return {
             "source_run_id": run.id,
             "source_task_type": run.task_type,
@@ -187,8 +196,8 @@ class AgentDirectiveService:
             "prior_user_message": self._truncate(output.get("user_message"), 600),
             "available_artifact_ids": {
                 "resume_version_id": self._resume_version_id(run),
-                "application_id": output.get("application_id") or (output.get("application") or {}).get("application_id"),
-                "interview_prep_id": output.get("interview_prep_id") or (output.get("interview_prep") or {}).get("interview_prep_id"),
+                "application_id": output.get("application_id") or application.get("application_id"),
+                "interview_prep_id": output.get("interview_prep_id") or interview_prep.get("interview_prep_id"),
             },
         }
 
@@ -203,38 +212,57 @@ class AgentDirectiveService:
 
     @staticmethod
     def _resume_version_id(run: AgentRun) -> int | None:
-        input_json = run.input_json or {}
-        output = run.output_json or {}
+        input_json = AgentDirectiveService._mapping(run.input_json)
+        output = AgentDirectiveService._mapping(run.output_json)
         result = output.get("result_json") if isinstance(output.get("result_json"), dict) else {}
+        tailor = AgentDirectiveService._mapping(output.get("tailor"))
+        result_tailor = AgentDirectiveService._mapping(result.get("tailor"))
         value = (
             input_json.get("resume_version_id")
             or output.get("resume_version_id")
-            or (output.get("tailor") or {}).get("resume_version_id")
-            or (result.get("tailor") or {}).get("resume_version_id")
+            or tailor.get("resume_version_id")
+            or result_tailor.get("resume_version_id")
         )
-        return int(value) if value else None
+        return AgentDirectiveService._safe_int(value)
 
     @staticmethod
     def _profile_id(run: AgentRun) -> int | None:
-        output = run.output_json or {}
+        output = AgentDirectiveService._mapping(run.output_json)
         result = output.get("result_json") if isinstance(output.get("result_json"), dict) else {}
-        value = run.profile_id or (result.get("profile") or {}).get("id")
-        return int(value) if value else None
+        value = run.profile_id or AgentDirectiveService._mapping(result.get("profile")).get("id")
+        return AgentDirectiveService._safe_int(value)
 
     @staticmethod
     def _job_id(run: AgentRun) -> int | None:
-        output = run.output_json or {}
+        output = AgentDirectiveService._mapping(run.output_json)
         result = output.get("result_json") if isinstance(output.get("result_json"), dict) else {}
-        value = run.job_id or (result.get("job") or {}).get("id")
-        return int(value) if value else None
+        value = run.job_id or AgentDirectiveService._mapping(result.get("job")).get("id")
+        return AgentDirectiveService._safe_int(value)
 
     @staticmethod
     def _conversation_root(run: AgentRun) -> int:
-        return int((run.input_json or {}).get("conversation_root_run_id") or run.id)
+        value = AgentDirectiveService._mapping(run.input_json).get("conversation_root_run_id")
+        return AgentDirectiveService._safe_int(value) or run.id
 
     @staticmethod
     def _value(payload: dict[str, Any] | None, key: str) -> Any:
-        return (payload or {}).get(key)
+        return AgentDirectiveService._mapping(payload).get(key)
+
+    @staticmethod
+    def _mapping(value: Any) -> dict[str, Any]:
+        return value if isinstance(value, dict) else {}
+
+    @staticmethod
+    def _safe_int(value: Any) -> int | None:
+        try:
+            return int(value) if value is not None and value != "" else None
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _bounded_limit(value: Any) -> int:
+        parsed = AgentDirectiveService._safe_int(value)
+        return max(1, min(parsed if parsed is not None else 8, 30))
 
     @staticmethod
     def _truncate(value: Any, maximum: int) -> str | None:

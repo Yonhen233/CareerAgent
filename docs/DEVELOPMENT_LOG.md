@@ -1,5 +1,61 @@
 # 开发日志
 
+## 2026-08-19 11:44:46 +08:00：为 PDF 与追加指令建立 Bad Case 发布门禁，并用失败基线驱动修复
+
+### 本轮目标
+- 不再用“新增了 11 个测试”描述 PDF 能力，而是建立有类别、难度、critical 标记、分桶指标和 release gate 的 Bad Case Suite。
+- 对追加指令重点验证 Harness 语义，而不是重复评测 LLM 文案：并发状态、动作合同、幂等、父子 lineage、上下文最小化、审批隔离、父 Run 不可变和失败审计。
+- 先运行当前实现获得失败基线，再根据真实失败修代码；不为了满分修改标签或降低门禁。
+- 将两套 Suite 纳入 `/evaluations` API、统一系统评测和总设计文档；本轮不调用 DeepSeek。
+
+### 新增评测数据与实现
+- 新增 `evals/pdf_extraction_bad_cases.json`：22 Case，包含 input validation、resource safety、text quality、OCR route/quality、layout、cleanup、diagnostics 和 cross-page bridge 十类场景。
+- PDF 评测器动态生成真实 PDF bytes，而不是只读取分页文本；覆盖空上传、伪扩展名、伪 magic、损坏、加密、超页数、超大小、危险渲染尺寸、短乱码文本、空扫描图、文本/扫描/混合页、文本/OCR 双栏、重复页眉和跨页正负例。
+- 新增 `evals/follow_up_directive_bad_cases.json`：22 Case，使用确定性子 Run 执行器验证控制面，不调用 LLM。
+- 新增 `CapabilityBadCaseEvaluationService`，把每个 Case 的 observed、errors、latency、category 和 difficulty 持久化到 `EvaluationRun`，输出总体/critical/分桶指标及发布门禁。
+- 新增 `/evaluations/pdf-extraction-bad-cases` 和 `/evaluations/follow-up-directive-bad-cases`，并把两套 Suite 加入 `run_agent_system_eval.py` 的 deterministic required suites。
+- AgentSystemEvaluationReporter 增加 PDF bridge、critical、幂等、lineage、上下文和失败审计等摘要指标，dataset manifest 自动纳入两份新数据集。
+
+### 第一轮真实基线
+- PDF：`22/22`，总通过率、critical、预期错误码准确率、Bridge Precision/Recall 均为 `1.0`，Bridge FPR 为 `0`。
+- 追加指令：`17/22`，总通过率 `0.7727`，critical `0.75`，Concurrency Guard `0.75`，Idempotency Safety `0.6667`，Context Minimization `0.3333`；lineage 和 failure audit 已为 `1.0`。
+- 追加指令失败的五项是：withdrawn 父 Run 仍可分支、同一幂等键可更换正文、未知 selected action 被接受、malformed 历史 JSON 触发 `.get` 错误、非法历史 limit 触发 `int()` 错误。
+- 这些失败稳定对应代码路径，因此没有归因给模型随机性，也没有增加重试。
+
+### 根据 Bad Case 完成的修复
+1. **撤回事实隔离。** `queued/running/waiting_for_confirmation` 继续因为状态不稳定拒绝热修改；`withdrawn` 新增为不可分支状态，避免子 Run 复用已撤回 ResumeVersion/Application。失败和取消 Run 仍允许创建纠正分支。
+2. **幂等键绑定 payload。** 先规范化 instruction 和去重后的 selected_actions；相同 key+payload 返回原结果，相同 key+不同 payload 明确冲突，不再静默执行旧要求。
+3. **动作合同白名单。** `AgentDirectiveRequest.selected_actions` 改为 Pydantic Literal，只允许六类公开动作；未知动作在 API Schema 层拒绝，Runtime 仍负责后续权限检查。
+4. **陈旧 JSON 只读容错。** SourceContext 对 input/output、selected_job、application、interview_prep、profile/job/tailor 使用 mapping 和 safe-int 读取；非法 limit 默认 8 并夹在 1..30。该处理不创造业务 ID，子 Run 仍需数据库回查。
+5. **OCR 并发保护。** PDF Suite 虽然准确率全通过，但 P50 `3.34 ms`、P95 `2374.60 ms`、最大 `2610.07 ms`，暴露 OCR 长尾。异步上传现在用 `asyncio.to_thread` 卸载抽取，RapidOCR 共享引擎用锁保护，避免 CPU 推理阻塞 FastAPI event loop 或并发破坏模型实例。
+
+### 评测 Harness 自身暴露的问题
+1. 第一次在真实数据库运行 `nested_ids` 时，假执行器把只用于观察的 301/401 写入 AgentRun 外键，SQLite FK 失败并污染 Session，最终汇总出现 `PendingRollbackError`。修复为假执行器只在 request input 保留被观察 ID，不伪造业务外键；Case 外层异常统一 rollback。说明评测 Fixture 也必须遵守数据库事实边界。
+2. 第一次用 `--only` 运行两套新 Suite 时，两套都通过、suite_errors 为空、Token 为 0，但系统总门禁失败，因为 Reporter 仍要求未运行的旧 Suite。修复为定向运行时 `required_suites` 与选择集取交集；完整 deterministic/full 模式仍要求全部 Suite。
+3. 修复后使用相同 `--only` 命令重跑：约 `15.09 s`，系统 release gate 通过，`total_tokens=0`、LLM 成本为 0。
+
+### 修复后指标
+- PDF 22 Case：pass rate `1.0`、critical `1.0`、错误码准确率 `1.0`、Bridge Precision/Recall `1.0/1.0`、FPR `0`；最近一次 P50/P95/max 为 `3.34/2374.60/2610.07 ms`。
+- 追加指令 22 Case：从 `17/22` 提升到 `22/22`；critical、Concurrency Guard、Idempotency、Lineage、Context Minimization、Failure Audit 均为 `1.0`。
+- 重点回归：`47 passed in 20.86s`。
+- `python -m pytest -q`：`338 passed in 117.02s`。
+- 运行时事实：`133 routes / 30 tables`；新增两条评测 Route，没有增加业务表。
+- `compileall`、相关 Ruff 和统一系统评测切片均通过；本轮没有调用外部 LLM。
+
+### 有意义的面试结论
+1. **准确率通过不代表并发设计通过。** PDF 的 OCR Case 全对，但 P95 超过两秒，促使 CPU 任务从 async event loop 卸载；质量和性能必须分开看。
+2. **幂等不是只做唯一索引。** key 相同但 payload 不同必须报冲突，否则系统会返回“成功”却执行旧意图。幂等语义需要绑定规范化业务输入。
+3. **撤回不是另一种 completed。** withdrawn 代表用户否定了业务产物，不能作为新分支的默认事实来源；失败 Run 则可以保留为纠正上下文。
+4. **上下文压缩还包括防御陈旧结构。** allowlist 不只省 Token，也限制旧 Run 中 malformed/debug 字段进入新 Prompt；typed read 防止历史格式漂移让新入口崩溃。
+5. **评测系统也会制造 Bad Case。** FK 夹具错误和 `--only` 汇总错误都可能给出假失败。评测器的事务、选择集和 required suites 同样需要合同与回归。
+
+### 尚未解决与下一步
+1. PDF 22 Case 是高强度生成式机制测试，不是现实分布；仍需获得授权的真实中文扫描简历，标注 OCR CER、邮箱/技术词/数字等关键实体 Recall、表格和复杂布局恢复率。
+2. Bridge 只有 3 个正例和 2 个负例，当前 Precision/Recall 满分不能外推；应从真实跨页简历补充边界标注后再校准规则。
+3. OCR 已不阻塞 event loop，但进程内模型锁使单 Worker OCR 串行。真实并发量上升后，应比较独立 OCR 队列、进程池和多 Worker 的吞吐/内存曲线。
+4. 追加指令仍在 API 请求内同步运行自然语言图，Directive 落库后、子 Run 创建前崩溃的 stale recovery 仍是下一项生产增强；不能用本轮确定性 Harness 满分替代这项恢复验证。
+5. 追加指令 Suite 不评语言理解，仍需在自然语言规划数据集中增加“只修改城市、不重复简历、不投递”等语义 Case，并受控运行真实 LLM。
+
 ## 2026-08-19 11:16:39 +08:00：修复 PDF 抽取与跨页 Bad Case，并实现可追溯的追加指令分支
 
 ### 本轮目标

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from io import BytesIO
 
 import pytest
@@ -219,6 +220,30 @@ def test_pdf_profile_persists_extraction_diagnostics_and_cross_page_chunks(db_se
         chunk.metadata_json.get("strategy") == "cross_page_semantic_bridge"
         for chunk in profile.chunks
     )
+
+
+def test_pdf_profile_offloads_cpu_extraction_from_async_request_thread(db_session):
+    service = ResumeParserService()
+    service.llm = type("UnavailableLLM", (), {"available": False})()
+    request_thread = threading.get_ident()
+    extraction_threads = []
+    original_extract = service.pdf_extraction.extract
+
+    def observed_extract(**kwargs):
+        extraction_threads.append(threading.get_ident())
+        return original_extract(**kwargs)
+
+    service.pdf_extraction.extract = observed_extract
+    asyncio.run(
+        service.create_profile_from_pdf(
+            db_session,
+            filename="text.pdf",
+            file_bytes=_text_pdf([[(72, 750, "CareerAgent uses FastAPI LangGraph and Redis recovery")]]),
+        )
+    )
+
+    assert extraction_threads
+    assert extraction_threads[0] != request_thread
 
 
 def test_unrelated_complete_pages_do_not_create_cross_page_duplicate_chunks():

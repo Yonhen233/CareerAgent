@@ -5,6 +5,7 @@ from app.core.database import get_db
 from app.models.entities import EvaluationRun
 from app.models.schemas import EvaluationRunResponse
 from app.services.evaluation_service import EvaluationService
+from app.services.capability_bad_case_evaluation import CapabilityBadCaseEvaluationService
 from app.services.interview_claim_evaluation import InterviewClaimVerifierEvaluationService
 from app.services.multilingual_rag_evaluation import MultilingualRAGEvaluationService
 
@@ -20,6 +21,26 @@ async def run_evaluation(db: Session = Depends(get_db)) -> EvaluationRunResponse
 @router.post("/pdf-chunk-strategies", response_model=EvaluationRunResponse, status_code=status.HTTP_201_CREATED)
 def run_pdf_chunk_strategy_evaluation(db: Session = Depends(get_db)) -> EvaluationRunResponse:
     run = EvaluationService().run_pdf_chunk_strategy_evaluation(db)
+    return EvaluationRunResponse.model_validate(run)
+
+
+@router.post(
+    "/pdf-extraction-bad-cases",
+    response_model=EvaluationRunResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def run_pdf_extraction_bad_case_evaluation(db: Session = Depends(get_db)) -> EvaluationRunResponse:
+    run = CapabilityBadCaseEvaluationService().run_pdf_extraction(db)
+    return EvaluationRunResponse.model_validate(run)
+
+
+@router.post(
+    "/follow-up-directive-bad-cases",
+    response_model=EvaluationRunResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def run_follow_up_directive_bad_case_evaluation(db: Session = Depends(get_db)) -> EvaluationRunResponse:
+    run = await CapabilityBadCaseEvaluationService().run_follow_up_directives(db)
     return EvaluationRunResponse.model_validate(run)
 
 

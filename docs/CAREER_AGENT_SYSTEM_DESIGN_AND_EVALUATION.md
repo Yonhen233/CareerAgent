@@ -2502,7 +2502,7 @@ FastAPI 提供：
 - SSE 事件流；
 - 健康检查和 SLO metrics。
 
-当前源码注册 131 条 Route，覆盖用户功能、责任角色和 Harness Manifest 控制面，不意味着每个业务动作都在请求进程内执行。
+当前源码注册 133 条 Route，覆盖用户功能、责任角色、Bad Case 评测和 Harness Manifest 控制面，不意味着每个业务动作都在请求进程内执行。
 
 ### 23.2 哪些流程可以并行
 
@@ -3102,8 +3102,9 @@ LLM Judge 可以评流畅度、相关性和用户可用性，但不能单独判�
 
 | 数据集 | 规模 | 主要噪声 |
 | --- | ---: | --- |
-| PDF 二进制抽取 | 11 个生成式/API Fixture | 文本层、扫描页、混合页、双栏、空白、重复页眉、加密、损坏、HTTP 错误码 |
+| PDF 二进制抽取 Bad Case | 22 Case | 文本层、扫描/混合页、双栏、空白、页眉、加密、损坏、资源限制、跨页正负例 |
 | PDF Chunk | 96 份分页文本、576 Query | 长段、分页、课程/项目混淆、附录和 Hard Negative |
+| 追加指令 Bad Case | 22 Case | 热修改、撤回父流程、幂等碰撞、上下文污染、lineage、审批隔离、失败审计 |
 | RAG 主集 | 180 Case、2,160 Chunk | 12 类岗位、4 档难度、Hard Negative |
 | 多语言 RAG | 144 Case、1,440 Pair | 中英互查、混写、每 Case 9 负例 |
 | JD Parser | 30 Case | required/preferred、否定、中英别名 |
@@ -3122,12 +3123,51 @@ LLM Judge 可以评流畅度、相关性和用户可用性，但不能单独判�
 最近完整代码回归记录为：
 
 ```text
-330 passed in 108.84s
+338 passed in 117.02s
 ```
 
-本数字证明当前控制面、API、前端契约、PDF 二进制 Fixture、RAG Fixture、审批、恢复等测试通过。它不代表 330 个真实 LLM 用户任务，也不代表线上成功率 100%。
+本数字证明当前控制面、API、前端契约、PDF 二进制 Fixture、RAG Fixture、审批、恢复等测试通过。它不代表 338 个真实 LLM 用户任务，也不代表线上成功率 100%。
 
-### 28.3 PDF Chunk
+### 28.3 PDF 二进制抽取 Bad Case
+
+`pdf_extraction_bad_cases.json` 不保存伪装成 PDF 的纯文本，而是由评测器动态生成真实 PDF bytes。22 个 Case 分成 input validation、resource safety、text quality、OCR route/quality、layout、cleanup、diagnostics 和 cross-page bridge 十类，包含 15 个 critical Case。
+
+当前结果：
+
+| 指标 | 修复后 | 门禁 |
+| --- | ---: | ---: |
+| 总通过率 | 1.0000 | >= 0.95 |
+| Critical Case 通过率 | 1.0000 | = 1.00 |
+| 预期错误码准确率 | 1.0000 | = 1.00 |
+| 跨页 Bridge Precision | 1.0000 | = 1.00 |
+| 跨页 Bridge Recall | 1.0000 | = 1.00 |
+| 跨页 Bridge FPR | 0.0000 | 观察项 |
+
+延迟呈明显双峰：最近一次统一评测平均 `441.18 ms`、P50 `3.34 ms`、P95 `2374.60 ms`、最大 `2610.07 ms`。文本层很快，OCR 是长尾来源。为避免异步上传请求阻塞 FastAPI event loop，`create_profile_from_pdf` 使用 `asyncio.to_thread` 执行 CPU/OCR 抽取；RapidOCR 引擎使用进程内锁避免并发调用同一推理实例。这样保护 API 并发响应，但没有让单份 OCR 本身变快，也不代表多 Worker OCR 吞吐已经压测完成。
+
+这些满分只能说明固定生成式 Case 通过。数据主要验证机制和错误语义，尚未给出真实用户扫描简历的字符错误率、关键实体 Recall 或复杂表格恢复率。
+
+### 28.4 追加指令 Bad Case
+
+`follow_up_directive_bad_cases.json` 使用确定性子 Run 执行器，只评 Harness，不调用 LLM。22 个 Case 覆盖并发状态、动作合同、幂等、父子 lineage、tenant scope、上下文最小化、父 Run 不可变、审批隔离和失败审计。
+
+初始基线不是满分：
+
+| 指标 | 修复前 | 修复后 |
+| --- | ---: | ---: |
+| 总通过率 | 0.7727（17/22） | 1.0000（22/22） |
+| Critical Case 通过率 | 0.7500 | 1.0000 |
+| Concurrency Guard | 0.7500 | 1.0000 |
+| Idempotency Safety | 0.6667 | 1.0000 |
+| Lineage Integrity | 1.0000 | 1.0000 |
+| Context Minimization | 0.3333 | 1.0000 |
+| Failure Audit | 1.0000 | 1.0000 |
+
+五个失败 Case 直接促成代码修复：withdrawn 父 Run 禁止分支；同一幂等键绑定规范化 instruction/actions；未知动作由 Pydantic Literal 拒绝；旧 Run 的 malformed selected_job/application 不再触发 `.get` 崩溃；非法历史 limit 使用 8 而不是让 `int()` 终止请求。修复后定向系统评测在约 `15.09 s` 内通过，两套 Suite 的 LLM Token 和成本均为 0。
+
+这套评测不判断 LLM 是否正确理解“改成上海但不要投递”，该能力属于自然语言规划评测；它回答的是：无论模型怎样规划，父子状态、幂等、权限和失败记录是否保持正确。
+
+### 28.5 PDF Chunk
 
 PDF 当前使用两个不能互相替代的测试层：
 
@@ -3146,7 +3186,7 @@ PDF 当前使用两个不能互相替代的测试层：
 
 选择性跨页桥接不会改变当前 96 份完整分页样本的平均 Chunk 数；真实“标题悬在上页、正文从下页继续”的 Fixture 会生成带 `page_start/page_end` 的桥接 Chunk。已知弱点仍是课程与已交付项目混淆，不能只靠 Chunk 修复。
 
-### 28.4 180 Case RAG
+### 28.6 180 Case RAG
 
 策略 `real_embedding_top20_rerank`：
 
@@ -3168,7 +3208,7 @@ Fallback reasons: []
 
 Top1 和 MRR 很高，说明首条通常正确；Recall@3/5 较低，说明多个相关证据的覆盖仍有限。不能用 Top1 满分掩盖长尾召回。
 
-### 28.5 多语言 RAG
+### 28.7 多语言 RAG
 
 | 策略 | Top1 | Recall@5 | MRR |
 | --- | ---: | ---: | ---: |
@@ -3185,7 +3225,7 @@ Top1 和 MRR 很高，说明首条通常正确；Recall@3/5 较低，说明多�
 
 结论：跨语言召回够用，但中文查英文的首排存在可见差距。
 
-### 28.6 Evidence Gate
+### 28.8 Evidence Gate
 
 | Gate | Recall | Precision | F1 | FPR |
 | --- | ---: | ---: | ---: | ---: |
@@ -3194,7 +3234,7 @@ Top1 和 MRR 很高，说明首条通常正确；Recall@3/5 较低，说明多�
 
 这是系统从“只追求召回”转向“控制错误证据”的关键改进。
 
-### 28.7 岗位相关性
+### 28.9 岗位相关性
 
 13 个中文 Query、130 个候选岗位：
 
@@ -3209,7 +3249,7 @@ Top1 和 MRR 很高，说明首条通常正确；Recall@3/5 较低，说明多�
 
 这是固定离线集结果，不能外推到所有真实岗位源。
 
-### 28.8 JD Parser
+### 28.10 JD Parser
 
 30 Case 的真实 LLM 运行曾达到：
 
@@ -3221,7 +3261,7 @@ avg_required_skill_precision = 0.9332
 
 较新的 heuristic fallback 某次运行只有 `pass=0.9333`、`grounding=0.9333`，发布门禁失败。报告必须标注 parser mode，不能选择最好的一次代表所有模式。
 
-### 28.9 投递和安全
+### 28.11 投递和安全
 
 | Suite | 结果 | 边界 |
 | --- | --- | --- |
@@ -3231,11 +3271,11 @@ avg_required_skill_precision = 0.9332
 
 70 Case 的安全结果很好，但样本规模仍不足以证明对所有真实 JD/PDF 注入都鲁棒，因此还保留 Tool allowlist、审批和租户隔离等纵深防御。
 
-### 28.10 面试包
+### 28.12 面试包
 
 9 Case 确定性 fixture 的核心 Pass Rate 为 1.0，覆盖问题 ID、来源视角、导出、题目数量和质量门禁。它证明结构和控制面，不等于真实模型生成的每道答案都达到人工面试标准。
 
-### 28.11 真实 LLM 整轮历史
+### 28.13 真实 LLM 整轮历史
 
 2026-07-22 严格整轮 Agent 系统评测曾得到：
 
@@ -3250,7 +3290,7 @@ avg_required_skill_precision = 0.9332
 
 历史 Pro 18 Case 曾达到 E2E、fit、tailor、guardrail 全部 1.0。它早于后续重构，只能说明当时模型上限，不能作为当前 24 Case 认证。
 
-### 28.12 性能和成本
+### 28.14 性能和成本
 
 2026-07-22 剔除评测器重复进程后的真实模型统计：
 
@@ -3266,7 +3306,7 @@ avg_required_skill_precision = 0.9332
 
 价格会变化，成本只代表当时路由、缓存和价格口径。
 
-### 28.13 合成 SLO
+### 28.15 合成 SLO
 
 2026-08-11 合成探针：
 
@@ -3280,7 +3320,7 @@ avg_required_skill_precision = 0.9332
 
 真实用户 7/30 天窗口仍是 `insufficient_data`。因此准确结论是“合成 SLO 达到当前开发目标，真实 SLO 尚未建立”。
 
-### 28.14 怎样理解当前结果
+### 28.16 怎样理解当前结果
 
 可以确认：
 
@@ -3443,6 +3483,20 @@ API 先按配置上限加一字节读取，随后验证 `.pdf`、`%PDF-` magic�
 **处理边界**
 
 OCR 置信度门禁只能发现整体低质量，不能保证 `FastAPI`、`LangGraph`、版本号和邮箱每个字符都正确。因此系统保留逐页方法、置信度和原始上传，前端仍允许预览与编辑；关键技能是否缺失还会在 Profile Grounding 和后续匹配证据中暴露。未来若积累真实扫描样本，应增加字段级 OCR CER/关键实体 Recall，而不是只看页面平均置信度。
+
+### Case P10：OCR 准确通过，但阻塞 FastAPI 事件循环
+
+**现象**
+
+22 Case 抽取评测全部正确，但延迟 P50 只有 `3.34 ms`、P95 却达到 `2374.60 ms`。如果异步上传端点直接执行 RapidOCR，单个扫描 PDF 会在两秒以上占住 event loop，其他用户请求也被拖慢。
+
+**处理**
+
+`ResumeParserService.create_profile_from_pdf` 使用 `asyncio.to_thread` 把 PyMuPDF/OCR 移到工作线程；RapidOCR 的共享模型调用由进程内锁保护，避免同一实例被并发推理破坏。文本层请求仍可并发处理，OCR 不再阻塞 API loop。
+
+**残余边界**
+
+线程卸载只保护事件循环，不降低 OCR 单次延迟；进程内锁也意味着单 Worker 的 OCR 推理仍然串行。高并发扫描件应进入独立 OCR 队列或专用进程池，并通过压测决定并发数和内存预算。
 
 ## 29.3 Chunk 与 RAG Bad Case
 
@@ -3911,6 +3965,46 @@ Repair plan 读取 Artifact，只执行 missing actions。投递和外发幂等�
 
 当前追加接口调用自然语言图是同步执行。若进程在 Directive 落库后、子 Run 建立前崩溃，Directive 会停留在 `executing`，但不会产生外发副作用。后续应由 queued/stale scanner 对该状态做补偿，或将 follow-up 创建本身提交到 Redis 队列；在完成这项增强前，控制台应把它显示为可诊断的未完成分支，而不是自动重放高风险动作。
 
+### Case A14：同一个幂等键携带不同追加指令
+
+**现象**
+
+客户端第一次提交“改成上海”，网络重试或前端错误又使用同一 `client_request_id` 提交“改成北京”。旧实现只按键查询，直接返回上海分支，看起来成功但执行的是旧目标。
+
+**处理**
+
+幂等键现在绑定规范化后的 `instruction + selected_actions`。相同键、相同 payload 返回原 Directive；相同键、不同 payload 返回冲突，不创建第二个子 Run。不同键即使文本相同也视为用户显式创建的新分支。
+
+### Case A15：从 withdrawn Run 继承已撤回产物
+
+**风险**
+
+撤回可能已经把 ResumeVersion 或 Application 标为不可用；如果追加指令仍从该 Run 读取 artifact ID，子 Run 会重新引用用户明确撤回的材料。
+
+**处理**
+
+`queued/running/waiting_for_confirmation` 因状态不稳定禁止热追加，`withdrawn` 因事实已失效同样禁止作为父 Run。失败或取消的 Run 仍可接受纠正分支，因为它们的失败 Trace 对修复有价值，但 Completion Gate 会重新验证实际实体。
+
+### Case A16：旧 Run JSON 结构损坏导致追加入口崩溃
+
+**现象**
+
+历史 `selected_job` 或 `application` 不是 dict，旧实现直接 `.get()`；历史 `limit="legacy-invalid"` 直接传给 `int()`。用户只是追加一句话，却在上下文组装前 500。
+
+**处理**
+
+SourceContext 使用 allowlist 和 typed read：非 mapping 值视为空对象，嵌套 ID 使用安全整数解析，非法 limit 回到 8 并限制在 1..30。这里的容错只读取旧记录，不伪造业务实体；真正的 Profile/Job 仍由子 Run 回查数据库。
+
+### Case A17：显式 selected_actions 接受未知动作
+
+**风险**
+
+字符串列表若不设白名单，调用方可以把拼写错误或未授权动作存入 Directive。后续 Planner 可能静默忽略，造成“请求成功但没执行”。
+
+**处理**
+
+`AgentDirectiveRequest.selected_actions` 使用 Pydantic Literal，只允许 create profile、search、tailor、quick apply、interview prep 和 full flow 六类公开动作；重复动作在持久化前保持顺序去重。Tool 权限仍由 Runtime 二次校验，Schema 白名单不替代授权。
+
 ## 29.7 队列、恢复与并发 Bad Case
 
 ### Case Q1：Checkpoint 写到第 19 次出现 SQLite locked
@@ -4115,6 +4209,16 @@ traffic_type 分为 diagnostic、synthetic、real，独立分母和窗口。真�
 **处理**
 
 对关键 Case 做多次运行，报告 `pass@1` 和 `pass^k`。稳定失败先修根因，不用增加重试次数粉饰。
+
+### Case E9：定向 `--only` 评测被未运行 Suite 判失败
+
+**现象**
+
+只运行 PDF 和追加指令两套新 Suite 时，两者均通过、无 suite error、Token 为 0，但系统总门禁仍失败，因为 Reporter 继续要求 RAG、岗位和注入等未选择 Suite 存在。
+
+**处理**
+
+系统评测的 `required_suites` 在指定 `--only` 时与选择集取交集；完整 deterministic/full 运行仍要求各自全部 Suite。修复后相同定向评测约 `15.09 s` 完成，总发布门禁通过。这个 Case 说明评测 Harness 的停止和汇总合同也必须有回归测试，否则会把“未执行”错误标成“质量失败”。
 
 ## 29.10 Bad Case 如何进入开发闭环
 
@@ -4443,6 +4547,7 @@ python -m scripts.run_real_job_source_eval
 | LLM Client/Budget | `app/core/llm.py` |
 | Entity | `app/models/entities.py` |
 | API Schema | `app/models/schemas.py` |
+| PDF/追加指令 Bad Case 评测 | `app/services/capability_bad_case_evaluation.py` |
 | 系统评测 | `app/services/agent_system_evaluation.py` |
 | SLO | `app/services/slo_service.py` |
 

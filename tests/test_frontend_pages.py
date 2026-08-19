@@ -279,6 +279,13 @@ def test_run_history_exposes_auditable_follow_up_instruction_flow():
     assert "后续流程已创建" in main_js
 
 
+def test_capability_bad_case_evaluation_routes_are_registered():
+    paths = {route.path for route in app.routes}
+
+    assert "/evaluations/pdf-extraction-bad-cases" in paths
+    assert "/evaluations/follow-up-directive-bad-cases" in paths
+
+
 def test_profiles_entry_panels_are_user_facing_and_aligned():
     client = TestClient(app)
     response = client.get("/ui/profiles")

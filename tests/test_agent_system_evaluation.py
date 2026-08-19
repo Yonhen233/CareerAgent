@@ -107,6 +107,30 @@ def test_system_reporter_release_gate_does_not_average_failed_suite(db_session):
     assert summary["release_gate"]["checks"][1]["passed"] is False
 
 
+def test_system_reporter_accepts_an_explicit_required_suite_slice(db_session):
+    passed = EvaluationRun(
+        name="pdf_extraction_bad_case_evaluation",
+        summary_json={"release_gate": {"passed": True}, "pass_rate": 1.0},
+        case_results_json=[],
+    )
+    db_session.add(passed)
+    db_session.commit()
+
+    summary = AgentSystemEvaluationReporter(
+        base_path=Path.cwd(),
+        experiment_id="eval-slice",
+    ).build_summary(
+        mode="deterministic",
+        suites={"pdf_extraction_bad_cases": passed},
+        suite_errors={},
+        usage={"total_tokens": 0, "call_count": 0},
+        wall_time_ms=10,
+        required_suites=["pdf_extraction_bad_cases"],
+    )
+
+    assert summary["release_gate"]["passed"] is True
+
+
 def test_system_reporter_gates_full_mode_on_empirical_reliability(db_session):
     passed = EvaluationRun(
         name="passed",
@@ -137,5 +161,7 @@ def test_system_reporter_dataset_manifest_records_current_scale():
     manifest = reporter.dataset_manifest()
 
     assert manifest["pdf_chunk_cases.json"]["case_count"] >= 90
+    assert manifest["pdf_extraction_bad_cases.json"]["case_count"] >= 20
+    assert manifest["follow_up_directive_bad_cases.json"]["case_count"] >= 20
     assert manifest["rag_cases.json"]["case_count"] >= 180
     assert manifest["prompt_injection_cases.json"]["case_count"] >= 70

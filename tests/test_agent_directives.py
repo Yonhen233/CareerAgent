@@ -1,6 +1,7 @@
 import asyncio
 
 import pytest
+from pydantic import ValidationError
 
 from app.models.entities import AgentArtifact, AgentDirective, AgentEvent, AgentRun
 from app.models.schemas import AgentDirectiveRequest
@@ -125,3 +126,83 @@ def test_follow_up_directive_rejects_hot_mutation_of_active_run(db_session):
         )
 
     assert db_session.query(AgentDirective).count() == 0
+
+
+def test_follow_up_directive_rejects_withdrawn_source_and_unknown_action(db_session):
+    source = _source_run(db_session, status="withdrawn")
+    service = AgentDirectiveService(natural_language=FakeNaturalLanguageAgent())
+
+    with pytest.raises(ValueError, match="withdrawn"):
+        asyncio.run(
+            service.append(
+                db_session,
+                source_run=source,
+                payload=AgentDirectiveRequest(instruction="重新搜索岗位。"),
+            )
+        )
+    with pytest.raises(ValidationError):
+        AgentDirectiveRequest(
+            instruction="执行未知动作。",
+            selected_actions=["delete_database"],
+        )
+
+
+def test_follow_up_idempotency_key_is_bound_to_normalized_payload(db_session):
+    source = _source_run(db_session)
+    fake = FakeNaturalLanguageAgent()
+    service = AgentDirectiveService(natural_language=fake)
+
+    asyncio.run(
+        service.append(
+            db_session,
+            source_run=source,
+            payload=AgentDirectiveRequest(
+                instruction="重新搜索上海岗位。",
+                selected_actions=["search_jobs", "search_jobs"],
+                client_request_id="request-payload-key",
+            ),
+        )
+    )
+    with pytest.raises(ValueError, match="different follow-up payload"):
+        asyncio.run(
+            service.append(
+                db_session,
+                source_run=source,
+                payload=AgentDirectiveRequest(
+                    instruction="重新搜索北京岗位。",
+                    selected_actions=["search_jobs"],
+                    client_request_id="request-payload-key",
+                ),
+            )
+        )
+
+    assert len(fake.requests) == 1
+
+
+def test_follow_up_tolerates_malformed_legacy_context_and_limit(db_session):
+    source = _source_run(db_session)
+    source.input_json = {**source.input_json, "limit": "legacy-invalid"}
+    source.output_json = {
+        **source.output_json,
+        "selected_job": "broken",
+        "application": "broken",
+        "interview_prep": ["broken"],
+    }
+    db_session.add(source)
+    db_session.commit()
+    fake = FakeNaturalLanguageAgent()
+
+    directive = asyncio.run(
+        AgentDirectiveService(natural_language=fake).append(
+            db_session,
+            source_run=source,
+            payload=AgentDirectiveRequest(
+                instruction="只重新搜索岗位。",
+                client_request_id="request-legacy-context",
+            ),
+        )
+    )
+
+    assert directive.context_json["selected_job"] == {}
+    assert directive.context_json["available_artifact_ids"]["application_id"] is None
+    assert fake.requests[0].limit == 8

@@ -53,6 +53,7 @@ async def run(args: argparse.Namespace) -> int:
     from app.core.llm import llm_trace_context
     from app.models.entities import EvaluationRun, LLMCallLog
     from app.services.agent_system_evaluation import AgentSystemEvaluationReporter
+    from app.services.capability_bad_case_evaluation import CapabilityBadCaseEvaluationService
     from app.services.evaluation_service import EvaluationService
     from app.services.interview_claim_evaluation import InterviewClaimVerifierEvaluationService
 
@@ -158,12 +159,18 @@ async def run(args: argparse.Namespace) -> int:
             write_progress(f"running:{name}")
 
     service = EvaluationService()
+    capability_bad_cases = CapabilityBadCaseEvaluationService()
     with llm_trace_context(
         system_evaluation_id=experiment_id,
         evaluation_invocation_id=invocation_id,
         evaluation_mode=args.mode,
     ):
         await execute("pdf_chunk", lambda: service.run_pdf_chunk_strategy_evaluation(db))
+        await execute("pdf_extraction_bad_cases", lambda: capability_bad_cases.run_pdf_extraction(db))
+        await execute(
+            "follow_up_directive_bad_cases",
+            lambda: capability_bad_cases.run_follow_up_directives(db),
+        )
         await execute("rag", lambda: service.run_rag_strategy_evaluation(db))
         await execute("job_relevance", lambda: service.run_job_relevance_evaluation(db))
         await execute("application_packet", lambda: service.run_application_packet_evaluation(db))
@@ -254,7 +261,15 @@ async def run(args: argparse.Namespace) -> int:
         if reliability_rows
         else prior.get("reliability") or reporter.reliability_report([])
     )
-    deterministic_required = ["pdf_chunk", "rag", "job_relevance", "application_packet", "prompt_injection"]
+    deterministic_required = [
+        "pdf_chunk",
+        "pdf_extraction_bad_cases",
+        "follow_up_directive_bad_cases",
+        "rag",
+        "job_relevance",
+        "application_packet",
+        "prompt_injection",
+    ]
     full_required = [
         *deterministic_required,
         "natural_language_plan",
@@ -265,6 +280,9 @@ async def run(args: argparse.Namespace) -> int:
     ]
     if args.mode == "full" and args.interview_case_limit:
         full_required.append("interview_prep")
+    required_suites = full_required if args.mode == "full" else deterministic_required
+    if selected_suites:
+        required_suites = [suite for suite in required_suites if suite in selected_suites]
     summary = reporter.build_summary(
         mode=args.mode,
         suites=suites,
@@ -272,7 +290,7 @@ async def run(args: argparse.Namespace) -> int:
         usage=usage,
         wall_time_ms=prior_wall_time_ms + int((time.perf_counter() - started) * 1000),
         reliability=reliability,
-        required_suites=full_required if args.mode == "full" else deterministic_required,
+        required_suites=required_suites,
     )
     summary["git_revision"] = git_revision()
     summary["token_budget"] = args.token_budget

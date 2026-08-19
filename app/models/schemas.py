@@ -376,9 +376,19 @@ class AgentRunWithdrawRequest(BaseModel):
     reason: str = Field(min_length=2, max_length=500)
 
 
+AgentDirectiveAction = Literal[
+    "create_profile",
+    "search_jobs",
+    "tailor_resume",
+    "quick_apply",
+    "interview_prep",
+    "full_flow",
+]
+
+
 class AgentDirectiveRequest(BaseModel):
     instruction: str = Field(min_length=4, max_length=4000)
-    selected_actions: list[str] = Field(default_factory=list, max_length=8)
+    selected_actions: list[AgentDirectiveAction] = Field(default_factory=list, max_length=8)
     client_request_id: str | None = Field(default=None, min_length=8, max_length=128)
 
 
