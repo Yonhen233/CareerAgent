@@ -126,6 +126,18 @@ class Settings(BaseSettings):
     prompt_injection_classifier_threshold: float = 0.72
     chunk_size: int = 900
     chunk_overlap: int = 160
+    pdf_max_upload_mb: int = Field(default=15, ge=1, le=100)
+    pdf_max_pages: int = Field(default=30, ge=1, le=200)
+    pdf_min_text_chars_per_page: int = Field(default=24, ge=1, le=500)
+    pdf_min_printable_ratio: float = Field(default=0.75, ge=0.0, le=1.0)
+    pdf_min_alnum_ratio: float = Field(default=0.35, ge=0.0, le=1.0)
+    pdf_max_replacement_ratio: float = Field(default=0.01, ge=0.0, le=1.0)
+    pdf_ocr_enabled: bool = True
+    pdf_ocr_dpi: int = Field(default=200, ge=96, le=400)
+    pdf_ocr_min_confidence: float = Field(default=0.45, ge=0.0, le=1.0)
+    pdf_max_render_pixels: int = Field(default=20_000_000, ge=1_000_000, le=100_000_000)
+    pdf_cross_page_tail_chars: int = Field(default=260, ge=80, le=1000)
+    pdf_cross_page_head_chars: int = Field(default=520, ge=120, le=1600)
     embedding_dimensions: int = 256
     embedding_provider: str = "sentence_transformers"
     embedding_model_name: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"

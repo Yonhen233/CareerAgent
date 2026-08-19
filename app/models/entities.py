@@ -375,6 +375,40 @@ class AgentRun(Base):
         cascade="all, delete-orphan",
         foreign_keys="AgentRunControlAction.run_id",
     )
+    directives: Mapped[list["AgentDirective"]] = relationship(
+        back_populates="source_run",
+        cascade="all, delete-orphan",
+        foreign_keys="AgentDirective.source_run_id",
+    )
+
+
+class AgentDirective(Base):
+    __tablename__ = "agent_directives"
+    __table_args__ = (
+        UniqueConstraint("source_run_id", "idempotency_key", name="uq_agent_directive_source_key"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    source_run_id: Mapped[int] = mapped_column(ForeignKey("agent_runs.id"), nullable=False, index=True)
+    target_run_id: Mapped[int | None] = mapped_column(ForeignKey("agent_runs.id"), nullable=True, index=True)
+    tenant_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    user_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    mode: Mapped[str] = mapped_column(String(40), nullable=False, default="follow_up_branch", index=True)
+    instruction: Mapped[str] = mapped_column(Text, nullable=False)
+    selected_actions_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    context_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    result_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="received", index=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    source_run: Mapped[AgentRun] = relationship(
+        back_populates="directives",
+        foreign_keys=[source_run_id],
+    )
+    target_run: Mapped[AgentRun | None] = relationship(foreign_keys=[target_run_id])
 
 
 class AgentStep(Base):

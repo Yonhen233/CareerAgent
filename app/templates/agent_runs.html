@@ -36,6 +36,23 @@
     <div id="run-business-summary" class="run-business-summary muted-box"></div>
     <div class="panel-heading compact nested-heading">
       <div>
+        <p class="eyebrow">继续处理</p>
+        <h2>追加要求</h2>
+        <p class="meta">在原记录上补充或修正要求会创建一条新流程，原结果和审计记录保持不变。</p>
+      </div>
+    </div>
+    <form id="run-directive-form" class="run-directive-form">
+      <textarea name="instruction" rows="3" maxlength="4000" placeholder="例如：城市改为上海，重新搜索岗位，但不要生成投递材料。" required></textarea>
+      <div class="run-directive-actions">
+        <span id="run-directive-hint" class="meta">请选择一条已结束的记录。</span>
+        <button id="run-directive-submit" class="button primary" type="submit" disabled>
+          <i data-lucide="corner-down-right"></i> 创建后续流程
+        </button>
+      </div>
+    </form>
+    <div id="run-directives" class="result-list compact-result"></div>
+    <div class="panel-heading compact nested-heading">
+      <div>
         <p class="eyebrow">需要你处理</p>
         <h2>待确认操作</h2>
       </div>

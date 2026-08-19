@@ -1524,14 +1524,16 @@ async function loadRunSteps(runId, { historyMode = null } = {}) {
   if (selectedTitle) selectedTitle.textContent = `#${run.id} ${taskLabel(run.task_type)}`;
   if (selectedTime) selectedTime.textContent = `${new Date(run.created_at).toLocaleString()} · ${activeRunStatusLabel(run.status)}`;
   renderRunConfirmation(run);
-  const [summary, rows, checkpoints, controlActions, withdrawalPreview] = await Promise.all([
+  const [summary, rows, checkpoints, controlActions, withdrawalPreview, directives] = await Promise.all([
     api(`/agent/runs/${runId}/summary`),
     api(`/agent/runs/${runId}/steps`),
     api(`/agent/runs/${runId}/checkpoints?limit=30`).catch(() => []),
     api(`/agent/runs/${runId}/control-actions`).catch(() => []),
     api(`/agent/runs/${runId}/withdrawal-preview`).catch(() => null),
+    api(`/agent/runs/${runId}/directives?limit=20`).catch(() => []),
   ]);
   renderRunBusinessSummary(summary);
+  renderRunDirectives(run, directives);
   renderRunControlActions(run, controlActions, withdrawalPreview);
   renderRunCheckpoints(run, checkpoints);
   renderItems("#run-steps", rows, (row) => `
@@ -1542,6 +1544,34 @@ async function loadRunSteps(runId, { historyMode = null } = {}) {
   `);
   await loadRunEvents(runId);
   subscribeAgentRunEvents(runId);
+}
+
+function renderRunDirectives(run, directives) {
+  const form = $("#run-directive-form");
+  const hint = $("#run-directive-hint");
+  const submit = $("#run-directive-submit");
+  const list = $("#run-directives");
+  if (!form || !list) return;
+  const active = ["queued", "running", "waiting_for_confirmation"].includes(run.status);
+  form.dataset.runId = String(run.id);
+  submit.disabled = active;
+  if (hint) {
+    hint.textContent = active
+      ? "当前流程仍在运行或等待确认。完成或取消后才能创建后续流程。"
+      : `新要求会基于记录 #${run.id} 创建独立后续流程。`;
+  }
+  list.innerHTML = directives.length ? directives.map((row) => `
+    <article class="item directive-row">
+      <div class="item-title">
+        <span>追加要求 #${escapeHtml(row.id)}</span>
+        <span class="status-pill ${row.status === "completed" ? "ok" : row.status === "failed" ? "risk" : ""}">${escapeHtml(row.status === "completed" ? "已处理" : row.status === "failed" ? "失败" : "处理中")}</span>
+      </div>
+      <p>${escapeHtml(row.instruction)}</p>
+      <div class="meta">${new Date(row.created_at).toLocaleString()}${row.target_run_id ? ` · 后续流程 #${escapeHtml(row.target_run_id)}` : ""}</div>
+      ${row.target_run_id ? `<a class="text-link" href="/ui/agent-runs?run_id=${escapeHtml(row.target_run_id)}">查看后续流程</a>` : ""}
+    </article>
+  `).join("") : `<p class="meta">还没有追加要求。</p>`;
+  if (window.lucide) window.lucide.createIcons();
 }
 
 function renderRunControlActions(run, actions, preview) {
@@ -4591,6 +4621,40 @@ function bindForms() {
     const run = await api("/agent/runs", { method: "POST", body: JSON.stringify(payload) });
     toast(run.status === "waiting_for_confirmation" ? "流程等待确认" : "Agent run completed");
     loadRuns();
+  });
+
+  $("#run-directive-form")?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const runId = Number(form.dataset.runId || 0);
+    const instruction = String(form.elements.instruction?.value || "").trim();
+    const button = $("#run-directive-submit");
+    if (!runId || instruction.length < 4) {
+      toast("请先选择一条已结束的记录，并输入完整的追加要求");
+      return;
+    }
+    button.disabled = true;
+    try {
+      const directive = await api(`/agent/runs/${runId}/directives`, {
+        method: "POST",
+        body: JSON.stringify({
+          instruction,
+          client_request_id: window.crypto?.randomUUID?.() || `browser-${Date.now()}-${runId}`,
+        }),
+      });
+      form.reset();
+      toast(directive.status === "completed" ? "后续流程已创建" : "追加要求处理失败，请查看记录");
+      await loadRuns();
+      if (directive.target_run_id) {
+        await loadRunSteps(directive.target_run_id, { historyMode: "push" });
+      }
+    } catch (error) {
+      toast(error.message);
+      await loadRunSteps(runId);
+    } finally {
+      const selectedRun = Number(form.dataset.runId || 0);
+      if (button && selectedRun === runId) button.disabled = false;
+    }
   });
 
   $("#dashboard-run-form")?.addEventListener("submit", async (event) => {

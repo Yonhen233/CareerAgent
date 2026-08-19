@@ -1,5 +1,63 @@
 # 开发日志
 
+## 2026-08-19 11:16:39 +08:00：修复 PDF 抽取与跨页 Bad Case，并实现可追溯的追加指令分支
+
+### 本轮目标
+- 先解决 PDF 的真实输入问题，而不是继续把“已经抽取好的分页文本”当作完整 PDF 解析能力：覆盖扫描页、文本/扫描混合页、双栏、跨页、重复页眉、空白页、损坏、加密、超大文件和低质量 OCR。
+- 为用户增加历史流程上的自然语言追加要求，例如“城市改上海，只重新搜索岗位”，同时保留原 Run、产物和审批审计。
+- 两部分完成后更新统一系统设计文档，并通过生产配置 Chunk 评测、全量测试和前端契约验证；本轮不调用 DeepSeek，避免产生余额消耗。
+
+### 开发前审计发现的问题
+1. **96 份所谓 PDF Case 不是 PDF 文件。** `pdf_chunk_cases.json` 直接保存了 `page_no + text`，能评测 Chunk 和检索，却无法暴露 PDF 打不开、扫描页无文本、双栏错序或 OCR 乱码。旧文档把两层能力写在一起，容易让人误以为“96 份通过”已经证明 PDF Parser 稳定。
+2. **混合 PDF 会静默丢页。** 原实现逐页调用 `pypdf.extract_text()`，只检查整份文档最终是否非空。只要第一页有文本，第二页即使是扫描图片也能“成功建档”，但扫描页项目经历完全丢失。
+3. **页内 overlap 不能修复跨页内容。** 900/160 overlap 只发生在同一页的超长段落；项目标题在上一页末尾、实现细节在下一页开头时，两者仍不会进入同一 Chunk。
+4. **第一次跨页修复过度。** 初版对所有相邻页建立 tail/head bridge。96 份五页样本每份固定多出 4 个重复 Chunk，Hash 诊断的 Top3 keyword hit 降至 `0.8976`，低于 0.90 门禁。继续增加 overlap 只会掩盖问题。
+5. **覆盖率公式没有区分能力。** `text + ocr + blank` 再除总页数，会把空白页也算成文本覆盖成功；只要页面被遍历，结果几乎总是 1.0。
+6. **OCR 也会有双栏顺序问题。** 即使扫描页识别到了所有行，单纯按 y/x 坐标排序会把左右栏逐行交错，LLM Parser 接收到的仍是错误语义顺序。
+7. **系统没有一般性的追加 Prompt 语义。** `/resume` 只恢复 LangGraph interrupt，不能表达“修改上一轮目标”。直接覆盖旧 Prompt 或运行中的 State 会破坏任务合同、产物 lineage 和审批边界。
+8. **正确的 HTTPException 被通用异常改写。** 端点虽然在超大文件分支抛出 413，但外层 `except Exception` 会再次捕获并返回 500。服务层测试无法发现这个问题，必须增加真实 FastAPI 端点回归。
+
+### PDF 实现与设计选择
+- 新增 `PDFExtractionService`，使用 PyMuPDF 读取 block 坐标，按页产出文本和诊断；对低质量图片页使用本地 RapidOCR，不再调用外部模型。
+- 上传前验证 `.pdf` 扩展名、`%PDF-` magic、大小、页数、加密和损坏状态；FastAPI 采用“配置上限 + 1 byte”的有界读取，超限返回 413，不先把任意大文件读入内存。
+- 上传端点显式重新抛出 `HTTPException`，再处理 Parser 的 `ValueError` 和未知异常；端点级测试固定无效 PDF 为 400、超大 PDF 为 413，避免业务状态码被通用 500 吞掉。
+- 每页记录 extraction method、字符数、可打印字符比例、替换字符比例、字母数字比例、图片数、layout mode、OCR confidence 和 warning，并持久化到 `structured_profile_json.source_diagnostics.pdf_extraction`。
+- 文本层和 OCR 都增加双栏阅读顺序。文本层按 PDF block 坐标排序；OCR 按识别 box 区分左右栏，避免同高度的两栏内容交错。
+- OCR 渲染设置最大像素，根据页面尺寸动态降低 DPI；低于安全 DPI、OCR 字符过少或置信度不足时直接报错，不建立半成品 Profile。
+- 对每页前后有限行做重复页眉页脚识别，统一页码后只有在至少两页且覆盖 60% 页面时删除，并把被删除行保留在诊断中。
+- 修正 `text_page_coverage`：只计算文本层或 OCR 成功页面，空白页单独计数；一页文本加一页空白必须得到 0.5。
+- 跨页 Chunk 改为选择性 bridge：上一页末行未闭合，或下一页以列表符号续写时，才合并有限 tail/head；独立完整页面不复制。metadata 保存 `page_start/page_end` 和 `cross_page_semantic_bridge`。
+
+### 追加指令实现与设计选择
+- 新增 `agent_directives` 表和 `AgentDirectiveService`，保存 source/target Run、tenant/user、自然语言要求、选定动作、紧凑上下文、结果、状态、错误和幂等键。
+- 新增 `POST/GET /agent/runs/{run_id}/directives`。前端历史记录页可以输入追加要求、查看处理状态，并跳转到生成的后续流程。
+- 采用 immutable parent + child run：父 Run 不修改；系统提取 Profile/Job/ResumeVersion ID、已选岗位摘要、原目标短摘录和已有产物 ID，创建新的 natural-language Run，重新生成 Task Contract。
+- 子 Run 保存 `parent_run_id`、`conversation_root_run_id`、`directive_id` 和 `task_contract_revision` Artifact；父 Run记录 received/completed/failed Event。
+- 浏览器通过 `source_run_id + client_request_id` 幂等。新增要求涉及 browser/email 外发时仍需新 Run 的审批，不能复用父 Run 的一次性批准。
+- `queued/running/waiting_for_confirmation` 状态拒绝热追加。原因不是实现偷懒，而是旧合同已经开始执行，途中改目标会让已完成步骤、旧 Job 和高风险动作产生竞态；用户应先完成 interrupt、等待或取消，再从稳定终态建立分支。
+
+### 本轮值得面试讲述的 Bad Case
+1. **评测数据标签不能代替数据内容审计。** 数据中有 `cross_page_distractor` 字段，但正文没有真正被页边界截断的连续项目。仅凭场景名设计无条件 bridge，反而造成检索回归。修复过程是先查看失败分桶和平均 Chunk 数，再回到数据生成器确认样本构造，最后把真实跨页/非跨页边界分别做 Fixture。
+2. **“抽取成功”需要分层定义。** PDF 能打开、页面有字符、OCR 置信度高、Schema 合法和关键字段有原文支持是五件事。现在每一层有独立诊断，避免把 LLM Parser 的错误归因给 PDF，或用 JSON 合法掩盖扫描页丢失。
+3. **局部修复不能无界扩大上下文。** 跨页问题最直觉的做法是把相邻页全部拼起来，但会制造重复证据和向量污染。最终方案只在边界有续接信号时扩大上下文，并用专项正负例约束。
+4. **追加消息不等于 Interrupt Resume。** Interrupt 只补充原合同正在等待的选择；用户改变城市或动作集合是在修订目标，必须创建新合同和新 lineage。把二者都叫“继续运行”会让恢复、审计和幂等语义混乱。
+5. **不可变历史比覆盖旧答案更适合 Agent。** 追加指令创建分支后，可以比较父子结果、撤回子产物、定位哪条新要求导致变化，也不会让已经批准或外发的动作失去来源。
+6. **只测 Service 不足以证明 API 语义。** PDF 大小校验逻辑本身正确，但异常处理顺序破坏了 HTTP 契约。这个 Case 说明生产测试至少要覆盖 Parser、Service 和 HTTP Adapter 三层，而不是只断言内部异常码。
+
+### 验证
+- PDF 二进制/API 专项：`11 passed`，覆盖无效 magic/扩展名、HTTP 400/413、页数、损坏、加密、重复页眉、真实混合扫描 OCR、空白页覆盖率、文本双栏、OCR 双栏顺序、诊断持久化和跨页正负边界。
+- PDF/Directive/前端/Chunk 重点回归：`30 passed`。
+- 默认 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` 下重新运行 96 份、576 Query：选择 `paragraph_page_900_overlap160`，Top3 keyword/page/context hit 分别为 `0.9479/0.8299/0.7760`，平均 Top1 `772.77` 字符、平均 `10.00` Chunk，全部发布门禁通过。
+- Hash 只作为诊断配置，Top3 keyword hit 为 `0.8976`，不冒充生产 Embedding 结果；这也再次说明不同 Embedding 下不能共用一个结果口径。
+- `python -m compileall -q app tests`、相关 Ruff、`node --check app/static/js/main.js` 和 `git diff --check` 均通过。
+- `python -m pytest -q`：`330 passed in 108.84s`。
+- 本轮没有调用 DeepSeek 或其他外部 LLM，Token 费用为 0。
+
+### 尚未解决与下一步
+1. 当前 OCR 能处理常见中英文扫描简历和双栏，但复杂表格、三栏、竖排、浮动文本框、手写和极低清晰度图片仍可能错序或错字；需要积累真实用户授权样本后增加字段级 CER 和关键实体 Recall，不能只看平均置信度。
+2. `AgentDirectiveService` 当前在 API 请求内同步运行自然语言图。若进程在 Directive 落库后、子 Run 建立前崩溃，记录会停在 `executing`，但不会自动外发。后续应将 follow-up 创建接入 Redis 队列和 stale scanner；在此之前保留明确状态和 Trace，不自动重放高风险动作。
+3. 当前选择性跨页判断基于页尾闭合和列表续写信号。未来发现新排版时应先加入真实正负例，比较 bridge precision/recall 与检索回归，再扩展边界检测，不能再次改成全量复制。
+
 ## 2026-08-14 10:45:46 +08:00：把 Runtime、Role/SubAgent 和 LangGraph 基础解释融入系统设计主线
 
 ### 本轮目标

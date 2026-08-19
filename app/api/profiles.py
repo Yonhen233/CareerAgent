@@ -37,13 +37,27 @@ async def upload_resume(
     auth: AuthContext = Depends(optional_auth_context),
 ) -> ProfileResponse:
     try:
-        content = await file.read()
+        settings = get_settings()
+        maximum = settings.pdf_max_upload_mb * 1024 * 1024
+        if file.size is not None and file.size > maximum:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail=f"PDF is larger than the {settings.pdf_max_upload_mb} MB limit.",
+            )
+        content = await file.read(maximum + 1)
+        if len(content) > maximum:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail=f"PDF is larger than the {settings.pdf_max_upload_mb} MB limit.",
+            )
         profile = await ResumeParserService().create_profile_from_pdf(
             db,
             filename=file.filename or "resume.pdf",
             file_bytes=content,
         )
         return ProfileResponse.model_validate(_set_tenant(profile, auth, db))
+    except HTTPException:
+        raise
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

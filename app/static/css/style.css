@@ -3233,6 +3233,47 @@ button svg,
   margin-top: 10px;
 }
 
+.run-directive-form {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface-subtle);
+}
+
+.run-directive-form textarea {
+  width: 100%;
+  min-height: 84px;
+  resize: vertical;
+}
+
+.run-directive-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.run-directive-actions .meta {
+  flex: 1;
+}
+
+.directive-row p {
+  margin: 8px 0;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 720px) {
+  .run-directive-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .run-directive-actions .button {
+    width: 100%;
+  }
+}
+
 .compact-control-action {
   padding-block: 9px;
 }

@@ -2,7 +2,6 @@ import re
 from pathlib import Path
 from uuid import uuid4
 
-from pypdf import PdfReader
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -15,6 +14,7 @@ from app.models.entities import Profile
 from app.models.schemas import GuidedProfileRequest, ProfileStructured
 from app.services.prompt_injection_guard import PromptInjectionGuard
 from app.services.evidence_grounding import EvidenceGroundingService
+from app.services.pdf_extraction import PDFExtractionService
 from app.services.text_splitter import PDFPageText, ResumeTextSplitter
 from app.services.vector_index import SQLiteVectorIndex
 
@@ -66,33 +66,33 @@ def extract_pdf_text(path: Path) -> str:
 
 
 def extract_pdf_pages(path: Path) -> list[PDFPageText]:
-    reader = PdfReader(str(path))
-    pages = []
-    for index, page in enumerate(reader.pages, start=1):
-        pages.append(PDFPageText(page_no=index, text=(page.extract_text() or "").strip()))
-    return pages
+    return PDFExtractionService().extract(filename=path.name, file_bytes=path.read_bytes()).pages
 
 
 class ResumeParserService:
     def __init__(self) -> None:
         self.settings = get_settings()
         self.llm = LLMClient()
-        self.splitter = ResumeTextSplitter(self.settings.chunk_size, self.settings.chunk_overlap)
+        self.splitter = ResumeTextSplitter(
+            self.settings.chunk_size,
+            self.settings.chunk_overlap,
+            self.settings.pdf_cross_page_tail_chars,
+            self.settings.pdf_cross_page_head_chars,
+        )
         self.vector_index = SQLiteVectorIndex()
         self.injection_guard = PromptInjectionGuard()
         self.grounding = EvidenceGroundingService()
+        self.pdf_extraction = PDFExtractionService(settings=self.settings)
         self.settings.upload_path.mkdir(parents=True, exist_ok=True)
 
     async def create_profile_from_pdf(self, db: Session, *, filename: str, file_bytes: bytes) -> Profile:
-        if not file_bytes:
-            raise ValueError("Uploaded file is empty.")
+        extraction = self.pdf_extraction.extract(filename=filename, file_bytes=file_bytes)
         path = self.settings.upload_path / f"{uuid4().hex}_{safe_filename(filename)}"
         path.write_bytes(file_bytes)
-        pages = extract_pdf_pages(path)
-        raw_text = "\n".join(page.text for page in pages).strip()
-        if not raw_text:
-            raise ValueError("No extractable text was found in the PDF.")
+        pages = extraction.pages
+        raw_text = extraction.raw_text
         structured = await self.parse_structured_resume(raw_text, db=db)
+        structured["source_diagnostics"] = {"pdf_extraction": extraction.as_dict()}
         return self._create_profile(db, structured=structured, source_type="pdf", pages=pages)
 
     def create_profile_from_guided_answers(self, db: Session, payload: GuidedProfileRequest) -> Profile:

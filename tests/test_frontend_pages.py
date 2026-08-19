@@ -266,6 +266,19 @@ def test_run_history_page_exposes_business_summary_before_trace():
     assert response.text.index("run-steps") < response.text.index("run-events")
 
 
+def test_run_history_exposes_auditable_follow_up_instruction_flow():
+    client = TestClient(app)
+    response = client.get("/ui/agent-runs")
+    main_js = Path("app/static/js/main.js").read_text(encoding="utf-8")
+
+    assert response.status_code == 200
+    assert 'id="run-directive-form"' in response.text
+    assert "追加要求" in response.text
+    assert "创建一条新流程" in response.text
+    assert "/directives" in main_js
+    assert "后续流程已创建" in main_js
+
+
 def test_profiles_entry_panels_are_user_facing_and_aligned():
     client = TestClient(app)
     response = client.get("/ui/profiles")

@@ -76,6 +76,7 @@ class ProfileStructured(BaseModel):
     prompt_injection: dict[str, Any] = Field(default_factory=dict)
     quality_gate: dict[str, Any] = Field(default_factory=dict)
     raw_text: str = ""
+    source_diagnostics: dict[str, Any] = Field(default_factory=dict)
 
     _normalize_raw_text = field_validator("raw_text", mode="before")(empty_string_when_missing)
     _normalize_optional_strings = field_validator(
@@ -373,6 +374,30 @@ class AgentRunRewindRequest(BaseModel):
 
 class AgentRunWithdrawRequest(BaseModel):
     reason: str = Field(min_length=2, max_length=500)
+
+
+class AgentDirectiveRequest(BaseModel):
+    instruction: str = Field(min_length=4, max_length=4000)
+    selected_actions: list[str] = Field(default_factory=list, max_length=8)
+    client_request_id: str | None = Field(default=None, min_length=8, max_length=128)
+
+
+class AgentDirectiveResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    source_run_id: int
+    target_run_id: int | None
+    mode: str
+    instruction: str
+    selected_actions_json: list[str]
+    context_json: dict[str, Any]
+    result_json: dict[str, Any]
+    idempotency_key: str
+    status: str
+    error_message: str | None
+    created_at: datetime
+    completed_at: datetime | None
 
 
 class AgentCheckpointResponse(BaseModel):

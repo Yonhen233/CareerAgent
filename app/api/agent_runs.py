@@ -14,6 +14,8 @@ from app.core.redis_client import RedisUnavailableError, get_redis_client, redis
 from app.core.security import AuthContext, has_admin_access, optional_auth_context
 from app.models.entities import AgentApproval, AgentEvent, AgentRun, AgentRunControlAction, AgentStep, Job, Profile
 from app.models.schemas import (
+    AgentDirectiveRequest,
+    AgentDirectiveResponse,
     AgentApprovalResponse,
     AgentCheckpointResponse,
     AgentEventResponse,
@@ -26,6 +28,7 @@ from app.models.schemas import (
     AgentRunWithdrawRequest,
     AgentStepResponse,
 )
+from app.services.agent_directives import AgentDirectiveService
 from app.services.run_control import ACTIVE_RUN_STATUSES, RunControlService, RunWithdrawalConflict
 from app.services.trace_service import TraceService
 from app.services.run_business_summary import RunBusinessSummaryService
@@ -164,6 +167,40 @@ async def cancel_agent_run(
         status_code = 404 if "not found" in message else 409
         raise HTTPException(status_code=status_code, detail=message) from exc
     return AgentRunResponse.model_validate(run)
+
+
+@router.post(
+    "/{run_id}/directives",
+    response_model=AgentDirectiveResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def append_agent_run_directive(
+    run_id: int,
+    payload: AgentDirectiveRequest,
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(optional_auth_context),
+) -> AgentDirectiveResponse:
+    run = _tenant_query(db.query(AgentRun), auth).filter(AgentRun.id == run_id).first()
+    if run is None:
+        raise HTTPException(status_code=404, detail="Agent run not found.")
+    try:
+        directive = await AgentDirectiveService().append(db, source_run=run, payload=payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return AgentDirectiveResponse.model_validate(directive)
+
+
+@router.get("/{run_id}/directives", response_model=list[AgentDirectiveResponse])
+def list_agent_run_directives(
+    run_id: int,
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    auth: AuthContext = Depends(optional_auth_context),
+) -> list[AgentDirectiveResponse]:
+    if _tenant_query(db.query(AgentRun), auth).filter(AgentRun.id == run_id).first() is None:
+        raise HTTPException(status_code=404, detail="Agent run not found.")
+    rows = AgentDirectiveService().list_for_run(db, source_run_id=run_id, limit=limit)
+    return [AgentDirectiveResponse.model_validate(row) for row in rows]
 
 
 @router.get("/{run_id}/checkpoints", response_model=list[AgentCheckpointResponse])

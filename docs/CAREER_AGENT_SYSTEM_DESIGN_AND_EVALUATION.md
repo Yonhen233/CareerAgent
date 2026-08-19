@@ -696,7 +696,7 @@ Tests/Evals  -> 上述各层
 
 这里的“表”是 SQLAlchemy Entity 映射到关系数据库后的物理表，不是 Prompt 中的临时 JSON。默认开发配置为 `sqlite:///./data/career_agent.db`，所以本地确实落在 SQLite 文件中；同一套 SQLAlchemy 模型可以通过 `DATABASE_URL` 切换到 PostgreSQL。生产多 Worker 需要共享数据库，不能把每台机器自己的 SQLite 当成同一事实源。
 
-### 8.2 29 张表的领域分组
+### 8.2 30 张表的领域分组
 
 | 领域 | 表 | 核心用途 |
 | --- | --- | --- |
@@ -707,7 +707,7 @@ Tests/Evals  -> 上述各层
 | 匹配 | `match_results` | 维度分、证据、缺口 |
 | 业务产物 | `resume_versions`、`applications` | 定制简历和投递包 |
 | 面试 | `interview_preps`、`interview_practice_items`、`interview_experiences` | 面试包、练习进度和导入面经 |
-| Agent 轨迹 | `agent_runs`、`agent_steps`、`agent_events`、`agent_artifacts` | 运行、节点、事件和产物引用 |
+| Agent 轨迹 | `agent_runs`、`agent_steps`、`agent_events`、`agent_artifacts`、`agent_directives` | 运行、节点、事件、产物引用和追加指令分支 |
 | 治理 | `agent_approvals`、`agent_run_control_actions`、`tool_circuit_states`、`ops_audit_events` | 审批、恢复、熔断和审计 |
 | 记忆反馈 | `agent_memories`、`agent_feedback`、`agent_quality_reviews` | 跨任务偏好和线上复核 |
 | 模型任务 | `llm_call_logs`、`task_runs` | Token、模型调用和队列任务 |
@@ -733,6 +733,8 @@ erDiagram
     AGENT_RUN ||--o{ AGENT_EVENT : emits
     AGENT_RUN ||--o{ AGENT_ARTIFACT : produces
     AGENT_RUN ||--o{ AGENT_APPROVAL : requests
+    AGENT_RUN ||--o{ AGENT_DIRECTIVE : branches_with
+    AGENT_DIRECTIVE }o--o| AGENT_RUN : creates_child
 ```
 
 ### 8.4 原始数据、结构化数据和生成数据
@@ -1253,7 +1255,7 @@ Planner 会把当前任务的 Role 写入 Execution Plan 和 Provenance，但**�
 
 | 组件 | 输入与输出 | 负责什么 | 不负责什么 |
 | --- | --- | --- | --- |
-| PDF 文本提取 | PDF bytes -> 分页文本 | 读取文本层、保留页码 | 不理解“这段是项目还是实习” |
+| PDF 提取与 OCR | PDF bytes -> 分页文本 + 页面诊断 | 校验文件、读取文本层、识别扫描页、恢复双栏顺序、保留页码 | 不理解“这段是项目还是实习” |
 | LLM Parser | 非结构化文本 -> 候选 JSON | 理解不同栏目表达并映射到业务字段 | 不证明生成字段一定真实 |
 | Pydantic Validator | 候选 JSON -> 合法 Schema | 校验类型、必填结构和规范形式 | 不判断字段是否来自原文 |
 | Grounding Gate | 原文 + 结构化结果 -> 质量报告 | 检查技能、数字和陈述是否有来源支持 | 不替模型补造缺失经历 |
@@ -1262,9 +1264,12 @@ LLM Parser 因此是“让语言模型承担语义解析”的环节，不是传
 
 ```text
 上传校验
--> 安全文件名和隔离存储
--> 按页提取文本
--> 清洗页眉页脚和重复空行
+-> 扩展名、PDF magic、大小、页数、加密和损坏校验
+-> PyMuPDF 按 block 读取文本层并判断单双栏
+-> 按页计算字符数、可打印字符、字母数字和替换字符比例
+-> 低质量图片页使用本地 RapidOCR；低置信度直接失败
+-> OCR 行按单栏或双栏阅读顺序重排
+-> 清洗跨页重复页眉页脚和重复空行
 -> 保留 page_no 与字符位置
 -> Prompt Injection 清理
 -> 启发式提取基础字段
@@ -1275,7 +1280,7 @@ LLM Parser 因此是“让语言模型承担语义解析”的环节，不是传
 -> 生成 Resume Chunk 和 Embedding
 ```
 
-`extract_pdf_pages` 保留页码，不先把整份 PDF 粗暴拼成一段。页码可以用于评测“检索是否找到正确页面”，也可以在前端证据引用时显示来源。
+`PDFExtractionService` 保留页码，不先把整份 PDF 粗暴拼成一段。页码可以用于评测“检索是否找到正确页面”，也可以在前端证据引用时显示来源。每页还保存 `extraction_method`、`layout_mode`、字符质量、图片数和 OCR 置信度；这些诊断写入 `structured_profile_json.source_diagnostics.pdf_extraction`，从而能区分“PDF 没抽出来”和“LLM 没理解”。上传采用上限加一字节的有界读取，避免先把超大文件完整读入内存再判断大小。
 
 ### 12.4 为什么保留原始文本
 
@@ -1319,7 +1324,9 @@ null list -> 空列表
 - 图片型 PDF 没有文本层；
 - 文件名和 PDF metadata 含个人敏感信息。
 
-当前主要支持有文本层的 PDF。扫描图片需要 OCR 才能可靠解析，不能把空提取结果伪装成成功建档。
+当前同时支持文本层 PDF、纯扫描 PDF 和文本页/扫描页混合 PDF。OCR 使用本地 RapidOCR，只有页面文本质量不足且存在图片时才触发；识别字符过少或平均置信度低于阈值会直接失败，不把乱码建成 Profile。加密、损坏、超大小、超页数和危险渲染尺寸同样明确报错。空白页可以保留为诊断，但不会计入 `text_page_coverage`。
+
+这并不意味着所有 PDF 排版都已经被完美恢复。复杂表格、浮动文本框、竖排文字、手写内容、艺术字体和极低清晰度截图仍可能需要人工校对。系统的原则是：能量化的页面质量必须留下诊断；无法可靠提取时失败；不能用“创建出了 Profile”代替抽取正确性。
 
 ## 13. PDF Chunk 策略
 
@@ -1351,6 +1358,7 @@ Chunk 是“信息完整性”和“检索粒度”的折中。
 -> 最大约 900 字符
 -> 长段落再滑窗
 -> overlap 160 字符
+-> 只在页尾未闭合或下一页以列表续写时增加跨页桥接 Chunk
 ```
 
 策略名为 `paragraph_page_900_overlap160`。
@@ -1385,6 +1393,8 @@ for page in pages:
 }
 ```
 
+普通 overlap 只发生在同一页的超长段落内，并不能修复“项目标题在第一页末尾、实现细节在第二页开头”。因此系统增加 `cross_page_semantic_bridge`：保留上一页有限 tail 和下一页有限 head，并记录 `page_start/page_end`。它不是对所有相邻页无条件复制。只有上一页末行没有句末标点，或下一页明显以项目符号续写时才建立桥接；两个完整独立页面不会生成重复 Chunk。
+
 ### 13.3 结构化 Chunk
 
 只有原始滑窗还不够。Profile 结构化后，系统额外生成：
@@ -1403,7 +1413,7 @@ Structured Chunk：边界清晰，适合高精度检索
 
 ### 13.4 为什么 900/160 不是拍脑袋
 
-96 份 PDF Case 按 easy、medium、hard、adversarial 各 24 份构造，评测不同 Chunk size、overlap、按页与跨页策略。选择指标包括：
+96 份抽取后分页文本 Case 按 easy、medium、hard、adversarial 各 24 份构造，评测不同 Chunk size、overlap 和按页策略。这里必须准确区分两层：这 96 份数据评测的是 **Chunk 与检索**，不是 PDF 二进制能否被正确打开、OCR 或恢复布局；真实 PDF 提取由独立的生成式 PDF Fixture 回归覆盖。选择指标包括：
 
 - Top3 keyword hit：关键词是否在前三个结果；
 - Top3 page hit：是否找到标注页；
@@ -1422,6 +1432,8 @@ Structured Chunk：边界清晰，适合高精度检索
 | 平均 Chunk 数 | 10.00 | <= 14 |
 
 它说明 900/160 在当前数据上整体平衡，并不代表对所有简历永久最优。
+
+本轮曾暴露一个评测设计错误：数据中的 `cross_page_distractor` 名称并不代表正文真的在页边界中间断开。如果据此对每两个相邻页面无条件建立桥接，平均每份五页简历会新增四段重复文本，Hash 诊断下 Top3 keyword hit 从门禁上方降至 `0.8976`。改为选择性桥接后，生产配置的本地多语言 Embedding 重新得到上表 `0.9479/0.8299/0.7760`，平均 Chunk 数仍为 `10.00`；真实跨页连续内容则由专项 Fixture 验证桥接正文同时包含两页证据。
 
 ### 13.5 Chunk 评测暴露的真实问题
 
@@ -2411,7 +2423,39 @@ Prompt packet budget guard
 - 敏感信息最小化；
 - 用户撤回业务产物不等于删除审计或所有长期偏好。
 
-### 22.9 模型路由
+### 22.9 追加指令不是把完整历史重新塞给模型
+
+系统支持用户在历史记录中追加自然语言要求，例如：
+
+```text
+城市改成上海，只重新搜索岗位；保留原简历，不生成投递材料。
+```
+
+追加指令使用 **immutable parent + follow-up branch**，而不是修改原 Run 的 State：
+
+```text
+已结束 AgentRun #186
+-> POST /agent/runs/186/directives
+-> agent_directives 持久化 instruction + idempotency_key
+-> 从父 Run 提取紧凑 SourceContext
+-> 创建新的 natural_language_request 子 Run
+-> 子 Run 重新解析新增意图并建立自己的 Task Contract
+-> 写 parent_run_id / conversation_root_run_id / directive_id
+-> 产生独立 Trace、Artifact 和终态
+```
+
+SourceContext 只包含父任务类型、状态、Profile/Job/ResumeVersion ID、原始目标的短摘录、已选岗位摘要、上一条用户可见结果和可用产物 ID。它不会复制完整 Event、全部 Chunk、旧 Prompt 或整段模型输出。真正的业务事实由子 Run 通过 ID 重新查询数据库，避免将过期文本摘要当权威状态。
+
+这种设计解决四个问题：
+
+1. 父 Run、审批和产物审计保持不可变；
+2. 新要求有独立任务合同，Completion Gate 能判断“只重搜岗位”是否真的完成；
+3. 浏览器重试通过 `source_run_id + client_request_id` 幂等，不会创建两条相同分支；
+4. 新指令要求投递、发邮件或浏览器提交时，仍进入原有高风险审批，不能继承父 Run 的一次性批准。
+
+处于 `queued/running/waiting_for_confirmation` 的 Run 当前不允许热追加。原因是 Planner 和 Tool 已经按旧合同执行，途中修改目标会产生竞态：不知道哪些已完成步骤应作废，也可能让高风险动作越过新约束。用户需先等待、取消或处理 interrupt，再从稳定终态建立分支。该约束是明确的并发语义，不是功能兜底。
+
+### 22.10 模型路由
 
 | 路由 | 典型节点 | 默认模型 | 原因 |
 | --- | --- | --- | --- |
@@ -2421,7 +2465,7 @@ Prompt packet budget guard
 
 `configured_default` 不是业务策略，只是可观测标记。持续出现的未分类调用应归入明确路由，避免成本和质量不可预测。
 
-### 22.10 Flash 失败不会静默切 Pro
+### 22.11 Flash 失败不会静默切 Pro
 
 模型路由不是兜底链。Flash 结构化失败应记录、有限修复或显式失败；静默切 Pro 会让：
 
@@ -2432,7 +2476,7 @@ Prompt packet budget guard
 
 需要 Pro 时应由节点策略明确选择。
 
-### 22.11 LLM Call Budget
+### 22.12 LLM Call Budget
 
 父图和子图共享预算，限制：
 
@@ -2458,7 +2502,7 @@ FastAPI 提供：
 - SSE 事件流；
 - 健康检查和 SLO metrics。
 
-当前源码注册 129 条 Route，覆盖用户功能、责任角色和 Harness Manifest 控制面，不意味着每个业务动作都在请求进程内执行。
+当前源码注册 131 条 Route，覆盖用户功能、责任角色和 Harness Manifest 控制面，不意味着每个业务动作都在请求进程内执行。
 
 ### 23.2 哪些流程可以并行
 
@@ -2649,7 +2693,20 @@ agent_run + profile_id + job_id + artifact_type
 
 原历史仍可审计，新分支产生自己的业务产物。
 
-### 24.7 会话撤回的业务价值
+### 24.7 Follow-up Directive 与 Checkpoint Resume 的区别
+
+两者看起来都叫“继续”，但语义不同：
+
+| 操作 | 输入是否改变 | Run/Thread | 用途 |
+| --- | --- | --- | --- |
+| Interrupt Resume | 不改变原目标，只补充图正在等待的选择或审批 | 原 Run、原 thread | 选择岗位、批准投递 |
+| Crash Recovery | 不改变目标，恢复异常中断的执行 | 原 Run、原 thread | Worker 崩溃后续跑 |
+| Follow-up Directive | 新增或修正用户目标 | 新子 Run、新 thread | 改城市、重搜岗位、补做面试包 |
+| Checkpoint Rewind | 回到旧状态并走另一条历史分支 | 新 Run、新 thread | 回到选岗前重新选择 |
+
+`AgentDirective` 是持久化关系实体，不只是一条聊天消息。它保存 source/target Run、tenant/user、instruction、选定动作、紧凑上下文、结果、幂等键、状态和错误。父 Run 发出 `user_directive_received/completed/failed` Event，子 Run 保存 `task_contract_revision` Artifact。即使后续失败，也能回答“用户何时追加了什么、系统基于哪条历史创建了哪条任务”。
+
+### 24.8 会话撤回的业务价值
 
 CareerAgent 需要撤回，但撤回对象不是语言模型的“最后一句话”，而是求职业务动作：
 
@@ -2666,7 +2723,7 @@ CareerAgent 需要撤回，但撤回对象不是语言模型的“最后一句�
 - 审计记录；
 - 共享 Job 原始事实。
 
-### 24.8 为什么不物理删除
+### 24.9 为什么不物理删除
 
 物理删除会破坏：
 
@@ -3045,7 +3102,8 @@ LLM Judge 可以评流畅度、相关性和用户可用性，但不能单独判�
 
 | 数据集 | 规模 | 主要噪声 |
 | --- | ---: | --- |
-| PDF Chunk | 96 份、576 Query | 跨页、长段、课程/项目混淆、附录 |
+| PDF 二进制抽取 | 11 个生成式/API Fixture | 文本层、扫描页、混合页、双栏、空白、重复页眉、加密、损坏、HTTP 错误码 |
+| PDF Chunk | 96 份分页文本、576 Query | 长段、分页、课程/项目混淆、附录和 Hard Negative |
 | RAG 主集 | 180 Case、2,160 Chunk | 12 类岗位、4 档难度、Hard Negative |
 | 多语言 RAG | 144 Case、1,440 Pair | 中英互查、混写、每 Case 9 负例 |
 | JD Parser | 30 Case | required/preferred、否定、中英别名 |
@@ -3064,12 +3122,17 @@ LLM Judge 可以评流畅度、相关性和用户可用性，但不能单独判�
 最近完整代码回归记录为：
 
 ```text
-309 passed in 97.99s
+330 passed in 108.84s
 ```
 
-本数字证明当前控制面、API、前端契约、RAG Fixture、审批、恢复等测试通过。它不代表 309 个真实 LLM 用户任务，也不代表线上成功率 100%。
+本数字证明当前控制面、API、前端契约、PDF 二进制 Fixture、RAG Fixture、审批、恢复等测试通过。它不代表 330 个真实 LLM 用户任务，也不代表线上成功率 100%。
 
 ### 28.3 PDF Chunk
+
+PDF 当前使用两个不能互相替代的测试层：
+
+- 二进制抽取层把真实生成的 PDF bytes 送进 PyMuPDF/RapidOCR，检查文件校验、每页路由、OCR、布局、重复页眉、覆盖率和持久化诊断；
+- Chunk 层从已经抽取的分页文本开始，比较边界策略和检索指标。它不能证明 OCR 正确。
 
 选定策略 `paragraph_page_900_overlap160`：
 
@@ -3081,7 +3144,7 @@ LLM Judge 可以评流畅度、相关性和用户可用性，但不能单独判�
 | Top1 平均字符 | 772.77 | 没有过度膨胀 |
 | 平均 Chunk 数 | 10.00 | 索引规模可控 |
 
-已知弱点：课程与已交付项目混淆，不能只靠 Chunk 修复。
+选择性跨页桥接不会改变当前 96 份完整分页样本的平均 Chunk 数；真实“标题悬在上页、正文从下页继续”的 Fixture 会生成带 `page_start/page_end` 的桥接 Chunk。已知弱点仍是课程与已交付项目混淆，不能只靠 Chunk 修复。
 
 ### 28.4 180 Case RAG
 
@@ -3310,12 +3373,16 @@ avg_required_skill_precision = 0.9332
 
 检查按页原始文本。如果提取层已经错乱，继续调 Parser Prompt 无法根治。
 
-**处理边界**
+**处理**
 
-- 保留 page_no 和原文；
-- 提示用户预览并编辑档案；
-- 将该布局加入 PDF 样本；
-- 后续可引入 layout-aware parser/OCR。
+- 文本层通过 PyMuPDF block 坐标判断左右栏，按全宽标题、左栏、右栏恢复阅读顺序；
+- OCR 结果同样使用 box 坐标识别双栏，避免按 y 坐标把两栏逐行交错；
+- 每页记录 `layout_mode=two_column_blocks/ocr_two_column`，保留 page_no 和原文供预览校对；
+- 双栏生成式 Fixture 验证左栏内容整体位于右栏之前。
+
+**残余边界**
+
+三栏、嵌套表格、跨栏浮动文本框和复杂视觉分组仍可能排序不准，不能仅凭“抽到了字符”宣称版面恢复正确。
 
 ### Case P4：扫描 PDF 没有文本层
 
@@ -3323,9 +3390,59 @@ avg_required_skill_precision = 0.9332
 
 创建一个几乎空的 Profile 并显示“解析成功”。
 
-**正确处理**
+**处理**
 
-检测提取字符数和页面覆盖，不达标直接说明需要 OCR 或手动建档，Trace 标记 `pdf_text_layer_missing`。
+每页计算文本质量。字符过少或乱码比例过高且页面含图片时，使用本地 RapidOCR 渲染识别；字符量仍不足或 OCR 平均置信度低于阈值时直接返回 `pdf_ocr_empty/pdf_ocr_low_confidence`。纯文本页和扫描页混合的 PDF 按页分别处理，不能因为第一页有文本就静默丢掉第二页。
+
+**验证**
+
+两页混合 Fixture 中第一页走 `text_layer`，第二页走 `ocr`，能够恢复中文项目标题、CareerAgent、Redis 和 checkpoint；诊断随 Profile 持久化。
+
+### Case P5：跨页项目被页边界切断
+
+**现象**
+
+项目标题落在第一页末尾，技术细节从第二页开头继续。页内 overlap 无法让同一 Chunk 同时包含标题和实现证据。
+
+**错误修复**
+
+为所有相邻页面都复制 tail/head。这样会制造大量重复 Chunk，增加索引成本，还会让不相关页面在检索中互相污染。一次实现曾让 Hash 诊断的 Top3 keyword hit 降到 `0.8976`。
+
+**当前处理**
+
+仅当上一页末行未闭合，或下一页以列表符号续写时创建 `cross_page_semantic_bridge`。桥接保存有限 tail/head 和两侧页码；完整句号结束的两个独立页面不桥接。专项 Fixture 同时验证应桥接与不应桥接两类边界。
+
+### Case P6：重复页眉页脚污染每个 Chunk
+
+**现象**
+
+姓名、简历标题和“第 1/2 页”在每页重复，向量检索把这些高频行当作主要相似信号。
+
+**处理**
+
+只统计每页前后有限行，统一页码数字后，达到 60% 页面且至少出现两页的短行才删除。被删除原文记录在 `repeated_margin_lines_removed`，避免无审计地清洗正文。
+
+### Case P7：空白页让覆盖率看起来永远是 100%
+
+**现象**
+
+旧公式把 `text + ocr + blank` 除以总页数，任何被遍历的页面都算“覆盖”，质量指标没有区分能力。
+
+**处理**
+
+`text_page_coverage` 只计算有文本层或 OCR 成功的页面；空白页单独计入 `blank_page_count`。一页文本加一页空白的回归结果必须是 `0.5`，不能报告 `1.0`。
+
+### Case P8：损坏、加密或超大 PDF 消耗资源后才失败
+
+**处理**
+
+API 先按配置上限加一字节读取，随后验证 `.pdf`、`%PDF-` magic、文件大小、页数、密码保护和可打开性。OCR 渲染根据页面像素动态降低 DPI，并设置最大渲染像素；无法在安全尺寸下渲染时返回 `pdf_page_dimensions_unsafe`。这些输入不会创建半成品 Profile。
+
+### Case P9：抽取成功，但技术词被 OCR 误识别
+
+**处理边界**
+
+OCR 置信度门禁只能发现整体低质量，不能保证 `FastAPI`、`LangGraph`、版本号和邮箱每个字符都正确。因此系统保留逐页方法、置信度和原始上传，前端仍允许预览与编辑；关键技能是否缺失还会在 Profile Grounding 和后续匹配证据中暴露。未来若积累真实扫描样本，应增加字段级 OCR CER/关键实体 Recall，而不是只看页面平均置信度。
 
 ## 29.3 Chunk 与 RAG Bad Case
 
@@ -3775,6 +3892,25 @@ Repair plan 读取 Artifact，只执行 missing actions。投递和外发幂等�
 
 使用显式分支和 Runtime 输出合同，测试断言返回 Schema。
 
+### Case A13：用户追加要求时直接修改运行中的 Graph State
+
+**现象**
+
+原计划已经完成岗位搜索，用户此时补充“不要投递、城市改上海”。如果直接覆盖原 Prompt 或 State，后续节点可能继续消费旧 `job_id`，也无法解释已经生成的产物属于哪版目标。
+
+**处理**
+
+- 活跃 Run 拒绝热修改，要求先等待、处理 interrupt 或取消；
+- 稳定终态上的追加指令持久化为 `AgentDirective`；
+- 使用紧凑 SourceContext 和权威实体 ID 创建子 Run；
+- 子 Run 重新生成 Task Contract，只执行新增或修正动作；
+- 父子 lineage、幂等键、Event 和 Artifact 保留审计；
+- 高风险审批不跨 Run 继承。
+
+**残余故障窗口**
+
+当前追加接口调用自然语言图是同步执行。若进程在 Directive 落库后、子 Run 建立前崩溃，Directive 会停留在 `executing`，但不会产生外发副作用。后续应由 queued/stale scanner 对该状态做补偿，或将 follow-up 创建本身提交到 Redis 队列；在完成这项增强前，控制台应把它显示为可诊断的未完成分支，而不是自动重放高风险动作。
+
 ## 29.7 队列、恢复与并发 Bad Case
 
 ### Case Q1：Checkpoint 写到第 19 次出现 SQLite locked
@@ -4097,7 +4233,7 @@ CareerAgent 处理了 Demo 常被忽略的内容：
 
 ### 31.4 Chunk 策略怎样选择
 
-> 我没有固定每 500 字切分，而是先保留 PDF 页边界，再按段落累积到约 900 字符，长段落才用 160 字符 overlap 滑窗，同时为结构化项目和经历单独建 Chunk。选择不是凭经验，而是在 96 份含跨页、长附录和课程/已交付混淆的 PDF 样本上比较 Top3 关键词、页面和上下文命中，以及 Chunk 长度和数量。最终策略关键词命中 94.79%，页面命中 82.99%，上下文命中 77.60%。评测也暴露了课程和项目混淆，所以我没有继续只调 Chunk 参数，而是在下游增加 EvidenceClassifier。
+> 我没有固定每 500 字切分，而是先保留 PDF 页边界，再按段落累积到约 900 字符，长段落才用 160 字符 overlap 滑窗；页尾未闭合或下页以列表续写时，额外建立带双页页码的选择性桥接，同时为结构化项目和经历单独建 Chunk。选择不是凭经验，而是在 96 份分页文本、576 条 Query 上比较 Top3 关键词、页面和上下文命中，以及 Chunk 长度和数量。最终策略关键词命中 94.79%，页面命中 82.99%，上下文命中 77.60%。我也踩过一个坑：无条件桥接每个相邻页会制造重复文本并让 Hash 诊断降到 89.76%，所以跨页修复必须有边界证据。课程和项目混淆则不属于边界问题，交给下游 EvidenceClassifier。
 
 ### 31.5 RAG 怎样设计
 
@@ -4140,6 +4276,10 @@ CareerAgent 处理了 Demo 常被忽略的内容：
 3. **业务提交后 Checkpoint 前崩溃。** 说明框架 Checkpoint 不等于业务 exactly-once，必须结合幂等键。
 
 这三类分别体现 RAG 评测、Agent 完成语义和生产可靠性。
+
+### 31.14 用户怎样追加 Prompt
+
+> 我没有直接修改已运行 LangGraph 的 Prompt。已结束的 Run 是不可变审计记录，用户追加要求先落到 AgentDirective，再基于父 Run 的 Profile、Job、ResumeVersion 等 ID 和一份紧凑上下文创建子 Run。子 Run 重新解析新增意图、建立自己的 Task Contract 和 Completion Gate，父子之间记录 lineage。这样“城市改上海，只重搜岗位”不会把旧结果抹掉，也不会重复没要求的步骤。运行中的 Run 禁止热修改，因为旧合同可能已经执行了一半；投递和邮件审批也不会跨分支继承。浏览器重复提交使用 client_request_id 幂等。
 
 ## 32. 运行、调试与复现
 
@@ -4278,7 +4418,8 @@ python -m scripts.run_real_job_source_eval
 | Checkpointer 生命周期 | `app/services/langgraph_checkpointer.py` |
 | Task Contract/Completion Gate | `app/services/agent_reliability.py` |
 | Agent Tool Runtime | `app/services/agent_runtime.py` |
-| PDF/Profile Parser | `app/services/resume_parser.py` |
+| PDF 二进制抽取/OCR | `app/services/pdf_extraction.py` |
+| Profile/LLM Parser | `app/services/resume_parser.py` |
 | Chunk | `app/services/text_splitter.py` |
 | Embedding | `app/services/embedding_service.py` |
 | Vector/RRF | `app/services/vector_index.py` |
@@ -4293,6 +4434,7 @@ python -m scripts.run_real_job_source_eval
 | Application Guardrail | `app/services/application_guardrails.py` |
 | Approval | `app/services/approval_service.py` |
 | High-risk Tool | `app/services/high_risk_action_tools.py` |
+| 追加指令分支 | `app/services/agent_directives.py` |
 | 面试 Agentic RAG | `app/services/interview_agentic_rag.py` |
 | Context Compressor | `app/services/context_compressor.py` |
 | Redis Worker | `app/services/task_runner.py` |

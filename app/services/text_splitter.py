@@ -19,9 +19,17 @@ class PDFPageText:
 
 
 class ResumeTextSplitter:
-    def __init__(self, chunk_size: int = 900, chunk_overlap: int = 160) -> None:
+    def __init__(
+        self,
+        chunk_size: int = 900,
+        chunk_overlap: int = 160,
+        cross_page_tail_chars: int = 260,
+        cross_page_head_chars: int = 520,
+    ) -> None:
         self.chunk_size = max(240, chunk_size)
         self.chunk_overlap = max(0, min(chunk_overlap, self.chunk_size // 2))
+        self.cross_page_tail_chars = max(80, cross_page_tail_chars)
+        self.cross_page_head_chars = max(120, cross_page_head_chars)
 
     def split_raw_text(
         self,
@@ -90,7 +98,52 @@ class ResumeTextSplitter:
                 metadata={"page_no": page.page_no, "source_format": "pdf"},
             )
             chunks.extend(page_chunks)
+        for previous, current in zip(pages, pages[1:], strict=False):
+            previous_text = previous.text.strip()
+            current_text = current.text.strip()
+            if not previous_text or not current_text or not self._needs_cross_page_bridge(previous_text, current_text):
+                continue
+            bridge = (
+                previous_text[-self.cross_page_tail_chars :]
+                + "\n\n[跨页续接]\n\n"
+                + current_text[: self.cross_page_head_chars]
+            ).strip()
+            chunks.append(
+                TextChunk(
+                    uid=f"{prefix}_cross_page_{previous.page_no}_{current.page_no}",
+                    text=bridge,
+                    chunk_type="raw_text",
+                    source="profile.pdf_cross_page_context",
+                    metadata={
+                        "page_no": current.page_no,
+                        "page_start": previous.page_no,
+                        "page_end": current.page_no,
+                        "source_format": "pdf",
+                        "strategy": "cross_page_semantic_bridge",
+                    },
+                )
+            )
         return chunks
+
+    @staticmethod
+    def _needs_cross_page_bridge(previous_text: str, current_text: str) -> bool:
+        previous_lines = [line.strip() for line in previous_text.splitlines() if line.strip()]
+        current_lines = [line.strip() for line in current_text.splitlines() if line.strip()]
+        if not previous_lines or not current_lines:
+            return False
+
+        previous_tail = previous_lines[-1]
+        current_head = current_lines[0]
+        bullet_prefixes = ("-", "*", "•", "·", "▪", "◦", "●", "○")
+        if current_head.startswith(bullet_prefixes):
+            return True
+
+        terminal_punctuation = ("。", "！", "？", ".", "!", "?", ";", "；")
+        if previous_tail.endswith(terminal_punctuation):
+            return False
+
+        # An unclosed tail is either a stranded heading or a sentence split by pagination.
+        return True
 
     def split_jd_text(self, jd_text: str, structured_jd: dict, *, prefix: str = "jd") -> list[TextChunk]:
         chunks: list[TextChunk] = []
