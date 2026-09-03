@@ -15,6 +15,7 @@ from app.models.entities import Profile
 from app.models.schemas import GuidedProfileRequest, ProfileStructured
 from app.services.prompt_injection_guard import PromptInjectionGuard
 from app.services.evidence_grounding import EvidenceGroundingService
+from app.services.document_schema_batcher import DocumentSchemaBatcher
 from app.services.pdf_extraction import PDFExtractionService
 from app.services.text_splitter import PDFPageText, ResumeTextSplitter
 from app.services.vector_index import SQLiteVectorIndex
@@ -84,6 +85,7 @@ class ResumeParserService:
         self.injection_guard = PromptInjectionGuard()
         self.grounding = EvidenceGroundingService()
         self.pdf_extraction = PDFExtractionService(settings=self.settings)
+        self.document_batcher = DocumentSchemaBatcher()
         self.settings.upload_path.mkdir(parents=True, exist_ok=True)
 
     async def create_profile_from_pdf(self, db: Session, *, filename: str, file_bytes: bytes) -> Profile:
@@ -180,11 +182,48 @@ Resume:
 {safe_text or raw_text}
 """
         try:
-            parsed = await self._generate_resume_json_with_retry(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                max_tokens=3600,
-                db=db,
+            document_text = safe_text or raw_text
+            chunks = (
+                self.document_batcher.split(
+                    document_text,
+                    max_chars=self.settings.parser_document_batch_chars,
+                )
+                if self.settings.context_management_v3_enabled
+                else [{"chunk_id": "document-1", "text": document_text}]
+            )
+            parsed_rows = []
+            for index, chunk in enumerate(chunks, start=1):
+                chunk_prompt = user_prompt.replace(
+                    f"Resume:\n{document_text}",
+                    f"Resume chunk {chunk['chunk_id']}:\n{chunk['text']}",
+                )
+                parsed_rows.append(
+                    (
+                        chunk,
+                        await self._generate_resume_json_with_retry(
+                            system_prompt=system_prompt,
+                            user_prompt=chunk_prompt,
+                            max_tokens=3600,
+                            db=db,
+                            trace_suffix=f"batch_{index}" if len(chunks) > 1 else None,
+                        ),
+                    )
+                )
+            parsed, parser_provenance = self.document_batcher.merge(
+                parsed_rows,
+                list_fields={
+                    "enabled_sections",
+                    "target_roles",
+                    "education",
+                    "skills",
+                    "projects",
+                    "work_experience",
+                    "campus_experience",
+                    "certifications",
+                    "awards",
+                    "languages",
+                    "portfolio_links",
+                },
             )
             parsed["raw_text"] = raw_text
             parsed["prompt_injection"] = injection.model_dump()
@@ -201,6 +240,7 @@ Resume:
             quality_gate["rejected_optional_fields"] = rejected_fields
             quality_gate["rejected_optional_field_count"] = len(rejected_fields)
             normalized["quality_gate"] = quality_gate
+            normalized["parser_provenance"] = parser_provenance
             if not quality_gate["passed"]:
                 raise LLMResponseError(
                     "Resume parser quality gate rejected unsupported structured fields: "
@@ -221,6 +261,7 @@ Resume:
         user_prompt: str,
         max_tokens: int,
         db=None,
+        trace_suffix: str | None = None,
     ) -> dict:
         last_exc: Exception | None = None
         max_attempts = 3
@@ -230,6 +271,8 @@ Resume:
                 if attempt == 0
                 else f"resume_parser.parse_structured_resume.retry_{attempt}"
             )
+            if trace_suffix:
+                trace_name = f"{trace_name}.{trace_suffix}"
             try:
                 text = await self.llm.generate_text(
                     system_prompt=system_prompt,

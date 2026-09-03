@@ -13,10 +13,11 @@ from sqlalchemy.orm import Session
 
 from app.agents.tools import AgentPlanner, bind_agent_tool
 from app.core.config import get_settings
+from app.core.llm import llm_trace_context
 from app.core.redis_client import RedisUnavailableError, get_redis_client, redis_key
 from app.models.entities import AgentArtifact, AgentRun, AgentStep
 from app.models.entities import Application, Job, MatchResult, Profile, ResumeVersion
-from app.models.schemas import AgentRunRequest
+from app.models.schemas import AgentRunRequest, TaskState
 from app.services.approval_service import ApprovalService
 from app.services.agent_reliability import (
     AgentTaskContractService,
@@ -24,12 +25,14 @@ from app.services.agent_reliability import (
     format_completion_failure,
 )
 from app.services.application_service import ApplicationService
+from app.services.context_recovery import ContextRecoveryService
 from app.services.execution_provenance import ExecutionProvenanceService
 from app.services.interview_prep import InterviewPrepService
 from app.services.job_search import JobSearchService
 from app.services.langgraph_checkpointer import LangGraphCheckpointerLifecycle
 from app.services.matcher import MatcherService
 from app.services.memory_feedback import CareerMemoryService
+from app.services.guardrails import ResumeGuardrailService
 from app.services.resume_tailor import ResumeTailorService
 from app.services.run_control import RunControlService
 from app.services.trace_service import TraceService
@@ -50,6 +53,9 @@ class CareerAgentGraphState(TypedDict, total=False):
     task_type: TaskType
     execution_plan: dict[str, Any]
     task_contract: dict[str, Any]
+    context_refs: dict[str, Any]
+    task_state: dict[str, Any]
+    recovered_context: dict[str, Any]
     memory_context: dict[str, Any]
     goal_ledger: list[dict[str, Any]]
     completion_verification: dict[str, Any]
@@ -68,6 +74,8 @@ class CareerAgentGraphState(TypedDict, total=False):
     selected_job_id: int
     match_result_id: int
     overall_score: float
+    evidence_chunks: list[dict[str, Any]]
+    retrieval_quality: dict[str, Any]
     verification: dict[str, Any]
     fit_gate: dict[str, Any]
     human_confirmation: dict[str, Any]
@@ -93,6 +101,7 @@ class LangGraphAgentOrchestrator:
         interview_prep: InterviewPrepService | None = None,
         planner: AgentPlanner | None = None,
         approvals: ApprovalService | None = None,
+        guardrails: ResumeGuardrailService | None = None,
     ) -> None:
         self.trace = trace or TraceService()
         self.job_search = job_search or JobSearchService()
@@ -102,7 +111,9 @@ class LangGraphAgentOrchestrator:
         self.interview_prep = interview_prep or InterviewPrepService()
         self.planner = planner or AgentPlanner()
         self.approvals = approvals or ApprovalService()
+        self.guardrails = guardrails or ResumeGuardrailService()
         self.task_contracts = AgentTaskContractService()
+        self.context_recovery = ContextRecoveryService()
         self.settings = get_settings()
         self._runtime_dbs: dict[int, Session] = {}
         self._runtime_plans: dict[int, dict[str, Any]] = {}
@@ -208,6 +219,26 @@ class LangGraphAgentOrchestrator:
         try:
             graph = await self._ensure_graph()
             config = {"configurable": {"thread_id": graph_thread_id}}
+            initial_action = {
+                "find_jobs_for_profile": "search_jobs",
+                "tailor_resume_for_job": "tailor_resume",
+                "quick_apply": "quick_apply",
+                "prepare_interview_for_job": "interview_prep",
+                "full_career_flow": "full_flow",
+            }[request.task_type]
+            initial_task_state = TaskState(
+                goal=request.task_type,
+                target_role=request.query or "",
+                location=request.location or "",
+                selected_actions=[initial_action],
+                pending_actions=[initial_action],
+                provenance={
+                    "goal": "initial_request",
+                    "target_role": "initial_request",
+                    "location": "initial_request",
+                    f"selected_actions.{initial_action}": "initial_request",
+                },
+            )
             graph_input: dict[str, Any] | Command | None = {
                 "request": request.model_dump(),
                 "run_id": run.id,
@@ -220,12 +251,42 @@ class LangGraphAgentOrchestrator:
                 "limit": request.limit,
                 "application_confirmed": request.application_confirmed,
                 "graph_thread_id": graph_thread_id,
+                "task_state": initial_task_state.model_dump(),
+                "context_refs": {
+                    "profile_id": request.profile_id,
+                    "job_id": request.job_id,
+                    "resume_version_id": request.resume_version_id,
+                    "evidence_citations": [],
+                    "artifact_ids": [],
+                    "approval_id": None,
+                    "tool_receipt_ids": [],
+                    "conversation_summary_artifact_id": None,
+                    "task_state_version": initial_task_state.version,
+                    "data_versions": {},
+                },
             }
             if resume_from_checkpoint:
                 snapshot = await graph.aget_state(config)
                 if snapshot.values:
+                    snapshot_state = dict(snapshot.values or {})
+                    next_node = str((snapshot.next or ("completion_gate",))[0])
+                    recovered = self.context_recovery.rebuild_for_next_node(
+                        db,
+                        run=run,
+                        state=snapshot_state,
+                        next_node=next_node,
+                    )
+                    if hasattr(graph, "aupdate_state"):
+                        await graph.aupdate_state(
+                            config,
+                            {
+                                "context_refs": recovered.context_refs,
+                                "recovered_context": recovered.packet,
+                                "task_state": recovered.task_state,
+                            },
+                        )
                     graph_input = None
-                    self._runtime_plans[run.id] = (snapshot.values or {}).get("execution_plan") or {}
+                    self._runtime_plans[run.id] = snapshot_state.get("execution_plan") or {}
                     self.trace.add_event(
                         db,
                         run_id=run.id,
@@ -234,6 +295,9 @@ class LangGraphAgentOrchestrator:
                             "checkpoint_id": (snapshot.config or {}).get("configurable", {}).get("checkpoint_id"),
                             "next_nodes": list(snapshot.next or ()),
                             "has_interrupt": bool(getattr(snapshot, "interrupts", ()) or ()),
+                            "recovered_next_node": next_node,
+                            "context_refs": recovered.context_refs,
+                            "executed_side_effect_receipts": recovered.executed_side_effect_receipts,
                         },
                     )
                 else:
@@ -243,13 +307,21 @@ class LangGraphAgentOrchestrator:
                         event_type="checkpoint_recovery_fallback_to_start",
                         payload={"reason": "checkpoint_not_found", "graph_thread_id": graph_thread_id},
                     )
-            final_state = await self._invoke_graph(
-                graph,
-                graph_input,
-                db=db,
+            with llm_trace_context(
                 run_id=run.id,
-                config=config,
-            )
+                task_type=request.task_type,
+                tenant_id=run.tenant_id,
+                user_id=run.user_id,
+                profile_id=request.profile_id,
+                graph_thread_id=graph_thread_id,
+            ):
+                final_state = await self._invoke_graph(
+                    graph,
+                    graph_input,
+                    db=db,
+                    run_id=run.id,
+                    config=config,
+                )
             self._raise_if_cancelled(db, run.id)
             interrupts = self._interrupt_payloads(final_state)
             if interrupts:
@@ -369,13 +441,21 @@ class LangGraphAgentOrchestrator:
         )
         try:
             graph = await self._ensure_graph()
-            final_state = await self._invoke_graph(
-                graph,
-                Command(resume=resume_payload),
-                db=db,
+            with llm_trace_context(
                 run_id=run.id,
-                config={"configurable": {"thread_id": graph_thread_id}},
-            )
+                task_type=run.task_type,
+                tenant_id=run.tenant_id,
+                user_id=run.user_id,
+                profile_id=run.profile_id,
+                graph_thread_id=graph_thread_id,
+            ):
+                final_state = await self._invoke_graph(
+                    graph,
+                    Command(resume=resume_payload),
+                    db=db,
+                    run_id=run.id,
+                    config={"configurable": {"thread_id": graph_thread_id}},
+                )
             self._raise_if_cancelled(db, run.id)
             interrupts = self._interrupt_payloads(final_state)
             if interrupts:
@@ -734,6 +814,7 @@ class LangGraphAgentOrchestrator:
             "job_id": values.get("job_id"),
             "selected_job_id": values.get("selected_job_id"),
             "overall_score": values.get("overall_score"),
+            "task_state": values.get("task_state") or {},
             **artifact_fields,
         }
 
@@ -912,7 +993,9 @@ class LangGraphAgentOrchestrator:
         graph.add_node("select_job", self._node_select_job)
         graph.add_node("load_job", self._node_load_job)
         graph.add_node("match_job", self._node_match_job)
+        graph.add_node("retrieve_resume_evidence", self._node_retrieve_resume_evidence)
         graph.add_node("tailor_resume", self._node_tailor_resume)
+        graph.add_node("verify_resume", self._node_verify_resume)
         graph.add_node("fit_gate", self._node_fit_gate)
         graph.add_node("ensure_resume_version", self._node_ensure_resume_version)
         graph.add_node("create_application_packet", self._node_create_application_packet)
@@ -959,13 +1042,15 @@ class LangGraphAgentOrchestrator:
             "match_job",
             self._route_after_match_job,
             {
-                "tailor_resume": "tailor_resume",
+                "retrieve_resume_evidence": "retrieve_resume_evidence",
                 "fit_gate": "fit_gate",
                 "generate_interview_prep": "generate_interview_prep",
             },
         )
+        graph.add_edge("retrieve_resume_evidence", "tailor_resume")
+        graph.add_edge("tailor_resume", "verify_resume")
         graph.add_conditional_edges(
-            "tailor_resume",
+            "verify_resume",
             self._route_after_tailor,
             {
                 "finalize_tailor": "finalize_tailor",
@@ -1273,7 +1358,14 @@ class LangGraphAgentOrchestrator:
             input_json={"profile_id": profile.id, "job_id": job.id},
             tool=bind_agent_tool(
                 "resume_tailor.tailor_resume",
-                lambda: self._tailor_resume_with_idempotency(db, profile, job, key),
+                lambda: self._tailor_resume_with_idempotency(
+                    db,
+                    profile,
+                    job,
+                    key,
+                    evidence=state.get("evidence_chunks"),
+                    retrieval_quality=state.get("retrieval_quality"),
+                ),
             ),
         )
         self._assign_idempotency_key(db, version, key)
@@ -1284,6 +1376,72 @@ class LangGraphAgentOrchestrator:
             "verification": version.verification_json,
             "tailor": payload,
         }
+
+    async def _node_retrieve_resume_evidence(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        db = self._db_from_state(state)
+        profile = await self._load_profile(db, state.get("profile_id"))
+        job = await self._load_job(db, state.get("job_id"))
+        result = await self.trace.step(
+            db,
+            run_id=state["run_id"],
+            step_name="retrieve_resume_evidence",
+            input_json={"profile_id": profile.id, "query": job.title, "top_k": 10},
+            tool=bind_agent_tool(
+                "vector_index.retrieve_resume_evidence",
+                lambda: self._async_value(self._retrieve_resume_evidence(db, profile, job)),
+            ),
+        )
+        self.trace.add_artifact(
+            db,
+            run_id=state["run_id"],
+            artifact_type="resume_evidence_retrieval",
+            payload=result,
+        )
+        return result
+
+    async def _node_verify_resume(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        db = self._db_from_state(state)
+        profile = await self._load_profile(db, state.get("profile_id"))
+        job = await self._load_job(db, state.get("job_id"))
+        version = db.query(ResumeVersion).filter(ResumeVersion.id == state.get("resume_version_id")).first()
+        if version is None:
+            raise ValueError(f"ResumeVersion {state.get('resume_version_id')} not found.")
+        verification = await self.trace.step(
+            db,
+            run_id=state["run_id"],
+            step_name="verify_resume",
+            input_json={
+                "profile_id": profile.id,
+                "job_id": job.id,
+                "resume_version_id": version.id,
+            },
+            tool=bind_agent_tool(
+                "guardrail.verify_resume",
+                lambda: self._async_value(
+                    self.guardrails.verify(
+                        profile=profile,
+                        job=job,
+                        resume_markdown=version.tailored_resume_markdown,
+                        evidence=state.get("evidence_chunks") or version.source_evidence_json or [],
+                    )
+                ),
+            ),
+        )
+        if not verification.get("passed"):
+            raise ValueError(
+                "Persisted tailored resume failed the independent verification node: "
+                f"{verification.get('issues') or []}"
+            )
+        version.verification_json = verification
+        db.add(version)
+        db.commit()
+        self.trace.add_artifact(
+            db,
+            run_id=state["run_id"],
+            artifact_type="resume_verification",
+            payload=verification,
+        )
+        return {"verification": verification}
 
     async def _node_fit_gate(self, state: CareerAgentGraphState) -> dict[str, Any]:
         db = self._db_from_state(state)
@@ -1546,7 +1704,7 @@ class LangGraphAgentOrchestrator:
     def _route_after_match_job(self, state: CareerAgentGraphState) -> str:
         task_type = state["task_type"]
         if task_type in {"tailor_resume_for_job", "full_career_flow"}:
-            return "tailor_resume"
+            return "retrieve_resume_evidence"
         if task_type == "quick_apply":
             return "fit_gate"
         if task_type == "prepare_interview_for_job":
@@ -1811,12 +1969,24 @@ class LangGraphAgentOrchestrator:
         profile: Profile,
         job: Job,
         idempotency_key: str,
+        evidence: list[dict[str, Any]] | None = None,
+        retrieval_quality: dict[str, Any] | None = None,
     ) -> ResumeVersion:
         kwargs = self._supported_kwargs(
             self.tailor.tailor_resume,
             idempotency_key=idempotency_key,
+            evidence=evidence,
+            retrieval_quality=retrieval_quality,
         )
         return await self.tailor.tailor_resume(db, profile, job, **kwargs)
+
+    def _retrieve_resume_evidence(self, db: Session, profile: Profile, job: Job) -> dict[str, Any]:
+        evidence, quality = self.matcher.retrieve_evidence_with_quality(db, profile.id, job, top_k=10)
+        if not quality.get("passed"):
+            from app.services.retrieval_quality import RetrievalQualityError, retrieval_failure_message
+
+            raise RetrievalQualityError(retrieval_failure_message(quality), report=quality)
+        return {"evidence_chunks": evidence, "retrieval_quality": quality}
 
     @staticmethod
     def _supported_kwargs(callable_obj, **kwargs: Any) -> dict[str, Any]:

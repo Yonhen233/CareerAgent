@@ -1,6 +1,20 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from app.main import app
+
+
+def test_env_example_has_no_duplicate_configuration_keys():
+    env_path = Path(__file__).resolve().parents[1] / ".env.example"
+    keys = [
+        line.split("=", 1)[0].strip()
+        for line in env_path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.lstrip().startswith("#") and "=" in line
+    ]
+    duplicates = sorted({key for key in keys if keys.count(key) > 1})
+
+    assert duplicates == []
 
 
 def test_health_endpoint():
@@ -34,7 +48,7 @@ def test_agent_skills_and_subagents_endpoints_list_context_capabilities():
     assert "resume_tailoring" in skill_names
     assert "progressive_disclosure" not in skill_names
     resume_tailoring = next(item for item in skills_response.json() if item["name"] == "resume_tailoring")
-    assert resume_tailoring["version"] == "1.0.0"
+    assert resume_tailoring["version"] == "1.1.0"
     assert resume_tailoring["source_path"].endswith("resume_tailoring/SKILL.md")
     assert resume_tailoring["instructions_loaded"] is False
     assert "instructions" not in resume_tailoring

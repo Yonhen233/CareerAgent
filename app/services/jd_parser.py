@@ -9,6 +9,7 @@ from app.core.llm import format_exception
 from app.models.schemas import JDStructured
 from app.services.prompt_injection_guard import PromptInjectionGuard
 from app.services.evidence_grounding import EvidenceGroundingService
+from app.services.document_schema_batcher import DocumentSchemaBatcher
 from app.services.resume_parser import KNOWN_SKILLS
 
 
@@ -94,6 +95,7 @@ class JDParserService:
         self.llm = LLMClient()
         self.injection_guard = PromptInjectionGuard()
         self.grounding = EvidenceGroundingService()
+        self.document_batcher = DocumentSchemaBatcher()
 
     async def parse_jd(
         self,
@@ -113,7 +115,13 @@ class JDParserService:
             heuristic["quality_gate"] = self.grounding.evaluate_jd(
                 raw_text,
                 heuristic,
-                allowed_values=[title, company, location],
+                allowed_values=self._grounding_allowed_values(
+                    raw_text,
+                    heuristic,
+                    title=title,
+                    company=company,
+                    location=location,
+                ),
             )
             return heuristic
 
@@ -142,11 +150,42 @@ JD:
 {safe_text or raw_text}
 """
         try:
-            parsed = await self._generate_jd_json_with_retry(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                max_tokens=1200,
-                db=db,
+            document_text = safe_text or raw_text
+            chunks = (
+                self.document_batcher.split(
+                    document_text,
+                    max_chars=self.settings.parser_document_batch_chars,
+                )
+                if self.settings.context_management_v3_enabled
+                else [{"chunk_id": "document-1", "text": document_text}]
+            )
+            parsed_rows = []
+            for index, chunk in enumerate(chunks, start=1):
+                chunk_prompt = user_prompt.replace(
+                    f"JD:\n{document_text}",
+                    f"JD chunk {chunk['chunk_id']}:\n{chunk['text']}",
+                )
+                parsed_rows.append(
+                    (
+                        chunk,
+                        await self._generate_jd_json_with_retry(
+                            system_prompt=system_prompt,
+                            user_prompt=chunk_prompt,
+                            max_tokens=1200,
+                            db=db,
+                            trace_suffix=f"batch_{index}" if len(chunks) > 1 else None,
+                        ),
+                    )
+                )
+            parsed, parser_provenance = self.document_batcher.merge(
+                parsed_rows,
+                list_fields={
+                    "required_skills",
+                    "preferred_skills",
+                    "responsibilities",
+                    "qualifications",
+                    "keywords",
+                },
             )
             merged = self._merge_llm_parse(heuristic, parsed, raw_text=safe_text or raw_text)
             merged["prompt_injection"] = injection.model_dump()
@@ -159,10 +198,17 @@ JD:
             quality_gate = self.grounding.evaluate_jd(
                 raw_text,
                 normalized,
-                allowed_values=[title, company, location],
+                allowed_values=self._grounding_allowed_values(
+                    raw_text,
+                    normalized,
+                    title=title,
+                    company=company,
+                    location=location,
+                ),
             )
             quality_gate["rejected_optional_keywords"] = rejected_optional_keywords
             normalized["quality_gate"] = quality_gate
+            normalized["parser_provenance"] = parser_provenance
             if not quality_gate["passed"]:
                 raise LLMResponseError(
                     "JD parser quality gate rejected unsupported structured fields: "
@@ -177,7 +223,13 @@ JD:
             heuristic["quality_gate"] = self.grounding.evaluate_jd(
                 raw_text,
                 heuristic,
-                allowed_values=[title, company, location],
+                allowed_values=self._grounding_allowed_values(
+                    raw_text,
+                    heuristic,
+                    title=title,
+                    company=company,
+                    location=location,
+                ),
             )
             return heuristic
 
@@ -201,9 +253,32 @@ JD:
         parsed["quality_gate"] = self.grounding.evaluate_jd(
             raw_text,
             parsed,
-            allowed_values=[title, company, location],
+            allowed_values=self._grounding_allowed_values(
+                raw_text,
+                parsed,
+                title=title,
+                company=company,
+                location=location,
+            ),
         )
         return JDStructured.model_validate(parsed).model_dump()
+
+    def _grounding_allowed_values(
+        self,
+        raw_text: str,
+        parsed: dict,
+        *,
+        title: str | None,
+        company: str | None,
+        location: str | None,
+    ) -> list[str | None]:
+        values: list[str | None] = [title, company, location]
+        for field in ("required_skills", "preferred_skills", "keywords"):
+            for value in parsed.get(field) or []:
+                skill = str(value or "").strip()
+                if skill and self._skill_mentioned(raw_text, skill):
+                    values.append(skill)
+        return values
 
     async def _generate_jd_json_with_retry(
         self,
@@ -212,11 +287,14 @@ JD:
         user_prompt: str,
         max_tokens: int,
         db=None,
+        trace_suffix: str | None = None,
     ) -> dict:
         last_exc: Exception | None = None
         max_attempts = 3
         for attempt in range(max_attempts):
             trace_name = "jd_parser.parse_jd" if attempt == 0 else f"jd_parser.parse_jd.retry_{attempt}"
+            if trace_suffix:
+                trace_name = f"{trace_name}.{trace_suffix}"
             try:
                 text = await self.llm.generate_text(
                     system_prompt=system_prompt,

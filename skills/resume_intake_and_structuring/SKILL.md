@@ -1,6 +1,6 @@
 ---
 name: resume_intake_and_structuring
-version: 1.0.0
+version: 1.1.0
 status: active
 owner_role: profile_analyst
 purpose: 把 PDF、自然语言或已有档案转换为可检索、可审计的候选人 Profile。
@@ -9,8 +9,7 @@ required_inputs:
   - resume_file_or_text_or_profile_id
 allowed_tools:
   - profile_repository.load_profile
-  - resume_parser.parse_structured_resume
-  - vector_index.upsert_profile_chunks
+  - resume_parser.create_profile_from_pdf
 context_policy: 原始简历只在建档阶段完整读取；下游仅接收结构化 Profile、摘要和按需检索证据。
 output_contract:
   profile_id: int

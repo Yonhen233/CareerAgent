@@ -2,6 +2,8 @@
 
 最新的可靠性与检索校准结果见 [SLO 与误差预算](docs/SLO.md) 和 [中文、英文与跨语言 RAG 校准](docs/RAG_MULTILINGUAL_CALIBRATION.md)。
 
+上下文与 Token 治理见 [Context Runtime V2](docs/CONTEXT_RUNTIME_V2.md)、[Token Optimization V2](docs/TOKEN_OPTIMIZATION_V2.md)、[联合上线报告](docs/COMBINED_V2_PRODUCTION_RELEASE.md)、[上下文管理 V3 完整流程评测](docs/CONTEXT_MANAGEMENT_V3_PRODUCTION.md) 和 [对话任务状态 V4](docs/CONVERSATION_TASK_STATE_V4.md)。
+
 CareerAgent 是一个面向 Agent/LLM 应用开发实习岗位的求职助手 Agent。它不是单次 Prompt 演示，而是一个工程化工作流：从自然语言需求、PDF 简历或问答式信息采集开始，解析候选人画像，搜索真实招聘站岗位，存储并检索职位 JD，做岗位匹配评分，基于 RAG 证据定制简历，记录 LLM 调用与 Agent Trace，生成可人工确认的投递包，并根据 JD、简历项目、RAG 证据、缺口技能和面经参考链接整理面试准备包。
 
 默认演示场景是中文求职场景下的“Agent 开发实习生”，英文岗位只作为少量辅助测试；数据模型和服务层可以扩展到其他技术岗位。
@@ -91,7 +93,7 @@ PDF/结构化简历 + 中文目标岗位
   - `find_jobs_for_profile`：搜索岗位、解析 JD、入库、匹配、排序。
   - `tailor_resume_for_job`：匹配岗位、检索简历证据、定制简历、校验幻觉风险。
   - `quick_apply`：生成投递包、求职信、外联文案、投递清单和状态记录，并校验投递包是否编造事实或越过人工确认边界。
-  - `prepare_interview_for_job`：使用成本受控的 Agentic RAG v3 子图生成面试包。默认 10 题，正常路径 3 次 LLM 调用；本地 multi-query、按题目视角分配来源配额、exact/BM25/向量/RRF/Top20 reranker 召回证据，LLM 各用一个 10 题批次生成和验证 claims，服务端组合已验证回答。最多 1 轮串行 repair 与失败题增量复验，总调用不超过 5 次，并设置 70,000 Prompt 字符和 15,000 completion token 预留硬预算；release gate 未通过不落库。
+  - `prepare_interview_for_job`：使用成本受控的 Agentic RAG v3 子图生成面试包。默认 10 题，正常路径由问题生成、答案共享上下文 Batch 和 Verifier Batch 组成；本地 multi-query、按题目视角分配来源配额、exact/BM25/向量/RRF/Top20 reranker 召回证据，服务端只组合已验证 claims。JSON repair 最多 1 次、答案定向 repair 最多 2 轮，整个面试链业务调用不超过 8 次，并设置 100,000 Prompt 字符和 15,000 completion token 预留硬预算；release gate 未通过不落库。
   - `quick_apply` 前置 `fit_gate`：低匹配岗位直接阻断，并把缺口写入 Agent step trace。
   - 每次 run 先生成 Plan-Execute 执行计划，并写入 Trace artifact。
   - `execution_plan` 和 run 输入输出会标记 `orchestration_framework=langgraph`，并保留 `graph_thread_id`；当前使用 LangGraph SQLite checkpointer 持久化到 `data/runtime/langgraph_checkpoints.sqlite`。
@@ -115,9 +117,16 @@ PDF/结构化简历 + 中文目标岗位
   - 显式注册 Tool、Skill 和 SubAgent，计划产物会展示当前任务使用的能力边界和权限校验结果。
   - 简历定制带 1 轮 ReAct repair loop：Guardrail 高风险时读取 issues 和压缩上下文，修复后再次验证，并记录 `react_repair` 元数据。
 - LLM 上下文治理：
-  - 渐进式披露是 LLM 调用前的 runtime policy，不单独包装成 subagent。
-  - `ContextCompressor` 按 Profile 摘要、JD 摘要、Top evidence 和 Prompt Packet 总预算生成上下文。
-  - 压缩结果记录字符预算、压缩比例、保留证据数和收缩事件，便于排查长上下文和幻觉问题。
+  - 渐进式披露是 LLM 调用前的 Runtime Policy，不单独包装成 SubAgent。
+  - Context Runtime V2 为 Planner、Parser、Matcher、Tailor、Application、Interview、Verifier、Guardrail 和 Completion Gate 建立 11 份独立节点合同。
+  - Control、Working、Evidence、Memory 和 Artifact Context 分开治理；完整 PDF、长 Tool Output 和历史产物默认只传 Artifact 引用。
+  - 使用模型 Tokenizer 或显式标记的 Token 估算器分配节点预算；关键数字、否定事实、Citation、审批和 Tool Receipt 进入 Critical Fact Ledger，压缩后完整性不达标即拒绝。
+  - 支持 Level 0 去重、Level 1 结构化投影、Level 2 Evidence Shard、Level 3 历史 Compaction 和 Level 4 Checkpoint/Handoff Context Reset。
+  - JIT Loader 按 tenant/user/profile、当前操作白名单和 Token/调用预算展开 Profile、JD、Evidence、Artifact、Memory 或历史 Run 片段。
+  - 当前默认 `CONTEXT_RUNTIME_V2_ENABLED=true`、`CONTEXT_RUNTIME_V2_SHADOW_MODE=false`；Context V2 与 Token V2 的独立消融和联合真实 canary 均已通过，实际生效版本写入每次 Run 的 Execution Provenance。
+  - `CONTEXT_MANAGEMENT_V3_ENABLED=true`：正式流程按 Control、Task State、Profile/JD、Evidence、Conversation、Artifact/Receipt 六类治理；只有旧 Conversation 允许 LLM 压缩，Checkpoint 通过 `context_refs` 重建下一节点最小上下文。
+  - Planner 在同一次调用中返回 plan 与 `state_updates`，Pydantic 校验后由确定性 `TaskStateReducer` 原子合并；正式任务状态进入 LangGraph Checkpoint，Conversation Summary 只保留非权威讨论背景。
+  - V3 的 5 对真实完整流程质量门禁全部通过，但平均 Input/Total Token 增加 4.07%/4.38%；当前价值是隔离、恢复和事实完整性，不把早期窄切片收益外推为全流程节省。
 - LLM 调试：
   - 记录调用名、模型、base_url、prompt 预览、response 预览、耗时、错误信息。
   - JD parser 对空返回/超时做带 trace 的业务层 retry，最多记录到 `jd_parser.parse_jd.retry_2`；截断或非法 JSON 会触发 `jd_parser.parse_jd.repair_json` 重新生成完整 strict JSON。
@@ -154,6 +163,8 @@ PDF/结构化简历 + 中文目标岗位
 - V8：版本化 `SKILL.md`、统一 Tool Policy、三条黄金演示和面向用户的四层业务摘要。
 - V9：腾讯/百度/美团/字节/阿里五源中文岗位检索、动态批次/签名适配和真实多 query release suite。
 - V10：统一 Agent Tool Runtime、ErrorEnvelope 定向恢复、持久化熔断、typed memory、用户反馈和在线质量复核。
+- V11：Context/Token V2 正式默认、六类定向上下文、对话语义压缩、Checkpoint 引用恢复、长文档 Schema Batch 和面试共享上下文 Batch。
+- V12：Planner 单调用状态增量、强类型 TaskState、确定性纠错/禁止操作 Reducer、摘要冲突校验和历史 Checkpoint 状态恢复。
 
 ## 当前文件架构
 

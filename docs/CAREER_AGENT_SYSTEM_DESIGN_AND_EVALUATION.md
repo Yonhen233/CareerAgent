@@ -1044,7 +1044,10 @@ Tool 是 Agent 可以调用的外部能力。它可能是纯读取，也可能�
 
 LangGraph 本身不要求所有业务函数先注册成 Tool。官方常见的动态 Tool Calling 模式是用 LangChain `@tool` 定义函数、把 Tool Schema 交给模型，再由 `ToolNode` 执行模型返回的 `tool_calls`。CareerAgent 主流程没有采用“模型从全部工具中自由选择并无限循环”的方式，而是让有界 Graph Node 根据已验证计划调用固定能力；自定义 Tool Registry 和 Runtime 再为这些能力补充业务审批、幂等和审计。两种模式都是 LangGraph 之上的合法实现，但控制权不同：前者主要由模型选工具，当前主图主要由 State、Node 和 Edge 选工具。
 
-当前 19 个 Tool：
+当前 Registry 中有 19 个 Tool Contract，但“注册了 19 个合同”不等于“一次流程会让模型从 19 个工具中自由选择”。按照真实执行边界，可以分为 16 个直接工具和 3 个嵌入式能力：
+
+- **直接工具**由 LangGraph Node 或受治理服务显式构造 `BoundAgentTool`，Runtime 独立做输入、权限、租户、超时、输出和 Trace 校验；
+- **嵌入式能力**仍有机器可读合同，但当前只在一个更大的上层 Tool 内部执行，不单独产生顶层调用轨迹。保留合同是为了约束接口和后续拆分，而不是虚报一次独立 Tool Calling。
 
 | 类别 | Tool | 主要副作用 |
 | --- | --- | --- |
@@ -1054,8 +1057,8 @@ LangGraph 本身不要求所有业务函数先注册成 Tool。官方常见的�
 | 档案 | `profile_repository.load_profile` | 无 |
 | 搜索 | `job_search.search_jobs` | 外部 HTTP、Job upsert |
 | 岗位 | `job_repository.load_job` | 无 |
-| 岗位 | `jd_parser.parse_jd` | LLM 日志 |
-| 索引 | `vector_index.upsert_job_chunks` | SQLite、Embedding、可选 Chroma |
+| 岗位 | `jd_parser.parse_jd`（嵌入式） | LLM 日志 |
+| 索引 | `vector_index.upsert_job_chunks`（嵌入式） | SQLite、Embedding、可选 Chroma |
 | 匹配 | `matcher.match_job` | MatchResult、Embedding、Reranker |
 | 门禁 | `matcher.enforce_fit_gate` | 无；读取既有匹配证据并决定是否放行 |
 | 证据 | `vector_index.retrieve_resume_evidence` | Embedding、Reranker |
@@ -1063,7 +1066,7 @@ LangGraph 本身不要求所有业务函数先注册成 Tool。官方常见的�
 | 校验 | `guardrail.verify_resume` | 无 |
 | 投递 | `application.create_quick_apply_packet` | LLM、Application、审批 |
 | 面试 | `interview_prep.generate_packet` | LLM、Embedding、Reranker、InterviewPrep |
-| 面经 | `interview_experience.import_text` | InterviewExperience |
+| 面经 | `interview_experience.import_text`（嵌入式） | InterviewExperience |
 | 浏览器 | `browser_apply` | 外部表单写入或提交 |
 | 邮件 | `email_draft` | 文件写入 |
 | 邮件 | `email_send` | SMTP 外发 |
@@ -1086,7 +1089,7 @@ AgentToolSpec(
 )
 ```
 
-Registry 会把上述字段同时导出为 JSON Schema Draft 2020-12。模型不能只输出“调用 email_send”，节点也不能把字符串工具名和任意 Python handler 拼在一起；调用点必须先构造 `bind_agent_tool("email_send", handler)`。Runtime 随后验证不可变合同、参数、Skill 能力、审批、熔断、超时和输出结构。
+Registry 会把上述字段同时导出为 JSON Schema Draft 2020-12。模型不能只输出“调用 email_send”，节点也不能把字符串工具名和任意 Python handler 拼在一起；调用点必须先构造 `bind_agent_tool("email_send", handler)`。Runtime 随后验证不可变合同、参数、Skill 能力、资源租户、审批、熔断、超时和输出结构。输入默认使用 `additionalProperties=false`，未知参数会在调用 handler 前被拒绝，避免模型多生成一个字段后被 Python 函数静默忽略。
 
 `handler` 不是新的 Agent 概念，它就是 Tool 背后真正干活的 Python callable。例如 Tool Spec 说明 `job_search.search_jobs` 接收 `query/location/limit`，handler 则是本次实际调用 `JobSearchService.search(...)` 的闭包或异步函数：
 
@@ -1111,6 +1114,7 @@ LangGraph Runtime 调度 Node
 -> descriptor 与 callable 是否为同一绑定
 -> 输入 Schema 是否满足
 -> 当前 Run 的 Skill 能力是否允许
+-> Profile/Job/ResumeVersion 是否属于当前 Tenant
 -> Run 是否仍允许执行
 -> 高风险 approval_id 是否属于当前 Run/动作/Payload 且为 approved
 -> Circuit 是否打开
@@ -1121,6 +1125,20 @@ LangGraph Runtime 调度 Node
 -> Node 返回 State Update
 -> LangGraph Runtime 合并 State 并沿 Edge 继续
 ```
+
+租户校验不能只放在 FastAPI 路由。真实任务由 Redis Worker 执行，也可能从 Checkpoint 恢复；这些路径不再经过最初的 HTTP 依赖。如果 Runtime 不重新核验 `profile_id/job_id/resume_version_id`，一个合法进入队列但携带错误资源 ID 的任务仍可能跨租户读取数据。因此 API 负责入口鉴权，Tool Runtime 负责执行时的纵深复核。全局岗位允许 `tenant_id=None`，用户档案和简历版本必须与 Run 的 tenant 一致。
+
+定制简历链路也不再把 RAG 和事实校验藏在 `resume_tailor` 的内部实现中：
+
+```text
+match_job
+-> retrieve_resume_evidence（写 resume_evidence_retrieval Artifact）
+-> tailor_resume（只消费显式证据）
+-> verify_resume（写 resume_verification Artifact）
+-> fit/completion gate
+```
+
+这样做不是为了增加节点数，而是为了让 Completion Gate 能判断任务是否真的完成。以前 `tailor_resume` 返回成功，只能说明一个大函数结束；现在可以分别判断“是否检索到足够证据”“改写是否完成”“改写结果是否通过事实核验”。若 RAG 门禁失败，流程在生成前停止；若核验失败，流程不会把简历版本当成可发布产物。
 
 ### 11.4 Retry Ownership
 
@@ -1160,17 +1178,19 @@ Skill 不是另一个模型，而是能力说明和权限合同。当前 7 个 S
 | `application_packet` | 投递材料和确认边界 |
 | `interview_preparation` | 面试检索、回答和练习 |
 
-每个 `SKILL.md` 包含触发条件、输入、允许工具、上下文策略、输出合同、禁止行为和失败策略。
+每个 `SKILL.md` 包含触发条件、输入、允许工具、上下文策略、输出合同、禁止行为和失败策略。`allowed_tools` 必须引用 Registry 中真实存在的 Tool；实现类名、内部 helper 或概念性能力不能冒充 Tool。相关回归测试会遍历全部 Skill 并校验引用关系，避免文档权限和运行时能力逐渐漂移。
 
 ### 11.7 渐进式披露
 
-Planner 一开始只加载 Skill 名称、简介和权限元数据。进入具体节点时，才加载该 Skill 的详细指令。这样避免每次 Prompt 都携带全部能力说明。
+Planner 一开始只加载 Skill 名称、简介和权限元数据。进入具体 LLM 节点时，`PromptRegistry` 根据 trace name 选择 Prompt 版本及相关 Skill，再从 Skill 中提取上下文策略、禁止行为和失败策略，组成有长度上限的 Runtime Policy。它不会把七份 `SKILL.md` 全文塞给模型，也不会只把 Skill 名称写进日志却不影响调用。
 
 ```text
 第一层：Skill metadata，决定是否相关
 第二层：Skill contract，决定输入输出和工具
-第三层：Skill instructions，执行节点时才注入
+第三层：有界 Runtime Policy，执行对应 LLM 节点时才注入
 ```
+
+每次 LLM Trace 会保存 `prompt_name`、`prompt_version`、`skill_versions`、基础 Prompt 哈希和最终 Prompt 哈希。这样一次 Bad Case 才能回答“当时使用的是哪个 Prompt 和 Skill”，也为后续 baseline/challenger A/B 提供复现基础。当前这套机制证明的是**版本可追踪、策略确实进入模型上下文且有预算上限**；在没有同数据集 A/B 结果前，不能仅凭版本号声称 Prompt 质量已经提升。
 
 ### 11.8 责任角色不是伪 Multi-Agent
 
@@ -2336,71 +2356,86 @@ Exact match
 
 需要区分三种“上下文”：Graph State 是一次 Run 的可恢复结构化状态；Runtime Context 是数据库连接、用户和服务等不进入 Checkpoint 的执行依赖；LLM Context 才是某次推理真正发送给模型的 Token。一个 Role、Artifact 或完整 Plan 出现在 State 中，不意味着它自动占用模型上下文窗口。Prompt assembly 必须显式选择要暴露的字段。
 
-### 22.2 当前不是“六级压缩”
+### 22.2 从 V1 字符裁剪升级为 V2 Context Runtime
 
-系统采用三个业务层和一个总预算：
+V1 只有 Profile、Job、Evidence 和总 Prompt 四个字符预算，主要服务 fit 与 tailor。它解决了“完整简历和 JD 全量进入 Prompt”的早期问题，但不能回答每个节点应看什么、真实 Token 是否超限、压缩是否丢失数字/否定事实、Worker 恢复后如何重建上下文。
+
+V2 是运行在 LLM 调用之前的普通 Python Harness 组件，不是 SubAgent，也不替代 LangGraph Runtime。它负责将 Graph State、数据库实体、RAG Evidence、Memory 和 Artifact 投影为某个节点的最小 Context Packet，再由 `LLMClient` 发送给模型。LangGraph 仍负责节点调度和 Checkpoint；V2 只负责该节点“能看什么、看多少、丢失了什么”。
+
+当前发布策略为：
 
 ```text
-Profile facts layer
-Job requirements layer
-Ranked evidence layer
-Prompt packet budget guard
+CONTEXT_RUNTIME_V2_ENABLED=true
+CONTEXT_RUNTIME_V2_SHADOW_MODE=false
 ```
 
-每层有独立预算和一次缩减策略。它不是六次 LLM 摘要，也没有 `context_manager` SubAgent/Role。
+Shadow 同时构建 V1/V2，但模型仍使用 V1；`context_compression_traces` 记录合同、估算 Token、关键事实 Recall、压缩级别、缓存和实际供应商 usage。只有真实 LLM A/B 与全流程门禁通过后才切换 Active，配置可立即回滚 V1。
 
-当前策略符合主流 Context Engineering 中“提供最少但足够的高信号信息”这一目标，但只适用于当前有界业务数据，不应外推成“所有 Agent 压缩都不需要 LLM”。CareerAgent 的 Profile、JD 和 Evidence 有稳定 Schema、来源 ID 和排序分数，确定性裁剪能保留可追溯性、避免摘要模型编造、降低成本，并让同一输入得到可复测结果。早期六级压缩和 `context_manager` SubAgent 反而让短上下文因元数据膨胀，且多出一次模型调用，所以被删除。
+### 22.3 节点级 Context Contract
 
-如果未来增加超长自由对话、开放调研或跨多个上下文窗口的任务，应在会话历史层按评测结果增加：token-aware message trim、旧 Tool result 清理、结构化 note、LLM summarization/compaction，必要时使用带 handoff artifact 的 context reset。主流实现也通常把这些能力放在 Session、Middleware 或 Harness 生命周期策略中，而不是默认创建一个负责压缩的自治 SubAgent。参考：[LangChain Context Engineering](https://docs.langchain.com/oss/python/langchain/context-engineering)、[OpenAI Agents SDK Sessions/Compaction](https://openai.github.io/openai-agents-python/sessions/)、[Anthropic Context Engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)。
+V2 为 11 个节点建立独立合同：自然语言 Planner、Profile/Resume Parser、JD Parser、Job Matcher、Resume Tailor、Application Packet、Interview Question、Interview Answer、Claim Verifier、Guardrail 和 Completion Gate。合同声明 required/optional/forbidden fields、Evidence 类型、最大输入和输出预留、Tool Schema 预算、Memory/Raw expansion 权限、Critical Fact 类型和失败策略。
 
-### 22.3 Profile Layer
+例如 Tailor 将约 72% 可分配预算给 Evidence，Planner 将 55% 给 Working、30% 给 Memory；Completion Gate 只读取状态与 Artifact 引用，不加载完整 Evidence。`ContextRequest.source_mode=structured` 会在构建前验证必需字段；中央 `LLMClient` 的 text adapter 用于 Shadow 观测，不把任意字符串伪装成完整结构化合同。
 
-优先保留：
+### 22.4 六类业务 Context 与 Runtime 预算视图
 
-- 姓名、headline、目标岗位；
-- Top skills；
-- 项目名称、描述、技术栈和 impact；
-- 实习角色、时间、细节和技术栈；
-- 教育和少量奖项；
-- 原始文本中的高信号句。
+正式 V3 按 CareerAgent 的业务事实来源划分为六类：Control、Task State、Profile/JD、Evidence、Conversation、Artifact/Receipt。V2 内部仍可把预算投影显示为 Control、Working、Evidence、Memory、Artifact，但这只是计量视图：Working 对应 Task State；Memory 中只有 Conversation 可以被 LLM 语义压缩；Profile、JD 和 Evidence 必须从数据库原文或 Citation 重建，不能被摘要替代。
 
-预算超限时先减少项目和经历数量、截短描述，而不是让 LLM重新总结事实。
+| 类型 | 内容 | 处理规则 |
+| --- | --- | --- |
+| Control | System Prompt、Task/Skill/Tool Policy | 不压缩、不接受外部文本提升，保存版本与哈希 |
+| Working | 当前 Goal、未完成步骤、最近错误与 Tool Receipt | 已完成长输出改为 Artifact/Receipt 引用，旧状态去重 |
+| Evidence | Profile/JD/Resume/Job Chunk、面经 | 按节点 query 重新排序，保留 Citation、页码、polarity、trust 和 injection risk |
+| Memory | 最近对话、偏好、纠错和决策 | tenant+user+profile 隔离；高风险注入隔离；旧内容结构化 Compaction |
+| Artifact | PDF、历史简历、评测报告和长日志 | 默认只注入 ID、URI、SHA256、summary 和 status |
 
-### 22.4 Job Layer
+Token Estimator 优先使用配置的本地模型 Tokenizer；否则尝试 `tiktoken` 代理，最后使用中英文感知估算，并在 Trace 标记 `tokens_are_estimated=true`。供应商返回 `prompt_tokens` 后只用于校准估算并写实际 usage；没有 usage 时保持 0/未测，不根据字符数伪造真实 Token。
 
-优先保留：
+节点可用输入为：模型/合同上限减去输出预留、安全余量、不可压缩 Control 和 Tool Schema。软水位执行去重与 Receipt 化，高水位执行结构化历史 Compaction，硬水位只允许声明 `context_reset` 的合同写 Handoff 后重建；其他节点在调用模型前失败。
 
-- title/company/location/job_type；
-- required/preferred skills；
-- 前几条 responsibilities 和 qualifications；
-- keywords；
-- 原始 JD 高信号摘录。
+### 22.5 分级压缩与 Critical Fact Ledger
 
-### 22.5 Evidence Layer
+V2 使用五个信息损失逐步增加的 Level：
 
-先保留 Top20 metadata 和有限文本，超限时缩到约 6 条短摘录。每条保留 Chunk UID、source、type、score 和 evidence classification，方便生成后引用。
+1. Level 0：重复 Evidence、Memory 和 Tool Result 去重；
+2. Level 1：Profile/JD/Run 使用稳定 Schema 投影，删除 debug/tracking/raw log；
+3. Level 2：先检索与排序，再围绕 query、否定词和关键数字截取 Evidence 最小支持窗口；
+4. Level 3：只把较早 Conversation 交给低成本 LLM 压缩为严格结构化记录，保留 source message IDs 和 injection metadata，且标记 `authoritative=false`；Profile/JD/Evidence 不走语义摘要；
+5. Level 4：Checkpoint + Handoff Context Reset，仅载入 Goal、约束、未完成步骤、错误、Receipt、Artifact/Citation 引用和最近消息。
 
-### 22.6 压缩元数据
+Critical Fact Ledger 从结构化事实和显式 `critical_facts` 提取身份、目标、约束、数字、否定事实、Citation、审批、Tool Receipt 和未完成 Goal。所有压缩完成后逐项核对；缺失时按 Citation ID 或字段路径从数据库 JIT 补回事实及能解释它的最小 Evidence 正文，不能只塞回一个数字或 Citation ID。复检后硬事实仍缺失则抛出 `ContextIntegrityError`，不让模型自行补齐。低分负向 Evidence 会获得保留优先级，防止“未实现 Kubernetes”因相关性低而被删掉后变成虚构生产经验。
 
-每次压缩记录：
+### 22.6 JIT、缓存、Trace 与回滚
 
-```json
-{
-  "strategy": "progressive_disclosure_budgeted_packet",
-  "raw_chars": 28000,
-  "compressed_chars": 9200,
-  "max_chars": 12000,
-  "reduction_ratio": 0.6714,
-  "retained_evidence_count": 8,
-  "levels": [
-    {"name": "profile_summary", "input_chars": 12000, "output_chars": 3600},
-    {"name": "job_summary", "input_chars": 7000, "output_chars": 2800},
-    {"name": "evidence_snippets", "input_chars": 9000, "output_chars": 2500}
-  ]
-}
-```
+`ContextJITLoader` 支持按字段/Citation/Artifact 读取 Profile、Job、Evidence、Artifact、Session Decision 和 Prior Run Outcome。每次读取同时检查 tenant、user、profile、操作白名单、调用次数和单次 Token；跨租户对象统一不可见。返回 Receipt 记录来源、selector、Token、untrusted 和 SHA256，不把完整内容写入 Trace。
 
-如果结果变差，可以追溯是否关键证据在压缩中被丢掉，而不是只责怪模型。
+投影缓存键包含 tenant/user/profile、数据版本、合同版本、Prompt 版本、query 和输入哈希；缓存命中后仍由调用路径完成身份检查。Profile/JD 版本变化会产生新键，不复用旧投影。Execution Provenance v5 保存本次 Run 的 Context Runtime 模式、合同 Manifest 和 Token 水位。
+
+40 Case 离线确定性 A/B 的结果与边界记录在 `docs/CONTEXT_RUNTIME_V2_EVALUATION.md`。随后使用同一个 `deepseek-v4-flash` 对 3 个 canary 做真实成对实验：Provider Input Tokens/Run 从 `17,272` 降到 `6,291`（-63.58%），总 Token 从 `17,395.33` 降到 `6,412`（-63.14%），关键事实和 Citation Recall 均为 1.0。进一步完成两个 V2 同时启用的 3+3 case 联合 canary，Provider Input Tokens 下降 60.30%、总 Token 下降 59.13%，联合质量门禁通过，因此正式默认启用；3+3 样本仍不足以替代上线后的持续 SLO 观测。
+
+### 22.6.1 Token Optimization V2：调用、区段与共享上下文
+
+Context Runtime 解决“某个节点应该看到什么”，Token Optimization 进一步解决“同一信息为什么被重复发送、一次业务调用为什么产生多个 HTTP attempt、Batch 是否真的减少输入”。中央 `LLMClient` 为每个业务调用生成 `business_call_id`，HTTP retry 单独落日志；Prompt 按 control、contract、skill、tool schema、profile、job、evidence、history、memory、tool observation、repair 和 output schema 分段统计。Provider 不返回 usage 时标记 missing，不把估算写成实际 token。
+
+`NodeTokenBudgetRegistry` 为 11 类 LLM 节点定义独立输入、输出、History、Evidence、Tool Schema 和 Repair 预算。`DynamicToolCatalog` 先按 Skill、节点、风险和审批收紧工具，只给 Planner 一句话摘要，执行阶段才加载完整 schema；Runtime 权限校验始终独立存在。当前固定图原本未向每轮模型注入全部 19 个 schema，所以目录容量下降不计入真实节省。
+
+面试链路的 Batch 协议使用 `shared_context + minimal items`。开发中第一版虽然把 20 次调用并为 2 次，却在每个 item 复制完整 Profile/JD/Evidence，输入只降 4.87%；抽出共享上下文后，36 例离线估算下降 81.95%。3-case 真实实验中 Total Tokens/Run `8,918 -> 4,196`（-52.95%），业务调用 `6 -> 2`，P50 `14,895.77 -> 5,083.41 ms`，事实、Citation 和禁止声明保持 1.0。完整报告见 `docs/TOKEN_OPTIMIZATION_V2_EVALUATION.md`。
+
+### 22.6.2 上下文管理 V3：按真实节点定向重建
+
+V3 不是再造一套 LangGraph，也不是通用“上下文平台”。它把 V2 的 Harness 能力落实到 CareerAgent 的实际数据边界：Planner 保留最近 3 轮并压缩更早 Conversation；Parser 对长 PDF/JD 分批解析后由 Python 按 Schema 合并；Matcher/Tailor 只读取当前要求的正负 Evidence；Interview Answer/Verifier 共享一次 Profile/JD/Evidence；Application/Completion 只读取 ID、审批、Artifact 状态和 Receipt。
+
+Checkpoint 新增 `context_refs`，保存 Profile、Job、Resume Version、Citation、Artifact、Approval、Tool Receipt、Conversation Summary Artifact 和数据版本。恢复不是反序列化旧 Prompt，而是 LangGraph 恢复当前位置后，`ContextRecoveryService` 校验 tenant/user/profile，再按下一个节点合同回查数据库并重建最小 Packet。已有成功 Receipt 的外发动作不得重放。较早对话摘要是普通 `AgentArtifact`，可失效、可重建、不可覆盖业务事实。
+
+真实 5 对完整 A/B 均执行 PDF 解析、JD 入库、匹配、证据检索、定制、独立 Guardrail、投递 Dry Run、6 题面试和 Completion Gate。V2/V3 均 `5/5` 完成，事实、Citation 和各业务门禁均为 1.0；V3 平均延迟下降 6.60%，但平均 Input/Total Token 增加 4.07%/4.38%，总成本增加 4.60%，主要因为 Repair Calls 从 3 增至 5。因此 V3 的正式价值是隔离、可恢复和保真，不能宣称完整流程已节省 Token。详细方法、Bad Case 和原始报告 provenance 见 `docs/CONTEXT_MANAGEMENT_V3_PRODUCTION.md`。
+
+### 22.6.3 TaskState：摘要不再承担执行状态
+
+多轮对话采用“当前用户消息 + 本轮状态增量 + 正式 TaskState + 较早对话摘要”四层结构。Planner 在原有一次 JSON 调用中同时输出 plan 和 `state_updates`；Pydantic 拒绝未知字段、Action 和 operation，`TaskStateReducer` 再用当前用户消息 ID 原子合并。目标岗位、地点、约束、禁止操作、待办、完成项和 Correction 进入 LangGraph State 与 Checkpoint，Assistant、JD、RAG 和 Tool 内容无权修改。
+
+Compactor 现在只输出讨论摘要、理由、未决问题、消息 ID、状态版本和有限状态声明。它不需要重复所有关键事实，但必须覆盖所有被压缩消息 ID、匹配 TaskState 版本、不得把被纠正旧值说成当前值，也不得新增禁止操作或完成项。失败时只重试一次；再次失败且原文放得下就保留原文，否则停止 Planner。
+
+48 组离线评测全部通过，24 组触发 Compactor；5 对真实长对话字段、纠错、禁止操作与 usage 均为 1.0。首次压缩的 Provider Input Token 增加 2.04%，因为额外增加一次 Compactor 调用。当前证明的是状态完整性，不是全部对话语义无损或首次压缩节省 Token。完整报告见 `docs/CONVERSATION_TASK_STATE_V4.md`。
 
 ### 22.7 Memory 与 State 的区别
 

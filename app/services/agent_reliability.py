@@ -45,12 +45,16 @@ class TaskPolicy:
 
 COMMON_ALLOWED_TOOLS = (
     "LangGraph.AgentPlanner",
+    "resume_parser.create_profile_from_pdf",
     "profile_repository.load_profile",
+    "job_repository.create_from_jd",
     "job_repository.load_job",
     "job_search.search_jobs",
     "matcher.match_job",
     "matcher.enforce_fit_gate",
+    "vector_index.retrieve_resume_evidence",
     "resume_tailor.tailor_resume",
+    "guardrail.verify_resume",
     "application.create_quick_apply_packet",
     "interview_prep.generate_packet",
 )
@@ -78,12 +82,22 @@ TASK_POLICIES: dict[str, TaskPolicy] = {
             "resume_verified",
             "result_exposed",
         ),
-        required_artifacts=("execution_plan", "tailored_resume"),
-        required_steps=("plan_task", "load_profile", "load_job", "match_job", "tailor_resume_with_rag"),
+        required_artifacts=("execution_plan", "resume_evidence_retrieval", "tailored_resume", "resume_verification"),
+        required_steps=(
+            "plan_task",
+            "load_profile",
+            "load_job",
+            "match_job",
+            "retrieve_resume_evidence",
+            "tailor_resume_with_rag",
+            "verify_resume",
+        ),
         ordered_steps=(
             ("load_profile", "load_job"),
             ("load_job", "match_job"),
-            ("match_job", "tailor_resume_with_rag"),
+            ("match_job", "retrieve_resume_evidence"),
+            ("retrieve_resume_evidence", "tailor_resume_with_rag"),
+            ("tailor_resume_with_rag", "verify_resume"),
         ),
         allowed_tools=(
             "LangGraph.AgentPlanner",
@@ -91,7 +105,9 @@ TASK_POLICIES: dict[str, TaskPolicy] = {
             "job_repository.load_job",
             "matcher.match_job",
             "matcher.enforce_fit_gate",
+            "vector_index.retrieve_resume_evidence",
             "resume_tailor.tailor_resume",
+            "guardrail.verify_resume",
         ),
     ),
     "quick_apply": TaskPolicy(
@@ -171,6 +187,8 @@ TASK_POLICIES: dict[str, TaskPolicy] = {
         required_artifacts=(
             "execution_plan",
             "tailored_resume",
+            "resume_evidence_retrieval",
+            "resume_verification",
             "fit_gate",
             "application_packet",
             "interview_prep",
@@ -181,15 +199,19 @@ TASK_POLICIES: dict[str, TaskPolicy] = {
             "load_profile",
             "load_job",
             "match_job",
+            "retrieve_resume_evidence",
             "tailor_resume_with_rag",
+            "verify_resume",
             "fit_gate",
             "create_application_packet",
             "generate_interview_prep",
         ),
         ordered_steps=(
             ("load_job", "match_job"),
-            ("match_job", "tailor_resume_with_rag"),
-            ("tailor_resume_with_rag", "fit_gate"),
+            ("match_job", "retrieve_resume_evidence"),
+            ("retrieve_resume_evidence", "tailor_resume_with_rag"),
+            ("tailor_resume_with_rag", "verify_resume"),
+            ("verify_resume", "fit_gate"),
             ("fit_gate", "create_application_packet"),
             ("create_application_packet", "generate_interview_prep"),
         ),
@@ -782,7 +804,7 @@ class AgentTrajectoryEvaluator:
         for before, after in policy.ordered_steps:
             before_indexes = self._matching_indexes(names, before)
             after_indexes = self._matching_indexes(names, after)
-            if before_indexes and after_indexes and min(after_indexes) < max(before_indexes):
+            if before_indexes and after_indexes and min(before_indexes) >= max(after_indexes):
                 order_violations.append({"before": before, "after": after})
 
         argument_violations = self._argument_violations(steps, request)

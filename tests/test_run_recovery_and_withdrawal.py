@@ -82,13 +82,30 @@ class IdempotentFakeMatcher:
         db.refresh(row)
         return row
 
+    def retrieve_evidence_with_quality(self, db, profile_id, job, top_k=10):
+        del db, profile_id, job, top_k
+        return (
+            [{"text": "Built CareerAgent with FastAPI, RAG and SQLite.", "chunk_type": "project"}],
+            {"passed": True, "confidence": 1.0, "evidence_count": 1},
+        )
+
 
 class FlakyIdempotentTailor:
     def __init__(self, *, fail_once=False):
         self.fail_once = fail_once
         self.calls = 0
 
-    async def tailor_resume(self, db, profile, job, *, idempotency_key=None):
+    async def tailor_resume(
+        self,
+        db,
+        profile,
+        job,
+        *,
+        idempotency_key=None,
+        evidence=None,
+        retrieval_quality=None,
+    ):
+        del retrieval_quality
         self.calls += 1
         if self.fail_once and self.calls == 1:
             raise RuntimeError("simulated worker crash during tailor node")
@@ -103,7 +120,7 @@ class FlakyIdempotentTailor:
             tailored_resume_markdown="CareerAgent: FastAPI, RAG, SQLite.",
             change_summary_json=[],
             keyword_alignment_json={},
-            source_evidence_json=[],
+            source_evidence_json=evidence or [],
             verification_json={"passed": True, "risk_level": "low"},
             diff_text=None,
             idempotency_key=idempotency_key,

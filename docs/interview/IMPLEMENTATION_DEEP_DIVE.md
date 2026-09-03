@@ -240,7 +240,7 @@ flowchart LR
 
 这是为了解决“句句都对，但答非所问”的真实 bad case。最终答案由服务端使用 verified claims 确定性组合，保留可引用证据和诚实边界。
 
-当前预算是最多 10 题、正常 3 次 LLM 调用、最多 1 轮 repair、总调用不超过 5、累计 Prompt 不超过 70,000 字符、completion 预留不超过 15,000 token。未配置 LLM 或发布门禁失败时不落库，不生成占位答案。
+当前预算是最多 10 题，正常路径由问题生成、答案共享上下文 Batch 和 Verifier Batch 组成；JSON repair 最多 1 次、答案定向 repair 最多 2 轮，整个面试链业务调用不超过 8、累计 Prompt 不超过 100,000 字符、completion 预留不超过 15,000 token。未配置 LLM 或发布门禁失败时不落库，不生成占位答案。
 
 ## 11. 为什么这里既有规则又有 LLM
 

@@ -12,7 +12,9 @@ from app.api.agent_governance import (
     list_agent_memories,
 )
 from app.agents.natural_language import NaturalLanguageAgentService
-from app.agents.tools import AgentToolSpec, BoundAgentTool, bind_agent_tool
+from app.agents.prompt_registry import PromptRegistry, prompt_registry_manifest
+from app.agents.skills import get_skill_registry
+from app.agents.tools import AGENT_TOOLS, AgentToolSpec, BoundAgentTool, bind_agent_tool
 from app.core.config import Settings, get_settings
 from app.core.llm import LLMCallBudget, LLMClient, LLMBudgetExceededError, llm_call_budget
 from app.core.security import AuthContext
@@ -23,6 +25,7 @@ from app.models.entities import (
     AgentQualityReview,
     AgentApproval,
     AgentRun,
+    Profile,
     ToolCircuitState,
 )
 from app.models.schemas import AgentFeedbackCreateRequest, AgentMemoryCreateRequest
@@ -88,6 +91,90 @@ def test_runtime_rejects_wrong_input_type_before_tool_execution(db_session):
             )
         )
     assert called is False
+
+
+def test_runtime_rejects_unknown_tool_arguments(db_session):
+    run = _run(db_session, "find_jobs_for_profile")
+
+    async def handler():
+        return {"task_type": "find_jobs_for_profile", "steps": []}
+
+    with pytest.raises(AgentToolContractError, match="unexpected input fields: injected_argument"):
+        asyncio.run(
+            AgentToolRuntime(settings=Settings()).execute(
+                db_session,
+                run_id=run.id,
+                step_name="plan_task",
+                input_json={"task_type": "find_jobs_for_profile", "injected_argument": "ignored-before"},
+                tool=bind_agent_tool("LangGraph.AgentPlanner", handler),
+                event_sink=lambda *_: None,
+            )
+        )
+
+
+def test_runtime_rechecks_profile_tenant_inside_worker_boundary(db_session):
+    profile = Profile(
+        tenant_id="tenant-b",
+        name="Candidate",
+        source_type="guided",
+        raw_resume_text="resume",
+        structured_profile_json={},
+    )
+    run = AgentRun(
+        tenant_id="tenant-a",
+        user_id="user-a",
+        task_type="find_jobs_for_profile",
+        status="running",
+        input_json={},
+    )
+    db_session.add_all([profile, run])
+    db_session.commit()
+
+    async def handler():
+        return profile
+
+    with pytest.raises(AgentToolPolicyError, match="not accessible to tenant tenant-a"):
+        asyncio.run(
+            AgentToolRuntime(settings=Settings()).execute(
+                db_session,
+                run_id=run.id,
+                step_name="load_profile",
+                input_json={"profile_id": profile.id},
+                tool=bind_agent_tool("profile_repository.load_profile", handler),
+                event_sink=lambda *_: None,
+            )
+        )
+
+
+def test_prompt_registry_versions_and_injects_bounded_skill_policy():
+    prepared = PromptRegistry().prepare(
+        trace_name="resume_tailor.tailor_resume",
+        system_prompt="Return strict JSON.",
+    )
+
+    assert prepared.provenance["prompt_name"] == "resume_tailoring"
+    assert prepared.provenance["prompt_version"] == "3.0.0"
+    assert prepared.provenance["prompt_registry_status"] == "registered"
+    assert prepared.provenance["skill_versions"] == {
+        "evidence_retrieval": "1.1.0",
+        "resume_tailoring": "1.1.0",
+    }
+    assert 0 < prepared.provenance["skill_policy_chars"] <= 2400
+    assert "不得添加没有证据支持" in prepared.system_prompt
+    assert len(prompt_registry_manifest()) >= 9
+
+
+def test_skill_tool_allowlists_only_reference_registered_tools():
+    registered = {tool.name for tool in AGENT_TOOLS}
+    referenced = {
+        tool_name
+        for skill in get_skill_registry().list()
+        for tool_name in skill.tools
+    }
+
+    assert referenced <= registered
+    assert {tool.invocation_scope for tool in AGENT_TOOLS} == {"direct", "embedded"}
+    assert sum(tool.invocation_scope == "embedded" for tool in AGENT_TOOLS) == 3
 
 
 def test_runtime_rejects_incomplete_planner_output_contract(db_session):
@@ -347,7 +434,7 @@ def test_runtime_rejects_missing_or_cross_bound_approval(db_session):
 def test_harness_manifest_distinguishes_local_mode_from_production_readiness():
     local = AgentHarnessService(settings=Settings()).manifest()
     assert local["version"] == "careeragent-harness-v3"
-    assert local["inventory"]["tool_count"] == 19
+    assert local["inventory"]["tool_count"] == 21
     assert local["readiness"]["production_ready"] is False
 
     production = AgentHarnessService(settings=Settings(app_env="production"))

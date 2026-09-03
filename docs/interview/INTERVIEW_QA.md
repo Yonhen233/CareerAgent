@@ -28,11 +28,9 @@ ReAct 只放在简历定制：生成初稿后观察 Guardrail issue，高风险�
 
 ### Q5：Skill、Tool、SubAgent 有什么区别？
 
-- Skill 是版本化能力合同，说明何时触发、需要什么输入、允许哪些 Tool、产物和禁止行为。
-- Tool 是实际可执行能力，并声明风险、审批、幂等、超时、重试和审计。
-- SubAgent 是责任和上下文边界，例如 profile analyst 或 resume writer，不一定对应独立模型进程。
+我把三者分得比较严格。Tool 是可执行能力，例如搜索岗位、检索简历证据或发送邮件；Skill 是版本化的能力说明与权限合同，规定某类任务可以用哪些 Tool、需要什么上下文、禁止做什么；项目里的 `profile_analyst`、`resume_writer` 实际是 `AgentRoleSpec`，只表示责任和读写边界，不是真正的 SubAgent。
 
-Planner 选择 Skill，Skill 限制 Tool，SubAgent 帮助解释当前责任边界。这样可以渐进式披露，也能在执行前验证工具授权。
+真正的 SubAgent 至少应该有独立模型调用或循环、独立上下文、工具集合、执行预算、输出合同和 Trace。CareerAgent 的主流程是清晰 DAG，共享同一批业务事实，拆成多个自治 SubAgent 会增加 Token 和状态同步成本，所以我没有为了 Multi-Agent 标签强行拆分。Planner 选择 Skill，Runtime 根据 Skill 二次限制 Tool，Role 只帮助计划和审计；三者不是同一个层次。
 
 ### Q6：为什么没有把上下文压缩做成一个 SubAgent？
 
@@ -182,11 +180,11 @@ Interrupt 负责暂停和恢复图，approval table 负责业务审计，tool ga
 
 没有单一指标。PDF 看页码/上下文命中，RAG 看 Recall@K/MRR/nDCG，规划看 action 和终态，生成看 grounding/forbidden claim，Agent 看 trajectory + business outcome，安全看 recall/FPR，可靠性看 pass^k，性能看 p50/p95/Token/费用。
 
-系统使用硬门禁，不算总分。最近整轮 `#113` 因规划 0.85、LLM workflow 18/24、full-flow 5/6、pass^2 0.6667 而失败，即使 PDF/RAG/Injection 通过也没有宣布上线。
+系统使用硬门禁，不用一个平均分掩盖关键失败。最新不调用外部 LLM 的统一确定性评测 `#155` 已通过：PDF Chunk 96 份样本的 Top3 keyword/page/context hit 为 `0.9479/0.8299/0.7760`；RAG 180 Case 的 Top1、Recall@3、Recall@5、MRR、nDCG@5 为 `1.0/0.6125/0.7292/1.0/0.7862`；岗位相关性 13 Case 的 nDCG 为 `0.9495`；70 Case 注入检测 Recall 为 `1.0`、FPR 为 `0`。但是最新完整真实 LLM 发布门禁仍是旧版本失败记录，不能用确定性回归替代新版本的端到端模型认证。
 
 ### Q29：现在可以上线吗？
 
-从功能和工程机制看，已经有真实可用产品形态：前端、真实岗位、双 RAG、LangGraph、Redis、审批、可观测性和安全门禁都在。但从发布认证看，最新完整系统 gate 是修复前失败；已知 bad case 定向回归通过，尚未重跑完整 24-case 和足够的面试/可靠性样本。
+从功能和工程机制看，已经有真实可用产品形态：前端、真实岗位、双 RAG、LangGraph、Redis、审批、可观测性和安全门禁都在。当前代码全量 `342` 项测试通过，最新确定性系统门禁通过；但从发布认证看，最新完整真实 LLM gate 还是修复前记录，尚未在当前 Prompt/Skill/Graph 版本上重跑完整模型工作流。
 
 所以准确答案是“具备受控试运行或作品部署条件，但还不应宣称达到开放公网的生产 SLA”。下一步是修完 JD 离线 grounding 两例、双人复标、全量 workflow、pass^3 和多面试包评测。
 
@@ -203,3 +201,47 @@ Interrupt 负责暂停和恢复图，approval table 负责业务审计，tool ga
 7. 真实注入失败样本与在线反馈闭环。
 
 这些工作比再引入一个“看起来现代”的 SubAgent 更能提高系统可信度。
+
+## 七、真实场景追问
+
+### Q31：现在到底有多少个工具？工具怎么注册和调用？
+
+当前 Registry 有 19 个 Tool Contract，其中 16 个是可以被 Runtime 独立执行和追踪的直接工具，3 个是嵌在上层服务中的内部能力。这个区分很重要，因为注册表数量不等于一次任务会调用 19 个工具，也不等于模型可以自由挑选全部工具。
+
+注册时我用 `AgentToolSpec` 声明输入输出 Schema、同步或异步模式、风险级别、审批要求、幂等策略、超时和重试。真正调用时，LangGraph Node 把合同与本次 Python handler 绑定成 `BoundAgentTool`，交给 `AgentToolRuntime`。Runtime 依次检查工具是否注册、参数是否符合 Schema、当前 Skill 是否授权、资源是否属于当前租户、审批是否有效、熔断器和幂等结果，然后才执行 handler，最后验证输出并写 Step、Event 和 Artifact。
+
+主流程没有让模型在 19 个 Tool 上无限 ReAct。模型负责理解自然语言和生成受约束计划，LangGraph 根据已验证的任务合同走固定分支。这样工具越多时，选择空间不会线性污染每一次 Prompt，调用延迟也主要来自真正需要的 I/O，而不是把完整工具说明反复发给模型。
+
+### Q32：工具很多时，怎么保证选得准、调得快并且不越权？
+
+我用了三层约束。第一层是 Planner 只选择与任务相关的 Skill，不把所有工具暴露给模型；第二层是 Task Contract 和 Graph Edge 规定这个任务必须经过哪些步骤以及合法顺序；第三层是 Runtime 在执行瞬间重新检查 Skill allowlist、Run 状态、租户资源和高风险审批。即使 Planner 输出错误工具名，或者 Worker 从旧 Checkpoint 恢复，Runtime 仍会拒绝越权调用。
+
+速度方面不是通过减少安全检查来换，而是缩小候选集和并行 I/O。岗位源搜索可以受 semaphore 限制并发，Embedding 和 Reranker 批处理；同一 SQLite Session 的写入和有前后依赖的图节点保持串行。Tool metadata 只在规划阶段渐进披露，节点执行时直接调用已绑定 handler，不需要再让 LLM 做一次工具选择。
+
+### Q33：一个 Tool 在代码里具体是什么？为什么不直接调用 Service？
+
+业务逻辑仍然在 Service 中，例如 `JobSearchService.search` 或 `ResumeTailorService.tailor_resume`；Tool 不是重写一份业务逻辑，而是在 Service 外增加 Agent 执行合同。`AgentToolSpec` 描述“允许怎样调用”，handler 负责“这次具体执行哪个函数”，`BoundAgentTool` 把两者锁在一起，Runtime 负责统一治理。
+
+如果 Node 直接调用 Service，功能也许能跑，但审批、租户、超时、重试、幂等、输出校验和 Trace 会散落到每个调用点。Tool 层的价值是让这些横切规则只有一个执行入口。它也有边界：Runtime 不能从一个 Python 闭包中形式化证明业务语义一定与工具名一致，所以还需要强类型 adapter、轨迹测试和代码审查，不能把 Registry 当成绝对证明。
+
+### Q34：Agent 执行过程中遇到异常时怎么处理？
+
+我先区分异常类型，而不是统一重试。网络超时、429 或临时 5xx 可以由拥有重试责任的层做有限重试；非法 JSON 由对应 LLM handler 最多修复一次；RAG 证据不足、事实核验失败和用户未审批属于业务拒绝，不应该重试成成功；浏览器提交和邮件发送有外部副作用，默认不自动重试。
+
+每个失败都会落到具体 AgentStep 和 Event，长任务还有 Redis heartbeat、stale scanner、DLQ 和 LangGraph Checkpoint。Worker 崩溃后可以从最近 Checkpoint 恢复，但写库节点依靠业务幂等键避免重复产物。高风险动作还要满足 approval table 的一次性状态流。熔断器用于某个工具持续失败时保护整个系统，不能把不可用服务拖成全局雪崩。
+
+这轮重构中一个真实 Bad Case 是：旧 `resume_tailor` 把证据检索和事实校验藏在内部，外层只看到“函数成功”。我把它拆成 `retrieve_resume_evidence -> tailor_resume -> verify_resume` 三个可追踪步骤，分别写 Artifact。现在检索质量不达标会在生成前停止，事实核验失败也不会被 Completion Gate 误判为完成。
+
+### Q35：系统提示词和 Skill 怎么写？怎么证明优化有效？
+
+提示词按任务拆分，不使用一个超长 System Prompt。`PromptRegistry` 把自然语言规划、简历/JD 结构化、匹配、简历定制、投递材料和面试生成分别版本化；每次 LLM 调用根据 trace name 选择 Prompt，并只注入相关 Skill 的上下文策略、禁止行为和失败策略。最终 Trace 保存 Prompt 名称、版本、Skill 版本、基础和最终 Prompt 哈希，因此 Bad Case 可以复现到具体版本。
+
+Skill 不是知识文章，而是能力合同。它写清触发条件、输入、允许工具、上下文预算、输出和禁止行为。最近一次审计发现 Skill 的 `allowed_tools` 中混入了未注册的 helper 名称，这会让“权限配置”只停留在文档。我删除了这些概念名，并增加回归测试，确保每个 allowed tool 都真实存在。
+
+证明优化有效不能只说“Prompt 更清晰”。至少要固定数据集、固定模型和采样参数，比较 baseline/challenger 的结构合法率、grounding、任务完成率、Token、延迟和 pass^k，并对失败 Case 做人工复核。目前项目已经具备版本、哈希、usage 和回归门禁，确定性合同测试也通过；当前版本尚未完成一轮同条件真实 LLM A/B，因此我会明确说“可追踪与防漂移机制已经完成”，不会提前声称文案优化本身已经被统计证明。
+
+### Q36：质量评测怎么做，怎么保证评测分数可信？
+
+我按层评测，不让最终答案分数掩盖中间错误。PDF 看抽取、页码和上下文；RAG 看 Recall@K、MRR、nDCG 和来源证据；规划看 action、参数和终态；Tool 看实际轨迹、权限和业务结果；生成看 grounding、禁止声明和引用；可靠性看 pass^k；性能看 p50/p95、Token 和成本。发布采用关键指标硬门禁，而不是加权平均总分。
+
+为了让分数可信，我会把数据版本、模型、Embedding、Reranker、阈值和代码 Provenance 一起保存；确定性检查与 LLM Judge 分开，Schema、ID、权限和数字一致性优先用代码判断，开放语义才交给 Judge；评测器本身也有测试，避免夹具、事务或 `--only` 汇总逻辑制造假失败。当前最新确定性统一评测通过，但真实 LLM 全流程仍需要按当前版本重跑，这种区分本身也是评测诚信的一部分。

@@ -17,7 +17,7 @@ from app.agents.tools import AgentToolSpec, BoundAgentTool, get_agent_tool
 from app.core.config import Settings, get_settings
 from app.core.llm import LLMBudgetExceededError, LLMConfigurationError, LLMResponseError
 from app.core.redis_client import RedisUnavailableError
-from app.models.entities import AgentApproval, AgentRun, ToolCircuitState
+from app.models.entities import AgentApproval, AgentRun, Job, Profile, ResumeVersion, ToolCircuitState
 from app.services.agent_reliability import (
     AgentExecutionBudgetExceeded,
     AgentTaskIncompleteError,
@@ -303,6 +303,8 @@ class AgentToolRuntime:
         if run.status in {"cancelled", "withdrawn"}:
             raise AgentToolPolicyError(f"Agent run {run_id} is {run.status}; tool execution is forbidden.")
 
+        self._assert_resource_scope(db, run=run, payload=payload)
+
         allowed_tools = set(self.CONTROL_PLANE_TOOLS)
         if run.task_type in TASK_SKILL_MAPPING:
             allowed_tools.update(get_skill_registry().allowed_tools_for_task(run.task_type))
@@ -405,6 +407,53 @@ class AgentToolRuntime:
             raise AgentToolContractError(
                 f"Tool {contract.name} has invalid input fields: {'; '.join(invalid)}."
             )
+        if not contract.allow_extra_input:
+            allowed = {
+                alternative
+                for field_name in contract.input_schema
+                for alternative in field_name.split("|")
+                if alternative
+            }
+            unexpected = sorted(set(payload) - allowed)
+            if unexpected:
+                raise AgentToolContractError(
+                    f"Tool {contract.name} received unexpected input fields: {', '.join(unexpected)}."
+                )
+
+    @staticmethod
+    def _assert_resource_scope(db: Session, *, run: AgentRun, payload: dict[str, Any]) -> None:
+        """Repeat tenant checks inside the worker boundary, not only at the HTTP edge."""
+        if not run.tenant_id:
+            return
+
+        profile_id = payload.get("profile_id")
+        if isinstance(profile_id, int):
+            profile = db.query(Profile).filter(Profile.id == profile_id).first()
+            if profile is None or profile.tenant_id != run.tenant_id:
+                raise AgentToolPolicyError(
+                    f"Profile {profile_id} is not accessible to tenant {run.tenant_id}."
+                )
+
+        job_id = payload.get("job_id")
+        if isinstance(job_id, int):
+            job = db.query(Job).filter(Job.id == job_id).first()
+            if job is None or job.tenant_id not in {None, run.tenant_id}:
+                raise AgentToolPolicyError(
+                    f"Job {job_id} is not accessible to tenant {run.tenant_id}."
+                )
+
+        resume_version_id = payload.get("resume_version_id")
+        if isinstance(resume_version_id, int):
+            version = db.query(ResumeVersion).filter(ResumeVersion.id == resume_version_id).first()
+            profile = (
+                db.query(Profile).filter(Profile.id == version.profile_id).first()
+                if version is not None
+                else None
+            )
+            if version is None or profile is None or profile.tenant_id != run.tenant_id:
+                raise AgentToolPolicyError(
+                    f"ResumeVersion {resume_version_id} is not accessible to tenant {run.tenant_id}."
+                )
 
     @staticmethod
     def _validate_output(contract: AgentToolSpec, output: Any) -> None:
@@ -462,7 +511,13 @@ class AgentToolRuntime:
             )
         if contract.name == "vector_index.upsert_job_chunks" and not AgentToolRuntime._matches_type(output, "int"):
             raise AgentToolContractError("vector_index.upsert_job_chunks must return an integer.")
-        if contract.name in {"guardrail.verify_resume", "browser_apply", "email_draft", "email_send"}:
+        if contract.name in {
+            "vector_index.retrieve_resume_evidence",
+            "guardrail.verify_resume",
+            "browser_apply",
+            "email_draft",
+            "email_send",
+        }:
             if not isinstance(output, dict):
                 raise AgentToolContractError(f"Tool {contract.name} must return a dictionary.")
             missing = [field for field in contract.output_schema if output.get(field) is None]

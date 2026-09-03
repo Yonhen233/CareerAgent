@@ -92,14 +92,19 @@ class AgentToolSpec:
     schema_version: str = "2020-12"
     audit_events: list[str] = field(default_factory=lambda: ["step_started", "step_completed", "step_failed"])
     mcp_candidate: bool = False
+    invocation_scope: str = "direct"
+    parent_tools: list[str] = field(default_factory=list)
+    allow_extra_input: bool = False
 
     def as_dict(self) -> dict[str, Any]:
+        input_json_schema = _object_schema(self.input_schema)
+        input_json_schema["additionalProperties"] = self.allow_extra_input
         payload = {
             "name": self.name,
             "purpose": self.purpose,
             "input_schema": self.input_schema,
             "output_schema": self.output_schema,
-            "input_json_schema": _object_schema(self.input_schema),
+            "input_json_schema": input_json_schema,
             "output_json_schema": _object_schema(self.output_schema),
             "side_effects": self.side_effects,
             "execution_mode": self.execution_mode,
@@ -114,6 +119,9 @@ class AgentToolSpec:
             "schema_version": self.schema_version,
             "audit_events": self.audit_events,
             "mcp_candidate": self.mcp_candidate,
+            "invocation_scope": self.invocation_scope,
+            "parent_tools": self.parent_tools,
+            "allow_extra_input": self.allow_extra_input,
         }
         payload["allowed_skills"] = skill_names_for_tool(self.name)
         return payload
@@ -184,6 +192,18 @@ AGENT_TOOLS: list[AgentToolSpec] = [
         timeout_seconds=5,
     ),
     AgentToolSpec(
+        name="resume_parser.create_profile_from_pdf",
+        purpose="解析用户上传的 PDF 简历，持久化结构化 Profile 并建立可检索 Resume Chunk。",
+        input_schema={"filename": "str", "file_artifact_id": "int|None"},
+        output_schema={"profile": "Profile", "resume_chunks": "list[ResumeChunk]"},
+        side_effects=["llm_call", "sqlite_write", "embedding_model_call", "artifact_write"],
+        risk_level="medium",
+        idempotency_policy="file_sha256+tenant_id",
+        timeout_seconds=240,
+        retry_policy={"max_attempts": 1, "retryable_errors": []},
+        retry_owner="handler",
+    ),
+    AgentToolSpec(
         name="job_search.search_jobs",
         purpose="并发搜索真实招聘源并返回岗位列表。",
         input_schema={"query": "str", "location": "str|None", "limit": "int"},
@@ -204,6 +224,18 @@ AGENT_TOOLS: list[AgentToolSpec] = [
         timeout_seconds=5,
     ),
     AgentToolSpec(
+        name="job_repository.create_from_jd",
+        purpose="解析原始 JD，持久化岗位并建立结构化与向量检索索引。",
+        input_schema={"raw_jd_text": "str", "title": "str|None", "company": "str|None"},
+        output_schema={"job": "Job", "job_chunks": "list[JobChunk]"},
+        side_effects=["llm_call", "sqlite_write", "embedding_model_call"],
+        risk_level="medium",
+        idempotency_policy="source+external_id unique upsert",
+        timeout_seconds=180,
+        retry_policy={"max_attempts": 1, "retryable_errors": []},
+        retry_owner="handler",
+    ),
+    AgentToolSpec(
         name="jd_parser.parse_jd",
         purpose="把原始 JD 解析成 required_skills、responsibilities、qualifications 等结构化字段。",
         input_schema={"raw_jd_text": "str", "title": "str|None", "company": "str|None"},
@@ -214,6 +246,8 @@ AGENT_TOOLS: list[AgentToolSpec] = [
         timeout_seconds=90,
         retry_policy={"max_attempts": 2, "retryable_errors": ["timeout", "connection_error", "invalid_json"]},
         retry_owner="handler",
+        invocation_scope="embedded",
+        parent_tools=["job_search.search_jobs", "NaturalLanguageAgentService"],
     ),
     AgentToolSpec(
         name="vector_index.upsert_job_chunks",
@@ -225,11 +259,13 @@ AGENT_TOOLS: list[AgentToolSpec] = [
         idempotency_policy="job_id+chunk_uid unique upsert",
         timeout_seconds=120,
         retry_policy={"max_attempts": 1, "retryable_errors": []},
+        invocation_scope="embedded",
+        parent_tools=["job_search.search_jobs", "NaturalLanguageAgentService"],
     ),
     AgentToolSpec(
         name="matcher.match_job",
         purpose="计算岗位匹配分数、技能覆盖、缺口和可解释证据。",
-        input_schema={"profile_id": "int", "job_id": "int"},
+        input_schema={"profile_id": "int", "job_id": "int", "reuse_match_result_id": "int|None"},
         output_schema={"match_result": "MatchResult"},
         side_effects=["sqlite_append", "embedding_model_call", "reranker_call"],
         idempotency_policy="append-only result; run keeps the selected match_result_id",
@@ -248,7 +284,7 @@ AGENT_TOOLS: list[AgentToolSpec] = [
         name="vector_index.retrieve_resume_evidence",
         purpose="基于 JD 查询简历 chunk，一阶段 Top20 检索后用 reranker 二阶段排序。",
         input_schema={"profile_id": "int", "query": "str", "top_k": "int"},
-        output_schema={"evidence_chunks": "list[RetrievedChunk]"},
+        output_schema={"evidence_chunks": "list[RetrievedChunk]", "retrieval_quality": "dict"},
         side_effects=["embedding_model_call", "reranker_call"],
         timeout_seconds=120,
     ),
@@ -267,8 +303,8 @@ AGENT_TOOLS: list[AgentToolSpec] = [
     AgentToolSpec(
         name="guardrail.verify_resume",
         purpose="检查定制简历是否新增未经证据支持的事实，并计算关键词覆盖率。",
-        input_schema={"profile": "Profile", "job": "Job", "resume_markdown": "str"},
-        output_schema={"verification": "dict"},
+        input_schema={"profile_id": "int", "job_id": "int", "resume_version_id": "int"},
+        output_schema={"passed": "bool", "risk_level": "str"},
         side_effects=[],
         timeout_seconds=10,
     ),
@@ -308,6 +344,8 @@ AGENT_TOOLS: list[AgentToolSpec] = [
         idempotency_policy="source_url/content_hash deduplication",
         timeout_seconds=30,
         mcp_candidate=True,
+        invocation_scope="embedded",
+        parent_tools=["interview_prep.generate_packet"],
     ),
     AgentToolSpec(
         name="browser_apply",

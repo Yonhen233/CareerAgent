@@ -69,9 +69,12 @@ def test_context_compressor_uses_budgeted_progressive_disclosure():
     compressed = ContextCompressor().compress_tailor_context(profile=profile, job=job, evidence=evidence)
     metadata = compressed["context_compression"]
 
-    assert metadata["strategy"] == "progressive_disclosure_budgeted_packet"
-    assert metadata["raw_chars"] > metadata["compressed_chars"]
+    assert metadata["active_runtime"] == "v2"
+    assert metadata["strategy"] == "node_contract_token_budget"
+    assert metadata["raw_input_tokens"] > metadata["final_input_tokens"]
     assert metadata["retained_evidence_count"] <= 20
-    assert len(metadata["levels"]) >= 4
+    assert metadata["critical_fact_recall"] == 1.0
+    assert metadata["quality_gate_passed"] is True
+    assert metadata["compression_levels"]
     assert compressed["progressive_disclosure"]["failure_rule"]
     assert "ranked_evidence" in compressed

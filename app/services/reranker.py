@@ -4,7 +4,7 @@ from dataclasses import replace
 from typing import Any
 
 from app.core.config import Settings, get_settings
-from app.services.embedding_service import expand_query_text, tokenize
+from app.services.embedding_service import EmbeddingService, cosine_similarity, expand_query_text, tokenize
 
 
 _RERANKER_MODEL_CACHE: dict[str, Any] = {}
@@ -189,16 +189,7 @@ class RerankerService:
     ) -> tuple[list[float], dict[str, Any]]:
         if self.provider in {"cross_encoder", "cross-encoder", "sentence_transformers"}:
             if self._requires_cjk_heuristic(query):
-                scores, info = self._heuristic_scores(
-                    query,
-                    texts,
-                    chunk_types,
-                    fallback_reason=(
-                        f"{self.model_name} is English-only; used CJK lexical reranking for this query."
-                    ),
-                )
-                info["language_route"] = "cjk_lexical"
-                return scores, info
+                return self._multilingual_embedding_scores(query, texts)
             try:
                 model = self._load_cross_encoder()
                 scores = model.predict(
@@ -252,6 +243,24 @@ class RerankerService:
 
     def _requires_cjk_heuristic(self, query: str) -> bool:
         return bool(CJK_RE.search(query)) and "ms-marco" in self.model_name.lower()
+
+    def _multilingual_embedding_scores(
+        self,
+        query: str,
+        texts: list[str],
+    ) -> tuple[list[float], dict[str, Any]]:
+        embedding = EmbeddingService(settings=self.settings)
+        batch = embedding.embed_texts([query, *texts])
+        query_vector = batch.vectors[0]
+        scores = [cosine_similarity(query_vector, vector) for vector in batch.vectors[1:]]
+        info = {
+            "reranker_provider": "multilingual_embedding",
+            "reranker_model": batch.model,
+            "language_route": "cjk_semantic",
+        }
+        if batch.fallback_reason:
+            info["fallback_reason"] = batch.fallback_reason
+        return scores, info
 
     def _ensure_local_model_cache_env(self) -> None:
         self.settings.embedding_cache_path.mkdir(parents=True, exist_ok=True)

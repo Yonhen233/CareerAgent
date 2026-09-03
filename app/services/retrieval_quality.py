@@ -50,6 +50,7 @@ class RetrievalQualityService:
         multi_query_hits = 0
         covered_query_indexes: set[int] = set()
         supporting_evidence_count = 0
+        exact_structured_match_count = 0
         blocked_weak_evidence_count = 0
         relevant_evidence_count = 0
         embedding_providers: set[str] = set()
@@ -86,7 +87,18 @@ class RetrievalQualityService:
             embedding_providers.add(embedding_provider)
             vector_threshold, first_stage_threshold = self._provider_thresholds(embedding_provider)
             row_query_coverage = len(query_tokens & row_tokens) / max(len(query_tokens), 1)
+            normalized_chunk_text = " ".join(str(self._value(row, "text") or "").lower().split())
+            normalized_query = " ".join((query or "").lower().split())
+            exact_structured_match = (
+                chunk_type in {"skill", "required_skills", "preferred_skills"}
+                and len(normalized_chunk_text) >= 2
+                and normalized_chunk_text in normalized_query
+            )
+            if exact_structured_match:
+                exact_structured_match_count += 1
             relevant = (
+                exact_structured_match
+                or
                 vector_score >= vector_threshold
                 or (
                     max(lexical_score, row_query_coverage) >= self.settings.rag_min_query_coverage
@@ -168,6 +180,7 @@ class RetrievalQualityService:
             "supporting_evidence_count": supporting_evidence_count,
             "blocked_weak_evidence_count": blocked_weak_evidence_count,
             "relevant_evidence_count": relevant_evidence_count,
+            "exact_structured_match_count": exact_structured_match_count,
             "require_supportive_evidence": require_supportive_evidence,
             "query_token_count": len(query_tokens),
             "query_coverage": round(query_coverage, 4),

@@ -466,6 +466,38 @@ def test_jd_parser_canonicalizes_chinese_aliases_and_job_type():
     assert english_job_type["job_type"] == "internship"
 
 
+def test_jd_grounding_accepts_only_canonical_skills_backed_by_explicit_aliases():
+    from app.services.jd_parser import JDParserService
+
+    service = JDParserService()
+    raw_text = "Requirements: Python, RAG, vector search, FastAPI and evaluation."
+    parsed = {
+        "title": "RAG Engineer Intern",
+        "company": "Northstar AI",
+        "location": "Shanghai",
+        "required_skills": ["Python", "RAG", "Vector Database", "Kubernetes"],
+        "preferred_skills": [],
+        "responsibilities": [],
+        "qualifications": [],
+        "keywords": ["Vector Database", "Kubernetes"],
+    }
+
+    report = service.grounding.evaluate_jd(
+        raw_text,
+        parsed,
+        allowed_values=service._grounding_allowed_values(
+            raw_text,
+            parsed,
+            title=parsed["title"],
+            company=parsed["company"],
+            location=parsed["location"],
+        ),
+    )
+
+    assert {item["value"] for item in report["unsupported_skills"]} == {"Kubernetes"}
+    assert {item["value"] for item in report["unsupported_keywords"]} == {"Kubernetes"}
+
+
 def test_jd_parser_distinguishes_prompt_regression_from_prompt_engineering():
     from app.services.jd_parser import JDParserService
 

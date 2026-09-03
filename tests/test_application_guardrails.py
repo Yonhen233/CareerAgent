@@ -5,6 +5,7 @@ import pytest
 from app.models.entities import Job, Profile
 from app.services.embedding_service import EmbeddingBatch
 from app.services.application_guardrails import ApplicationPacketGuardrail
+from app.services.evidence_grounding import EvidenceGroundingService
 from app.services.application_service import ApplicationService
 from app.services.evidence_grounding import EvidenceGroundingService
 
@@ -559,3 +560,30 @@ def test_application_guardrail_does_not_treat_target_role_as_candidate_skill():
     )
 
     assert validation["passed"] is True
+
+
+def test_grounding_number_matching_handles_decimal_adjacent_to_chinese_text():
+    service = EvidenceGroundingService()
+
+    assert service.unsupported_numbers("Recall@10为0.91。", ["Recall@10 为 0.91。"]) == []
+
+
+def test_grounding_number_matching_accepts_decimal_before_english_period():
+    service = EvidenceGroundingService()
+
+    assert service.unsupported_numbers(
+        "在评测中 Recall@10 达到 0.89。",
+        ["Evaluated 320 queries and achieved Recall@10 of 0.89."],
+    ) == []
+
+
+def test_grounding_excludes_future_intent_from_candidate_claims():
+    service = EvidenceGroundingService()
+
+    claims = service.extract_candidate_claims(
+        "期待有机会参与贵司研究助手的开发工作。"
+        "我实现了 8 个只读工具。"
+    )
+
+    assert "期待有机会参与贵司研究助手的开发工作" not in claims
+    assert "我实现了 8 个只读工具" in claims

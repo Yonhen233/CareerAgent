@@ -1,6 +1,6 @@
 ---
 name: application_packet
-version: 1.0.0
+version: 1.1.0
 status: active
 owner_role: application_operator
 purpose: 生成投递材料，并在任何真实外发动作前执行审批、幂等和审计策略。

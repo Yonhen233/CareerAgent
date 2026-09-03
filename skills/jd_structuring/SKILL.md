@@ -1,6 +1,6 @@
 ---
 name: jd_structuring
-version: 1.0.0
+version: 1.1.0
 status: active
 owner_role: job_analyst
 purpose: 搜索或读取目标岗位，把原始 JD 转换为职责、硬要求、软要求和可检索 Chunk。
@@ -10,6 +10,7 @@ required_inputs:
 allowed_tools:
   - job_search.search_jobs
   - job_repository.load_job
+  - job_repository.create_from_jd
   - jd_parser.parse_jd
   - vector_index.upsert_job_chunks
 context_policy: 完整 JD 只在解析阶段读取；匹配和定制阶段使用结构化要求、摘要和按需 Chunk。

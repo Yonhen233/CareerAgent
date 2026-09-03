@@ -4165,7 +4165,11 @@ class EvaluationService:
         *,
         match_features: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        compressed_context = self.context_compressor.compress_fit_context(profile_json=profile_json, job=job)
+        compressed_context = self.context_compressor.compress_fit_context(
+            profile_json=profile_json,
+            job=job,
+            db=db,
+        )
         decision_features = dict(match_features or {})
         system_prompt = (
             "You are a strict, evidence-grounded job-fit evaluator. Return JSON only. "

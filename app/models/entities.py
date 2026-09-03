@@ -596,6 +596,31 @@ class LLMCallLog(Base):
     )
 
 
+class ContextCompressionTrace(Base):
+    __tablename__ = "context_compression_traces"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    run_id: Mapped[int | None] = mapped_column(ForeignKey("agent_runs.id"), nullable=True, index=True)
+    node: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    task_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    runtime_version: Mapped[str] = mapped_column(String(80), nullable=False)
+    contract_name: Mapped[str] = mapped_column(String(80), nullable=False, index=True)
+    contract_version: Mapped[str] = mapped_column(String(32), nullable=False)
+    mode: Mapped[str] = mapped_column(String(24), nullable=False, default="shadow", index=True)
+    raw_input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    final_input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    actual_prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    actual_completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    actual_total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    critical_fact_recall: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    quality_gate_passed: Mapped[bool] = mapped_column(nullable=False, default=False)
+    latency_ms: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    trace_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False, index=True
+    )
+
+
 class HttpRequestMetric(Base):
     __tablename__ = "http_request_metrics"
 

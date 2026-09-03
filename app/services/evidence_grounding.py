@@ -216,13 +216,13 @@ class EvidenceGroundingService:
         for field in ("required_skills", "preferred_skills"):
             for value in parsed.get(field) or []:
                 clean = str(value or "").strip()
-                if clean and not self.value_supported(clean, raw_text):
+                if clean and self.normalize(clean) not in allowed and not self.value_supported(clean, raw_text):
                     unsupported_skills.append({"field": field, "value": clean})
 
         unsupported_keywords = []
         for value in parsed.get("keywords") or []:
             clean = str(value or "").strip()
-            if clean and not self.value_supported(clean, raw_text):
+            if clean and self.normalize(clean) not in allowed and not self.value_supported(clean, raw_text):
                 unsupported_keywords.append({"field": "keywords", "value": clean})
 
         statement_results: list[dict[str, Any]] = []
@@ -418,10 +418,11 @@ class EvidenceGroundingService:
 
     def unsupported_numbers(self, text: str, sources: Iterable[Any]) -> list[str]:
         source_text = "\n".join(str(item or "") for item in sources if str(item or "").strip())
-        source_numbers = set(re.findall(r"\b\d+(?:\.\d+)?%?\b", source_text))
+        number_pattern = r"(?<![\d.])\d+(?:\.\d+)?%?(?!\d)"
+        source_numbers = set(re.findall(number_pattern, source_text))
         return sorted(
             number
-            for number in set(re.findall(r"\b\d+(?:\.\d+)?%?\b", text or ""))
+            for number in set(re.findall(number_pattern, text or ""))
             if number not in source_numbers
         )
 
@@ -430,6 +431,19 @@ class EvidenceGroundingService:
         for line in re.split(r"[\n。！？!?；;]+", text or ""):
             clean = re.sub(r"^[\s#>*\-\d.、]+", "", line).strip()
             lowered = clean.lower()
+            if any(
+                cue in lowered
+                for cue in (
+                    "期待有机会",
+                    "期待进一步",
+                    "希望有机会",
+                    "希望进一步",
+                    "愿意进一步",
+                    "look forward to",
+                    "hope to have the opportunity",
+                )
+            ):
+                continue
             if len(clean) < 12 or not any(cue in lowered for cue in CLAIM_CUES):
                 continue
             claims.append(clean)

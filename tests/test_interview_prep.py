@@ -27,8 +27,11 @@ from app.services.vector_index import SQLiteVectorIndex
 def _verifier_claims(payload):
     flattened = []
     for group in payload["items"]:
+        available_evidence = group.get("available_evidence") or (
+            (payload.get("shared_context") or {}).get("evidence_by_question") or {}
+        ).get(group["question_id"], [])
         evidence_by_alias = {
-            item["evidence_id"]: item for item in group["available_evidence"]
+            item["evidence_id"]: item for item in available_evidence
         }
         for item in group["claims"]:
             cited = [
@@ -43,7 +46,7 @@ def _verifier_claims(payload):
                     **item,
                     "question_id": group["question_id"],
                     "question": group.get("question", ""),
-                    "available_evidence": group["available_evidence"],
+                    "available_evidence": available_evidence,
                     "allowed_claim_types": allowed,
                 }
             )
@@ -178,7 +181,8 @@ class FakeAgenticInterviewLLM:
                 ensure_ascii=False,
             )
         if trace_name.startswith("interview_agentic_rag.generate."):
-            return self._answer_payload(json.loads(user_prompt)["items"])
+            payload = json.loads(user_prompt)
+            return self._answer_payload(_materialize_answer_items(payload))
         if trace_name.startswith("interview_agentic_rag.verify."):
             payload = json.loads(user_prompt)
             claims = _verifier_claims(payload)
@@ -244,7 +248,8 @@ class FakeAgenticInterviewLLM:
                 ensure_ascii=False,
             )
         if trace_name.startswith("interview_agentic_rag.repair."):
-            return self._answer_payload(json.loads(user_prompt)["generation_input"]["items"])
+            generation = json.loads(user_prompt)["generation_input"]
+            return self._answer_payload(_materialize_answer_items(generation))
         raise AssertionError(f"Unexpected LLM trace: {trace_name}")
 
     def _answer_payload(self, items):
@@ -300,6 +305,17 @@ class FakeAgenticInterviewLLM:
                 }
             )
         return json.dumps({"answers": answers}, ensure_ascii=False)
+
+
+def _materialize_answer_items(payload):
+    shared = (payload.get("shared_context") or {}).get("evidence_by_question") or {}
+    return [
+        {
+            **item,
+            "evidence": item.get("evidence") or shared.get(item["question_id"], []),
+        }
+        for item in payload["items"]
+    ]
 
 
 class MalformedThenRepairedJSONLLM:
@@ -1212,6 +1228,64 @@ def test_interview_prep_quality_judge_flags_weak_questions(db_session):
     assert quality["issue_counts"]["jd_alignment"] >= 1
     assert quality["issue_counts"]["follow_up_depth"] >= 1
     assert quality["issue_counts"]["reference_answer_usability"] >= 1
+
+
+def test_interview_coverage_reads_required_skills_from_question_content():
+    service = InterviewPrepService()
+    coverage = service._coverage(
+        required=["Pydantic", "RAG"],
+        matched=["Pydantic", "RAG"],
+        missing=[],
+        question_sets=[
+            {
+                "category": "技术题",
+                "questions": [
+                    {
+                        "question": "Pydantic 如何校验 RAG 工作流的结构化输出？",
+                        "follow_ups": ["失败时如何处理？", "如何记录 trace？"],
+                        "skills": [],
+                        "source_perspective": "jd_technical_depth",
+                    }
+                ],
+            }
+        ],
+        gap_drills=[],
+        evidence=[],
+        question_quality={"passed": True},
+    )
+
+    assert coverage["required_skill_coverage_rate"] == 1.0
+
+
+def test_high_difficulty_question_is_not_misclassified_as_missing_skill_gap(db_session):
+    profile, job = _seed_profile_job(db_session)
+    quality = InterviewPrepService()._question_quality_judge(
+        profile=profile,
+        job=job,
+        question_sets=[
+            {
+                "category": "高难项目题",
+                "questions": [
+                    {
+                        "question_id": "hard_1",
+                        "question": "如何评估 RAG 引用正确性？",
+                        "source_perspective": "llm_project_implementation",
+                        "risk_level": "high",
+                        "skills": ["RAG"],
+                        "follow_ups": ["如何构建坏样例？", "如何设置发布门控？"],
+                    }
+                ],
+            }
+        ],
+        required=["RAG"],
+        preferred=[],
+        keywords=[],
+        missing=["MLflow"],
+        evidence=[],
+    )
+
+    assert quality["rates"]["gap_boundary"] == 1.0
+    assert "gap_boundary" not in quality["issue_counts"]
 
 
 def test_interview_prep_dedupes_questions_before_quality_gate(db_session):

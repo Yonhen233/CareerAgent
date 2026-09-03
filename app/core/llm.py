@@ -4,6 +4,7 @@ import json
 import math
 import re
 import time
+import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -12,8 +13,11 @@ from typing import Any
 
 import httpx
 
+from app.agents.prompt_registry import PromptRegistry
 from app.core.config import get_settings
 from app.core.redaction import SecurityRedactor
+from app.services.context_runtime import ContextRuntimeV2, ContextScope
+from app.services.token_optimization import OutputTokenPolicy, PromptSectionProfiler
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -51,8 +55,66 @@ class LLMCallBudget:
     actual_prompt_tokens: int = 0
     actual_completion_tokens: int = 0
     actual_total_tokens: int = 0
+    business_calls: int = 0
+    repair_calls: int = 0
+    estimated_input_tokens: int = 0
+    max_business_calls: int | None = None
+    max_http_attempts: int | None = None
+    max_repair_calls: int | None = None
+    max_input_tokens: int | None = None
+    max_output_tokens: int | None = None
+    max_total_tokens: int | None = None
+    duplicate_context_tokens: int = 0
+    section_hashes: set[str] = field(default_factory=set)
     traces: list[str] = field(default_factory=list)
     parent: "LLMCallBudget | None" = field(default=None, repr=False)
+
+    def start_business_call(
+        self,
+        *,
+        trace_name: str,
+        estimated_input_tokens: int,
+        repair_type: str,
+        prompt_sections: dict[str, Any] | None = None,
+    ) -> int:
+        section_rows = (prompt_sections or {}).get("sections") or {}
+        duplicate_for_active = 0
+        for budget in self._budget_chain():
+            next_business_calls = budget.business_calls + 1
+            next_repair_calls = budget.repair_calls + int(repair_type != "none")
+            next_input_tokens = budget.estimated_input_tokens + max(0, estimated_input_tokens)
+            if budget.max_business_calls is not None and next_business_calls > budget.max_business_calls:
+                raise LLMBudgetExceededError(
+                    f"LLM budget {budget.name} exceeds max_business_calls={budget.max_business_calls} "
+                    f"before {trace_name}."
+                )
+            for section in section_rows.values():
+                section_hash = str(section.get("sha256") or "")
+                section_tokens = int(section.get("tokens") or 0)
+                if section_hash and section_hash in budget.section_hashes:
+                    budget.duplicate_context_tokens += section_tokens
+                    if budget is self:
+                        duplicate_for_active += section_tokens
+            if budget.max_repair_calls is not None and next_repair_calls > budget.max_repair_calls:
+                raise LLMBudgetExceededError(
+                    f"LLM budget {budget.name} exceeds max_repair_calls={budget.max_repair_calls} "
+                    f"before {trace_name}."
+                )
+            if budget.max_input_tokens is not None and next_input_tokens > budget.max_input_tokens:
+                raise LLMBudgetExceededError(
+                    f"LLM budget {budget.name} exceeds max_input_tokens={budget.max_input_tokens} "
+                    f"before {trace_name}."
+                )
+        for budget in self._budget_chain():
+            budget.business_calls += 1
+            budget.repair_calls += int(repair_type != "none")
+            budget.estimated_input_tokens += max(0, estimated_input_tokens)
+            budget.section_hashes.update(
+                str(section.get("sha256"))
+                for section in section_rows.values()
+                if section.get("sha256")
+            )
+        return duplicate_for_active
 
     def reserve(self, *, trace_name: str, prompt_chars: int, max_tokens: int | None) -> None:
         completion_tokens = max(0, int(max_tokens or 0))
@@ -76,6 +138,10 @@ class LLMCallBudget:
         prompt_chars: int,
         completion_tokens: int,
     ) -> None:
+        if self.max_http_attempts is not None and self.calls + 1 > self.max_http_attempts:
+            raise LLMBudgetExceededError(
+                f"LLM budget {self.name} exceeds max_http_attempts={self.max_http_attempts} before {trace_name}."
+            )
         if self.calls + 1 > self.max_calls:
             raise LLMBudgetExceededError(
                 f"LLM budget {self.name} exceeds max_calls={self.max_calls} before {trace_name}."
@@ -108,6 +174,16 @@ class LLMCallBudget:
         total_tokens: int,
     ) -> None:
         for budget in self._budget_chain():
+            next_output = budget.actual_completion_tokens + max(0, completion_tokens)
+            next_total = budget.actual_total_tokens + max(0, total_tokens)
+            if budget.max_output_tokens is not None and next_output > budget.max_output_tokens:
+                raise LLMBudgetExceededError(
+                    f"LLM budget {budget.name} exceeds max_output_tokens={budget.max_output_tokens}."
+                )
+            if budget.max_total_tokens is not None and next_total > budget.max_total_tokens:
+                raise LLMBudgetExceededError(
+                    f"LLM budget {budget.name} exceeds max_total_tokens={budget.max_total_tokens}."
+                )
             budget.actual_prompt_tokens += max(0, prompt_tokens)
             budget.actual_completion_tokens += max(0, completion_tokens)
             budget.actual_total_tokens += max(0, total_tokens)
@@ -119,11 +195,21 @@ class LLMCallBudget:
                 "max_calls": self.max_calls,
                 "max_prompt_chars": self.max_prompt_chars,
                 "max_completion_tokens": self.max_completion_tokens,
+                "max_business_calls": self.max_business_calls,
+                "max_http_attempts": self.max_http_attempts,
+                "max_repair_calls": self.max_repair_calls,
+                "max_input_tokens": self.max_input_tokens,
+                "max_output_tokens": self.max_output_tokens,
+                "max_total_tokens": self.max_total_tokens,
             },
             "reserved": {
                 "calls": self.calls,
+                "business_calls": self.business_calls,
+                "repair_calls": self.repair_calls,
                 "prompt_chars": self.prompt_chars,
                 "completion_tokens": self.reserved_completion_tokens,
+                "estimated_input_tokens": self.estimated_input_tokens,
+                "duplicate_context_tokens": self.duplicate_context_tokens,
             },
             "actual": {
                 "prompt_tokens": self.actual_prompt_tokens,
@@ -199,6 +285,10 @@ class LLMClient:
     def __init__(self) -> None:
         self.settings = get_settings()
         self.redactor = SecurityRedactor()
+        self.prompt_registry = PromptRegistry()
+        self.context_runtime_v2 = ContextRuntimeV2()
+        self.prompt_section_profiler = PromptSectionProfiler()
+        self.output_token_policy = OutputTokenPolicy()
 
     @property
     def available(self) -> bool:
@@ -243,12 +333,58 @@ class LLMClient:
         response_format: dict[str, Any] | None = None,
         db: "Session | None" = None,
         trace_name: str = "llm.generate_text",
+        prompt_sections: dict[str, Any] | None = None,
     ) -> str:
         started = time.perf_counter()
+        business_call_id = uuid.uuid4().hex
+        repair_type = self._repair_type(trace_name)
         route = self.resolve_route(trace_name)
         effective_max_tokens = self.effective_max_tokens(max_tokens, route)
+        policy_max_tokens, output_policy = self.output_token_policy.limit(trace_name, effective_max_tokens)
+        if self.settings.token_optimization_v2_enabled:
+            effective_max_tokens = policy_max_tokens
+        prepared_prompt = self.prompt_registry.prepare(
+            trace_name=trace_name,
+            system_prompt=system_prompt,
+        )
+        effective_system_prompt = prepared_prompt.system_prompt
+        runtime_context = dict(_LLM_TRACE_CONTEXT.get() or {})
+        context_v2_result = None
+        if self.settings.context_runtime_v2_enabled or self.settings.context_runtime_v2_shadow_mode:
+            try:
+                context_v2_result = self.context_runtime_v2.observe_text_prompt(
+                    trace_name=trace_name,
+                    system_prompt=effective_system_prompt,
+                    user_prompt=user_prompt,
+                    run_id=self._optional_int(runtime_context.get("run_id")),
+                    task_type=str(runtime_context.get("task_type") or ""),
+                    scope=ContextScope(
+                        tenant_id=str(
+                            runtime_context.get("tenant_id") or self.settings.rbac_default_tenant_id
+                        ),
+                        user_id=str(runtime_context.get("user_id") or "runtime"),
+                        profile_id=self._optional_int(runtime_context.get("profile_id")),
+                    ),
+                    prompt_version=str(prepared_prompt.provenance.get("prompt_version") or "unregistered"),
+                    skill_versions=dict(prepared_prompt.provenance.get("skill_versions") or {}),
+                )
+                if self.settings.context_runtime_v2_enabled and context_v2_result is not None:
+                    effective_system_prompt = str(
+                        context_v2_result.packet.get("control_context", {}).get(
+                            "system_prompt", effective_system_prompt
+                        )
+                    )
+                    user_prompt = str(
+                        context_v2_result.packet.get("working_context", {}).get(
+                            "user_prompt", user_prompt
+                        )
+                    )
+            except Exception as exc:
+                if self.settings.context_runtime_v2_enabled:
+                    raise
+                context_v2_result = {"shadow_error": format_exception(exc)}
         prompt_preview = self._prompt_preview(
-            system_prompt,
+            effective_system_prompt,
             user_prompt,
             temperature,
             effective_max_tokens,
@@ -260,8 +396,23 @@ class LLMClient:
                 "model_route": route.name,
                 "routed_model": route.model,
                 "max_tokens_multiplier": route.max_tokens_multiplier,
+                "business_call_id": business_call_id,
+                "repair_type": repair_type,
+                "output_token_policy": output_policy,
+                **prepared_prompt.provenance,
             }
         )
+        prompt_preview["prompt_sections"] = self.prompt_section_profiler.profile(
+            system_prompt=effective_system_prompt,
+            user_prompt=user_prompt,
+            skill_policy_chars=int(prepared_prompt.provenance.get("skill_policy_chars") or 0),
+            response_format=response_format,
+            explicit_sections=prompt_sections,
+        )
+        if context_v2_result is not None:
+            prompt_preview["context_runtime_v2"] = (
+                context_v2_result.trace if hasattr(context_v2_result, "trace") else context_v2_result
+            )
         if not self.available:
             error = "LLM_API_KEY and LLM_BASE_URL are required for online generation."
             self._record_llm_call(
@@ -281,6 +432,17 @@ class LLMClient:
         prompt_chars = int(prompt_preview.get("system_chars", 0)) + int(
             prompt_preview.get("user_chars", 0)
         )
+        estimated_input_tokens = int(
+            (prompt_preview.get("prompt_sections") or {}).get("total_section_tokens") or 0
+        )
+        if active_budget is not None:
+            duplicate_context_tokens = active_budget.start_business_call(
+                trace_name=trace_name,
+                estimated_input_tokens=estimated_input_tokens,
+                repair_type=repair_type,
+                prompt_sections=prompt_preview.get("prompt_sections"),
+            )
+            prompt_preview["duplicate_context_tokens"] = duplicate_context_tokens
         headers = {
             "Authorization": f"Bearer {self.settings.effective_llm_api_key}",
             "Content-Type": "application/json",
@@ -288,7 +450,7 @@ class LLMClient:
         payload = {
             "model": route.model,
             "messages": [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": effective_system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": temperature,
@@ -349,8 +511,8 @@ class LLMClient:
                         f"thinking_mode={self.settings.llm_thinking_mode})."
                     )
                 content = content.strip()
-                usage = body.get("usage") if isinstance(body, dict) else None
-                usage = usage if isinstance(usage, dict) else {}
+                raw_usage = body.get("usage") if isinstance(body, dict) else None
+                usage = raw_usage if isinstance(raw_usage, dict) else {}
                 prompt_tokens = self._usage_int(usage, "prompt_tokens", "input_tokens")
                 completion_tokens = self._usage_int(usage, "completion_tokens", "output_tokens")
                 total_tokens = self._usage_int(usage, "total_tokens")
@@ -363,6 +525,12 @@ class LLMClient:
                         completion_tokens=completion_tokens,
                         total_tokens=total_tokens,
                     )
+                if context_v2_result is not None and hasattr(context_v2_result, "trace"):
+                    estimated = int(context_v2_result.trace.get("final_input_tokens") or 0)
+                    self.context_runtime_v2.estimator.calibrate(
+                        estimated_tokens=estimated,
+                        actual_prompt_tokens=prompt_tokens,
+                    )
                 self._record_llm_call(
                     db,
                     trace_name=trace_name,
@@ -373,7 +541,7 @@ class LLMClient:
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
                     total_tokens=total_tokens,
-                    provider_usage=provider_usage,
+                    provider_usage=provider_usage if isinstance(raw_usage, dict) else None,
                     error_message=None,
                     started_at=started,
                     model=route.model,
@@ -413,6 +581,13 @@ class LLMClient:
                 return value
         return 0
 
+    @staticmethod
+    def _optional_int(value: Any) -> int | None:
+        try:
+            return int(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+
     @classmethod
     def _provider_usage_details(cls, usage: dict[str, Any]) -> dict[str, int]:
         aliases = {
@@ -441,6 +616,7 @@ class LLMClient:
         max_tokens: int | None = None,
         db: "Session | None" = None,
         trace_name: str = "llm.generate_json",
+        prompt_sections: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         text = await self.generate_text(
             system_prompt=system_prompt,
@@ -450,6 +626,7 @@ class LLMClient:
             response_format={"type": "json_object"},
             db=db,
             trace_name=trace_name,
+            prompt_sections=prompt_sections,
         )
         return extract_json_object(text)
 
@@ -525,7 +702,7 @@ class LLMClient:
         if db is None:
             return
         try:
-            from app.models.entities import LLMCallLog
+            from app.models.entities import ContextCompressionTrace, LLMCallLog
 
             context = dict(_LLM_TRACE_CONTEXT.get() or {})
             if route_name:
@@ -534,6 +711,37 @@ class LLMClient:
                 context["routed_model"] = model
             if provider_usage:
                 context["provider_usage"] = dict(provider_usage)
+            context.update(
+                {
+                    "business_call_id": prompt_preview.get("business_call_id"),
+                    "run_id": self._optional_int(
+                        context.get("run_id")
+                        or context.get("agent_run_id")
+                        or context.get("workflow_run_id")
+                    ),
+                    "repair_type": prompt_preview.get("repair_type", "none"),
+                    "usage_status": (
+                        "provider_reported"
+                        if provider_usage is not None
+                        else "missing"
+                    ),
+                    "cached_tokens": int((provider_usage or {}).get("cached_tokens") or 0),
+                    "reasoning_tokens": int((provider_usage or {}).get("reasoning_tokens") or 0),
+                    "context_compression_version": (
+                        (prompt_preview.get("context_runtime_v2") or {}).get("context_runtime_version")
+                        if isinstance(prompt_preview.get("context_runtime_v2"), dict)
+                        else None
+                    ),
+                    "output_token_limit": prompt_preview.get("max_tokens"),
+                    "duplicate_context_tokens": int(
+                        prompt_preview.get("duplicate_context_tokens") or 0
+                    ),
+                    "graph_node": context.get("graph_node") or context.get("stage") or trace_name,
+                    "node": context.get("graph_node") or context.get("stage") or trace_name,
+                    "batch_id": context.get("batch_id")
+                    or prompt_preview.get("business_call_id"),
+                }
+            )
             db.add(
                 LLMCallLog(
                     trace_name=trace_name,
@@ -556,6 +764,43 @@ class LLMClient:
                     context_json=context,
                 )
             )
+            context_trace = prompt_preview.get("context_runtime_v2")
+            if isinstance(context_trace, dict) and context_trace.get("contract_name"):
+                db.add(
+                    ContextCompressionTrace(
+                        run_id=self._optional_int(context_trace.get("run_id")),
+                        node=str(context_trace.get("node") or trace_name),
+                        task_type=str(context_trace.get("task_type") or "unknown"),
+                        runtime_version=str(context_trace.get("context_runtime_version") or "v2"),
+                        contract_name=str(context_trace.get("contract_name") or "unknown"),
+                        contract_version=str(context_trace.get("contract_version") or "unknown"),
+                        mode=(
+                            "active"
+                            if self.settings.context_runtime_v2_enabled
+                            else "shadow"
+                        ),
+                        raw_input_tokens=int(context_trace.get("raw_input_tokens") or 0),
+                        final_input_tokens=int(context_trace.get("final_input_tokens") or 0),
+                        actual_prompt_tokens=max(0, int(prompt_tokens or 0)),
+                        actual_completion_tokens=max(0, int(completion_tokens or 0)),
+                        actual_total_tokens=max(0, int(total_tokens or 0)),
+                        critical_fact_recall=float(context_trace.get("critical_fact_recall") or 0.0),
+                        quality_gate_passed=bool(context_trace.get("quality_gate_passed")),
+                        latency_ms=float(context_trace.get("latency_ms") or 0.0),
+                        trace_json=context_trace,
+                    )
+                )
             db.commit()
         except Exception:
             db.rollback()
+
+    @staticmethod
+    def _repair_type(trace_name: str) -> str:
+        lowered = trace_name.lower()
+        if "json_repair" in lowered:
+            return "json_repair"
+        if "contract_repair" in lowered:
+            return "contract_repair"
+        if "repair" in lowered:
+            return "quality_repair"
+        return "none"

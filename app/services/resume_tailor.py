@@ -50,17 +50,23 @@ class ResumeTailorService:
         job: Job,
         *,
         idempotency_key: str | None = None,
+        evidence: list[dict[str, Any]] | None = None,
+        retrieval_quality: dict[str, Any] | None = None,
     ) -> ResumeVersion:
         if idempotency_key:
             existing = db.query(ResumeVersion).filter(ResumeVersion.idempotency_key == idempotency_key).first()
             if existing is not None:
                 return existing
-        raw_evidence, retrieval_quality = self.matcher.retrieve_evidence_with_quality(
-            db,
-            profile.id,
-            job,
-            top_k=10,
-        )
+        if evidence is None or retrieval_quality is None:
+            raw_evidence, retrieval_quality = self.matcher.retrieve_evidence_with_quality(
+                db,
+                profile.id,
+                job,
+                top_k=10,
+            )
+        else:
+            raw_evidence = [dict(item) for item in evidence]
+            retrieval_quality = dict(retrieval_quality)
         if not retrieval_quality.get("passed"):
             raise RetrievalQualityError(
                 retrieval_failure_message(retrieval_quality),
@@ -89,6 +95,7 @@ class ResumeTailorService:
             profile=profile,
             job=job,
             evidence=evidence,
+            db=db,
         )
         if self.llm.available:
             draft = await self._llm_tailor(db, profile, job, evidence, compressed_context)

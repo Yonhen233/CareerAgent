@@ -4,7 +4,17 @@ from app.agents.orchestrator import AgentOrchestrator
 from app.agents.skills import active_skill_names_for_task
 from app.agents.subagents import subagents_for_task
 from app.agents.tools import AgentPlanner
-from app.models.entities import AgentEvent, Application, InterviewPrep, Job, MatchResult, Profile, ResumeVersion
+from app.models.entities import (
+    AgentArtifact,
+    AgentEvent,
+    AgentStep,
+    Application,
+    InterviewPrep,
+    Job,
+    MatchResult,
+    Profile,
+    ResumeVersion,
+)
 from app.models.schemas import AgentRunRequest
 from app.services.resume_tailor import ResumeTailorService
 from app.services.text_splitter import ResumeTextSplitter
@@ -227,6 +237,13 @@ def test_full_career_flow_orchestrator_runs_all_core_stages(db_session):
             db.refresh(result)
             return result
 
+        def retrieve_evidence_with_quality(self, db, profile_id, job, top_k=10):
+            del db, profile_id, job, top_k
+            return (
+                [{"text": "CareerAgent with FastAPI, RAG, SQLite and LLM evaluation.", "chunk_type": "project"}],
+                {"passed": True, "confidence": 1.0, "evidence_count": 1},
+            )
+
     class FakeTailor:
         async def tailor_resume(self, db, profile, job):
             version = ResumeVersion(
@@ -322,6 +339,19 @@ def test_full_career_flow_orchestrator_runs_all_core_stages(db_session):
     assert run.output_json["orchestration_framework"] == "langgraph"
     assert run.output_json["execution_plan"]["graph_thread_id"] == run.output_json["graph_thread_id"]
     assert db_session.query(MatchResult).count() == 1
+    completed_steps = {
+        row.step_name
+        for row in db_session.query(AgentStep).filter(
+            AgentStep.run_id == run.id,
+            AgentStep.status == "completed",
+        )
+    }
+    assert {"retrieve_resume_evidence", "tailor_resume_with_rag", "verify_resume"} <= completed_steps
+    artifact_types = {
+        row.artifact_type
+        for row in db_session.query(AgentArtifact).filter(AgentArtifact.run_id == run.id)
+    }
+    assert {"resume_evidence_retrieval", "tailored_resume", "resume_verification"} <= artifact_types
     event_types = {
         row.event_type
         for row in db_session.query(AgentEvent).filter(AgentEvent.run_id == run.id).all()
@@ -373,6 +403,13 @@ def test_full_career_flow_with_target_job_skips_job_search(db_session):
             db.commit()
             db.refresh(result)
             return result
+
+        def retrieve_evidence_with_quality(self, db, profile_id, job, top_k=10):
+            del db, profile_id, job, top_k
+            return (
+                [{"text": "CareerAgent with LangGraph, FastAPI, RAG and SQLite.", "chunk_type": "project"}],
+                {"passed": True, "confidence": 1.0, "evidence_count": 1},
+            )
 
     class FakeTailor:
         async def tailor_resume(self, db, profile, job):

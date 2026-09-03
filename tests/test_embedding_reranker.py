@@ -79,7 +79,7 @@ def test_chinese_heuristic_reranker_prefers_architecture_evidence():
     assert reranked[0]["uid"] == "architecture"
 
 
-def test_english_cross_encoder_is_not_used_for_chinese_query(monkeypatch):
+def test_english_cross_encoder_uses_multilingual_embedding_for_chinese_query(monkeypatch):
     service = RerankerService(
         enabled=True,
         provider="cross_encoder",
@@ -90,6 +90,11 @@ def test_english_cross_encoder_is_not_used_for_chinese_query(monkeypatch):
         service,
         "_load_cross_encoder",
         lambda: (_ for _ in ()).throw(AssertionError("English reranker must not score Chinese queries")),
+    )
+    monkeypatch.setattr(
+        service,
+        "_multilingual_embedding_scores",
+        lambda query, texts: ([0.1, 0.9], {"reranker_provider": "multilingual_embedding", "language_route": "cjk_semantic"}),
     )
 
     reranked = service.rerank_dicts(
@@ -107,8 +112,8 @@ def test_english_cross_encoder_is_not_used_for_chinese_query(monkeypatch):
     )
 
     assert reranked[0]["uid"] == "architecture"
-    assert reranked[0]["metadata"]["rerank"]["reranker_provider"] == "heuristic"
-    assert "English-only" in reranked[0]["metadata"]["rerank"]["fallback_reason"]
+    assert reranked[0]["metadata"]["rerank"]["reranker_provider"] == "multilingual_embedding"
+    assert reranked[0]["metadata"]["rerank"]["language_route"] == "cjk_semantic"
 
 
 def test_chinese_language_route_preserves_high_confidence_first_stage_anchor():
@@ -117,6 +122,10 @@ def test_chinese_language_route_preserves_high_confidence_first_stage_anchor():
         provider="cross_encoder",
         model_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
         anchor_top_n=5,
+    )
+    service._multilingual_embedding_scores = lambda query, texts: (
+        [0.1] * 5 + [0.9],
+        {"reranker_provider": "multilingual_embedding", "language_route": "cjk_semantic"},
     )
     candidates = [
         {
@@ -143,7 +152,7 @@ def test_chinese_language_route_preserves_high_confidence_first_stage_anchor():
 
     assert [item["uid"] for item in reranked[:5]] == [f"noise-{index}" for index in range(5)]
     assert reranked[5]["uid"] == "fastapi"
-    assert reranked[5]["metadata"]["rerank"]["language_route"] == "cjk_lexical"
+    assert reranked[5]["metadata"]["rerank"]["language_route"] == "cjk_semantic"
 
 
 def test_cross_encoder_reranks_multiple_query_groups_in_one_predict_call(monkeypatch):

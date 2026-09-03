@@ -106,8 +106,8 @@ Redis worker 也读取同一 envelope。不可重试 poison message 第一次就
 - exact/BM25/vector/RRF、来源配额和正文组合全部确定化；
 - 10 题一次批量生成 claims，一次批量验证；
 - 服务端只组合 verified claims；
-- 正常路径 3 次 LLM，最多一轮失败题 repair，总调用不超过 5；
-- 增加 70,000 Prompt 字符和 15,000 completion token 预留硬预算，每次 HTTP attempt 都计数。
+- 正常路径由问题生成、答案 Batch 和 Verifier Batch 组成；JSON repair 最多 1 次，答案定向 repair 最多 2 轮，整个面试链业务调用不超过 8；
+- 增加 100,000 Prompt 字符和 15,000 completion token 预留硬预算，HTTP attempt 另受父级预算约束。
 
 ### 结果与经验
 

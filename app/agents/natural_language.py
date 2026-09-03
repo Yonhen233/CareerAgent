@@ -22,16 +22,20 @@ from app.models.schemas import (
     GuidedProfileRequest,
     JobDiscoveryRequest,
     NaturalLanguageAgentRequest,
+    TaskState,
 )
 from app.services.job_discovery import JobDiscoveryService
 from app.services.langgraph_checkpointer import LangGraphCheckpointerLifecycle
 from app.services.agent_reliability import AgentTaskContractService, AgentTaskIncompleteError
+from app.services.conversation_compactor import ConversationCompactor
 from app.services.execution_provenance import ExecutionProvenanceService
 from app.services.jd_parser import JDParserService
 from app.services.memory_feedback import CareerMemoryService
 from app.services.resume_parser import ResumeParserService
 from app.services.text_splitter import ResumeTextSplitter
+from app.services.task_state import TaskStateReducer, TaskStateValidationError
 from app.services.trace_service import TraceService
+from app.services.token_optimization import DynamicToolCatalog, NodeTokenBudgetRegistry
 from app.services.vector_index import SQLiteVectorIndex
 
 
@@ -79,6 +83,8 @@ class NaturalLanguageGraphState(TypedDict, total=False):
     graph_thread_id: str
     plan: dict[str, Any]
     task_contract: dict[str, Any]
+    context_refs: dict[str, Any]
+    task_state: dict[str, Any]
     memory_context: dict[str, Any]
     completion_verification: dict[str, Any]
     result: dict[str, Any]
@@ -106,6 +112,9 @@ class NaturalLanguageAgentService:
         self.job_discovery = JobDiscoveryService()
         self.settings = get_settings()
         self.task_contracts = AgentTaskContractService()
+        self.dynamic_tool_catalog = DynamicToolCatalog()
+        self.conversation_compactor = ConversationCompactor(self.llm)
+        self.task_state_reducer = TaskStateReducer()
         self._runtime_dbs: dict[int, Session] = {}
         self._checkpoint_lifecycle = LangGraphCheckpointerLifecycle(settings=self.settings)
         self.checkpointer = None
@@ -149,6 +158,36 @@ class NaturalLanguageAgentService:
             max_calls=self.settings.natural_agent_max_llm_calls,
             max_prompt_chars=self.settings.natural_agent_max_prompt_chars,
             max_completion_tokens=self.settings.natural_agent_max_completion_tokens,
+            max_business_calls=(
+                self.settings.llm_max_calls_per_run
+                if self.settings.token_optimization_v2_enabled
+                else None
+            ),
+            max_http_attempts=(
+                self.settings.llm_max_attempts_per_run
+                if self.settings.token_optimization_v2_enabled
+                else None
+            ),
+            max_repair_calls=(
+                self.settings.llm_max_repair_calls
+                if self.settings.token_optimization_v2_enabled
+                else None
+            ),
+            max_input_tokens=(
+                self.settings.llm_max_input_tokens_per_run
+                if self.settings.token_optimization_v2_enabled
+                else None
+            ),
+            max_output_tokens=(
+                self.settings.llm_max_output_tokens_per_run
+                if self.settings.token_optimization_v2_enabled
+                else None
+            ),
+            max_total_tokens=(
+                self.settings.llm_max_total_tokens_per_run
+                if self.settings.token_optimization_v2_enabled
+                else None
+            ),
         )
         try:
             graph = await self._ensure_graph()
@@ -156,6 +195,7 @@ class NaturalLanguageAgentService:
                 workflow="natural_language_agent",
                 workflow_run_id=str(run.id),
                 agent_run_id=run.id,
+                run_id=run.id,
             ), llm_call_budget(llm_budget):
                 final_state = await self._invoke_graph(
                     graph,
@@ -164,6 +204,19 @@ class NaturalLanguageAgentService:
                         "run_id": run.id,
                         "graph_thread_id": graph_thread_id,
                         "repair_attempts": [],
+                        "task_state": (request.task_state or TaskState()).model_dump(),
+                        "context_refs": {
+                            "profile_id": request.profile_id,
+                            "job_id": request.job_id,
+                            "resume_version_id": request.resume_version_id,
+                            "evidence_citations": [],
+                            "artifact_ids": [],
+                            "approval_id": None,
+                            "tool_receipt_ids": [],
+                            "conversation_summary_artifact_id": None,
+                            "task_state_version": (request.task_state or TaskState()).version,
+                            "data_versions": {},
+                        },
                     },
                     db=db,
                     run_id=run.id,
@@ -202,6 +255,7 @@ class NaturalLanguageAgentService:
                 "plan_json": {},
                 "result_json": {"error": str(exc)},
                 "repair_attempts": [],
+                "task_state": (request.task_state or TaskState()).model_dump(),
                 "orchestration_framework": "langgraph",
                 "graph_thread_id": graph_thread_id,
             }
@@ -311,8 +365,27 @@ class NaturalLanguageAgentService:
             run_id=state["run_id"],
             step_name="parse_user_request",
             input_json={"instruction": request.instruction},
-            tool=bind_agent_tool("llm.intent_planner", lambda: self._build_plan(db, request)),
+            tool=bind_agent_tool(
+                "llm.intent_planner",
+                lambda: self._build_plan_for_run(db, request, run_id=state["run_id"]),
+            ),
         )
+        previous_task_state = TaskState.model_validate(
+            state.get("task_state") or request.task_state or {}
+        )
+        source_message_id = self._current_user_message_id(request, run_id=state["run_id"])
+        task_state = self.task_state_reducer.merge(
+            previous_task_state,
+            plan.get("state_updates"),
+            source_message_id=source_message_id,
+            source_role="user",
+            source_text=request.instruction,
+        )
+        plan["task_state_transition"] = {
+            "source_message_id": source_message_id,
+            "previous_version": previous_task_state.version,
+            "current_version": task_state.version,
+        }
         run = db.query(AgentRun).filter(AgentRun.id == state["run_id"]).one()
         memory_context = CareerMemoryService().compact_context(
             db,
@@ -339,6 +412,17 @@ class NaturalLanguageAgentService:
         self.trace.add_artifact(
             db,
             run_id=state["run_id"],
+            artifact_type="task_state_transition",
+            payload={
+                "source_message_id": source_message_id,
+                "state_updates": plan.get("state_updates") or {},
+                "previous_state": previous_task_state.model_dump(),
+                "current_state": task_state.model_dump(),
+            },
+        )
+        self.trace.add_artifact(
+            db,
+            run_id=state["run_id"],
             artifact_type="memory_context",
             payload=memory_context,
         )
@@ -361,10 +445,34 @@ class NaturalLanguageAgentService:
             artifact_type="task_contract",
             payload=contract,
         )
-        return {"plan": plan, "task_contract": contract, "memory_context": memory_context}
+        context_refs = dict(state.get("context_refs") or {})
+        summary_artifact_id = (plan.get("context_management") or {}).get(
+            "conversation_summary_artifact_id"
+        )
+        summary_state_version = int(
+            (plan.get("context_management") or {}).get("conversation_summary_task_state_version")
+            or 0
+        )
+        context_refs["task_state_version"] = task_state.version
+        if summary_artifact_id and summary_state_version == task_state.version:
+            context_refs["conversation_summary_artifact_id"] = summary_artifact_id
+            context_refs["artifact_ids"] = list(
+                dict.fromkeys([*(context_refs.get("artifact_ids") or []), summary_artifact_id])
+            )
+        elif summary_artifact_id:
+            context_refs["conversation_summary_artifact_id"] = None
+        return {
+            "plan": plan,
+            "task_contract": contract,
+            "memory_context": memory_context,
+            "context_refs": context_refs,
+            "task_state": task_state.model_dump(),
+        }
 
     async def _node_execute_user_plan(self, state: NaturalLanguageGraphState) -> dict[str, Any]:
-        request = NaturalLanguageAgentRequest(**state["request"])
+        request = self._request_with_task_state(
+            NaturalLanguageAgentRequest(**state["request"]), state.get("task_state")
+        )
         db = self._db_from_state(state)
         plan = state.get("plan") or {}
         try:
@@ -436,7 +544,9 @@ class NaturalLanguageAgentService:
         }
 
     async def _node_execute_repaired_user_plan(self, state: NaturalLanguageGraphState) -> dict[str, Any]:
-        request = NaturalLanguageAgentRequest(**state["request"])
+        request = self._request_with_task_state(
+            NaturalLanguageAgentRequest(**state["request"]), state.get("task_state")
+        )
         db = self._db_from_state(state)
         plan = state.get("plan") or {}
         try:
@@ -535,6 +645,7 @@ class NaturalLanguageAgentService:
             "result_json": result,
             "repair_attempts": state.get("repair_attempts") or [],
             "completion_verification": state.get("completion_verification") or {},
+            "task_state": state.get("task_state") or {},
         }
         return {"output": payload}
 
@@ -548,6 +659,7 @@ class NaturalLanguageAgentService:
             "result_json": {"error": error},
             "error_envelope": state.get("error_envelope") or {},
             "repair_attempts": state.get("repair_attempts") or [],
+            "task_state": state.get("task_state") or {},
         }
         return {"output": payload}
 
@@ -573,6 +685,36 @@ class NaturalLanguageAgentService:
         if db is None:
             raise RuntimeError("Natural language LangGraph state is missing the active database session.")
         return db
+
+    @staticmethod
+    def _current_user_message_id(
+        request: NaturalLanguageAgentRequest,
+        *,
+        run_id: int,
+    ) -> str:
+        if request.message_id and request.message_id.strip():
+            return request.message_id.strip()
+        for message in reversed(request.conversation_messages):
+            if str(message.get("role") or "") != "user":
+                continue
+            if str(message.get("content") or "").strip() == request.instruction.strip():
+                value = str(message.get("message_id") or "").strip()
+                if value:
+                    return value
+        return f"run-{run_id}:user"
+
+    @staticmethod
+    def _request_with_task_state(
+        request: NaturalLanguageAgentRequest,
+        task_state: dict[str, Any] | None,
+    ) -> NaturalLanguageAgentRequest:
+        current = TaskState.model_validate(task_state or request.task_state or {})
+        updates: dict[str, Any] = {"task_state": current}
+        if current.location:
+            updates["location"] = current.location
+        if current.target_role and request.query in {None, "", "Agent 开发实习生"}:
+            updates["query"] = current.target_role
+        return request.model_copy(update=updates)
 
     def _record_langgraph_event(self, db: Session, *, run_id: int, event: dict[str, Any]) -> None:
         event_name = str(event.get("event") or "")
@@ -609,7 +751,13 @@ class NaturalLanguageAgentService:
             return {str(key): self._json_safe_graph_value(item) for key, item in value.items()}
         return self.trace._json_safe(value)
 
-    async def _build_plan(self, db: Session, request: NaturalLanguageAgentRequest) -> dict[str, Any]:
+    async def _build_plan(
+        self,
+        db: Session,
+        request: NaturalLanguageAgentRequest,
+        *,
+        run_id: int | None = None,
+    ) -> dict[str, Any]:
         profile = self._resolve_profile(db, request.profile_id)
         memory_scope = _NATURAL_MEMORY_SCOPE.get()
         memory_context = CareerMemoryService().compact_context(
@@ -621,7 +769,33 @@ class NaturalLanguageAgentService:
         system_prompt = (
             "你是中文求职助手 Agent 的意图规划器。只返回 JSON。"
             "不要编造用户没有提供的经历；缺少必要 ID 时优先使用用户文本生成 profile 或 job。"
+            "你必须在同一次调用中返回执行计划和 state_updates。当前任务状态是执行依据；"
+            "对话摘要只是非权威背景。未提到的状态字段不要输出，不能用空值覆盖旧状态。"
         )
+        planner_profile_context = request.profile_context or {}
+        if self.settings.token_optimization_v2_enabled:
+            planner_profile_context = self._compact_planner_profile(planner_profile_context)
+        tool_catalog = self.dynamic_tool_catalog.select(
+            task_type="full_career_flow",
+            node="planner",
+            max_risk="low",
+            include_full_schema=False,
+        )
+        conversation = await self.conversation_compactor.compact_if_needed(
+            db,
+            run_id=run_id,
+            messages=(
+                request.conversation_messages
+                if self.settings.context_management_v3_enabled
+                else []
+            ),
+            node_budget_tokens=NodeTokenBudgetRegistry().get("planner").max_input_tokens,
+            task_state=request.task_state,
+        )
+        conversation_context = {
+            "summary": conversation.summary,
+            "recent_messages": conversation.recent_messages,
+        }
         user_prompt = f"""
 根据用户需求生成可执行计划。
 
@@ -666,6 +840,20 @@ class NaturalLanguageAgentService:
   "needs_profile": boolean,
   "needs_job": boolean,
   "actions": [string],
+  "state_updates": {{
+    "goal": {{"operation": "set|clear", "value": string|null}}|null,
+    "target_role": {{"operation": "set|clear", "value": string|null}}|null,
+    "location": {{"operation": "set|clear", "value": string|null}}|null,
+    "constraints_to_add": [string],
+    "constraints_to_remove": [string],
+    "forbidden_actions_to_add": ["auto_apply|browser_apply|email_send|cross_tenant_data_access|external_send|unapproved_high_risk_action"],
+    "forbidden_actions_to_remove": [string],
+    "selected_actions_to_add": [string],
+    "selected_actions_to_remove": [string],
+    "pending_actions_to_add": [string],
+    "pending_actions_to_remove": [string],
+    "completed_actions_to_add": [string]
+  }},
   "reason": string
 }}
 
@@ -677,14 +865,17 @@ query={request.query}
 location={request.location}
 jd_text={request.jd_text or ""}
 selected_actions={request.selected_actions}
-profile_context={json.dumps(request.profile_context or {}, ensure_ascii=False)}
+profile_context={json.dumps(planner_profile_context, ensure_ascii=False)}
 typed_memory={json.dumps(memory_context, ensure_ascii=False)}
+conversation={json.dumps(conversation_context, ensure_ascii=False)}
+current_task_state={json.dumps((request.task_state or TaskState()).model_dump(), ensure_ascii=False)}
+available_tool_catalog={json.dumps(tool_catalog.compact_catalog, ensure_ascii=False)}
 
 用户需求:
 {request.instruction}
 """
         with llm_trace_context(stage="natural_language_plan", agent_run_task="natural_language_request"):
-            plan = await self.llm.generate_json(
+            call_kwargs = dict(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 temperature=0.05,
@@ -692,16 +883,74 @@ typed_memory={json.dumps(memory_context, ensure_ascii=False)}
                 db=db,
                 trace_name="natural_language.plan",
             )
+            if isinstance(self.llm, LLMClient):
+                call_kwargs["prompt_sections"] = {
+                    "task_contract": user_prompt[: user_prompt.index("上下文:")],
+                    "profile": planner_profile_context,
+                    "job": {
+                        "job_id": request.job_id,
+                        "jd_text": request.jd_text or "",
+                    },
+                    "memory": memory_context,
+                    "conversation_history": conversation_context,
+                    "tool_schemas": tool_catalog.compact_catalog,
+                    "working": {
+                        "instruction": request.instruction,
+                        "query": request.query,
+                        "location": request.location,
+                        "selected_actions": request.selected_actions,
+                        "task_state": (request.task_state or TaskState()).model_dump(),
+                    },
+                }
+            plan = await self.llm.generate_json(**call_kwargs)
         normalized = self._normalize_plan(plan, request)
         contract_errors = self._plan_contract_errors(normalized, request)
         if not contract_errors:
+            normalized["context_management"] = {
+                "conversation_compactor_called": conversation.compactor_called,
+                "conversation_summary_artifact_id": conversation.summary_artifact_id,
+                "conversation_original_tokens": conversation.original_tokens,
+                "conversation_final_tokens": conversation.final_tokens,
+                "recent_message_count": len(conversation.recent_messages),
+                "conversation_compactor_attempts": conversation.compactor_attempts,
+                "conversation_fallback_to_raw": conversation.fallback_to_raw,
+                "conversation_validation_errors": conversation.validation_errors,
+                "conversation_summary_task_state_version": (
+                    (conversation.summary or {}).get("task_state_version")
+                ),
+            }
             return normalized
         repaired = await self._repair_plan_contract(db, request, normalized, contract_errors)
         repaired["contract_repairs"] = contract_errors
         remaining_errors = self._plan_contract_errors(repaired, request)
         if remaining_errors:
             raise ValueError(f"计划契约校验失败：{'；'.join(remaining_errors)}")
+        repaired["context_management"] = {
+            "conversation_compactor_called": conversation.compactor_called,
+            "conversation_summary_artifact_id": conversation.summary_artifact_id,
+            "conversation_original_tokens": conversation.original_tokens,
+            "conversation_final_tokens": conversation.final_tokens,
+            "recent_message_count": len(conversation.recent_messages),
+            "conversation_compactor_attempts": conversation.compactor_attempts,
+            "conversation_fallback_to_raw": conversation.fallback_to_raw,
+            "conversation_validation_errors": conversation.validation_errors,
+            "conversation_summary_task_state_version": (
+                (conversation.summary or {}).get("task_state_version")
+            ),
+        }
         return repaired
+
+    async def _build_plan_for_run(
+        self,
+        db: Session,
+        request: NaturalLanguageAgentRequest,
+        *,
+        run_id: int,
+    ) -> dict[str, Any]:
+        parameters = inspect.signature(self._build_plan).parameters
+        if "run_id" in parameters:
+            return await self._build_plan(db, request, run_id=run_id)
+        return await self._build_plan(db, request)
 
     async def _repair_plan_contract(
         self,
@@ -715,6 +964,7 @@ typed_memory={json.dumps(memory_context, ensure_ascii=False)}
         system_prompt = (
             "你是 Agent 计划契约修复器。只返回完整 JSON 计划。"
             "只补齐用户明确要求但计划遗漏的字段，不增加用户没有提供的经历或动作。"
+            "保留合法 state_updates；未知字段、未知 Action 和未经用户明确解除的禁止操作不得输出。"
         )
         user_prompt = f"""
 当前计划未通过执行前契约校验：
@@ -725,6 +975,9 @@ typed_memory={json.dumps(memory_context, ensure_ascii=False)}
 
 用户原始需求：
 {request.instruction}
+
+当前正式任务状态：
+{json.dumps((request.task_state or TaskState()).model_dump(), ensure_ascii=False)}
 
 现有简历档案（只用于定位应更新的条目）：
 {json.dumps(base_profile_json, ensure_ascii=False)}
@@ -1009,6 +1262,9 @@ query={request.query}
             intent = "interview_prep" if self._text_wants_interview(request.instruction) else "tailor_resume"
         selected_actions = [self._canonical_action(action) for action in request.selected_actions]
         selected_actions = [action for action in selected_actions if action]
+        raw_actions = [item for item in plan.get("actions", []) if str(item).strip()]
+        canonical_actions = [self._canonical_action(item) for item in raw_actions]
+        unknown_actions = [str(item) for item, canonical in zip(raw_actions, canonical_actions) if not canonical]
         normalized = {
             "intent": intent,
             "query": plan.get("query") or request.query or "Agent 开发实习生",
@@ -1016,9 +1272,20 @@ query={request.query}
             "job": plan.get("job") if isinstance(plan.get("job"), dict) else None,
             "needs_profile": bool(plan.get("needs_profile", intent != "create_profile")),
             "needs_job": bool(plan.get("needs_job", intent in {"tailor_resume", "quick_apply", "interview_prep"})),
-            "actions": [self._canonical_action(item) for item in plan.get("actions", []) if str(item).strip()],
+            "actions": canonical_actions,
+            "plan_action_errors": (
+                ["计划包含未知 Action：" + ", ".join(unknown_actions)] if unknown_actions else []
+            ),
             "reason": str(plan.get("reason") or ""),
         }
+        try:
+            normalized["state_updates"] = self.task_state_reducer.validate_updates(
+                plan.get("state_updates")
+            ).model_dump(exclude_none=True)
+            normalized["state_update_errors"] = []
+        except TaskStateValidationError as exc:
+            normalized["state_updates"] = {}
+            normalized["state_update_errors"] = [str(exc)]
         normalized["actions"] = [action for action in normalized["actions"] if action]
         if selected_actions:
             normalized["actions"] = list(dict.fromkeys(selected_actions))
@@ -1083,6 +1350,41 @@ query={request.query}
         normalized["needs_job"] = job_dependent
         return normalized
 
+    @staticmethod
+    def _compact_planner_profile(profile: dict[str, Any]) -> dict[str, Any]:
+        compact = {
+            key: profile.get(key)
+            for key in ("id", "name", "headline", "target_roles", "skills")
+            if profile.get(key) not in (None, "", [], {})
+        }
+        projects = []
+        for item in profile.get("projects") or []:
+            if not isinstance(item, dict):
+                continue
+            projects.append(
+                {
+                    key: item.get(key)
+                    for key in ("name", "tech_stack", "impact")
+                    if item.get(key) not in (None, "", [], {})
+                }
+            )
+        if projects:
+            compact["projects"] = projects[:5]
+        work = []
+        for item in profile.get("work_experience") or []:
+            if not isinstance(item, dict):
+                continue
+            work.append(
+                {
+                    key: item.get(key)
+                    for key in ("company", "role", "duration", "tech_stack")
+                    if item.get(key) not in (None, "", [], {})
+                }
+            )
+        if work:
+            compact["work_experience"] = work[:5]
+        return compact
+
     def _terminal_intent(self, intent: str, actions: list[str]) -> str:
         if intent == "full_flow" or "full_flow" in actions:
             return "full_flow"
@@ -1114,6 +1416,19 @@ query={request.query}
         request: NaturalLanguageAgentRequest,
     ) -> list[str]:
         errors: list[str] = []
+        errors.extend(str(item) for item in plan.get("state_update_errors") or [])
+        errors.extend(str(item) for item in plan.get("plan_action_errors") or [])
+        if not errors:
+            try:
+                self.task_state_reducer.merge(
+                    request.task_state,
+                    plan.get("state_updates"),
+                    source_message_id=request.message_id or "planner-contract-validation",
+                    source_role="user",
+                    source_text=request.instruction,
+                )
+            except TaskStateValidationError as exc:
+                errors.append(str(exc))
         if plan.get("intent") != "update_profile":
             return errors
         profile = plan.get("profile") if isinstance(plan.get("profile"), dict) else None

@@ -1,6 +1,6 @@
 ---
 name: resume_tailoring
-version: 1.0.0
+version: 1.1.0
 status: active
 owner_role: resume_writer
 purpose: 基于目标 JD 和原始简历证据生成可投递的定制简历。
@@ -14,7 +14,6 @@ allowed_tools:
   - job_repository.load_job
   - matcher.match_job
   - vector_index.retrieve_resume_evidence
-  - context_compressor.compress_tailor_context
   - resume_tailor.tailor_resume
   - guardrail.verify_resume
 context_policy: 只向写作模型提供结构化事实、JD 要求和 Top evidence；完整原文按需披露。

@@ -28,7 +28,8 @@ class DeterministicInterviewEvaluationLLM:
         if trace_name.startswith("interview_agentic_rag.plan."):
             return json.dumps(self._plan_payload(json.loads(user_prompt)), ensure_ascii=False)
         if trace_name.startswith("interview_agentic_rag.generate."):
-            return json.dumps(self._answer_payload(json.loads(user_prompt)["items"]), ensure_ascii=False)
+            payload = json.loads(user_prompt)
+            return json.dumps(self._answer_payload(self._answer_items(payload)), ensure_ascii=False)
         if trace_name.startswith("interview_agentic_rag.verify."):
             payload = json.loads(user_prompt)
             claims = self._verifier_claims(payload)
@@ -105,14 +106,20 @@ class DeterministicInterviewEvaluationLLM:
             )
         if trace_name.startswith("interview_agentic_rag.repair."):
             payload = json.loads(user_prompt)
-            return json.dumps(self._answer_payload(payload["generation_input"]["items"]), ensure_ascii=False)
+            return json.dumps(
+                self._answer_payload(self._answer_items(payload["generation_input"])),
+                ensure_ascii=False,
+            )
         raise AssertionError(f"Unsupported interview evaluation trace: {trace_name}")
 
     def _verifier_claims(self, payload: dict[str, Any]) -> list[dict[str, Any]]:
         flattened: list[dict[str, Any]] = []
         for group in payload["items"]:
+            available_evidence = group.get("available_evidence") or (
+                (payload.get("shared_context") or {}).get("evidence_by_question") or {}
+            ).get(group["question_id"], [])
             evidence_by_alias = {
-                item["evidence_id"]: item for item in group["available_evidence"]
+                item["evidence_id"]: item for item in available_evidence
             }
             for claim in group["claims"]:
                 cited = [
@@ -130,6 +137,17 @@ class DeterministicInterviewEvaluationLLM:
                     }
                 )
         return flattened
+
+    @staticmethod
+    def _answer_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
+        shared = (payload.get("shared_context") or {}).get("evidence_by_question") or {}
+        return [
+            {
+                **item,
+                "evidence": item.get("evidence") or shared.get(item["question_id"], []),
+            }
+            for item in payload["items"]
+        ]
 
     def _question_payload(self) -> dict[str, Any]:
         return {

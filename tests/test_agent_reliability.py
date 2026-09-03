@@ -60,6 +60,51 @@ def test_trajectory_v2_rejects_wrong_arguments_order_and_unexpected_tool(db_sess
     assert report["unexpected_tools"] == ["email.send"]
 
 
+def test_trajectory_order_accepts_replayed_steps_after_checkpoint_recovery(db_session):
+    run = AgentRun(
+        task_type="tailor_resume_for_job",
+        profile_id=7,
+        job_id=9,
+        status="completed",
+        input_json={"profile_id": 7, "job_id": 9},
+        output_json={},
+    )
+    db_session.add(run)
+    db_session.commit()
+    for step_name in (
+        "plan_task",
+        "load_profile",
+        "load_job",
+        "match_job",
+        "retrieve_resume_evidence",
+        "tailor_resume_with_rag",
+        "verify_resume",
+        "completion_gate",
+        "retrieve_resume_evidence",
+        "tailor_resume_with_rag",
+        "verify_resume",
+        "completion_gate",
+    ):
+        db_session.add(
+            AgentStep(
+                run_id=run.id,
+                step_name=step_name,
+                status="completed",
+                input_json={},
+            )
+        )
+    db_session.commit()
+
+    report = AgentTrajectoryEvaluator().evaluate(
+        db_session,
+        run_id=run.id,
+        task_type=run.task_type,
+        request=run.input_json,
+    )
+
+    assert report["order_violations"] == []
+
+
 def test_trace_budget_rejects_third_identical_tool_call(db_session):
     trace = TraceService()
     run = trace.create_run(db_session, task_type="natural_language_request", input_json={})
@@ -247,6 +292,46 @@ def test_retrieval_quality_uses_provider_specific_hash_thresholds_without_loweri
     assert report["passed"] is True
     assert report["embedding_providers"] == ["hash"]
     assert report["thresholds"]["min_vector_score"] == 0.5
+
+
+def test_retrieval_quality_treats_exact_structured_skill_hits_as_strong_evidence():
+    report = RetrievalQualityService().assess(
+        "Agent 实习要求 Python FastAPI RAG LangGraph Redis",
+        [
+            {
+                "text": "FastAPI",
+                "chunk_type": "skill",
+                "score": 0.4,
+                "metadata": {
+                    "retrieval": {
+                        "query_embedding": {"provider": "sentence_transformers"},
+                        "vector_score": 0.2,
+                        "first_stage_score": 0.3,
+                        "lexical_score": 0.01,
+                    }
+                },
+            },
+            {
+                "text": "RAG",
+                "chunk_type": "skill",
+                "score": 0.39,
+                "metadata": {
+                    "retrieval": {
+                        "query_embedding": {"provider": "sentence_transformers"},
+                        "vector_score": 0.2,
+                        "first_stage_score": 0.3,
+                        "lexical_score": 0.01,
+                    }
+                },
+            },
+        ],
+        expected_chunk_types={"skill"},
+        min_evidence_chunks=2,
+        require_supportive_evidence=True,
+    )
+
+    assert report["passed"] is True
+    assert report["exact_structured_match_count"] == 2
 
 
 def test_natural_language_completion_gate_detects_silent_early_stop():

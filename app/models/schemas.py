@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator, model_validator
 
 
 def empty_string_when_missing(value: Any) -> str:
@@ -613,6 +613,81 @@ class AgentQualityReviewResponse(BaseModel):
     resolved_at: datetime | None
 
 
+TaskWorkflowAction = Literal[
+    "create_profile",
+    "search_jobs",
+    "tailor_resume",
+    "quick_apply",
+    "interview_prep",
+    "full_flow",
+]
+TaskForbiddenAction = Literal[
+    "auto_apply",
+    "browser_apply",
+    "email_send",
+    "cross_tenant_data_access",
+    "external_send",
+    "unapproved_high_risk_action",
+]
+
+
+class TaskStateCorrection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    field: Literal["goal", "target_role", "location"]
+    old_value: str
+    new_value: str
+    source_message_id: str
+
+
+class TaskState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = Field(default=1, ge=1)
+    goal: str = ""
+    target_role: str = ""
+    location: str = ""
+    constraints: list[str] = Field(default_factory=list)
+    forbidden_actions: list[TaskForbiddenAction] = Field(default_factory=list)
+    selected_actions: list[TaskWorkflowAction] = Field(default_factory=list)
+    pending_actions: list[TaskWorkflowAction] = Field(default_factory=list)
+    completed_actions: list[TaskWorkflowAction] = Field(default_factory=list)
+    corrections: list[TaskStateCorrection] = Field(default_factory=list)
+    provenance: dict[str, str] = Field(default_factory=dict)
+
+
+class TaskStateScalarUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal["set", "clear"]
+    value: str | None = None
+
+    @model_validator(mode="after")
+    def validate_value_for_operation(self):
+        if self.operation == "set" and not str(self.value or "").strip():
+            raise ValueError("set operation requires a non-empty value")
+        if self.operation == "clear" and self.value not in {None, ""}:
+            raise ValueError("clear operation cannot include a value")
+        return self
+
+
+class TaskStateUpdates(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    goal: TaskStateScalarUpdate | None = None
+    target_role: TaskStateScalarUpdate | None = None
+    location: TaskStateScalarUpdate | None = None
+    constraints_to_add: list[str] = Field(default_factory=list)
+    constraints_to_remove: list[str] = Field(default_factory=list)
+    forbidden_actions_to_add: list[TaskForbiddenAction] = Field(default_factory=list)
+    forbidden_actions_to_remove: list[TaskForbiddenAction] = Field(default_factory=list)
+    selected_actions_to_add: list[TaskWorkflowAction] = Field(default_factory=list)
+    selected_actions_to_remove: list[TaskWorkflowAction] = Field(default_factory=list)
+    pending_actions_to_add: list[TaskWorkflowAction] = Field(default_factory=list)
+    pending_actions_to_remove: list[TaskWorkflowAction] = Field(default_factory=list)
+    completed_actions_to_add: list[TaskWorkflowAction] = Field(default_factory=list)
+
+
 class NaturalLanguageAgentRequest(BaseModel):
     instruction: str = Field(min_length=4)
     profile_id: int | None = None
@@ -620,6 +695,9 @@ class NaturalLanguageAgentRequest(BaseModel):
     resume_version_id: int | None = None
     profile_context: dict[str, Any] | None = None
     selected_actions: list[str] = Field(default_factory=list)
+    conversation_messages: list[dict[str, Any]] = Field(default_factory=list)
+    message_id: str | None = Field(default=None, max_length=160)
+    task_state: TaskState | None = None
     jd_text: str | None = None
     query: str | None = "Agent 开发实习生"
     location: str | None = None
@@ -633,6 +711,7 @@ class NaturalLanguageAgentResponse(BaseModel):
     plan_json: dict[str, Any]
     result_json: dict[str, Any]
     repair_attempts: list[dict[str, Any]] = Field(default_factory=list)
+    task_state: TaskState | None = None
 
 
 class LLMCallLogResponse(BaseModel):

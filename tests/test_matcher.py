@@ -120,6 +120,18 @@ def test_matcher_does_not_match_agent_inside_project_name_agenttrace():
     assert fuzzy_contains("Agent", {"agent", "workflow"}, "implemented an agent workflow") is True
 
 
+def test_matcher_recognizes_vector_search_and_evaluation_delivery_aliases():
+    text = (
+        "Built Chinese-English hybrid retrieval with BM25, multilingual embeddings and RRF. "
+        "Evaluated 320 noisy queries and achieved Recall@10 of 0.89."
+    ).lower()
+    tokens = set(text.split())
+
+    assert fuzzy_contains("vector search", tokens, text) is True
+    assert fuzzy_contains("evaluation", tokens, text) is True
+    assert fuzzy_contains("Vector Database", tokens, text) is False
+
+
 def test_matches_api_returns_structured_error_for_matching_failure(db_session, monkeypatch):
     profile = Profile(
         name="Candidate",

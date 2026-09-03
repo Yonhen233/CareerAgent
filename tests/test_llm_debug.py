@@ -11,7 +11,7 @@ from app.core.llm import (
     llm_trace_context,
 )
 from app.api.llm_debug import list_llm_logs
-from app.models.entities import LLMCallLog
+from app.models.entities import AgentRun, ContextCompressionTrace, LLMCallLog
 from app.services.llm_usage import LLMUsageService
 
 
@@ -37,7 +37,8 @@ def test_llm_call_log_records_debug_metadata(db_session):
     assert row is not None
     assert row.prompt_chars == 10
     assert row.response_chars == 2
-    assert row.context_json == {}
+    assert row.context_json["usage_status"] == "missing"
+    assert row.context_json["graph_node"] == "unit_test.llm_debug"
 
 
 def test_llm_budget_blocks_call_before_limit_is_exceeded():
@@ -120,6 +121,72 @@ def test_llm_client_records_provider_token_usage_and_budget(monkeypatch, db_sess
     get_settings.cache_clear()
 
 
+def test_llm_call_persists_context_trace_without_faking_missing_usage(monkeypatch, db_session):
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.deepseek.com")
+    monkeypatch.setenv("CONTEXT_RUNTIME_V2_ENABLED", "false")
+    monkeypatch.setenv("CONTEXT_RUNTIME_V2_SHADOW_MODE", "true")
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+
+    class FakeContextResponse:
+        status_code = 200
+        text = ""
+
+        def json(self):
+            return {"choices": [{"message": {"content": "ok"}}], "usage": {}}
+
+    class FakeContextAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return None
+
+        async def post(self, url, headers, json):
+            return FakeContextResponse()
+
+    monkeypatch.setattr("app.core.llm.httpx.AsyncClient", FakeContextAsyncClient)
+    run = AgentRun(
+        tenant_id="tenant-a",
+        user_id="user-a",
+        task_type="full_career_flow",
+        status="running",
+        input_json={},
+    )
+    db_session.add(run)
+    db_session.commit()
+    with llm_trace_context(
+        run_id=run.id,
+        task_type="full_career_flow",
+        tenant_id="tenant-a",
+        user_id="user-a",
+        profile_id=3,
+    ):
+        asyncio.run(
+            LLMClient().generate_text(
+                system_prompt="system",
+                user_prompt="帮我寻找 Agent 开发实习",
+                max_tokens=100,
+                db=db_session,
+                trace_name="natural_language.plan",
+            )
+        )
+
+    trace = db_session.query(ContextCompressionTrace).one()
+    assert trace.mode == "shadow"
+    assert trace.contract_name == "natural_language_planner"
+    assert trace.raw_input_tokens > 0
+    assert trace.actual_prompt_tokens == 0
+    assert trace.actual_total_tokens == 0
+    assert trace.trace_json["actual_usage_available"] is False
+    get_settings.cache_clear()
+
+
 def test_llm_call_log_records_trace_context(db_session):
     client = LLMClient()
 
@@ -142,7 +209,11 @@ def test_llm_call_log_records_trace_context(db_session):
 
     row = db_session.query(LLMCallLog).filter(LLMCallLog.trace_name == "unit_test.llm_context").first()
     assert row is not None
-    assert row.context_json == {"evaluation_run_id": 12, "case_name": "case_a", "stage": "jd_parse"}
+    assert row.context_json["evaluation_run_id"] == 12
+    assert row.context_json["case_name"] == "case_a"
+    assert row.context_json["stage"] == "jd_parse"
+    assert row.context_json["graph_node"] == "jd_parse"
+    assert row.context_json["usage_status"] == "missing"
 
 
 def test_llm_debug_logs_filter_by_context(db_session):

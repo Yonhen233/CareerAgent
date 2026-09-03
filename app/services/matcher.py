@@ -62,12 +62,29 @@ POSITIVE_EVIDENCE_CUES = [
 
 SKILL_ALIASES = {
     "a/b testing": ["a/b tests", "ab testing", "experiment analysis", "experiment analysis notebooks"],
-    "evaluation": ["metrics", "metric", "model evaluation", "offline evaluation"],
+    "evaluation": [
+        "metrics",
+        "metric",
+        "model evaluation",
+        "offline evaluation",
+        "evaluated",
+        "evaluation set",
+        "recall@",
+    ],
     "metrics": ["metric definitions", "experiment analysis", "dashboards"],
     "agent workflow": ["agent workflows", "agent system", "agent systems"],
     "guardrails": ["guardrail"],
     "data quality": ["quality checks", "validation reports"],
     "accessibility": ["accessibility checks"],
+    "vector search": [
+        "vector retrieval",
+        "semantic retrieval",
+        "hybrid retrieval",
+        "multilingual embeddings",
+        "向量检索",
+        "向量搜索",
+        "混合检索",
+    ],
 }
 
 

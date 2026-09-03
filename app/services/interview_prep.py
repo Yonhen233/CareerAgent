@@ -233,6 +233,36 @@ class InterviewPrepService:
             max_calls=self.settings.interview_rag_max_llm_calls,
             max_prompt_chars=self.settings.interview_rag_max_prompt_chars,
             max_completion_tokens=self.settings.interview_rag_max_completion_tokens,
+            max_business_calls=(
+                self.settings.llm_max_calls_per_run
+                if self.settings.token_optimization_v2_enabled
+                else None
+            ),
+            max_http_attempts=(
+                self.settings.llm_max_attempts_per_run
+                if self.settings.token_optimization_v2_enabled
+                else None
+            ),
+            max_repair_calls=(
+                self.settings.llm_max_repair_calls
+                if self.settings.token_optimization_v2_enabled
+                else None
+            ),
+            max_input_tokens=(
+                self.settings.llm_max_input_tokens_per_run
+                if self.settings.token_optimization_v2_enabled
+                else None
+            ),
+            max_output_tokens=(
+                self.settings.llm_max_output_tokens_per_run
+                if self.settings.token_optimization_v2_enabled
+                else None
+            ),
+            max_total_tokens=(
+                self.settings.llm_max_total_tokens_per_run
+                if self.settings.token_optimization_v2_enabled
+                else None
+            ),
         )
         workflow_run_id = uuid4().hex
         with llm_trace_context(
@@ -1291,7 +1321,7 @@ class InterviewPrepService:
 
         project_sources = {"resume_project_evidence", "resume_project_stack", "llm_project_implementation"}
         evidence_required_sources = {"source_backed_interview_experience", "resume_project_evidence"}
-        risk_sources = {"jd_gap_drill", "llm_foundation_drill"}
+        risk_sources = {"jd_gap_drill"}
         boundary_terms = ["诚实", "边界", "补齐", "没有", "缺口", "未", "计划", "相邻", "不编造", "不能包装"]
 
         checks = {
@@ -1332,7 +1362,7 @@ class InterviewPrepService:
 
             jd_aligned = bool(skill_norm & {normalize_skill(item) for item in jd_terms if normalize_skill(item)}) or self._text_matches_terms(blob, jd_terms)
             follow_up_depth = len(question.get("follow_ups") or []) >= 2
-            risk_question = source in risk_sources or question.get("risk_level") == "high" or bool(skill_norm & missing_norm)
+            risk_question = source in risk_sources or bool(skill_norm & missing_norm)
             if risk_question:
                 denominators["gap_boundary"] += 1
             gap_boundary = (not risk_question) or self._text_matches_terms(blob, boundary_terms)
@@ -1534,6 +1564,15 @@ class InterviewPrepService:
             if str(skill).strip()
         }
         required_norm = {normalize_skill(skill) for skill in required if normalize_skill(skill)}
+        for skill in required:
+            normalized = normalize_skill(skill)
+            if not normalized:
+                continue
+            if any(
+                self._text_matches_terms(self._quality_blob(question), [skill])
+                for question in questions
+            ):
+                covered_skills.add(normalized)
         missing_norm = {normalize_skill(skill) for skill in missing if normalize_skill(skill)}
         drill_norm = {normalize_skill(item.get("skill", "")) for item in gap_drills}
         required_skill_coverage_rate = (

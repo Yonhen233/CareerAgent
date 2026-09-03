@@ -1,6 +1,6 @@
 ---
 name: evidence_retrieval
-version: 1.0.0
+version: 1.1.0
 status: active
 owner_role: evidence_curator
 purpose: 检索并排序能够支持岗位匹配和简历改写的候选人证据。

@@ -1,5 +1,429 @@
 # 开发日志
 
+## 2026-09-01 10:46:39 +08:00：对话 TaskState、Planner 单调用状态增量与压缩完整性 V4
+
+### 本轮目标
+- 把目标岗位、地点、约束、纠错、待办和禁止操作从非权威 Conversation Summary 中移出，保存为可恢复的正式任务状态。
+- Planner 在原有一次 LLM 调用中同时返回计划和本轮 `state_updates`，普通轮次不得增加单独总结调用。
+- 较早历史真正超限时才调用 Compactor；摘要失败不能静默放行，Checkpoint 和 Rewind 必须恢复对应历史版本。
+- 建立 48 组离线多轮数据和 5 对真实长对话，分别报告离线估算 Token 与供应商实际 Token。
+
+### 正式实现
+1. `app/models/schemas.py` 新增 `TaskState`、`TaskStateCorrection`、`TaskStateScalarUpdate` 和 `TaskStateUpdates`。Pydantic `extra=forbid`，Action 和 forbidden action 使用 Literal 白名单，标量只允许 `set/clear`。
+2. 新增 `app/services/task_state.py`。`TaskStateReducer` 只接受当前用户消息的增量，以确定性代码原子合并；字段缺失保持旧值，值变化写 Correction 和 provenance，状态版本只在实际变化时递增。
+3. Planner JSON schema 增加 `state_updates`，当前 TaskState 与最近消息/摘要一起进入原有 Planner Prompt。状态更新非法时复用现有 Plan Contract Repair 一次；仍失败则 Reducer 不运行，旧状态完整保留。
+4. 高风险文本兜底覆盖禁止自动投递、禁止邮件、跨用户数据、仅草稿和未经确认执行。解除 forbidden action 必须在当前用户原文中有明确授权，不能只相信模型输出的 remove。
+5. Conversation Summary 改为 discussion/rationales/unresolved questions/source IDs/task state version/有限 state claims/historical changes。摘要不再保存执行状态，只检查消息覆盖、版本一致、与当前状态不冲突、旧值历史标记和禁止/完成项不造假。
+6. Compactor 首次校验失败最多重试一次；再次失败且原文仍在预算内则保留原文，超预算则停止 Planner。Trace 分别记录 attempt、validation error 和 fallback。
+7. Natural Language Graph State 与通用 CareerAgent Graph State 都加入 `task_state`；`context_refs` 记录 `task_state_version`。Checkpoint 恢复重新 Pydantic 校验，Rewind 直接复制所选历史 checkpoint 的 channel value，不读取较新分支状态。
+8. API 请求可传 `message_id/task_state`，响应返回更新后的 `task_state`。没有新增数据库表；状态由 LangGraph Checkpoint 持久化，状态变化和摘要分别写现有 AgentArtifact 审计。
+
+### Bad Case 1：摘要此前同时承担背景和执行状态
+旧 Compactor 输出 `goal/constraints/corrections/pending/forbidden_actions`，完整性检查要求这些字符串仍在摘要里。这会产生错误耦合：摘要只要漏写一种自然语言限制，后续 Planner 就可能失去执行约束；同一地点旧值和新值还可能同时出现在摘要列表中。
+
+本轮将执行状态拆成强类型 TaskState。摘要可以不重复地点和限制，但不得与 TaskState 冲突。面试时可以解释：解决方案不是让摘要 Prompt 写得更严格，而是把不允许丢失的数据移出有损压缩通道。
+
+### Bad Case 2：`critical_facts` 依赖上游预标注
+原完整性检查只能在消息提前携带 `critical_facts` 时检查字符串是否存在，普通用户说“只看深圳”“不要投递”没有标记就可能漏掉。现在 Planner 在同一次调用中输出语义化 delta，高风险限制另有确定性原文兜底；摘要不再承担关键状态召回。
+
+### Bad Case 3：离线数据制造了“值没有变化的纠错”
+48 组首轮只通过 40 组。其中 4 个 `target_role_change` case 初始值已经是 `RAG Agent`，第二轮又标注改为 `RAG Agent`，评测却要求产生 Correction。Reducer 正确地认为没有状态变化，反而被错误标签判失败。
+
+修复数据生成器：目标新值与旧值相同时改用 `Agent Platform Engineer`。这说明评测失败不能直接归因模型或代码，先要判断 gold label 是否满足业务语义。
+
+### Bad Case 4：“外发前仍要确认”没有被安全规则召回
+首轮离线剩余 4 个失败来自更自然的表达“任何外发必须经过我确认”；规则只覆盖“必须经过确认”。真实 5 对首轮也在 `explicit_permission_removal` 暴露同类问题：模型正确移除 `auto_apply`，并把“真正外发前需确认”写成 constraint，但确定性 forbidden state 没有加入 `unapproved_high_risk_action`。
+
+修复确认语义为：支持“必须经过我确认”和“外发/投递/发送/执行前仍需或仍要确认”。同时保留作用域：用户可以明确解除自动投递禁令，但确认门禁仍独立生效。定向重跑后 forbidden action recall 恢复 100%。
+
+### Bad Case 5：新增 Prompt Section 被 Token Harness 拒绝
+第一次真实压缩 Run 在 Provider 调用前失败：Compactor 的日志分段使用了未注册的 `task_state` 和 `repair` section，`PromptSectionProfiler` 正确抛出 `Unknown Prompt sections`。该失败没有继续调用模型。
+
+修复为复用已注册的 `working` 和 `repair_context`，并增加测试验证 Compactor 传入的 section 名全部属于 Registry。经验是可观测性 schema 也是 Harness 合同，不能随手增加字符串字段。
+
+### Bad Case 6：Windows 相对路径让报告合并失败
+修复确认语义后，两条定向真实 Run 已成功写库，但报告 provenance 对相对路径直接调用 `relative_to(ROOT)`，在 Windows 下因为一方未 resolve 而抛错。模型结果没有丢失，但报告没有生成。
+
+修复为 resolve 后再计算相对路径，并给评测器增加 `--reuse-latest`：从数据库读取刚完成的 raw/compressed 完整 pair，无 API 调用地重新合并。最终报告明确记录“4 个原始通过 pair + 1 个修复后完整 pair”，不把旧失败结果覆盖得无迹可寻。
+
+### Bad Case 7：首次压缩没有节省真实 Token
+离线估算中，压缩后的 Planner 上下文从平均 `4,701` 降到 `2,990.33` Token；但真实首次压缩还必须让 Compactor 自己读取旧历史。5 对 Provider 结果为 Input `27,716.8 -> 28,281.4`，增加 2.04%；Total `27,897.2 -> 28,827.6`，增加 3.34%；业务调用 `1 -> 2`，平均延迟 `3,080.49 -> 6,808.63 ms`。
+
+因此不能把“压缩后的单个 Planner Prompt 变短”写成“本轮总 Token 下降”。真正收益需要后续轮次复用已有摘要，摊薄首次 Compactor 成本；该跨 Run 增量复用本轮尚未实现，已明确列为边界。
+
+### Bad Case 8：重复限制修改 provenance 却没有增加版本
+最终状态机审计发现，用户重复说同一个 constraint/forbidden action 时，列表内容没有变化，但旧 Reducer 仍把 provenance 改成当前消息 ID；由于 `changed=false`，TaskState version 不递增。这会造成“状态内容发生变化但版本没变”，破坏摘要版本、Checkpoint 和缓存一致性。
+
+修复为重复确认属于无状态变化：保留原 provenance 和 version；只有真正新增值时才写新来源并递增版本。新增回归验证重复“只看实习”后 version 仍为 3、来源仍为首次消息 `m1`。
+
+### 离线 48 组结果
+- Case：`48/48`，pass rate 1.0。
+- 目标与限制字段准确率、纠错生效率、禁止操作召回率、压缩后状态保持率、Checkpoint 恢复一致率：均为 `1.0`。
+- 摘要冲突误接受率：`0`。
+- 24/48 case 触发 Compactor，共 24 次；普通用户轮次预期 Planner 调用为 88 次，每轮仍为 1 次。
+- 离线 Token `4,701 -> 2,990.33` 只标记为 estimate，Provider calls 为 0。
+
+### 真实 5 对长对话结果
+- 固定 `deepseek-v4-flash`，routing/fallback/thinking disabled；Provider usage 完整率 1.0。
+- Raw 为完整历史直接调用 Planner；Compressed 为 Compactor + Planner。5/5 压缩 case 实际触发 Compactor。
+- Raw/Compressed pass rate 均为 1.0；字段准确率、纠错生效率和禁止操作召回率均为 1.0；摘要校验错误率为 0。
+- 普通短对话通过测试确认不触发 Compactor，仍为 1 次 Planner；长对话按设计增加 1 次 Compactor。
+- 最终 run IDs：raw `613/615/617/623/621`，compressed `614/616/618/624/622`。
+
+### 当前边界
+1. 关键 TaskState 保持 100% 不代表全部对话语义无损；低优先级讨论细节、措辞和部分理由仍可能在摘要中损失。
+2. 首次压缩真实 Token 和延迟上升；跨请求复用 Summary Artifact、增量压缩和长期 amortized cost 尚未验证。
+3. API 已支持调用方带回 TaskState，但现有用户页面不是多轮聊天产品，没有实现显式的跨请求会话状态 UI。
+4. 真实测试为 5 对长对话，支持当前门禁，不代表线上多语言长会话 P95 已建立。
+
+### 交付与验证
+- 数据集：`evals/conversation_task_state_cases.json`。
+- 离线报告：`data/runtime/conversation-task-state-offline.json`。
+- 真实报告：`data/runtime/conversation-task-state-real-ab-final.json`。
+- 设计说明：`docs/CONVERSATION_TASK_STATE_V4.md`。
+- 新增定向测试与相关回归通过；全仓最终 `427 passed in 121.72s`。
+
+## 2026-08-31 21:08:41 +08:00：上下文管理 V3 正式接入、完整流程真实 A/B 与 Bad Case 闭环
+
+### 本轮目标
+- 在 Context Runtime V2 和 Token Optimization V2 的正式基线上，实现 CareerAgent 定向的六类上下文、节点差异化策略、Checkpoint 最小重建和共享上下文 Batch，不建设通用上下文平台。
+- 把 Profile/JD/Evidence 原始事实与 Conversation 语义摘要分开：只有旧对话允许 LLM 压缩，业务事实必须从数据库或 Citation 回查。
+- 运行至少 5 对真实完整 Agent Run，不能再用“一个长 Prompt + 一次面试调用”冒充全流程，也不能用估算 Token 冒充 Provider usage。
+
+### 正式实现
+1. `context_runtime.py` 改为节点严格白名单投影；所有压缩完成后再做 Critical Fact/Citation/证据正文检查，缺失时 JIT 只补最小字段和最小证据正文，仍不完整则停止 LLM。
+2. 新增 `conversation_compactor.py`：保留最近 3 轮原文，较早自然语言历史由低成本 LLM 压缩为带 source message IDs 的非权威结构化摘要；遗漏目标、限制、纠错或禁止动作时拒绝使用，摘要保存为 `AgentArtifact`。
+3. 新增 `context_recovery.py`：LangGraph State 持久化 `context_refs`，恢复时校验 tenant/user/profile，并按下一个节点合同从数据库重建最小 Packet；成功 Tool Receipt 阻止邮件或浏览器副作用重放。
+4. 新增 `shared_context_batcher.py`：面试 Answer 与 Verifier 共享 Profile/JD/Evidence，只发送一次共享区；超预算自动拆 Batch，只 Repair 失败题。
+5. 新增 `document_schema_batcher.py`：长 PDF/JD 按页或 Section 分批解析，Python 按 Schema 合并，冲突保留页码、Chunk ID 和来源值。
+6. Planner、两类 Parser、Matcher、Tailor、Interview、Application 和 Completion 正式接入 V3；LLM 日志补齐 run/node/business call/batch/provider usage。
+7. Tool Registry 补上 `resume_parser.create_profile_from_pdf` 与 `job_repository.create_from_jd`，对应 Skill allowlist 和 Completion 允许集合同步更新，正式 Tool 总数为 21。
+
+### Bad Case 1：JIT 初版从全部源证据中“挑重要内容”
+初版 JIT 虽然能补 Citation，却仍可能先扫描全量 Evidence 再挑片段，相当于把大上下文问题搬进补载器。修复为 Citation ID、Profile/Job 字段路径和当前 Query 三种定向 selector；返回值必须带最小证据正文、来源与哈希。面试时可解释为：JIT 的价值是按引用回表，不是第二个全量检索器。
+
+### Bad Case 2：中文 PDF 字体导致抽取乱码
+生成评测 PDF 时默认 CID 字体在当前解析链出现 mojibake，导致“PDF Parser 失败”和“上下文策略失败”混在一起。改用可嵌入的 SimHei 生成中文 PDF，并先做抽取可读性 smoke，再进入真实 A/B。经验是完整评测必须先验证数据载体，否则下游指标没有归因价值。
+
+### Bad Case 3：正式 Tool 已实现但未进入 Registry/Skill 权限
+PDF 建档和 JD 入库服务已经存在，但 Tool Registry 和 Skill allowlist 缺少对应条目，Completion Gate 因此无法把真实动作识别为允许能力。补齐两个 Tool 后增加 Registry/权限测试。这个问题说明 Tool 能否调用由“实现、注册、Skill 授权、运行时合同”共同决定，只有 service 方法不等于 Agent 拥有工具。
+
+### Bad Case 4：Hash Embedding 让中文 RAG 评测失真
+首轮完整流程使用 hash embedding，中文语义召回失败。这个结果只能说明评测配置无效，不能用于比较 V2/V3。正式运行改用本地 `paraphrase-multilingual-MiniLM-L12-v2` 384 维真实向量；hash 报告标记为无效，不进入 release 结论。
+
+### Bad Case 5：英文 CrossEncoder 对中文重排产生负增益
+原 reranker 固定使用英文 `ms-marco-MiniLM-L-6-v2`，CJK 证据在二阶段排序中反而下降。修复为中文/中英混合文本使用多语 embedding 语义重排，英文保留 CrossEncoder；新增中英文定向回归。这里的关键不是“模型越多越好”，而是 reranker 必须与语言分布匹配。
+
+### Bad Case 6：大 JD 分母稀释精确技能 Chunk
+Retrieval Gate 原来把候选 Chunk 的命中技能除以整份大 JD 的技能数。一个精确命中当前 Query 的小 Chunk 会因 JD 很长而被判低质量。修复为 Query 已包含结构化技能且 Chunk 精确支持时给予强相关，不用无关 JD 要求稀释当前检索目标。
+
+### Bad Case 7：JD Parser 规范化别名与 Grounding 规则漂移
+Parser 把原文 `vector search` 规范化成 `Vector Database`，Grounding 却按字面认为不存在，导致合法解析被拦截。修复为允许有明确语义映射的 canonical alias，同时继续拒绝原文没有证据的 `Kubernetes`。不能粗暴放宽到“模型认为相近就算支持”。
+
+### Bad Case 8：英文小数结尾句号触发虚构指标
+Application Guard 把 `0.89.` 的句号当成数字继续部分，无法匹配源证据中的 `0.89`；愿望性语句“期待有机会……”也被提取为候选人既有事实。修复数字边界并排除 aspirational statement。历史 4 个失败投递产物重新本地复核后 `4/4` 通过。
+
+### Bad Case 9：Repair 开关和质量门禁互相矛盾
+JSON Repair 次数曾为 0，而业务要求模型 JSON 缺项时可定向修复；答案 Repair/总调用/Prompt 上限也低于完整面试链的合理需求。调整为 JSON Repair 1 次、答案 Repair 2 次、总业务调用最多 8、Prompt 字符上限 100,000，并继续受全局 Token 与 Repair Budget 限制。修复能力必须有预算，不能无限重试。
+
+### Bad Case 10：面试 Coverage 只看标签，不看真实题目
+问题正文已覆盖某技能，但模型漏写 `skills` 标签时，门禁判为未覆盖并触发无效 Repair。修复为同时读取 question 和 follow-up 文本；标签只做辅助索引，不再是唯一事实源。
+
+### Bad Case 11：`risk_level=high` 被误当成“缺失技能题”
+高风险可以来自复杂系统设计，并不意味着候选人没有该技能。旧逻辑对所有 high-risk 题强制 missing-skill disclosure，造成合法项目回答被拒绝。修复为仅真实 missing skill 或 `jd_gap_drill` 执行能力边界检查。
+
+### Bad Case 12：跨语言 Matcher 别名不足造成下游假失败
+双语 case 中简历已有 hybrid/vector/semantic retrieval、多语 embedding 和 evaluation set/recall，但 Matcher 只认少量固定英文标签，错误生成能力缺口，最终 Tailor 边界门禁失败。补充可交付证据别名，同时明确不把普通 vector search 推断为 Vector Database 生产经验。修复后只重跑该完整双语对，V2/V3 均完成且全部质量门禁为 1.0。
+
+### Bad Case 13：Checkpoint 重放被轨迹顺序门禁误判
+恢复后后续节点可能再次执行，旧校验用“后续节点最大位置”与“前置节点最小位置”比较，只要存在 replay 就可能把合法历史判乱序。修复为仅当前置节点完全没有早于后置节点时失败，并增加 replay-aware 回归。
+
+### Bad Case 14：手工恢复实验没有设置恢复模式
+排障时曾把失败 Run 手工改成 `running` 后直接调用 `run_existing`，但没有设置 `execution_mode=checkpoint_resume`。编排器按设计从图起点执行，产生的数据库 Run 已被测试方法污染，不能作为“恢复成功/失败”指标。最终报告排除这些 Run；正式 recovery scanner 会设置正确模式，确定性测试验证最小重建与副作用防重放。本轮没有再花费 API 余额做操作系统级崩溃注入。
+
+### Bad Case 15：`.env.example` 重复键让旧预算覆盖新预算
+一致性审计发现面试 JSON Repair、答案 Repair、最大调用和 Prompt 上限在 `.env.example` 出现两组：前面是新值 `1/2/8/100000`，后面仍是旧值 `0/1/5/60000`。多数 dotenv 实现采用后值覆盖前值，用户照示例启动就可能与源码默认和评测合同不一致。修复为只保留一组 `1/2/8/100000`，并同步 README、架构和面试 bad case 文档。这个问题说明配置示例本身也是生产合同，必须检测重复键，不能只验证 Python 默认值。
+
+### 真实完整流程 A/B
+固定 `deepseek-v4-flash`，每个 Variant 均执行：生成 PDF、PDF 解析、JD 解析与入库、岗位匹配、简历 Evidence 检索、简历定制、独立 Guardrail、投递材料 Dry Run、6 题面试准备和 Completion Gate。5 个 case 覆盖中文 RAG 后端、LLM 评测、Agent 平台、中英双语 RAG 和 Tool Agent。
+
+| 指标 | V2 | V3 | 结论 |
+| --- | ---: | ---: | --- |
+| 完成率 | 5/5 | 5/5 | 持平 |
+| 平均 Input Token | 20,657.4 | 21,498.4 | V3 增加 4.07% |
+| 平均 Total Token | 25,499.6 | 26,617.2 | V3 增加 4.38% |
+| 平均 Business Calls | 8.2 | 8.8 | V3 多 0.6 次 |
+| 平均端到端延迟 | 56,072.49 ms | 52,373.55 ms | V3 降低 6.60% |
+| 总成本 | ¥0.151709 | ¥0.158680 | V3 增加 4.60% |
+| Critical Fact/Citation/Guardrail/Application/Interview/Completion | 1.0 | 1.0 | 全部通过 |
+| Repair Calls | 3 | 5 | V3 多 2 次 |
+
+最终 5 对使用 4 个干净完整对，加修复后重新执行的双语完整对；报告保留来源 run_id 和 provenance。不能把它描述为一次原子 10-run 同批实验，但每个单项指标都来自真实、完整、未污染的 Run。
+
+### 结论与当前边界
+- V3 已作为正式功能上线，理由是节点隔离、对话压缩合同、事实/Citation 100% 完整、Checkpoint 最小重建、Receipt 防重放和共享 Batch 均落地并通过门禁。
+- 本轮没有证明 V3 节省 Token。相反，Repair 增加使输入、总 Token 和成本小幅上升；早期窄切片的显著节省不能覆盖这个完整流程结论。
+- 5 对样本不足以建立长期 P95 和成本置信区间；Conversation Compactor 在这些短会话 case 中没有触发，仍需长多轮真实流量切片。
+- 跨进程恢复本轮未做真实 API 崩溃注入；自动 scanner 和确定性回归已覆盖正确恢复模式，后续应在不调用昂贵模型的故障注入环境中持续验证。
+
+### 最终验证
+- Context V3 及关联 Guardrail/RAG/Matcher/Interview 定向回归：`93 passed in 27.94s`。
+- 全仓最终回归：`406 passed in 118.18s`。
+- V3 核心文件 scoped Ruff、`py_compile`、仓库差异检查和 API key 扫描通过；`.env.example` 重复键回归测试已加入全仓门禁。
+- 最终真实报告：`data/runtime/context-management-v3-full-ab-final.json`。
+- 正式设计与评测说明：`docs/CONTEXT_MANAGEMENT_V3_PRODUCTION.md`。
+
+## 2026-08-31 16:11:33 +08:00：Context Runtime V2 与 Token Optimization V2 正式上线及联合消融
+
+### 本轮目标
+- 将两套已经接入主链路的 V2 从 Shadow 切换为正式默认路径，同时保留独立回滚开关。
+- 补齐“两个 V2 同时启用”的离线全量和真实 API 联合评测，验证收益不能简单相加、功能不会互相干扰。
+- 在付费测试前先完成编译、定向测试和全量离线 Gate，避免用 API 余额发现基础代码错误。
+
+### 正式改动
+1. `Settings` 与 `.env.example` 默认改为 Context/Token V2 enabled=true、shadow=false；Execution Provenance 继续记录每次 Run 的实际开关、版本、合同和预算。
+2. 新增 `scripts/run_combined_v2_ab.py`，比较“两个都关闭”和“两个都开启”，分 Context 长上下文 lane 与 Token 面试批处理 lane，并给出一个明确的 1:1 组合工作负载口径。
+3. 原两份独立 A/B 不再继承应用默认值：Token 实验强制隔离 Context，Context 实验强制隔离 Token；联合实验才显式同时启用，所有控制条件写入报告。
+4. 新增正式默认配置和联合 release gate 测试；更新 README、总体设计、评测文档及两套 V2 文档，清除“默认仍为 Shadow”的过期结论。
+
+### Bad Case 1：Active 默认暴露未注册节点空对象崩溃
+切换默认值后的第一次定向回归有 4 个 LLM 测试失败。`ContextRuntimeV2.observe_text_prompt()` 对没有注册 Context Contract 的 trace 正常返回 `None`，但调用端在 active=true 时无条件访问 `.packet`。以前 Shadow 默认不会进入这条读取分支，所以问题一直潜伏。
+
+修复为只有“V2 active 且确实命中合同并返回 ContextBuildResult”时才替换 Prompt；未注册节点保持原 Prompt。这类问题说明 Feature Flag 上线不能只验证已命中能力的 happy path，还必须覆盖“不适用、跳过、部分注册”的分支。修复后 Context/Token/LLM/联合定向测试 `60 passed`。
+
+### Bad Case 2：正式默认值会污染独立消融
+如果 A/B 脚本直接继承生产默认配置，Token V2 实验的 V1/V2 都可能经过 Context V2，Context V2 实验也可能被 Output Token Policy 改写。报告仍能生成，但无法回答收益来自哪一项，历史数据也无法复现。
+
+修复为实验自己拥有变量控制权：独立实验锁死非目标能力，联合实验锁死 V1 全关和 V2 全开，并持久化 `ab_controls`。这是 Harness 评测的一部分，不是脚本小细节；没有隔离变量的“消融”只能算前后对比。
+
+### 联合离线全量结果
+- 数据：Context 40 case；Token 36 case，每例 10 题。
+- 定义工作负载：一次结构化长上下文任务 + 一次面试批处理任务。该口径用于比较，不冒充所有线上流量分布。
+- 平均估算 Input Tokens：`64,030.38 -> 14,411.83`（-77.49%）。
+- Business Calls：`21 -> 3`（-85.71%）。
+- Critical Fact、Evidence 与 Citation Gate 均通过；Prompt Injection Escape 与 Cross-tenant Leakage 均为 0。
+
+### 联合真实 API canary
+- 固定 `deepseek-v4-flash`、temperature 0、thinking disabled、fallback disabled、routing disabled；Context 3 case，Token 3 case × 3 题。
+- Provider Input Tokens：`25,756.33 -> 10,225.67`（-60.30%）。
+- Provider Total Tokens：`26,313.33 -> 10,755`（-59.13%）。
+- Business Calls：`7 -> 3`（-57.14%）。
+- 组合延迟：`17,387.20 -> 9,511.22 ms`；成本：`¥0.026870 -> ¥0.011284`（-58.01%）。
+- Context Critical Fact/Citation、Token Critical Fact/Evidence/Forbidden Claim Free 均为 1.0；注入逃逸、跨租户泄漏和 usage missing 均为 0。
+- 联合 quality/efficiency gate 通过，`production_default_eligible=true`。API key 仅通过进程环境注入，未写入仓库。
+
+### 当前边界
+1. 真实联合样本为 3+3 case，支持默认上线，不代表已经获得真实流量的长期统计置信度；上线后仍按 Planner、Parser、Matcher、Tailor、Interview 分 lane 观察 SLO。
+2. 组合降幅依赖工作负载比例，不能对外宣称所有请求固定下降 60.30%；独立 lane 报告仍是归因依据。
+3. 两个开关必须继续独立可回滚，回滚后的判断依据包括 provenance、usage missing、Critical Fact Recall、repair rate、P95 和成本，不只是 HTTP 成功率。
+
+原始报告：`data/runtime/combined-v2-offline.json`、`data/runtime/combined-v2-real-canary.json`。详细上线说明：`docs/COMBINED_V2_PRODUCTION_RELEASE.md`。
+
+### 最终验证
+- 联合专项、Context、Token 与 LLM 定向回归：`60 passed`。
+- 正式默认切换后全仓回归发现并修正 1 条仍断言 V1 默认策略的旧测试，最终全仓 `387 passed in 115.04s`。
+- 两份独立离线 isolation smoke 仍通过：Context 3 case 输入估算下降 69.84%，Token 3 case 输入估算下降 81.44%、调用下降 90%，证明正式默认值没有破坏独立实验的归因能力。
+- Scoped Ruff、compileall 和仓库差异检查通过；API key 扫描无命中。
+
+## 2026-08-31 12:07:55 +08:00：Token Optimization V2、共享上下文批处理与两组真实 API 消融
+
+### 本轮目标
+- 在 Context Runtime V2 之外治理业务 LLM 调用、HTTP attempt、retry/repair、重复 Prompt 区段、Tool Schema/Result 和输出 token，不能再用总 token 猜测浪费来源。
+- 将节点预算、动态 Tool Catalog、Batch/并行 receipt、Artifact/Delta/cache、单一 Retry Owner 和 Feature Flag 落到代码与主链路。
+- 使用同一 `deepseek-v4-flash` 分别评测 Context V2 和 Token V2，禁止把两种收益相加，禁止用 tokenizer 估算冒充 Provider usage。
+
+### 开发前基线与审计
+1. 历史面试包 `#44` 为 59 次调用、1,490,670 Prompt 字符、约 504 秒；当前代码已改成 10 题批量答案、批量 verifier 和失败题增量 repair，正常路径设计约 3 次业务调用、含一次 repair 最多 5 次。
+2. 原 `LLMCallBudget.calls` 实际统计 HTTP attempt，不是业务调用。若发生 retry，“调用次数”口径会混乱。本轮保留旧字段语义，新增 `business_calls` 与 `repair_calls`，避免破坏历史测试。
+3. 当前固定 LangGraph 并没有每轮给 LLM 注入全部 19 个 Tool Schema，因此不能声称动态目录已经节省了线上 Tool Schema token。它的当前价值是渐进披露和权限收紧；容量指标单列为 counterfactual。
+4. Natural Planner 仍可能读取完整 `profile_context`；Prompt 日志只有总 usage，不能定位 profile、evidence、repair 或重复 control 的占比。
+
+### 核心实现
+1. 新增 `PromptSectionProfiler`，按 control、task contract、skill、tool schema、profile、job、evidence、history、memory、tool observations、repair、output schema 和 working 分段记录 token、估算方法、字符与哈希。
+2. 每次业务调用生成 `business_call_id`；每个 HTTP attempt 独立落库。`usage_status` 区分 provider reported 与 missing，并记录 cached/reasoning token、模型路由、节点、retry attempt、repair type、压缩版本、输出上限和重复上下文 token。
+3. `LLMCallBudget` 增加业务调用、attempt、repair、输入、输出和总 token 硬预算。Natural Agent 与 Interview Agent 在 V2 Active 时启用；预算耗尽不重试。
+4. 新增 11 份 `NodeTokenBudget`，覆盖 Planner、两个 Parser、Matcher、Tailor、Application、Interview Question/Answer、Claim Verifier、Guardrail 和 Completion Gate。
+5. `DynamicToolCatalog` 使用 task Skill allowlist、节点、风险和审批做确定性预筛；Planner 只接收紧凑目录。Runtime 权限校验不依赖模型看到 schema。
+6. 面试 `_bounded_gather` 接入 `BatchToolExecutor`，每个 item 有稳定 receipt；高风险、共享副作用和有依赖任务拒绝批处理。JSON repair 只携带 parse error 与 malformed JSON。
+7. Natural Planner 的 Active 路径只保留 Profile 身份、目标、技能及最多 5 条项目/经历摘要；Prompt 区段显式记录 typed memory、job、tool catalog 和 task contract。
+8. 新增 `ToolResultArtifactizer`、`DeltaContextBuilder`、`ScopedVersionedCache`、并行 Observation 聚合和 `RetryOwnershipRegistry`。长结果可落 `AgentArtifact`，只读缓存 key 包含 tenant/user/数据/Tool/Prompt/Contract/模型版本，副作用工具禁止缓存。
+9. Execution Provenance v5 记录 Token V2 模式、11 个合同、动态目录、Batch/Artifact/Delta 开关和全部 Run 上限。
+
+### 专项数据与测试
+- 新增 36-case Token 数据集，每例 10 题、16~24 条 Evidence，覆盖长简历/JD/历史、纠错、相似项目、数字、否定事实、计划学习、跨页 Citation、大 Tool Output、多 Query、partial failure、retry、JSON repair、重复 Tool、缓存、跨租户、注入、Checkpoint、审批和 Completion Gate。
+- Token V2 专项 `19 passed`；LLM/自然语言/面试定向回归分别通过；实现期全仓 `384 passed in 124.18s`，全部文档和最终评测脚本完成后重跑为 `385 passed in 115.76s`。
+- 本轮新增与修改文件定向 Ruff 通过。全仓历史 Ruff 债务仍按上一条日志记录，不把它伪装成本轮绿色。
+
+### Bad Case 1：合并调用不等于减少 Token
+第一版离线 A/B 已将 20 次调用合并为 2 次，但每个 batch item 仍复制完整 Profile、JD 和 Evidence。结果是调用下降 90%，平均输入 token 只从 `40,502.78` 降到约 `38,531.78`，仅 `4.87%`，没有达到 40% 门槛。
+
+根因不是 Batch 实现失败，而是数据协议错误：把十个完整 Prompt 放进一个数组，只减少 API 回合，没有消除重复上下文。修复为 `shared_context + minimal items`，Profile/JD/Evidence 只传一次，item 只保留 question ID、问题与硬事实字段。36 例离线重跑为 `40,502.78 -> 7,309.78`（-81.95%），调用 `20 -> 2`。
+
+面试口径：并行降低墙钟时间，Batch 降低推理回合，共享上下文才降低重复输入；三者必须分别测量。
+
+### Bad Case 2：Release Gate 看见失败却仍放行
+第一次真实 Token A/B 中，报告的关键事实 Recall 明显异常，但 `release_gate.passed=true`。原因是 Gate 只接了 token 和调用降幅，真实质量字段虽然被计算，却没有进入布尔条件。
+
+修复后 Gate 同时要求 V1/V2 的关键事实、Evidence、禁止声明、Prompt Injection 和跨租户指标通过，并分别输出 `token_gate_passed` 与 `quality_gate_passed`。这个问题说明“有指标”不等于“指标参与发布决策”，每个关键指标都需要反向测试 Gate 的失败分支。
+
+### Bad Case 3：整句匹配把正常改写判成事实丢失
+初版评分要求模型逐字复现完整中文事实句，V1 为 11.11%、V2 为 0%，但引用和禁止声明均为 100%。检查发现模型保留了架构和数字，只改写了连接语。
+
+没有降低 Gold Label，而是把不可改写事实拆为四个原子项：`BM25`、`向量检索`、`RRF` 和精确 `0.xx` 指标。允许语序变化，不允许组件或数字缺失。先做 1-case 调试，V1/V2 均为 1.0，再重跑最终 3 例。
+
+### Bad Case 4：Context Packet 保留事实，模型输出仍可能漏用
+Context 首次 3-case 真实 A/B 中，`ctx_003` 的 V2 关键事实 Recall 为 0.75，漏掉地点；检查 V2 Packet 后确认地点和 `hard=true` 仍完整存在。根因是评测 Prompt 只要求返回 `critical_facts`，没有要求遍历全部 hard fact。
+
+修复为 V1/V2 共用 `context-ab-v2` 契约：必须逐项原样复制 Profile/Job 内所有 `hard=true` value。重跑后 3/3 的 V1/V2 事实与 Citation 均为 1.0。排查时必须区分输入保真、模型使用保真和输出评分，不能看到最终漏项就直接归因于压缩。
+
+### 两次真实消融结果
+
+**Context Runtime V2，3 case、每例成对调用：**
+- Provider Input Tokens/Run：`17,272 -> 6,291`（-63.58%）。
+- Provider Total Tokens/Run：`17,395.33 -> 6,412`（-63.14%）。
+- Cost/Run：`¥0.017519 -> ¥0.006533`（-62.71%）。
+- Critical Fact 与 Citation Recall：V1/V2 均 1.0；usage missing 0；`v2_can_be_default=true`（仅此 canary 范围）。
+
+**Token V2，3 case、每例 3 题：**
+- Provider Input Tokens/Run：`8,483 -> 3,880.67`（-54.25%）。
+- Provider Total Tokens/Run：`8,918 -> 4,196`（-52.95%）。
+- Business Calls / HTTP Attempts：`6 -> 2`（-66.67%）。
+- P50：`14,895.77 -> 5,083.41 ms`；Cost/Run：`¥0.009353 -> ¥0.004511`。
+- 事实、Evidence、禁止声明均 1.0；注入逃逸与跨租户泄漏 0；真实质量 Gate 通过。
+
+原始报告为 `data/runtime/context-runtime-v2-real-canary.json` 与 `data/runtime/token-optimization-v2-real-canary.json`。API key 只通过进程环境注入，未写入代码、报告或日志。
+
+### 当前限制与下一步
+1. 两次真实实验都只有 3 case，Token 实验每例只取 3 题；支持进入灰度，不支持直接宣称全量生产稳定。
+2. 默认保持 Context/Token V2 Shadow。下一步按 Planner、Tailor、Interview 分层灰度，持续观察 SLO、repair rate、usage missing、P95 和质量 Gate。
+3. Dynamic Tool Catalog 的全量 schema 对比不计入真实收益，因为当前基线没有全量注入。
+4. 通用 Token cache 仍是进程内；跨 Worker 共享应迁移到 Redis，并保留租户和版本 key。
+5. Tool Result Artifact/Delta 基础设施已实现并测试，但仍有旧 Service 未迁移到统一接口，迁移时应按长输出占比排序，不做无收益重构。
+
+## 2026-08-31 11:15:21 +08:00：Context Runtime V2 节点级 Token 治理、关键事实保真、JIT 与 Shadow A/B
+
+### 本轮目标
+- 将只服务 fit/tailor、主要按字符数裁剪的 `ContextCompressor` 升级为节点级 Context Runtime，同时保留 V1 可回滚路径。
+- 明确 Control、Working、Evidence、Memory 和 Artifact 的生命周期，用真实 Token 预算语义取代“字符压缩率等于 Token 降幅”的错误口径。
+- 防止压缩丢失身份、目标、数字、否定事实、Citation、审批和外部 Tool Receipt，并为丢失事实提供局部展开和硬失败。
+- 构建不少于 30 个强噪声 Case、可重复的 V1/V2 A/B 脚本、跨租户/JIT/恢复测试和独立评测报告；未获本轮付费授权，不调用 DeepSeek。
+
+### V1 审计与基线
+1. V1 只有 `compress_fit_context` 和 `compress_tailor_context` 两个正式入口，其他 Planner、Parser、Interview、Verifier 和 Completion 节点没有独立 Context Contract。
+2. 主要预算是 `LLM_CONTEXT_MAX_CHARS=9000` 和 `LLM_EVIDENCE_MAX_CHARS=3600`，能够减少长字符串，但不能证明供应商 Token、输出预留和 Tool Schema 后仍有多少可用输入。
+3. V1 按列表前部和字符开头裁剪，低分否定证据、跨页 Citation 和 Chunk 中部的支持句缺少独立保真门禁。
+4. 完整 Artifact、Memory、Tool Output 与 Working State 没有统一 Packet 生命周期，压缩事件也没有独立数据库 Trace。
+5. 修改前固定基线：`tests/test_context_compressor.py + Agent Workflow + Natural Language` 共 `20 passed in 24.11s`。
+
+### 核心实现
+1. 新增 `ContextRuntimeV2`、`ContextContract`、`ContextRequest/BuildResult`、`TokenEstimator`、`CriticalFactLedger`、`ContextProjectionCache` 和 `ContextJITLoader`。
+2. 为 Planner、Profile Parser、JD Parser、Matcher、Tailor、Application、Interview Question/Answer、Claim Verifier、Guardrail 和 Completion Gate 建立 11 份独立合同。合同声明 required/forbidden fields、Evidence 类型、输入/输出/Tool 预算、Memory/JIT 权限、Critical Fact 和失败方式。
+3. 五类 Context 分治：Control 不允许外部内容提升；Working 移除已完成长输出并改用 Receipt；Evidence 保留 Citation/page/polarity/trust/injection；Memory 按 tenant+user+profile/TTL/status 隔离；Artifact 默认只传 ID/URI/SHA256/status/summary。
+4. Token Estimator 优先本地模型 Tokenizer，其次 `tiktoken` 代理，最后 CJK heuristic。后两者在 Trace 明确标 `estimated`；供应商 usage 缺失时实际 Token 保持 0，不伪造。
+5. 分级压缩实现 Level 0 去重、Level 1 Schema 投影、Level 2 query-specific Evidence window、Level 3 旧历史结构化 Compaction、Level 4 Handoff Context Reset。身份、数字、否定和审批不交给 LLM 重写。
+6. Critical Fact Ledger 在压缩后计算 Recall；缺失时只添加缺失事实及 source ID，硬事实仍缺失则模型调用前失败。负向 Evidence 即使 score 很低也获得保留优先级。
+7. JIT Loader 提供 Profile、Job、Evidence、Artifact、Session Decision 和 Prior Run Outcome 的受控读取；同时检查操作白名单、tenant/user/profile、字段、调用次数与单次 Token，并生成不含正文的 Receipt。
+8. 新增 `context_compression_traces` 表。中央 `LLMClient` 为已注册 trace 构建 V2 观测，保存 Runtime/Contract/Prompt/Skill/Tool Policy 版本、估算/实际 Token、类别占比、压缩 Level、保真、JIT、Cache、Reset 和延迟。
+9. Execution Provenance 升级 v5，保存 Context Runtime 模式、11 份合同和 Token 水位。V1/V2 使用 Feature Flag；当前保持 `enabled=false + shadow=true`。
+10. `ContextCompressor` 在 Shadow 中仍返回原 V1 Prompt，只附加 V2 差异；Active 时才将结构化 Profile/JD/Evidence Packet 映射回现有 fit/tailor 接口，支持配置立即回滚。
+
+### 专项数据与 A/B Harness
+- 新增 40 Case 数据集，覆盖超长中英文简历、双栏/跨页、相似项目、课程与交付、计划学习、明确未实现、多数字、长 JD、required/preferred/negative、多轮纠错、城市/岗位变更、长 Tool Output、低相关 Evidence、PDF/JD/Memory 注入、同租户跨用户、跨租户、Checkpoint、Compaction、Artifact/JIT、缓存更新、审批与 Receipt 等场景。
+- 每个 Case 含高分主证据、低分否定证据、18 个长噪声 Chunk、8 轮历史和大 Artifact，避免通过“删除全部 Evidence”制造好看的 Token 降幅。
+- `run_context_runtime_ab.py` 默认执行零费用确定性 A/B；`--real-llm` 已实现同模型、同 Prompt、温度 0、同 1200 输出上限的成对调用入口。本轮未执行付费模式。
+
+### 实际离线 A/B 结果
+- Case：40；模式：deterministic；LLM calls：0。
+- V1/V2 平均估算 Input Token：`23527.60 -> 7102.05`，相对下降 `69.81%`。
+- Critical Fact、Required Evidence、Negative Evidence、Citation Integrity：均 `1.0`。
+- Prompt Injection Escape、Cross-tenant Leakage、Forbidden Field：均 `0`。
+- 同 key 二次构建 Cache Hit：`40/40`；Context Reset 专项恢复：`1/1`。
+- Context 构建 P50/P95：`77.93/87.72 ms`。
+- 确定性 Context Gate 通过，但 `v2_can_be_default=false`。实际 Provider Token、Total Token、费用、Fit、Tailor、Forbidden Claim、Hallucination 和 E2E 都是“未测”。
+
+### 开发中暴露的 Bad Case
+1. **高压缩率不能直接触发上线。** 第一轮 40 Case 已得到 `69.81%` 估算降幅和 100% 保真，但没有真实模型输出与供应商 usage。正确处理是把 deterministic gate 与 real-LLM release gate 分开，并让程序输出 `v2_can_be_default=false`，而不是用估算数字替代真实 Token/质量。
+2. **Cache Hit=0 最初不是缓存失效，而是评测只做冷读。** 第一版每个 Case 的 data version 都唯一且只构建一次，报告自然为 0。修复为同一个 ContextRequest 显式二次构建，冷构建用于延迟/质量，第二次只验证 key 与 scope 复用；最终 40/40。评测指标必须匹配被测语义。
+3. **最初 Reset 会把超长 Working 原样带进新窗口。** 旧逻辑生成 Handoff 后仍复用整个 `working_context`，因此真正超限时 Reset 可能再次超限。修复为新窗口只保留 Goal、约束、未完成步骤、最近错误、Receipt、选中 Job/Profile ID；长 history_blob 只留 Handoff 哈希和引用。
+4. **Required Contract 最初只有声明没有执行。** 11 个合同已经写 required fields，但 Runtime 第一版未验证。增加结构化请求预检；中央 text adapter 只做 Shadow 观测，不冒充完整业务合同。测试固定缺 `job` 的 Tailor Context 必须失败。
+5. **高风险 Memory 不能先摘要再保存。** 第一版 Compaction 保留 source IDs，但没有在加载阶段隔离 `injection_risk=high`。修复为高风险 Memory 不进入 Packet，Compaction 仍保留已允许记录的 risk metadata。
+6. **静态检查发现测试本身破坏了基线语义。** 新增 LLM Context Trace 测试时，插入位置错误，把原 provider usage 测试主体放进了新函数，pytest 仍全绿，但 Ruff 报同一作用域 `FakeResponse` 重定义。修复为恢复两个独立测试并重新运行。这个 Case 说明“测试通过”不等于测试仍在测原目标，测试代码也需要静态检查和结构审查。
+7. **全仓 Ruff 会暴露历史债务，不能混入本轮结论。** 全仓检查仍有 `ops.py` 变量遮蔽、数个旧 unused import 和旧脚本 E402 等 20 项既存问题；本轮没有为 Context 任务顺手重构无关文件。所有本轮新增/修改的 Context 文件定向 Ruff 已通过，并在限制中如实记录全仓 Ruff 不是绿色。
+
+### 测试与统一评测
+- V2 专项最终：`23 passed in 0.59s`。
+- Context + LLM Trace：`39 passed in 1.39s`；重点 Agent/恢复/评测回归：`129 passed in 70.09s`。
+- 全量 pytest 首轮 `366 passed in 128.40s`；修正测试结构并完成最终重跑：`366 passed in 125.24s`。
+- 统一确定性 Agent 评测：EvaluationRun `#163`，`release_gate_passed=true`、`suite_errors={}`、`total_tokens=0`、费用 0、wall time `220519 ms`。
+- `compileall`、本轮文件定向 Ruff 和 `git diff --check` 通过；本轮没有调用 DeepSeek。
+
+### 当前限制与下一步
+1. V2 默认仍是 Shadow。应先选 5 个代表 Case 做 10-call 真实 A/B smoke，确认 JSON、usage、质量门禁和费用后，再决定是否运行 40 Case/80-call 全量；避免无控制消耗余额。
+2. 当前 DeepSeek V4 没有配置本地专用 Tokenizer，离线数值是显式估算；真实 A/B 必须以 provider usage 为主。
+3. 只有 fit/tailor 已接入完整结构化 ContextRequest；其他 LLM 节点通过中央 text adapter 记录合同观测。后续应逐节点将 Planner/Parser/Interview/Verifier 的业务字段改为结构化请求。
+4. Level 3 当前为确定性结构化 Compaction，没有新增 LLM 调用。只有真实长对话证明确定性结构不足时，才增加可评测的 LLM Compaction。
+5. Context Cache 是单进程 LRU；多 Worker 共享、Redis 缓存和主动 Profile/JD invalidation event 尚未实现。当前 data version 可以防止更新后复用旧键，但不是分布式缓存。
+6. Context Reset 已通过机制 Case，但尚未在真实跨进程 LangGraph 长上下文流程中做端到端 100% 恢复认证。
+7. 全仓 Ruff 仍有 20 项本轮之前的历史问题；不影响 pytest 和本轮定向质量门禁，但应安排独立清理提交，避免与 Context 功能修改混在一起。
+
+## 2026-08-21 11:12:32 +08:00：按真实执行轨迹补强 Tool Harness，并把隐式 RAG 与事实核验拆成可验证步骤
+
+### 本轮目标
+- 不再只从“代码里注册了多少 Tool”判断 Agent 是否成熟，而是核对每个 Tool 是否真的有独立调用点、输入输出合同、运行时权限和可追踪产物。
+- 按真实用户链路审计“简历匹配 -> 证据检索 -> 定制简历 -> 事实核验”，确认 Completion Gate 能判断每个关键步骤是否完成，而不是只看到一个大 Service 返回成功。
+- 将 Prompt 与 Skill 做版本化和真实运行时注入；同时补齐 Redis Worker、Checkpoint 恢复路径中的租户资源复核。
+- 本轮先使用零外部 LLM 成本的合同测试和统一确定性评测验证代码，避免在基础实现仍可能报错时消耗 DeepSeek 余额。
+
+### 开发前审计发现的问题
+1. **注册表数量和真实 Tool Calling 不一致。** Registry 有 19 个 Tool Contract，但旧调用点只有约 14 个独立 `BoundAgentTool`；JD Parser、岗位索引和面经导入实际嵌在上层服务中，简历证据检索与事实核验虽然写在计划里，也被藏在 `resume_tailor` 内部。若直接回答“系统有 19 个可独立调用工具”，面试口径会夸大真实实现。
+2. **计划轨迹与执行轨迹不一致。** Task Contract 要求 RAG 和 Guardrail，但外层图只记录 `tailor_resume`。当这个大函数返回成功时，Completion Gate 无法分别证明检索质量达标、定制完成和事实核验通过；排查失败时也只能进入 Service 内部猜测。
+3. **Skill 权限表存在概念性工具。** 多份 `SKILL.md` 的 `allowed_tools` 引用了 `resume_parser`、`profile upsert`、`llm.generate_json` 和 `context compressor` 等未注册 helper。Planner 文档看似有限权，Runtime 却无法依据 Registry 校验这些名称，属于权限描述漂移。
+4. **Prompt/Skill 只能看到配置，不能复现真实调用。** Prompt 分散在各服务中，没有统一的名称、版本和哈希；Skill 主要通过 API 展示，不能证明具体 LLM 调用加载了哪一版约束。出现 Bad Case 时只能看输入预览，无法回答“哪版 Prompt/Skill 导致的”。
+5. **租户保护主要停留在 HTTP 入口。** FastAPI 路由会过滤 Profile/Job，但 Redis Worker 和 Checkpoint 恢复直接从 Run State 读取资源 ID，不会重新经过路由依赖。入口校验正确不等于后台执行一定不会跨租户读取。
+6. **Tool 输入允许额外字段会隐藏 Planner 错误。** 如果模型多生成一个参数、handler 又没有使用它，调用可能表面成功，Trace 却记录了一个没有真正生效的用户要求。
+
+### Harness 与真实流程改造
+1. **区分直接工具和嵌入式能力。** `AgentToolSpec` 新增 `invocation_scope` 与 `parent_tools`。当前 19 个合同中，16 个是 Runtime 可独立执行和追踪的直接 Tool；`jd_parser.parse_jd`、`vector_index.upsert_job_chunks`、`interview_experience.import_text` 三个明确标记为嵌入式能力，不再混用一个统计口径。
+2. **拆出证据检索节点。** LangGraph 在匹配后显式调用 `vector_index.retrieve_resume_evidence`，把 evidence chunks 与 retrieval quality 写入 `resume_evidence_retrieval` Artifact。质量门禁失败时在生成前停止，不允许 Tailor 用低质量证据继续猜测。
+3. **拆出事实核验节点。** 定制后显式调用 `guardrail.verify_resume`，重新读取已保存的 ResumeVersion，写入 `resume_verification` Artifact；只有核验通过才进入后续匹配门禁和完成判定。
+4. **消除隐藏重复检索。** `ResumeTailorService` 可以消费图中已经检索出的 evidence 和 quality，不再在一个正常流程中重复 Embedding/Reranker。旧的单独调用路径仍会自行检索，但不会用静默兜底掩盖检索失败。
+5. **Completion Contract 与图同步。** `resume_tailor` 和 `full_career_flow` 的 required steps/artifacts 同时增加 retrieval 与 verification，并固定 `retrieve -> tailor -> verify` 顺序。完成判定现在检查业务证据，不只检查 Node 是否返回。
+6. **Prompt Registry 与 Skill 渐进披露。** 新增 `PromptRegistry`，为九类 LLM 调用声明 Prompt 版本和相关 Skill。调用时只提取相关 Skill 的 context policy、forbidden behaviors 和 failure policy，组成最多 2400 字符的 Runtime Policy。Trace 保存 Prompt/Skill 版本和基础/最终 SHA256，不把七份 Skill 全文反复发送。
+7. **执行时租户纵深校验。** `AgentToolRuntime` 在 handler 前根据 AgentRun tenant 复核 Profile、Job 和 ResumeVersion；全局 Job 可共享，用户 Profile/ResumeVersion 必须属于当前 tenant。该规则覆盖 API、Worker 和恢复路径。
+8. **收紧输入输出合同。** Tool JSON Schema 默认 `additionalProperties=false`，未知参数直接拒绝；直接检索与 Guardrail 增加真实输出校验。Skill 版本统一升级到 `1.1.0`，所有 allowed tool 必须能在 Registry 中找到。
+9. **执行 Provenance 升级。** Provenance v4 保存直接/嵌入式工具清单、全部 Skill 版本和 Prompt Registry Manifest，使历史 Run 能复现当时的 Harness 配置。
+
+### 修复过程中暴露的 Bad Case
+1. **严格输出检查揭露了合同漂移。** 第一次运行新 `verify_resume` 节点时，Runtime 报输出缺少 `verification`。调查发现 Tool Contract 写的是 `{"verification": ...}` 包装结构，真实 Guardrail handler 一直返回 `{"passed": ..., "risk_level": ...}` 正文。过去没有对该路径做独立输出校验，因此错误合同长期存在。最终按真实业务返回修正 Contract，而不是放宽 Runtime 校验。
+2. **测试替身暴露了错误的组件耦合。** 旧工作流测试把 Guardrail 藏在 `FakeTailor.guardrails` 中；拆出独立 verify 节点后测试失败。这说明 Orchestrator 曾依赖 Tailor 的内部属性，而不是依赖显式 Guardrail Service。修复为构造 Orchestrator 时独立注入 `ResumeGuardrailService`，测试替身也按真实节点边界实现。
+3. **恢复测试暴露了“大函数接口”假设。** 旧恢复 Fixture 只模拟 `tailor_resume`，没有证据检索接口。增加节点后恢复测试失败，迫使测试同时证明恢复后的 Run 会重新得到 evidence Artifact，并把同一份 evidence 传给 Tailor，而不是靠大函数内部的不可见状态。
+4. **图上写了步骤不等于真的执行了步骤。** 这是本轮最重要的系统设计发现。计划、Trace 名称和文档都可能营造“有 RAG、有 Guardrail”的印象；只有节点独立执行、产物可查询、Completion Gate 校验三者同时存在，才能证明任务没有偷懒早停。
+
+### 验证结果
+- `python -m pytest -q`：`342 passed in 163.94s`。
+- 重点回归覆盖未知 Tool 参数拒绝、后台跨租户 Profile 拒绝、Prompt/Skill 版本与有界注入、Skill 工具引用完整性、显式检索/核验步骤、Artifact 和中断恢复。
+- 最新统一确定性 Agent 评测：EvaluationRun `#155`，约 `238.79 s`，release gate 通过，`suite_errors={}`，外部 LLM Token 为 `0`。
+- PDF Chunk 96 份样本：选用 `paragraph_page_900_overlap160`，Top3 keyword/page/context hit 为 `0.9479/0.8299/0.7760`。
+- PDF Extraction Bad Case 22 项：pass、critical、错误码、Bridge Precision/Recall 均为 `1.0`，Bridge FPR 为 `0`。
+- Follow-up Directive Bad Case 22 项：全部门禁为 `1.0`。
+- RAG 180 Case：Top1 `1.0`、Recall@3 `0.6125`、Recall@5 `0.7292`、MRR `1.0`、nDCG@5 `0.7862`；使用真实 sentence-transformers embedding 与 cross-encoder reranker，没有 hash/fallback 冒充生产结果。
+- 岗位相关性 13 Case：pass rate `1.0`、nDCG `0.9495`；投递材料 27 Case pass rate `1.0`；Prompt Injection 70 Case recall `1.0`、FPR `0`。
+- `compileall` 和 Ruff 均通过；本轮没有调用 DeepSeek，也没有消耗外部模型余额。
+
+### 可以直接用于面试的结论
+1. 我最初的问题不是缺少 RAG 或 Guardrail，而是二者藏在一个 Tailor Service 中，系统只能证明大函数返回，不能证明每个关键责任完成。修复方法是把检索、生成和验证变成独立受治理工具，各自留下 Artifact，再让 Completion Gate 按任务合同核对。
+2. Tool 数量不能只报 Registry 行数。我会说明当前是 19 个合同、16 个直接工具、3 个嵌入式能力，并解释模型不会在 19 个工具上无限自由选择，而是由 Skill、Task Contract、Graph 和 Runtime 四层约束。
+3. 权限不能只在 API 做。异步 Worker 和 Checkpoint 恢复会绕过 HTTP 依赖，所以 Tool Runtime 必须在真正执行前重新检查 tenant、Run 状态和 approval。
+4. Prompt 优化首先要可复现。Prompt/Skill 的版本、哈希和 usage 是 A/B 的基础，但只有完成固定数据集的 baseline/challenger 对照后，才能说某版 Prompt 质量更高；版本化本身不是效果证明。
+5. 测试替身失败不是单纯维护成本，它暴露了生产代码依赖内部实现。让 Fake 和真实组件都服从相同 Tool Contract，能够反向检查架构边界是否真的成立。
+
+### 尚未解决与下一步
+1. 最新确定性系统评测已经通过，但当前 Prompt/Skill/Graph 版本尚未重新运行完整真实 LLM workflow 和 full-flow release gate。应在预算可控时按固定 Case 分批运行，先小样本 smoke，再执行完整对照，避免用旧失败记录或确定性满分替代模型质量结论。
+2. Prompt Registry 已提供版本、哈希和 Runtime Policy 注入，但尚未形成同模型、同数据、同温度下的 baseline/challenger A/B 报告；下一轮 Prompt 优化必须同时比较 grounding、任务完成率、Token、p95 和 pass^k。
+3. 三个嵌入式能力仍没有独立顶层 Step。只有当独立审批、恢复、重试或观测确有价值时再拆成直接 Tool；不为了把数字从 16 增到 19 制造无意义节点。
+4. Runtime 当前对 Profile、Job、ResumeVersion 做资源级租户复核，其他核心业务表仍应持续进行 tenant 下沉审计，并补充按资源类型的越权矩阵测试。
+5. SQLite 仍适合当前单机受控部署；多实例公网生产需要 PostgreSQL/shared checkpointer、OIDC/SSO 和真实流量 SLO，不能由本轮 342 项离线测试替代。
+
 ## 2026-08-19 11:44:46 +08:00：为 PDF 与追加指令建立 Bad Case 发布门禁，并用失败基线驱动修复
 
 ### 本轮目标

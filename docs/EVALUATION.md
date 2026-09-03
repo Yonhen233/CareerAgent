@@ -1,5 +1,13 @@
 # 量化评测方案
 
+> 2026-09-01 对话任务状态 V4 完成 48 组离线多轮评测和 5 对真实 `deepseek-v4-flash` 长对话 A/B。离线字段准确率、纠错生效率、禁止操作召回率、压缩状态保持率和 Checkpoint 一致率均为 `1.0`，摘要冲突误接受率为 `0`；24/48 case 触发 Compactor。真实 5/5 case 均触发 Compactor 并通过，字段/纠错/禁止操作/usage 均为 `1.0`。首次压缩相对完整历史 Raw 的 Provider Input Token `27,716.8 -> 28,281.4`（增加 `2.04%`），业务调用 `1 -> 2`，因此不能宣称首次压缩省 Token。详见 [对话任务状态与压缩完整性 V4](CONVERSATION_TASK_STATE_V4.md)。
+
+> 2026-08-31 上下文管理 V3 已完成 5 对真实完整 Agent Run A/B。每个 Variant 均执行 PDF 解析、JD 解析/入库、岗位匹配、简历证据检索、简历定制、独立 Guardrail、投递材料 Dry Run、6 题面试准备和 Completion Gate。V2/V3 完成率均为 `5/5`，Critical Fact、Citation、Guardrail、Application、Interview、Completion 和 Provider Usage 完整率均为 `1.0`。V3 平均 Input Token `20,657.4 -> 21,498.4`（增加 `4.07%`），Total Token `25,499.6 -> 26,617.2`（增加 `4.38%`），总成本增加 `4.60%`，平均延迟下降 `6.60%`。因此 V3 的发布价值是上下文隔离、最小恢复和事实完整性，完整流程尚未证明 Token 节省。详见 [V3 正式实现与完整流程评测](CONTEXT_MANAGEMENT_V3_PRODUCTION.md)。
+
+> 2026-08-31 完成 Context / Token V2 独立真实消融及两个 V2 同时开启的联合 canary。联合混合工作负载中 Provider Input Tokens `25,756.33 -> 10,225.67`（-60.30%）、Total Tokens `26,313.33 -> 10,755`（-59.13%）、业务调用 `7 -> 3`，事实、引用、禁止声明、注入、跨租户与 usage 完整性 Gate 均通过。两个 V2 已切为正式默认路径，详见 [联合上线报告](COMBINED_V2_PRODUCTION_RELEASE.md)。
+
+> 2026-08-31 首轮 Context Runtime V2 的 40 Case 离线确定性 A/B 中，平均估算 Input Token 从 `23527.60` 降至 `7102.05`（`-69.81%`）；Critical Fact、Required/Negative Evidence 和 Citation 均为 `100%`。该轮尚未调用真实 LLM，所以当时结论仅为继续 Shadow；之后的独立真实与联合真实 canary 已补齐并切换正式默认，详见 [Context Runtime V2 评测](CONTEXT_RUNTIME_V2_EVALUATION.md) 与 [联合上线报告](COMBINED_V2_PRODUCTION_RELEASE.md)。
+
 > 2026-07-22 最新的分层 Agent 系统真实评测、指标解释、成本与失败样本见 [CareerAgent Agent 系统评测报告](AGENT_SYSTEM_EVALUATION_2026-07-22.md)。本轮严格发布门禁未通过，不能只依据单项满分判断系统已经可上线。
 
 > 2026-08-09 新增 Task Contract、Completion Gate、Trajectory V2 和 RAG Evidence Gate。离线全量代码回归为 `277 passed`；独立 SQLite 数据库上的 6-case Agent 全流程确定性评测通过率、Trajectory V2、Artifact、LangGraph、岗位 Top1 和投递包门禁均为 `1.0`，3 个低匹配 case 均被 Fit Gate 按预期阻断。该结果证明新的确定性控制面和固定评测场景通过，不替代 24-case 真实 LLM workflow 重跑，也不改写 2026-07-22 整体 Release Gate 仍为失败的历史结论。
@@ -39,7 +47,7 @@
 面试评测不再只检查题目数量和回答长度，还检查完整链路契约：
 
 - 默认问题数是否等于 10；
-- 正常路径调用数是否等于 3，一轮业务修复和增量复验时是否不超过 5；
+- 正常路径由问题生成、答案 Batch 和 Verifier Batch 组成；发生 JSON/答案定向修复时，整个面试工作流业务调用不得超过 8；
 - 累计 Prompt 字符和最大输出 token 预留是否低于工作流硬预算；
 - 本地 multi-query plan、source inventory 与按题目视角设置的来源配额是否兼容；
 - citation integrity 与局部证据别名合法率；
@@ -49,7 +57,7 @@
 - repair error count 与 dirty question count 是否逐轮收敛；
 - release gate 失败时 InterviewPrep 是否保持不落库。
 
-真实 DeepSeek 旧包 `#44` 使用 59 次调用、1,490,670 Prompt 字符和 237,622 Response 字符，其中 verifier 占 37 次调用和 1,080,855 Prompt 字符。当前 v3 契约为 10 题、正常 3 次调用、repair 路径最多 5 次；答案和 verifier 各处理一个 10 题批次，repair 与复验只处理失败题。根据后续真实完整包 trace，硬预算调整为 70,000 Prompt 字符和 15,000 completion token 预留，verifier 单次上限 2,800。完整 JSON 若漏题，只重试漏项题；历史日志没有供应商 usage 字段，不能把字符数伪装成真实 token。
+真实 DeepSeek 旧包 `#44` 使用 59 次调用、1,490,670 Prompt 字符和 237,622 Response 字符，其中 verifier 占 37 次调用和 1,080,855 Prompt 字符。当前契约正常路径由问题生成、答案共享上下文 Batch 和 Verifier Batch 组成；JSON repair 最多 1 次，答案定向 repair 最多 2 轮，整个面试链业务调用上限为 8。答案和 verifier 各处理共享上下文批次，repair 与复验只处理失败题。根据真实完整流程 bad case，Prompt 字符硬预算调整为 100,000，仍受全局 input/output/total token 和 repair budget 约束。完整 JSON 若漏题，只重试漏项题；历史日志没有供应商 usage 字段时不能把字符数伪装成真实 token。
 
 独立 `interview_claim_verifier` 数据集包含 14 个 case，覆盖 4 个可支持方案、4 个伪装成方案的既有经历、2 个支持事实、2 个不支持事实和 2 个“事实正确但答非所问”样本。真实 run `#50` 分两批各 7 case：support accuracy、strategy recall、question-answering accuracy 均为 1.0，false positive rate、disguised-experience false positive rate 和 nonresponsive false accept rate 均为 0。真实在线评测必须先通过该低成本闸门，完整面试链路才允许继续运行。
 

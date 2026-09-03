@@ -4,21 +4,22 @@ import asyncio
 import json
 import math
 import re
-from collections import Counter, defaultdict
+from collections import Counter
 from copy import deepcopy
-from pathlib import Path
 from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.llm import LLMClient, LLMResponseError, extract_json_object
+from app.core.llm import LLMClient, LLMResponseError, extract_json_object, llm_trace_context
 from app.models.entities import InterviewExperience, Job, JobChunk, MatchResult, Profile, ResumeChunk
 from app.services.embedding_service import EmbeddingService, cosine_similarity, tokenize
 from app.services.interview_references import InterviewReferenceService
 from app.services.prompt_injection_guard import PromptInjectionGuard
 from app.services.reranker import RerankerService
+from app.services.token_optimization import BatchItem, BatchToolExecutor, NodeTokenBudgetRegistry
+from app.services.shared_context_batcher import SharedContextBatcher
 
 
 ALLOWED_SOURCES = {
@@ -91,6 +92,7 @@ class InterviewAgenticRAGService:
         reranker: RerankerService | None = None,
     ) -> None:
         self.settings = get_settings()
+        self.shared_context_batcher = SharedContextBatcher()
         self.llm = llm or LLMClient()
         self.embedding = embedding or EmbeddingService(settings=self.settings)
         self.reranker = reranker or RerankerService(settings=self.settings)
@@ -1099,7 +1101,32 @@ class InterviewAgenticRAGService:
         plans: dict[str, dict[str, Any]],
         evidence: dict[str, list[dict[str, Any]]],
     ) -> dict[str, dict[str, Any]]:
-        batches = self._batches(questions, self.settings.interview_rag_answer_batch_size)
+        shared_for_budget = {
+            "profile": {"name": profile.name, "headline": profile.headline},
+            "job": {"title": job.title, "company": job.company, "location": job.location},
+        }
+        budget_items = [
+            {
+                "question": question,
+                "evidence": [
+                    self._evidence_for_prompt(item, alias=f"E{index}")
+                    for index, item in enumerate(
+                        evidence.get(question["question_id"]) or [],
+                        start=1,
+                    )
+                ],
+            }
+            for question in questions
+        ]
+        split_items = self.shared_context_batcher.split(
+            budget_items,
+            shared_context=shared_for_budget,
+            max_items=self.settings.interview_rag_answer_batch_size,
+            max_input_tokens=NodeTokenBudgetRegistry().get(
+                "interview_answer_generator"
+            ).max_input_tokens,
+        )
+        batches = [[item["question"] for item in batch] for batch in split_items]
         system_prompt = self._answer_system_prompt()
 
         async def run_batch(batch: list[dict[str, Any]], index: int) -> dict[str, Any]:
@@ -1110,12 +1137,16 @@ class InterviewAgenticRAGService:
                 plans=plans,
                 evidence=evidence,
             )
+            batch_id = f"interview-answer:{index}:" + ",".join(
+                item["question_id"] for item in batch
+            )
             return await self._generate_json(
                 db,
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 trace_name=f"interview_agentic_rag.generate.{index}",
                 max_tokens=3200,
+                batch_id=batch_id,
             )
 
         payloads = await self._bounded_gather(
@@ -1192,10 +1223,34 @@ project_implementation/technical_explanation；technical_knowledge 用于 techni
                     ],
                 }
             )
+        evidence_by_question = {
+            item["question_id"]: item.pop("evidence")
+            for item in items
+        }
+        if not self.settings.context_management_v3_enabled:
+            legacy_items = []
+            for item in items:
+                question_id = item["question_id"]
+                legacy_items.append(
+                    {
+                        **item,
+                        "candidate": {"name": profile.name, "headline": profile.headline},
+                        "target_job": {
+                            "title": job.title,
+                            "company": job.company,
+                            "location": job.location,
+                        },
+                        "evidence": evidence_by_question[question_id],
+                    }
+                )
+            return json.dumps({"items": legacy_items}, ensure_ascii=False)
         return json.dumps(
             {
-                "candidate": {"name": profile.name, "headline": profile.headline},
-                "target_job": {"title": job.title, "company": job.company, "location": job.location},
+                "shared_context": {
+                    "profile": {"name": profile.name, "headline": profile.headline},
+                    "job": {"title": job.title, "company": job.company, "location": job.location},
+                    "evidence_by_question": evidence_by_question,
+                },
                 "items": items,
             },
             ensure_ascii=False,
@@ -1385,19 +1440,40 @@ answer_strategy 表示尚未发生的回答方案：只要文本明确使用“�
             )
 
         async def run_batch(batch: list[dict[str, Any]], index: int) -> dict[str, Any]:
+            evidence_by_question = {
+                item["question_id"]: item.get("available_evidence") or [] for item in batch
+            }
+            minimal_items = [
+                {key: value for key, value in item.items() if key != "available_evidence"}
+                for item in batch
+            ]
+            batch_id = f"interview-verify:{index}:" + ",".join(
+                item["question_id"] for item in batch
+            )
+            verifier_payload = (
+                {
+                    "shared_context": {"evidence_by_question": evidence_by_question},
+                    "items": minimal_items,
+                }
+                if self.settings.context_management_v3_enabled
+                else {"items": batch}
+            )
             return await self._generate_json(
                 db,
                 system_prompt=system_prompt,
-                user_prompt=json.dumps({"items": batch}, ensure_ascii=False),
+                user_prompt=json.dumps(verifier_payload, ensure_ascii=False),
                 trace_name=f"{trace_prefix}.{index}",
                 max_tokens=self.settings.interview_rag_verify_max_tokens,
+                batch_id=batch_id,
             )
 
         batches = list(
             enumerate(
-                self._batches(
+                self.shared_context_batcher.split(
                     question_items,
-                    self.settings.interview_rag_verify_question_batch_size,
+                    shared_context={},
+                    max_items=self.settings.interview_rag_verify_question_batch_size,
+                    max_input_tokens=NodeTokenBudgetRegistry().get("claim_verifier").max_input_tokens,
                 ),
                 start=1,
             )
@@ -1885,8 +1961,9 @@ answer_strategy 表示尚未发生的回答方案：只要文本明确使用“�
         user_prompt: str,
         trace_name: str,
         max_tokens: int,
+        batch_id: str | None = None,
     ) -> dict[str, Any]:
-        text = await self.llm.generate_text(
+        call_kwargs = dict(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=0.1,
@@ -1895,6 +1972,13 @@ answer_strategy 表示尚未发生的回答方案：只要文本明确使用“�
             db=db,
             trace_name=trace_name,
         )
+        if isinstance(self.llm, LLMClient):
+            call_kwargs["prompt_sections"] = self._llm_prompt_sections(user_prompt, trace_name)
+        with llm_trace_context(
+            graph_node=trace_name,
+            batch_id=batch_id or f"single:{trace_name}",
+        ):
+            text = await self.llm.generate_text(**call_kwargs)
         try:
             return extract_json_object(text)
         except (json.JSONDecodeError, LLMResponseError) as exc:
@@ -1902,7 +1986,7 @@ answer_strategy 表示尚未发生的回答方案：只要文本明确使用“�
 
         repaired_text = text
         for attempt in range(1, max(0, self.settings.interview_rag_json_repair_attempts) + 1):
-            repaired_text = await self.llm.generate_text(
+            repair_kwargs = dict(
                 system_prompt=(
                     "你是 JSON 语法修复器。只修复输入 JSON 的引号、逗号、括号、转义和截断等语法错误；"
                     "不得新增、删除、概括或改写任何业务字段和值。输出必须是单个 JSON object，不要解释。"
@@ -1920,6 +2004,18 @@ answer_strategy 表示尚未发生的回答方案：只要文本明确使用“�
                 db=db,
                 trace_name=f"{trace_name}.json_repair.{attempt}",
             )
+            if isinstance(self.llm, LLMClient):
+                repair_kwargs["prompt_sections"] = {
+                    "repair_context": {
+                        "parse_error": parse_error,
+                        "malformed_json": repaired_text,
+                    }
+                }
+            with llm_trace_context(
+                graph_node=f"{trace_name}.json_repair.{attempt}",
+                batch_id=batch_id or f"single:{trace_name}",
+            ):
+                repaired_text = await self.llm.generate_text(**repair_kwargs)
             try:
                 return extract_json_object(repaired_text)
             except (json.JSONDecodeError, LLMResponseError) as exc:
@@ -1931,6 +2027,19 @@ answer_strategy 表示尚未发生的回答方案：只要文本明确使用“�
         )
 
     async def _bounded_gather(self, coroutines: list[Any]) -> list[Any]:
+        if self.settings.batch_tool_calls_enabled:
+            executor = BatchToolExecutor()
+            items = [BatchItem(item_id=f"item-{index}", payload=coroutine) for index, coroutine in enumerate(coroutines)]
+
+            async def run_item(item: BatchItem) -> Any:
+                return await item.payload
+
+            receipts = await executor.run(
+                items,
+                run_item,
+                concurrency=self.settings.interview_rag_llm_concurrency,
+            )
+            return executor.unwrap(receipts)
         semaphore = asyncio.Semaphore(self.settings.interview_rag_llm_concurrency)
 
         async def run(coroutine: Any) -> Any:
@@ -1945,6 +2054,42 @@ answer_strategy 表示尚未发生的回答方案：只要文本明确使用“�
             if isinstance(result, BaseException):
                 raise result
         return list(results)
+
+    @staticmethod
+    def _llm_prompt_sections(user_prompt: str, trace_name: str) -> dict[str, Any] | None:
+        try:
+            payload = json.loads(user_prompt)
+        except (json.JSONDecodeError, TypeError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        if "repair" in trace_name:
+            return {"repair_context": payload}
+        sections: dict[str, Any] = {}
+        shared = payload.get("shared_context") or {}
+        if payload.get("candidate"):
+            sections["profile"] = payload["candidate"]
+        elif shared.get("profile"):
+            sections["profile"] = shared["profile"]
+        if payload.get("target_job"):
+            sections["job"] = payload["target_job"]
+        elif shared.get("job"):
+            sections["job"] = shared["job"]
+        evidence = []
+        working = dict(payload)
+        for item in payload.get("items") or []:
+            if isinstance(item, dict):
+                evidence.extend(item.get("evidence") or item.get("available_evidence") or [])
+        for rows in (shared.get("evidence_by_question") or {}).values():
+            if isinstance(rows, list):
+                evidence.extend(rows)
+        if evidence:
+            sections["evidence"] = evidence
+        for key in ("candidate", "target_job", "shared_context"):
+            working.pop(key, None)
+        if working:
+            sections["working"] = working
+        return sections or None
 
     def _verification_route(self, state: InterviewRAGState) -> str:
         if not state.get("verification_errors"):

@@ -1,6 +1,6 @@
 ---
 name: fit_assessment
-version: 1.0.0
+version: 1.1.0
 status: active
 owner_role: fit_judge
 purpose: 根据结构化 JD 和可追溯证据判断岗位适配度、优势和缺口。
@@ -15,8 +15,6 @@ allowed_tools:
   - matcher.match_job
   - matcher.enforce_fit_gate
   - vector_index.retrieve_resume_evidence
-  - llm.generate_json
-  - context_compressor.compress_fit_context
 context_policy: 必须使用预算化上下文；禁止把全量历史和全部 Chunk 同时放入 Fit Judge。
 output_contract:
   fit_label: str

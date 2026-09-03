@@ -35,20 +35,53 @@ class Settings(BaseSettings):
     llm_context_compression_enabled: bool = True
     llm_context_max_chars: int = 9000
     llm_evidence_max_chars: int = 3600
+    context_runtime_v2_enabled: bool = True
+    context_runtime_v2_shadow_mode: bool = False
+    context_management_v3_enabled: bool = True
+    context_model_window_tokens: int = Field(default=65536, ge=4096, le=1000000)
+    context_token_soft_limit_ratio: float = Field(default=0.70, ge=0.30, le=0.90)
+    context_token_high_limit_ratio: float = Field(default=0.85, ge=0.50, le=0.97)
+    context_token_hard_limit_ratio: float = Field(default=0.95, ge=0.60, le=1.0)
+    context_output_reserve_tokens: int = Field(default=4096, ge=256, le=100000)
+    context_safety_margin_tokens: int = Field(default=1024, ge=128, le=32000)
+    context_tool_schema_reserve_tokens: int = Field(default=1024, ge=0, le=32000)
+    context_jit_max_calls: int = Field(default=3, ge=0, le=20)
+    context_jit_max_tokens_per_call: int = Field(default=1600, ge=128, le=16000)
+    context_compaction_enabled: bool = True
+    context_cache_enabled: bool = True
+    context_cache_max_entries: int = Field(default=512, ge=16, le=10000)
+    context_tokenizer_model: str | None = None
+    conversation_recent_turns: int = Field(default=3, ge=1, le=10)
+    conversation_compaction_budget_ratio: float = Field(default=0.25, ge=0.1, le=0.6)
+    conversation_compactor_max_tokens: int = Field(default=1200, ge=256, le=4000)
+    parser_document_batch_chars: int = Field(default=16000, ge=4000, le=60000)
+    token_optimization_v2_enabled: bool = True
+    token_optimization_shadow_mode: bool = False
+    dynamic_tool_catalog_enabled: bool = True
+    batch_tool_calls_enabled: bool = True
+    parallel_tool_calls_enabled: bool = True
+    tool_result_artifact_enabled: bool = True
+    delta_context_enabled: bool = True
+    llm_max_calls_per_run: int = Field(default=12, ge=1, le=200)
+    llm_max_attempts_per_run: int = Field(default=18, ge=1, le=400)
+    llm_max_repair_calls: int = Field(default=2, ge=0, le=20)
+    llm_max_input_tokens_per_run: int = Field(default=120000, ge=1000, le=4000000)
+    llm_max_output_tokens_per_run: int = Field(default=40000, ge=256, le=1000000)
+    llm_max_total_tokens_per_run: int = Field(default=160000, ge=1256, le=5000000)
     interview_rag_max_questions: int = 10
     interview_rag_answer_batch_size: int = 10
     interview_rag_llm_concurrency: int = 2
     interview_rag_verify_question_batch_size: int = 10
     interview_rag_verify_max_tokens: int = 2800
-    interview_rag_json_repair_attempts: int = 0
+    interview_rag_json_repair_attempts: int = 1
     interview_rag_retrieval_top_n: int = 20
     interview_rag_evidence_top_k: int = 5
     interview_rag_evidence_chars: int = 360
     interview_rag_rrf_k: int = 60
     interview_rag_min_answer_chars: int = 120
-    interview_rag_answer_repair_attempts: int = 1
-    interview_rag_max_llm_calls: int = 5
-    interview_rag_max_prompt_chars: int = 70000
+    interview_rag_answer_repair_attempts: int = 2
+    interview_rag_max_llm_calls: int = 8
+    interview_rag_max_prompt_chars: int = 100000
     interview_rag_max_completion_tokens: int = 15000
 
     openai_api_key: str | None = None
