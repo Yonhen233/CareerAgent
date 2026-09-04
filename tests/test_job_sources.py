@@ -12,6 +12,7 @@ from app.services.job_sources import (
     ByteDanceCareersSource,
     ChinaTelecomCareersSource,
     DidiCareersSource,
+    DewuCareersSource,
     HonorCareersSource,
     HuaweiCareersSource,
     IFlytekCareersSource,
@@ -1021,6 +1022,29 @@ def test_qihu360_source_loads_official_details_before_filtering():
     assert postings[0].external_id == "1"
     assert "熟悉 RAG" in postings[0].raw_jd_text
     assert postings[0].apply_url == "https://hr.360.cn/hr/detail/1"
+
+
+def test_dewu_source_preserves_complete_official_job_detail():
+    async def loader(query: str, limit: int) -> list[JobPosting]:
+        assert query == "Agent"
+        assert limit == 5
+        return [JobPosting(
+            source="dewu", external_id="7638893080371808539", title="Agent开发-二本科技",
+            company="得物App", location="上海", job_type="全职",
+            apply_url="https://poizon.jobs.feishu.cn/index/position/7638893080371808539/detail",
+            raw_jd_text="负责 Agent Loop、上下文管理和工具编排。任职要求：熟悉 LangGraph、RAG、MCP 和 Playwright。",
+            payload={"granularity": "job_detail"},
+        )]
+
+    postings = asyncio.run(
+        DewuCareersSource(posting_loader=loader).search(
+            query="Agent 开发", location="上海", limit=5
+        )
+    )
+
+    assert len(postings) == 1
+    assert postings[0].payload["granularity"] == "job_detail"
+    assert "LangGraph" in postings[0].raw_jd_text
 
 
 def test_minimax_source_preserves_official_card_granularity():

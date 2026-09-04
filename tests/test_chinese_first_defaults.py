@@ -14,7 +14,7 @@ def test_job_search_defaults_are_chinese_first():
         "tencent", "baidu", "meituan", "bytedance", "alibaba", "jd",
         "china_telecom", "huawei", "iflytek", "tcl", "midea", "xiaomi", "oppo", "skyworth",
         "wind", "moka_cn", "didi", "honor", "kuaishou", "lenovo", "vivo", "netease",
-        "xiaohongshu", "bilibili", "antgroup", "qihu360", "minimax", "zhipu",
+        "xiaohongshu", "bilibili", "antgroup", "qihu360", "dewu", "minimax", "zhipu",
     ]
 
 
@@ -60,6 +60,7 @@ def test_job_source_registry_defaults_to_chinese_source_only(monkeypatch):
     monkeypatch.setenv("BILIBILI_CAREERS_ENABLED", "true")
     monkeypatch.setenv("ANTGROUP_CAREERS_ENABLED", "true")
     monkeypatch.setenv("QIHU360_CAREERS_ENABLED", "true")
+    monkeypatch.setenv("DEWU_CAREERS_ENABLED", "true")
     monkeypatch.setenv("MINIMAX_CAREERS_ENABLED", "true")
     monkeypatch.setenv("ZHIPU_CAREERS_ENABLED", "true")
     monkeypatch.setenv("LEVER_CAREERS_ENABLED", "false")
@@ -73,7 +74,7 @@ def test_job_source_registry_defaults_to_chinese_source_only(monkeypatch):
         "tencent", "baidu", "meituan", "bytedance", "alibaba", "jd",
         "china_telecom", "huawei", "iflytek", "tcl", "midea", "xiaomi", "oppo", "skyworth",
         "wind", "moka_cn", "didi", "honor", "kuaishou", "lenovo", "vivo", "netease",
-        "xiaohongshu", "bilibili", "antgroup", "qihu360", "minimax", "zhipu",
+        "xiaohongshu", "bilibili", "antgroup", "qihu360", "dewu", "minimax", "zhipu",
     ]
     assert "lever" not in registry.sources
     assert "greenhouse" not in registry.sources

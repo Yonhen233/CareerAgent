@@ -211,7 +211,7 @@ class JobSearchRequest(BaseModel):
             "tencent", "baidu", "meituan", "bytedance", "alibaba", "jd",
             "china_telecom", "huawei", "iflytek", "tcl", "midea", "xiaomi", "oppo", "skyworth",
             "wind", "moka_cn", "didi", "honor", "kuaishou", "lenovo", "vivo", "netease",
-            "xiaohongshu", "bilibili", "antgroup", "qihu360", "minimax", "zhipu"
+            "xiaohongshu", "bilibili", "antgroup", "qihu360", "dewu", "minimax", "zhipu"
         ]
     )
     store_results: bool = True
@@ -264,7 +264,7 @@ class JobDiscoveryRequest(BaseModel):
             "tencent", "baidu", "meituan", "bytedance", "alibaba", "jd",
             "china_telecom", "huawei", "iflytek", "tcl", "midea", "xiaomi", "oppo", "skyworth",
             "wind", "moka_cn", "didi", "honor", "kuaishou", "lenovo", "vivo", "netease",
-            "xiaohongshu", "bilibili", "antgroup", "qihu360", "minimax", "zhipu"
+            "xiaohongshu", "bilibili", "antgroup", "qihu360", "dewu", "minimax", "zhipu"
         ]
     )
 

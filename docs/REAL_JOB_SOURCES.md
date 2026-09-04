@@ -32,10 +32,11 @@
 | `bilibili` | [哔哩哔哩招聘](https://jobs.bilibili.com/) | 官方 CSRF bootstrap + 校招/社招 JSON | 完整职位描述、类别、地点 | 是 | 每次搜索先获取临时 CSRF token，不缓存或写死会话凭据 |
 | `antgroup` | [蚂蚁集团招聘](https://talent.antgroup.com/campus-full-list) | 官方校园招聘 JSON，有限并发分页 | 完整职责、要求、批次、地点 | 是 | 官网接口限制分页大小，固定使用 20 条并只读取前三页后在完整 JD 上做相关性过滤 |
 | `qihu360` | [360招聘](https://hr.360.cn/hr/list) | 官方列表 JSON + 有界并发详情 JSON | 完整职责、要求、类别、地点 | 是 | 详情接口要求网页端请求头；当前招聘总量较小，先补全详情再过滤 |
+| `dewu` | [得物招聘](https://poizon.jobs.feishu.cn/index/position/list) | Playwright 搜索官方飞书门户 + 有界并发详情 | 完整职责、要求、技术栈、地点、官方详情 URL | 是 | 先用列表筛选候选，最多并发补全 8 条详情；当前 Agent 结果主要为社招 |
 | `minimax` | [MiniMax 招聘](https://www.minimaxi.com/careers) | Playwright 读取官方飞书门户的职位卡片 | 标题、招聘项目、地点、卡片职责 | 是 | 飞书门户未暴露稳定单岗位链接，payload 明确标记 `official_job_card`，不冒充完整详情 JD |
 | `zhipu` | [智谱招聘](https://www.zhipuai.cn/zh/joinus) | 结构化解析官网岗位类别卡片 | 类别、简述、可选城市、官方申请表 | 是 | 官网只公开类别级机会，payload 标记 `category`，前端与后续分析可识别其证据粒度 |
 
-默认中文搜索会通过 `asyncio.gather` 并发运行 28 个 Source 适配器，覆盖 39 个企业官方招聘门户。每个适配器只负责把官方数据映射为统一 `JobPosting`；跨来源排序、实习过滤、JD 解析、SQLite upsert 和 chunk 索引由后续服务统一处理。
+默认中文搜索会通过 `asyncio.gather` 并发运行 29 个 Source 适配器，覆盖 40 个企业官方招聘门户。每个适配器只负责把官方数据映射为统一 `JobPosting`；跨来源排序、实习过滤、JD 解析、SQLite upsert 和 chunk 索引由后续服务统一处理。
 
 `moka_cn` 被设计成一个聚合适配器，而不是同时启动 13 个独立浏览器门户：它共享一个 Chromium 实例，最多并行打开 3 个企业上下文。岗位仍以 `moka_shokz`、`moka_deepseek`、`moka_dji` 等细分来源写入 payload，便于追踪具体企业。这个选择以较高的浏览器尾延迟换取可控的内存和浏览器进程数。
 
@@ -93,6 +94,10 @@ python scripts/run_real_job_source_eval.py
 2026-09-04 新增独立四源验证为 EvaluationRun `#182`，查询 `Agent 大模型开发`、每源最多 5 条。小红书、哔哩哔哩、蚂蚁集团和 360 为 4/4 可达且有结果，共得到 20 条岗位；JD 非空率、投递链接率、query relevance 和 Agent 相关率均为 1.0000，总墙钟约 12.0 秒。大疆另以真实浏览器验证返回 2 条完整 Agent JD；金山办公和中兴当前协议正常但该关键词为空。上述验证不调用 LLM，也不消耗模型 Token。
 
 扩展后的全默认 production gate 为 EvaluationRun `#183`：28/28 适配器可达且有结果，source error 为 0，共返回 123 条岗位；JD 非空率、投递链接率、query relevance 和 Agent 相关率均为 1.0000，实习/校招占比 0.5203，总墙钟约 40.2 秒。`moka_cn` 的 source 级“有结果”表示聚合源至少有一家命中；运维排查仍应查看 `moka_*` 企业级 provenance，不能据此断言其中每家此刻都有 Agent 岗位。
+
+得物独立生产验证为 EvaluationRun `#184`：返回 5 条完整 Agent 岗位，source error 为 0，JD 非空率、官方链接率、query relevance 和 Agent 相关率均为 1.0000，耗时约 10.0 秒。当前命中均为社招，因此实习率为 0；这是供给分布，不是采集失败。
+
+最终 29 源 production gate 为 EvaluationRun `#185`：29/29 适配器可达且有结果，source error 为 0，共返回 126 条岗位；JD 非空率、官方链接率、query relevance 和 Agent 相关率均为 1.0000，实习/校招占比 0.5159，总墙钟约 43.0 秒。
 
 新增八源最终独立验证为 EvaluationRun `#180`：8/8 可达且均有结果，共 31 条；JD 非空率、投递链接率、query relevance 和 Agent 相关率均为 1.0000，实习/校招占比 0.5484，耗时 7.1 秒。第一轮 `#177` 暴露滴滴列表实际使用 `data.items` 而不是 `records/list`，修复并重跑后才允许进入默认门控。
 

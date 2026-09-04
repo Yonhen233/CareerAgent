@@ -2618,6 +2618,109 @@ class Qihu360CareersSource(JobSource):
         )
 
 
+class DewuCareersSource(JobSource):
+    """Dewu official Feishu careers source with bounded detail enrichment."""
+
+    name = "dewu"
+    search_page = "https://poizon.jobs.feishu.cn/index/position/list"
+
+    def __init__(
+        self,
+        posting_loader: Callable[[str, int], Awaitable[list[JobPosting]]] | None = None,
+    ) -> None:
+        self.posting_loader = posting_loader
+
+    async def search(self, *, query: str, location: str | None, limit: int) -> list[JobPosting]:
+        loader = self.posting_loader or self._load_browser_postings
+        postings = await loader(_job_source_search_key(query), min(max(limit, 3), 8))
+        postings = [
+            posting for posting in postings
+            if is_query_relevant_posting(posting, query)
+            and (not location or location.lower() in source_posting_haystack(posting))
+        ]
+        return rank_postings_for_query(postings, query)[:limit]
+
+    async def _load_browser_postings(self, query: str, limit: int) -> list[JobPosting]:
+        settings = get_settings()
+        try:
+            from playwright.async_api import async_playwright
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                "Dewu Careers requires Playwright and Chromium. Install them with "
+                "`pip install playwright` and `playwright install chromium`."
+            ) from exc
+        page_url = f"{self.search_page}?{urlencode({'keywords': query})}"
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=settings.job_source_browser_headless)
+            context = await browser.new_context(user_agent=settings.user_agent)
+            page = await context.new_page()
+            try:
+                await page.goto(page_url, wait_until="networkidle", timeout=settings.job_source_browser_timeout_ms)
+                links = page.locator('a[href*="/position/"][href*="/detail"]')
+                await links.first.wait_for(state="visible", timeout=settings.job_source_browser_timeout_ms)
+                rows = await links.evaluate_all(
+                    """elements => elements.map(element => ({
+                        href: element.href || '', text: (element.innerText || '').trim()
+                    }))"""
+                )
+                candidates: list[dict[str, str]] = []
+                seen: set[str] = set()
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    href = str(row.get("href") or "").strip()
+                    text = str(row.get("text") or "").strip()
+                    title = text.splitlines()[0].strip() if text else ""
+                    if href and title and href not in seen:
+                        seen.add(href)
+                        candidates.append({"href": href, "title": title, "card_text": text})
+                candidates = candidates[:limit]
+                semaphore = asyncio.Semaphore(3)
+
+                async def _load_detail(candidate: dict[str, str]) -> JobPosting:
+                    async with semaphore:
+                        detail_page = await context.new_page()
+                        try:
+                            await detail_page.goto(
+                                candidate["href"], wait_until="networkidle",
+                                timeout=settings.job_source_browser_timeout_ms,
+                            )
+                            body_text = await detail_page.locator("body").inner_text()
+                        finally:
+                            await detail_page.close()
+                    return self._map_detail(candidate, body_text)
+
+                postings = await asyncio.gather(*[_load_detail(candidate) for candidate in candidates])
+            finally:
+                await browser.close()
+        return [posting for posting in postings if len(posting.raw_jd_text) >= 200]
+
+    def _map_detail(self, candidate: dict[str, str], body_text: str) -> JobPosting:
+        href = candidate["href"]
+        match = re.search(r"/position/(\d+)/detail", href)
+        external_id = match.group(1) if match else hashlib.sha256(href.encode()).hexdigest()[:20]
+        lines = [line.strip() for line in body_text.splitlines() if line.strip()]
+        title = candidate["title"]
+        title_index = lines.index(title) if title in lines else -1
+        metadata = lines[title_index + 1] if 0 <= title_index + 1 < len(lines) else ""
+        location = metadata.split("全职", 1)[0].strip() if "全职" in metadata else None
+        detail_start = lines.index("职位描述") + 1 if "职位描述" in lines else max(title_index + 2, 0)
+        detail_lines = lines[detail_start:]
+        if detail_lines and detail_lines[-1] == "投递":
+            detail_lines.pop()
+        detail = "\n".join(detail_lines).strip()
+        return JobPosting(
+            source=self.name, external_id=external_id, title=title, company="得物App",
+            location=location, job_type="实习" if "实习" in metadata or "实习" in title else "全职",
+            apply_url=href,
+            raw_jd_text=_join_jd_sections(
+                ("岗位名称", title), ("公司", "得物App"), ("岗位元数据", metadata),
+                ("职位描述与要求", detail),
+            ),
+            payload={**candidate, "metadata": metadata, "granularity": "job_detail"},
+        )
+
+
 class MiniMaxCareersSource(JobSource):
     """MiniMax official Feishu portal source using visible, server-populated job cards."""
 
@@ -3071,6 +3174,8 @@ class JobSourceRegistry:
             self.sources[AntGroupCareersSource.name] = AntGroupCareersSource()
         if settings.qihu360_careers_enabled:
             self.sources[Qihu360CareersSource.name] = Qihu360CareersSource()
+        if settings.dewu_careers_enabled:
+            self.sources[DewuCareersSource.name] = DewuCareersSource()
         if settings.minimax_careers_enabled:
             self.sources[MiniMaxCareersSource.name] = MiniMaxCareersSource()
         if settings.zhipu_careers_enabled:

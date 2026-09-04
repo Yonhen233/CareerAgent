@@ -234,6 +234,7 @@ class Settings(BaseSettings):
     bilibili_careers_enabled: bool = True
     antgroup_careers_enabled: bool = True
     qihu360_careers_enabled: bool = True
+    dewu_careers_enabled: bool = True
     minimax_careers_enabled: bool = True
     zhipu_careers_enabled: bool = True
     job_source_browser_headless: bool = True

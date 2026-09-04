@@ -44,7 +44,7 @@ CareerAgent/
 │   │   ├── resume_tailor.py                  # RAG 证据约束简历定制与 ReAct repair
 │   │   ├── resume_delivery.py                # HTML/Markdown 简历交付
 │   │   │
-│   │   ├── job_sources.py                    # 28 个适配器、39 个国内企业官方岗位门户
+│   │   ├── job_sources.py                    # 29 个适配器、40 个国内企业官方岗位门户
 │   │   ├── job_search.py                     # 真实招聘源并发搜索与入库
 │   │   ├── job_discovery.py                  # 可选简历的跨岗位检索、匹配和会话持久化
 │   │   ├── job_relevance.py                  # 中文岗位相关性排序
