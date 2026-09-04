@@ -209,7 +209,7 @@ class JobSearchRequest(BaseModel):
     sources: list[str] = Field(
         default_factory=lambda: [
             "tencent", "baidu", "meituan", "bytedance", "alibaba", "jd",
-            "china_telecom", "huawei", "iflytek", "tcl", "midea", "xiaomi", "skyworth",
+            "china_telecom", "huawei", "iflytek", "tcl", "midea", "xiaomi", "oppo", "skyworth",
             "wind", "moka_cn"
         ]
     )
@@ -261,7 +261,7 @@ class JobDiscoveryRequest(BaseModel):
     sources: list[str] = Field(
         default_factory=lambda: [
             "tencent", "baidu", "meituan", "bytedance", "alibaba", "jd",
-            "china_telecom", "huawei", "iflytek", "tcl", "midea", "xiaomi", "skyworth",
+            "china_telecom", "huawei", "iflytek", "tcl", "midea", "xiaomi", "oppo", "skyworth",
             "wind", "moka_cn"
         ]
     )

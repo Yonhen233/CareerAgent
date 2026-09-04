@@ -220,6 +220,7 @@ class Settings(BaseSettings):
     tcl_careers_enabled: bool = True
     midea_careers_enabled: bool = True
     xiaomi_careers_enabled: bool = True
+    oppo_careers_enabled: bool = True
     skyworth_careers_enabled: bool = True
     wind_careers_enabled: bool = True
     moka_china_careers_enabled: bool = True

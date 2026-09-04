@@ -4,7 +4,7 @@
 
 CareerAgent 把并发用在等待型任务，把事务写入保持顺序：
 
-- 15 个岗位适配器通过 `asyncio.gather` 并行请求，覆盖 22 个企业官方招聘门户；
+- 16 个岗位适配器通过 `asyncio.gather` 并行请求，覆盖 24 个企业官方招聘门户；
 - 美团详情、阿里批次和批量 JD 处理用 semaphore 限制并发；
 - HTTP 与 LLM 使用 `httpx.AsyncClient`；
 - 面试 RAG 将 embedding/reranker 这类同步计算放入 `asyncio.to_thread`，避免长时间阻塞事件循环；

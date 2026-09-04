@@ -1456,6 +1456,107 @@ class XiaomiCareersSource(JobSource):
         )
 
 
+class OPPOCareersSource(JobSource):
+    """OPPO campus jobs from the public API backing its official careers site."""
+
+    name = "oppo"
+    endpoint = "https://careers.oppo.com/openapi/position/pageNew"
+    landing_page = "https://careers.oppo.com/university/oppo/campus"
+
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        self.transport = transport
+
+    async def search(self, *, query: str, location: str | None, limit: int) -> list[JobPosting]:
+        settings = get_settings()
+        headers = {
+            "User-Agent": settings.user_agent,
+            "Accept": "application/json",
+            "Referer": self.landing_page,
+        }
+        search_keys = _job_source_search_keys(query)[:3]
+        request_size = min(max(limit * 3, 10), 50)
+        async with httpx.AsyncClient(
+            timeout=settings.job_search_timeout_seconds,
+            headers=headers,
+            transport=self.transport,
+        ) as client:
+            responses = await asyncio.gather(
+                *[
+                    client.post(
+                        self.endpoint,
+                        json={
+                            "pageNum": 1,
+                            "pageSize": request_size,
+                            "positionName": key,
+                            "projectList": [],
+                            "positionTypeList": [],
+                            "workCityCodeList": [],
+                            "shareId": "",
+                        },
+                    )
+                    for key in search_keys
+                ]
+            )
+
+        postings: list[JobPosting] = []
+        seen: set[str] = set()
+        for response in responses:
+            response.raise_for_status()
+            payload = response.json()
+            data = payload.get("data") if isinstance(payload, dict) else None
+            rows = data.get("records") if isinstance(data, dict) else None
+            if payload.get("code") != 0 or not isinstance(rows, list):
+                raise ValueError(str(payload.get("msg") or "OPPO Careers response is invalid"))
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                posting = self._map_row(row)
+                if not posting.title or not posting.external_id or posting.external_id in seen:
+                    continue
+                if location and location.lower() not in source_posting_haystack(posting):
+                    continue
+                seen.add(posting.external_id)
+                postings.append(posting)
+        return rank_postings_for_query(postings, query)[:limit]
+
+    def _map_row(self, row: dict[str, Any]) -> JobPosting:
+        external_id = str(
+            row.get("idProjPosition")
+            or row.get("idRecruitPosition")
+            or row.get("projectPositionId")
+            or ""
+        ).strip()
+        title = str(row.get("positionName") or row.get("projectPositionName") or "").strip()
+        location = str(row.get("workCityName") or "").strip() or None
+        job_type = str(
+            row.get("recruitmentTypeName") or row.get("projectName") or ""
+        ).strip() or None
+        raw_jd = _join_jd_sections(
+            ("岗位名称", title),
+            ("公司", "OPPO"),
+            ("工作地点", location),
+            ("招聘项目", row.get("projectName")),
+            ("招聘类型", job_type),
+            ("职位描述", row.get("positionDesc") or row.get("projectPositionDesc")),
+            ("任职要求", row.get("positionRequire") or row.get("projectPositionRequire")),
+            ("知识技能", row.get("knowledgeSkill")),
+            ("加分项", row.get("bonusItem")),
+            ("AI 能力等级", row.get("aiCapabilityLevelDesc")),
+            ("发布日期", row.get("releaseTime")),
+        )
+        return JobPosting(
+            source=self.name,
+            external_id=external_id,
+            title=title,
+            company="OPPO",
+            location=location,
+            job_type=job_type,
+            apply_url=f"{self.landing_page}/post/{external_id}",
+            raw_jd_text=raw_jd,
+            payload=row,
+        )
+
+
 class SkyworthCareersSource(JobSource):
     """Skyworth campus jobs from its official Dayee/HotJob recruitment site."""
 
@@ -1688,8 +1789,9 @@ class MokaCareerSite:
 
     @property
     def jobs_url(self) -> str:
+        route = "apply" if self.mode == "apply" else f"{self.mode}-recruitment"
         return (
-            f"https://app.mokahr.com/{self.mode}-recruitment/"
+            f"https://app.mokahr.com/{route}/"
             f"{self.org_id}/{self.site_id}#/jobs?page=1&anchorName=jobsList"
         )
 
@@ -1707,6 +1809,7 @@ class MokaChinaCareersSource(JobSource):
         MokaCareerSite("sina", "新浪集团", "campus", "sina", 43536),
         MokaCareerSite("snb", "苏商银行", "social", "snb", 45591),
         MokaCareerSite("linecorp", "LINE MAN Technology", "social", "linecorp", 150828),
+        MokaCareerSite("moonshot", "月之暗面", "apply", "moonshot", 148506),
     )
 
     def __init__(
@@ -1956,6 +2059,8 @@ class JobSourceRegistry:
             self.sources[MideaCareersSource.name] = MideaCareersSource()
         if settings.xiaomi_careers_enabled:
             self.sources[XiaomiCareersSource.name] = XiaomiCareersSource()
+        if settings.oppo_careers_enabled:
+            self.sources[OPPOCareersSource.name] = OPPOCareersSource()
         if settings.skyworth_careers_enabled:
             self.sources[SkyworthCareersSource.name] = SkyworthCareersSource()
         if settings.wind_careers_enabled:

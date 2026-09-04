@@ -14,6 +14,8 @@ from app.services.job_sources import (
     MeituanCareersSource,
     MideaCareersSource,
     MokaChinaCareersSource,
+    MokaCareerSite,
+    OPPOCareersSource,
     SkyworthCareersSource,
     TCLCareersSource,
     WindCareersSource,
@@ -494,6 +496,48 @@ def test_xiaomi_source_uses_public_search_api_and_deduplicates():
     assert posting.apply_url == row["url"]
 
 
+def test_oppo_source_uses_public_campus_api_and_maps_complete_jd():
+    row = {
+        "idProjPosition": 1850,
+        "projectName": "2027届应届生校园招聘",
+        "recruitmentTypeName": "应届生",
+        "positionName": "AI Agent 研发工程师（研发效能方向）",
+        "positionDesc": "参与 Coding Agent、测试 Agent 和多智能体协同开发。",
+        "positionRequire": "熟悉 Python、MCP、Agent Skills 和 GitHub。",
+        "knowledgeSkill": "理解 Harness Engineering 和 Agent 评测。",
+        "workCityName": "深圳市",
+        "releaseTime": "2026-07-15",
+    }
+    calls: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={"code": 0, "data": {"records": [row], "total": 1}, "msg": "success"},
+            request=request,
+        )
+
+    postings = asyncio.run(
+        OPPOCareersSource(transport=httpx.MockTransport(handler)).search(
+            query="Agent 大模型开发",
+            location="深圳",
+            limit=5,
+        )
+    )
+
+    assert {call["positionName"] for call in calls} == {"Agent", "大模型"}
+    assert all(call["projectList"] == [] for call in calls)
+    assert len(postings) == 1
+    posting = postings[0]
+    assert posting.source == "oppo"
+    assert posting.company == "OPPO"
+    assert posting.job_type == "应届生"
+    assert "多智能体协同" in posting.raw_jd_text
+    assert "Harness Engineering" in posting.raw_jd_text
+    assert posting.apply_url.endswith("/post/1850")
+
+
 def test_skyworth_source_searches_campus_jobs_then_enriches_detail():
     list_row = {
         "postId": "6a7184c368cc6f624f1a2add",
@@ -600,6 +644,15 @@ def test_moka_china_source_preserves_per_company_source_identity():
     assert len(postings) == 1
     assert postings[0].source == "moka_shokz"
     assert postings[0].company == "韶音科技"
+
+
+def test_moka_apply_site_builds_moonshot_jobs_url():
+    site = MokaCareerSite("moonshot", "月之暗面", "apply", "moonshot", 148506)
+
+    assert site.jobs_url == (
+        "https://app.mokahr.com/apply/moonshot/148506"
+        "#/jobs?page=1&anchorName=jobsList"
+    )
 
 
 def test_china_telecom_source_parses_complete_jd_from_official_search_html():

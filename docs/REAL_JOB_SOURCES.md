@@ -18,13 +18,14 @@
 | `tcl` | [TCL 校园招聘](https://zhaopin.tcl.com/campus/recruiting.html?id=57) | 官方搜索接口 + 并发详情接口 | 职责、要求、公司、地点 | 是 | 可返回 TCL 及旗下企业岗位，已实测 `Agent工程师` 完整 JD |
 | `midea` | [美的招聘](https://recruit.midea.com/recruitOut/ihr/social/socialHome) | 官方公开岗位 JSON，多关键词并发召回 | 职责、要求、组织、地点 | 是 | 当前 Agent/大模型相关结果以社招为主 |
 | `xiaomi` | [小米招聘探索机会](https://hr.xiaomi.com/website/opportunities.html) | 官网 `searchJobPage` JSON，多关键词并发召回 | 职责、要求、部门、地点、招聘类型 | 是 | 当前可发现 Agent 应用、评估、Coding Agent、Harness 与多智能体实习岗位；投递 URL 指向小米官方飞书招聘页 |
+| `oppo` | [OPPO 校园招聘](https://careers.oppo.com/university/oppo/campus) | 官网 `position/pageNew` JSON，多关键词并发召回 | 职责、要求、知识技能、AI 能力等级、地点、招聘项目 | 是 | 当前可发现 Coding Agent、MCP、Skills、Harness Engineering、智能体评测及系统级 AI Agent 岗位 |
 | `skyworth` | [创维 2027 届校园招聘](https://skyworth.hotjob.cn/) | 动态发现 HotJob suite + 官方列表接口 + 受限并发详情接口 | 职责、要求、专业、学历、子公司、地点 | 是 | 当前酷开算法岗位明确覆盖 RAG、Agentic Workflow、多智能体与 Function Calling |
 | `wind` | [万得招聘](https://www.wind.com.cn/portal/zh/JoinUs/index.html) | 官网发布的岗位数据文件 | 完整职位描述、要求、地点 | 是 | 静态数据版本会变化，解析异常直接作为 source error 暴露 |
-| `moka_cn` | 8 个企业官方 Moka 招聘门户 | Playwright 搜索官网并读取职位详情 | 标题、完整 JD、地点、官方详情 URL | 是 | 覆盖韶音、DeepSeek、壁仞、锐捷、完美世界、新浪、苏商银行、LINE MAN Technology；单浏览器多上下文并发，避免重复启动浏览器 |
+| `moka_cn` | 9 个企业官方 Moka 招聘门户 | Playwright 搜索官网并读取职位详情 | 标题、完整 JD、地点、官方详情 URL | 是 | 覆盖韶音、DeepSeek、壁仞、锐捷、完美世界、新浪、苏商银行、LINE MAN Technology、月之暗面；单浏览器多上下文并发，避免重复启动浏览器 |
 
-默认中文搜索会通过 `asyncio.gather` 并发运行 15 个 Source 适配器，覆盖 22 个企业官方招聘门户。每个适配器只负责把官方数据映射为统一 `JobPosting`；跨来源排序、实习过滤、JD 解析、SQLite upsert 和 chunk 索引由后续服务统一处理。
+默认中文搜索会通过 `asyncio.gather` 并发运行 16 个 Source 适配器，覆盖 24 个企业官方招聘门户。每个适配器只负责把官方数据映射为统一 `JobPosting`；跨来源排序、实习过滤、JD 解析、SQLite upsert 和 chunk 索引由后续服务统一处理。
 
-`moka_cn` 被设计成一个聚合适配器，而不是同时启动 8 个独立浏览器：它共享一个 Chromium 实例，最多并行打开 3 个企业上下文。岗位仍以 `moka_shokz`、`moka_deepseek` 等细分来源写入 payload，便于追踪具体企业。这个选择以约 16 秒的单源尾延迟换取可控的内存和浏览器进程数。
+`moka_cn` 被设计成一个聚合适配器，而不是同时启动 9 个独立浏览器：它共享一个 Chromium 实例，最多并行打开 3 个企业上下文。岗位仍以 `moka_shokz`、`moka_deepseek`、`moka_moonshot` 等细分来源写入 payload，便于追踪具体企业。这个选择以较高的浏览器尾延迟换取可控的内存和浏览器进程数。
 
 ## 字节与阿里的实现选择
 
@@ -45,7 +46,9 @@
 | 站点 | 实测结论 | 暂不接入原因 |
 | --- | --- | --- |
 | 滴滴招聘 | 公开列表可按 `Agent` 返回完整社招 JD | 本轮没有检索到 Agent 实习岗位，不符合当前实习优先场景 |
-| OPPO 招聘 | 部分公开岗位详情能读取完整 Agent 实习 JD | 列表入口在实测中出现空结果或服务异常，尚未形成稳定发现链路 |
+| MiniMax 招聘 | 官网提供 2027 校招、2028 实习、日常实习和社招入口 | 岗位托管在飞书招聘门户，仍需验证稳定的列表发现协议和详情解析 |
+| 智谱招聘 | 官网可查看校招与社招岗位分类，并可进入申请表 | 当前页面没有暴露稳定的可分页岗位列表接口 |
+| 快手、滴滴、网易、荣耀、联想、vivo | 均有官方招聘入口或可检索到岗位页 | 尚未同时通过岗位发现、完整 JD、稳定投递 URL 和连续 smoke 四项门控 |
 
 这些站点不会用假数据或静默降级冒充成功。后续只有在“岗位发现、完整 JD、稳定投递 URL、连续 smoke”四项都通过后才进入默认 Source。
 
@@ -82,7 +85,7 @@ python scripts/run_real_job_source_eval.py
 
 `Agent 开发实习生` 单 case 返回 40 条岗位，实习率 0.8500、Agent 相关率 0.9750。Source 级耗时中，阿里约 1.4 秒，字节约 4.6 秒；五源并发后的总耗时约 7.3 秒，不是五个来源耗时相加。
 
-2026-09-04 最新全默认来源生产健康检查为 EvaluationRun `#173`，查询 `Agent 大模型开发`、每源最多 5 条。15/15 适配器可达且均返回结果，共得到 66 条完整岗位；JD 非空率、投递链接率、query relevance 和 Agent 相关率均为 1.0000，实习/校招占比 0.6212，总墙钟约 22.8 秒。该结果不调用 LLM，也不消耗模型 Token。小米和创维动态发现版独立验证为 EvaluationRun `#172`：2/2 可达，共 9 条，全部质量指标为 1.0000，耗时约 1.3 秒。
+2026-09-04 最新全默认来源生产健康检查为 EvaluationRun `#176`，查询 `Agent 大模型开发`、每源最多 5 条。16/16 适配器可达且均返回结果，共得到 72 条完整岗位；JD 非空率、投递链接率、query relevance 和 Agent 相关率均为 1.0000，实习/校招占比 0.6111，总墙钟约 35.8 秒。该结果不调用 LLM，也不消耗模型 Token。OPPO 与含月之暗面的 Moka 聚合源独立验证为 EvaluationRun `#174`：2/2 可达，共 10 条，JD、链接和相关性指标均为 1.0000，耗时约 30.8 秒。
 
 评测集保留旧五源的 8 类查询用于纵向对比，并增加一个全默认来源 production gate：`reachable_source_rate` 必须为 1.0000；`result_source_rate` 允许不低于 0.7000，因为“官网正常但当前没有匹配岗位”不是协议故障。可达率与有结果率必须分开判断。
 
