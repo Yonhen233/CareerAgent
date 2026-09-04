@@ -1366,6 +1366,229 @@ class MideaCareersSource(JobSource):
         )
 
 
+class XiaomiCareersSource(JobSource):
+    """Xiaomi's public recruitment search API used by its opportunities page."""
+
+    name = "xiaomi"
+    endpoint = "https://hr.xiaomi.com/website/api/agent/searchJobPage"
+    landing_page = "https://hr.xiaomi.com/website/opportunities.html"
+    job_type_names = {1: "社会招聘", 2: "校园招聘", 3: "实习", 4: "顶尖人才"}
+
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        self.transport = transport
+
+    async def search(self, *, query: str, location: str | None, limit: int) -> list[JobPosting]:
+        settings = get_settings()
+        headers = {
+            "User-Agent": settings.user_agent,
+            "Accept": "application/json",
+            "Referer": self.landing_page,
+        }
+        search_keys = _job_source_search_keys(query)[:3]
+        request_size = min(max(limit * 3, 10), 50)
+        async with httpx.AsyncClient(
+            timeout=settings.job_search_timeout_seconds,
+            headers=headers,
+            transport=self.transport,
+        ) as client:
+            responses = await asyncio.gather(
+                *[
+                    client.get(
+                        self.endpoint,
+                        params={
+                            "keyword": key,
+                            "cityZhNames": location or "",
+                            "pageSize": request_size,
+                            "pageNum": 1,
+                        },
+                    )
+                    for key in search_keys
+                ]
+            )
+
+        postings: list[JobPosting] = []
+        seen: set[str] = set()
+        for response in responses:
+            response.raise_for_status()
+            payload = response.json()
+            data = payload.get("data") if isinstance(payload, dict) else None
+            rows = data.get("list") if isinstance(data, dict) else None
+            if payload.get("code") != 0 or not isinstance(rows, list):
+                raise ValueError(str(payload.get("message") or "Xiaomi Careers response is invalid"))
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                posting = self._map_row(row)
+                if not posting.title or not posting.external_id or posting.external_id in seen:
+                    continue
+                if location and location.lower() not in source_posting_haystack(posting):
+                    continue
+                seen.add(posting.external_id)
+                postings.append(posting)
+        return rank_postings_for_query(postings, query)[:limit]
+
+    def _map_row(self, row: dict[str, Any]) -> JobPosting:
+        external_id = str(row.get("jobPostId") or row.get("jobId") or row.get("id") or "").strip()
+        title = str(row.get("title") or "").strip()
+        cities = [str(city).strip() for city in row.get("cityZhNames") or [] if str(city).strip()]
+        job_type = self.job_type_names.get(row.get("type"), str(row.get("type") or "").strip()) or None
+        raw_jd = _join_jd_sections(
+            ("岗位名称", title),
+            ("公司", "小米集团"),
+            ("工作地点", "、".join(cities)),
+            ("招聘类型", job_type),
+            ("一级部门", row.get("levelOneDeptName")),
+            ("岗位职责", row.get("description")),
+            ("任职要求", row.get("requirement")),
+            ("发布日期", row.get("publishTime")),
+            ("岗位编号", row.get("larkJobCode")),
+        )
+        return JobPosting(
+            source=self.name,
+            external_id=external_id,
+            title=title,
+            company="小米集团",
+            location="、".join(cities) or None,
+            job_type=job_type,
+            apply_url=str(row.get("url") or "").strip() or None,
+            raw_jd_text=raw_jd,
+            payload=row,
+        )
+
+
+class SkyworthCareersSource(JobSource):
+    """Skyworth campus jobs from its official Dayee/HotJob recruitment site."""
+
+    name = "skyworth"
+    root_url = "https://skyworth.hotjob.cn"
+    suite_endpoint = f"{root_url}/wecruit/common/getSLD"
+    endpoint_base = "https://skyworth.hotjob.cn/wecruit/positionInfo"
+    landing_page = f"{root_url}/"
+
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        self.transport = transport
+
+    async def search(self, *, query: str, location: str | None, limit: int) -> list[JobPosting]:
+        settings = get_settings()
+        headers = {
+            "User-Agent": settings.user_agent,
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+            "Referer": self.landing_page,
+        }
+        search_keys = _job_source_search_keys(query)[:3]
+        request_size = min(max(limit * 3, 15), 45)
+        async with httpx.AsyncClient(
+            timeout=settings.job_search_timeout_seconds,
+            headers=headers,
+            transport=self.transport,
+        ) as client:
+            suite_key = await self._discover_suite_key(client)
+            list_url = f"{self.endpoint_base}/listPosition/SU{suite_key}"
+            responses = await asyncio.gather(
+                *[
+                    client.post(
+                        list_url,
+                        data={
+                            "isFrompb": "true",
+                            "recruitType": "1",
+                            "pageSize": str(request_size),
+                            "currentPage": "1",
+                            "postKey": key,
+                        },
+                    )
+                    for key in search_keys
+                ]
+            )
+            rows: list[dict[str, Any]] = []
+            seen: set[str] = set()
+            for response in responses:
+                response.raise_for_status()
+                payload = response.json()
+                page_form = (payload.get("data") or {}).get("pageForm") if isinstance(payload, dict) else None
+                page_rows = page_form.get("pageData") if isinstance(page_form, dict) else None
+                if str(payload.get("state")) != "200" or not isinstance(page_rows, list):
+                    raise ValueError(str(payload.get("msg") or "Skyworth Careers response is invalid"))
+                for row in page_rows:
+                    external_id = str(row.get("postId") or "").strip() if isinstance(row, dict) else ""
+                    if not external_id or external_id in seen:
+                        continue
+                    preview = self._map_row(row, suite_key=suite_key)
+                    if location and location.lower() not in source_posting_haystack(preview):
+                        continue
+                    seen.add(external_id)
+                    rows.append(row)
+
+            candidates = rank_postings_for_query(
+                [self._map_row(row, suite_key=suite_key) for row in rows], query
+            )[
+                : min(max(limit * 2, 6), 20)
+            ]
+            detail_url = f"{self.endpoint_base}/listPositionDetail/SU{suite_key}"
+            semaphore = asyncio.Semaphore(6)
+
+            async def _load_detail(posting: JobPosting) -> JobPosting:
+                async with semaphore:
+                    response = await client.post(detail_url, data={"postId": posting.external_id})
+                    response.raise_for_status()
+                    payload = response.json()
+                    detail = payload.get("data") if isinstance(payload, dict) else None
+                    if str(payload.get("state")) != "200" or not isinstance(detail, dict):
+                        raise ValueError(str(payload.get("msg") or "Skyworth job detail is invalid"))
+                    return self._map_row({**posting.payload, **detail}, suite_key=suite_key)
+
+            postings = await asyncio.gather(*[_load_detail(posting) for posting in candidates])
+        return rank_postings_for_query(postings, query)[:limit]
+
+    async def _discover_suite_key(self, client: httpx.AsyncClient) -> str:
+        response = await client.post(self.suite_endpoint, data={"sld": "skyworth.hotjob.cn"})
+        response.raise_for_status()
+        payload = response.json()
+        link_data = (payload.get("data") or {}).get("linkData") if isinstance(payload, dict) else None
+        link = str(link_data.get("link") or "") if isinstance(link_data, dict) else ""
+        match = re.search(r"/SU([A-Za-z0-9]+)/pb(?:/|$)", link)
+        if str(payload.get("state")) != "200" or not match:
+            raise ValueError("Skyworth Careers suite discovery response is invalid")
+        return match.group(1)
+
+    def _map_row(self, row: dict[str, Any], *, suite_key: str) -> JobPosting:
+        external_id = str(row.get("postId") or "").strip()
+        title = str(row.get("postName") or "").strip()
+        location = str(row.get("workPlaceStr") or "").strip() or None
+        project_name = str(row.get("projectName") or "").strip()
+        job_type = " / ".join(part for part in [project_name, "校园招聘"] if part) or None
+        company = str(row.get("orgName") or row.get("department") or row.get("company") or "创维集团").strip()
+        raw_jd = _join_jd_sections(
+            ("岗位名称", title),
+            ("公司", company),
+            ("集团", row.get("company")),
+            ("工作地点", location),
+            ("招聘类型", job_type),
+            ("职位类别", row.get("postTypeName")),
+            ("岗位职责", row.get("workContent")),
+            ("任职要求", row.get("serviceCondition")),
+            ("学历要求", row.get("education") or row.get("educationStr")),
+            ("专业要求", row.get("subject")),
+            ("发布日期", row.get("publishDate")),
+            ("岗位编号", row.get("postCode")),
+        )
+        apply_url = (
+            f"https://skyworth.hotjob.cn/SU{suite_key}/pb/posDetail.html"
+            f"?postId={external_id}&postType={row.get('recruitType') or 1}"
+        )
+        return JobPosting(
+            source=self.name,
+            external_id=external_id,
+            title=title,
+            company=company or "创维集团",
+            location=location,
+            job_type=job_type,
+            apply_url=apply_url,
+            raw_jd_text=raw_jd,
+            payload=row,
+        )
+
+
 class WindCareersSource(JobSource):
     """Wind careers source backed by its public generated position dataset."""
 
@@ -1731,6 +1954,10 @@ class JobSourceRegistry:
             self.sources[TCLCareersSource.name] = TCLCareersSource()
         if settings.midea_careers_enabled:
             self.sources[MideaCareersSource.name] = MideaCareersSource()
+        if settings.xiaomi_careers_enabled:
+            self.sources[XiaomiCareersSource.name] = XiaomiCareersSource()
+        if settings.skyworth_careers_enabled:
+            self.sources[SkyworthCareersSource.name] = SkyworthCareersSource()
         if settings.wind_careers_enabled:
             self.sources[WindCareersSource.name] = WindCareersSource()
         if settings.moka_china_careers_enabled:

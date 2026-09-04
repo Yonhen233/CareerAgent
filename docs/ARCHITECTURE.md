@@ -167,7 +167,7 @@ flowchart LR
 
 1. LangGraph `plan_task` 节点生成 Plan-Execute 执行计划，包含 tools、skills、subagents、context policy 和 `orchestration_framework=langgraph`，并写入 `agent_artifacts`。
 2. 加载 Profile。
-3. 并发搜索 13 个岗位适配器覆盖的 20 个企业官方招聘门户。
+3. 并发搜索 15 个岗位适配器覆盖的 22 个企业官方招聘门户。
 4. 并发解析 JD。
 5. 顺序写入岗位和 JD chunk。
 6. 匹配 Profile 与岗位。

@@ -14,8 +14,10 @@ from app.services.job_sources import (
     MeituanCareersSource,
     MideaCareersSource,
     MokaChinaCareersSource,
+    SkyworthCareersSource,
     TCLCareersSource,
     WindCareersSource,
+    XiaomiCareersSource,
     JobPosting,
 )
 
@@ -446,6 +448,128 @@ def test_midea_source_uses_multiple_agent_query_terms_and_deduplicates():
     assert posting.company == "美的集团"
     assert "工具编排和多智能体协作" in posting.raw_jd_text
     assert posting.apply_url.endswith("positionId=midea-agent-1")
+
+
+def test_xiaomi_source_uses_public_search_api_and_deduplicates():
+    row = {
+        "id": 315048,
+        "title": "agent应用实习生-2027届",
+        "cityZhNames": ["北京"],
+        "levelOneDeptName": "手机部",
+        "description": "参与设计 Agent 任务规划、工具调用与多步推理能力。",
+        "requirement": "熟悉 Python、Prompt Engineering 和主流 Agent 框架。",
+        "publishTime": "2026-07-14",
+        "larkJobCode": "A24998",
+        "type": 3,
+        "url": "https://xiaomi.jobs.f.mioffice.cn/internship/position/7662271237599725834/detail",
+        "jobPostId": "7662271237599725834",
+    }
+    calls: list[dict[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(dict(request.url.params))
+        return httpx.Response(
+            200,
+            json={"code": 0, "message": "成功", "data": {"list": [row], "total": 1}},
+            request=request,
+        )
+
+    postings = asyncio.run(
+        XiaomiCareersSource(transport=httpx.MockTransport(handler)).search(
+            query="Agent 大模型开发",
+            location="北京",
+            limit=5,
+        )
+    )
+
+    assert {call["keyword"] for call in calls} == {"Agent", "大模型"}
+    assert all(call["cityZhNames"] == "北京" for call in calls)
+    assert len(postings) == 1
+    posting = postings[0]
+    assert posting.source == "xiaomi"
+    assert posting.company == "小米集团"
+    assert posting.job_type == "实习"
+    assert "任务规划、工具调用" in posting.raw_jd_text
+    assert "Prompt Engineering" in posting.raw_jd_text
+    assert posting.apply_url == row["url"]
+
+
+def test_skyworth_source_searches_campus_jobs_then_enriches_detail():
+    list_row = {
+        "postId": "6a7184c368cc6f624f1a2add",
+        "postName": "算法工程师（酷开）",
+        "company": "创维集团有限公司",
+        "department": "深圳市酷开网络科技股份有限公司",
+        "workPlaceStr": "深圳市",
+        "postTypeName": "算法",
+        "recruitType": 1,
+        "projectName": "2027届秋季校园招聘",
+        "educationStr": "硕士研究生及以上",
+    }
+    detail_row = {
+        **list_row,
+        "orgName": "深圳市酷开网络科技股份有限公司",
+        "workContent": "参与构建多智能体协作框架、Agentic Workflow 和工具调用机制。",
+        "serviceCondition": "熟悉 Python、LangChain、RAG 和 Agent 运行机制。",
+        "education": "硕士研究生及以上",
+        "subject": "计算机科学、人工智能、软件工程",
+        "publishDate": "2026-07-31 15:50:40",
+        "postCode": "Skyworthhr005550",
+    }
+    list_calls: list[dict[str, str]] = []
+    detail_calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = dict(item.split("=", 1) for item in request.content.decode().split("&"))
+        if request.url.path.endswith("/wecruit/common/getSLD"):
+            assert body == {"sld": "skyworth.hotjob.cn"}
+            return httpx.Response(
+                200,
+                json={
+                    "state": "200",
+                    "data": {
+                        "linkData": {
+                            "link": "https://skyworth.hotjob.cn/SU668b8b251c240e2e76ea71d8/pb/index.html#/"
+                        }
+                    },
+                },
+                request=request,
+            )
+        if "/listPosition/" in request.url.path:
+            list_calls.append(body)
+            return httpx.Response(
+                200,
+                json={
+                    "state": "200",
+                    "data": {
+                        "pageForm": {"pageData": [list_row], "currentPage": 1, "totalPage": 1},
+                        "positonNum": 1,
+                    },
+                },
+                request=request,
+            )
+        detail_calls.append(body["postId"])
+        return httpx.Response(200, json={"state": "200", "data": detail_row}, request=request)
+
+    postings = asyncio.run(
+        SkyworthCareersSource(transport=httpx.MockTransport(handler)).search(
+            query="Agent 大模型开发",
+            location="深圳",
+            limit=5,
+        )
+    )
+
+    assert {call["postKey"] for call in list_calls} == {"Agent", "%E5%A4%A7%E6%A8%A1%E5%9E%8B"}
+    assert all(call["recruitType"] == "1" for call in list_calls)
+    assert detail_calls == [list_row["postId"]]
+    assert len(postings) == 1
+    posting = postings[0]
+    assert posting.source == "skyworth"
+    assert posting.company == "深圳市酷开网络科技股份有限公司"
+    assert "2027届秋季校园招聘" in posting.job_type
+    assert "Agentic Workflow" in posting.raw_jd_text
+    assert "Python、LangChain、RAG" in posting.raw_jd_text
+    assert "posDetail.html?postId=6a7184c368cc6f624f1a2add" in posting.apply_url
 
 
 def test_moka_china_source_preserves_per_company_source_identity():
