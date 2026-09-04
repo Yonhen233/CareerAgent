@@ -21,19 +21,23 @@
 | `oppo` | [OPPO 校园招聘](https://careers.oppo.com/university/oppo/campus) | 官网 `position/pageNew` JSON，多关键词并发召回 | 职责、要求、知识技能、AI 能力等级、地点、招聘项目 | 是 | 当前可发现 Coding Agent、MCP、Skills、Harness Engineering、智能体评测及系统级 AI Agent 岗位 |
 | `skyworth` | [创维 2027 届校园招聘](https://skyworth.hotjob.cn/) | 动态发现 HotJob suite + 官方列表接口 + 受限并发详情接口 | 职责、要求、专业、学历、子公司、地点 | 是 | 当前酷开算法岗位明确覆盖 RAG、Agentic Workflow、多智能体与 Function Calling |
 | `wind` | [万得招聘](https://www.wind.com.cn/portal/zh/JoinUs/index.html) | 官网发布的岗位数据文件 | 完整职位描述、要求、地点 | 是 | 静态数据版本会变化，解析异常直接作为 source error 暴露 |
-| `moka_cn` | 9 个企业官方 Moka 招聘门户 | Playwright 搜索官网并读取职位详情 | 标题、完整 JD、地点、官方详情 URL | 是 | 覆盖韶音、DeepSeek、壁仞、锐捷、完美世界、新浪、苏商银行、LINE MAN Technology、月之暗面；单浏览器多上下文并发，避免重复启动浏览器 |
+| `moka_cn` | 13 个企业官方 Moka 招聘门户 | Playwright 搜索官网并读取职位详情 | 标题、完整 JD、地点、官方详情 URL | 是 | 覆盖韶音、DeepSeek、壁仞、锐捷、完美世界、新浪、苏商银行、LINE MAN Technology、月之暗面、大疆、金山办公和中兴社招/校招；支持企业自定义招聘域名 |
 | `didi` | [滴滴招聘](https://talent.didiglobal.com/) | 公开列表 JSON + 并发详情 JSON | 职责、要求、部门、地点、类型 | 是 | 当前 Agent 岗位密度高，以社招为主；详情协议变化直接报 source error |
 | `honor` | [荣耀招聘](https://www.honor.com/cn/career/) | 官方 HotJob 实习列表 + 详情接口 | 职责、要求、学历、部门、地点 | 是 | 当前按实习项目检索，标题可能不含 Agent，需在完整 JD 上判相关性 |
 | `kuaishou` | [快手招聘](https://zhaopin.kuaishou.cn/) | 官网公开 HMAC 签名算法 + JSON | 完整职责、要求、地点、岗位 ID | 是 | 并发查询社招与日常实习；签名按当前参数和时间戳实时生成，不保存静态签名 |
 | `lenovo` | [联想招聘](https://talent.lenovo.com.cn/position?projectType=1) | 公开校招 JSON | 完整职责、要求、类别、学历、地点 | 是 | 搜索字段必须使用 `keyword`；错误使用 `jobName` 会被上游静默忽略 |
 | `vivo` | [vivo 招聘](https://career.vivo.com/jobs) | 公开社招 JSON | 完整岗位描述、组织、地点、学历 | 是 | 上游可能返回弱相关行，适配器在统一排序前执行 query relevance 过滤 |
 | `netease` | [网易校园招聘](https://campus.163.com/) | 当前项目发现后的公开岗位 JSON | 完整职责、要求、项目、地点 | 是 | 覆盖网易互联网、网易互娱和丹子 AI 实习专项，按项目 ID 保留 provenance |
+| `xiaohongshu` | [小红书招聘](https://job.xiaohongshu.com/jobs) | 社招、校招官方 JSON 并发查询 | 完整职责、要求、类别、地点 | 是 | 当前 Agent 岗位密度高；列表响应已含完整 JD，无需浏览器补详情 |
+| `bilibili` | [哔哩哔哩招聘](https://jobs.bilibili.com/) | 官方 CSRF bootstrap + 校招/社招 JSON | 完整职位描述、类别、地点 | 是 | 每次搜索先获取临时 CSRF token，不缓存或写死会话凭据 |
+| `antgroup` | [蚂蚁集团招聘](https://talent.antgroup.com/campus-full-list) | 官方校园招聘 JSON，有限并发分页 | 完整职责、要求、批次、地点 | 是 | 官网接口限制分页大小，固定使用 20 条并只读取前三页后在完整 JD 上做相关性过滤 |
+| `qihu360` | [360招聘](https://hr.360.cn/hr/list) | 官方列表 JSON + 有界并发详情 JSON | 完整职责、要求、类别、地点 | 是 | 详情接口要求网页端请求头；当前招聘总量较小，先补全详情再过滤 |
 | `minimax` | [MiniMax 招聘](https://www.minimaxi.com/careers) | Playwright 读取官方飞书门户的职位卡片 | 标题、招聘项目、地点、卡片职责 | 是 | 飞书门户未暴露稳定单岗位链接，payload 明确标记 `official_job_card`，不冒充完整详情 JD |
 | `zhipu` | [智谱招聘](https://www.zhipuai.cn/zh/joinus) | 结构化解析官网岗位类别卡片 | 类别、简述、可选城市、官方申请表 | 是 | 官网只公开类别级机会，payload 标记 `category`，前端与后续分析可识别其证据粒度 |
 
-默认中文搜索会通过 `asyncio.gather` 并发运行 24 个 Source 适配器，覆盖 32 个企业官方招聘门户。每个适配器只负责把官方数据映射为统一 `JobPosting`；跨来源排序、实习过滤、JD 解析、SQLite upsert 和 chunk 索引由后续服务统一处理。
+默认中文搜索会通过 `asyncio.gather` 并发运行 28 个 Source 适配器，覆盖 39 个企业官方招聘门户。每个适配器只负责把官方数据映射为统一 `JobPosting`；跨来源排序、实习过滤、JD 解析、SQLite upsert 和 chunk 索引由后续服务统一处理。
 
-`moka_cn` 被设计成一个聚合适配器，而不是同时启动 9 个独立浏览器：它共享一个 Chromium 实例，最多并行打开 3 个企业上下文。岗位仍以 `moka_shokz`、`moka_deepseek`、`moka_moonshot` 等细分来源写入 payload，便于追踪具体企业。这个选择以较高的浏览器尾延迟换取可控的内存和浏览器进程数。
+`moka_cn` 被设计成一个聚合适配器，而不是同时启动 13 个独立浏览器门户：它共享一个 Chromium 实例，最多并行打开 3 个企业上下文。岗位仍以 `moka_shokz`、`moka_deepseek`、`moka_dji` 等细分来源写入 payload，便于追踪具体企业。这个选择以较高的浏览器尾延迟换取可控的内存和浏览器进程数。
 
 ## 字节与阿里的实现选择
 
@@ -86,7 +90,9 @@ python scripts/run_real_job_source_eval.py
 
 `Agent 开发实习生` 单 case 返回 40 条岗位，实习率 0.8500、Agent 相关率 0.9750。Source 级耗时中，阿里约 1.4 秒，字节约 4.6 秒；五源并发后的总耗时约 7.3 秒，不是五个来源耗时相加。
 
-2026-09-04 最新全默认来源生产健康检查为 EvaluationRun `#181`，查询 `Agent 大模型开发`、每源最多 5 条。24/24 适配器可达且均返回结果，共得到 103 条岗位；JD 非空率、投递链接率、query relevance 和 Agent 相关率均为 1.0000，实习/校招占比 0.5922，总墙钟约 40.3 秒。该结果不调用 LLM，也不消耗模型 Token。
+2026-09-04 新增独立四源验证为 EvaluationRun `#182`，查询 `Agent 大模型开发`、每源最多 5 条。小红书、哔哩哔哩、蚂蚁集团和 360 为 4/4 可达且有结果，共得到 20 条岗位；JD 非空率、投递链接率、query relevance 和 Agent 相关率均为 1.0000，总墙钟约 12.0 秒。大疆另以真实浏览器验证返回 2 条完整 Agent JD；金山办公和中兴当前协议正常但该关键词为空。上述验证不调用 LLM，也不消耗模型 Token。
+
+扩展后的全默认 production gate 为 EvaluationRun `#183`：28/28 适配器可达且有结果，source error 为 0，共返回 123 条岗位；JD 非空率、投递链接率、query relevance 和 Agent 相关率均为 1.0000，实习/校招占比 0.5203，总墙钟约 40.2 秒。`moka_cn` 的 source 级“有结果”表示聚合源至少有一家命中；运维排查仍应查看 `moka_*` 企业级 provenance，不能据此断言其中每家此刻都有 Agent 岗位。
 
 新增八源最终独立验证为 EvaluationRun `#180`：8/8 可达且均有结果，共 31 条；JD 非空率、投递链接率、query relevance 和 Agent 相关率均为 1.0000，实习/校招占比 0.5484，耗时 7.1 秒。第一轮 `#177` 暴露滴滴列表实际使用 `data.items` 而不是 `records/list`，修复并重跑后才允许进入默认门控。
 

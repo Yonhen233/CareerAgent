@@ -1480,13 +1480,13 @@ Structured Chunk：边界清晰，适合高精度检索
 
 ### 14.1 岗位来源
 
-系统通过 Source Adapter 统一不同招聘站。中文默认链路当前有 24 个适配器，覆盖 32 个企业官方招聘门户：腾讯、百度、美团、字节、阿里、京东、中国电信、华为、科大讯飞、TCL、美的、小米、OPPO、创维、万得、滴滴、荣耀、快手、联想、vivo、网易、MiniMax、智谱，以及由一个共享浏览器聚合的 9 个 Moka 官方站。Lever 仅作为显式开启的英文辅助源，不把 Greenhouse 作为中国求职主入口。
+系统通过 Source Adapter 统一不同招聘站。中文默认链路当前有 28 个适配器，覆盖 39 个企业官方招聘门户：腾讯、百度、美团、字节、阿里、京东、中国电信、华为、科大讯飞、TCL、美的、小米、OPPO、创维、万得、滴滴、荣耀、快手、联想、vivo、网易、小红书、哔哩哔哩、蚂蚁集团、360、MiniMax、智谱，以及由一个共享浏览器聚合的 13 个 Moka 官方门户。Lever 仅作为显式开启的英文辅助源，不把 Greenhouse 作为中国求职主入口。
 
-来源数量不能靠复制适配器名称“做大”。每个正式 Source 必须满足：能够稳定发现官方机会、保留可打开的官方详情或申请 URL、声明自身证据粒度、协议失败会进入 trace/source error，并有不调用 LLM 的契约测试和真实网络 smoke。岗位级来源应取得完整 JD；官网只公开职位卡片或岗位类别时，必须分别标记为 `official_job_card` 或 `category`，后续匹配不得把它们当成完整任职要求。HTTP/JSON 来源并发执行；字节、MiniMax 和 Moka 这类必须经过前端运行时才能获得数据的来源使用 Playwright。Moka 的 9 个站点共享一个 Chromium 实例并限制为 3 个并发上下文，否则把每个企业注册成独立浏览器 Source 会显著放大内存、启动延迟和被限流概率。
+来源数量不能靠复制适配器名称“做大”。每个正式 Source 必须满足：能够稳定发现官方机会、保留可打开的官方详情或申请 URL、声明自身证据粒度、协议失败会进入 trace/source error，并有不调用 LLM 的契约测试和真实网络 smoke。岗位级来源应取得完整 JD；官网只公开职位卡片或岗位类别时，必须分别标记为 `official_job_card` 或 `category`，后续匹配不得把它们当成完整任职要求。HTTP/JSON 来源并发执行；字节、MiniMax 和 Moka 这类必须经过前端运行时才能获得数据的来源使用 Playwright。Moka 的 13 个门户共享一个 Chromium 实例并限制为 3 个并发上下文，否则把每个企业注册成独立浏览器 Source 会显著放大内存、启动延迟和被限流概率。
 
 证据粒度不是只写在 Source 日志里：`JobSearchService` 会将其同时保存到 `source_payload_json` 和 `structured_jd_json.source_granularity`。`MatcherService` 只对 `job_detail` 生成 required/missing skill 结论；对于 `official_job_card` 和 `category`，仍可计算标题与经历的语义相关性、支持机会浏览，但 `missing_skills` 保持为空并返回 `requirements_complete=false` 和明确限制说明，防止系统把官网未公开的信息解释成候选人能力缺口。
 
-2026-09-04 的全默认来源 production gate（EvaluationRun `#181`）使用 `Agent 大模型开发` 查询真实官网，24/24 适配器可达且有结果，共返回 103 条岗位，JD 非空率、投递链接率、query relevance 和 Agent 相关率均为 1.0，总墙钟约 40.3 秒。可达率和有结果率分开：协议正常但某个招聘批次暂时没有匹配岗位属于 empty，不应伪装成系统异常；接口超时、字段变化或解析失败则必须作为 source error 阻断严格健康门禁。
+2026-09-04 的新增四源验证（EvaluationRun `#182`）使用 `Agent 大模型开发` 查询小红书、哔哩哔哩、蚂蚁集团和 360，4/4 可达且有结果，共返回 20 条岗位。随后全默认 production gate（EvaluationRun `#183`）验证 28/28 适配器可达且有结果，共返回 123 条岗位；JD 非空率、投递链接率、query relevance 和 Agent 相关率均为 1.0，总墙钟约 40.2 秒。可达率和有结果率分开：协议正常但某个招聘批次暂时没有匹配岗位属于 empty，不应伪装成系统异常；接口超时、字段变化或解析失败则必须作为 source error 阻断严格健康门禁。
 
 不同来源返回字段不一致：
 

@@ -6,7 +6,9 @@ import httpx
 
 from app.services.job_sources import (
     AlibabaCareersSource,
+    AntGroupCareersSource,
     BaiduCareersSource,
+    BilibiliCareersSource,
     ByteDanceCareersSource,
     ChinaTelecomCareersSource,
     DidiCareersSource,
@@ -23,11 +25,13 @@ from app.services.job_sources import (
     MiniMaxCareersSource,
     NetEaseCareersSource,
     OPPOCareersSource,
+    Qihu360CareersSource,
     SkyworthCareersSource,
     TCLCareersSource,
     WindCareersSource,
     XiaomiCareersSource,
     VivoCareersSource,
+    XiaohongshuCareersSource,
     ZhipuCareersSource,
     JobPosting,
 )
@@ -664,6 +668,17 @@ def test_moka_apply_site_builds_moonshot_jobs_url():
     )
 
 
+def test_moka_site_supports_company_owned_careers_host():
+    site = MokaCareerSite(
+        "dji", "大疆创新", "social", "dji", 170070, "apply.careers.dji.com"
+    )
+
+    assert site.jobs_url == (
+        "https://apply.careers.dji.com/social-recruitment/dji/170070"
+        "#/jobs?page=1&anchorName=jobsList"
+    )
+
+
 def test_didi_source_enriches_list_row_with_complete_detail():
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/front/list"):
@@ -894,6 +909,118 @@ def test_netease_source_searches_current_projects_and_filters_locally():
     assert postings[0].external_id == "103:4858"
     assert "向量检索" in postings[0].raw_jd_text
     assert "projectId=103" in postings[0].apply_url
+
+
+def test_xiaohongshu_source_queries_social_and_campus_with_complete_jd():
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert body["positionName"] == "Agent"
+        row = {
+            "positionId": f"xhs-{body['recruitType']}",
+            "positionName": "Agent开发实习生",
+            "workplace": "上海",
+            "jobProjectName": "技术实习",
+            "duty": "负责 Agent Runtime、工具调用和 RAG。",
+            "qualification": "熟悉 Python、评测与向量检索。",
+        }
+        return httpx.Response(200, json={"statusCode": 200, "data": {"list": [row]}}, request=request)
+
+    postings = asyncio.run(
+        XiaohongshuCareersSource(transport=httpx.MockTransport(handler)).search(
+            query="Agent 开发", location="上海", limit=5
+        )
+    )
+
+    assert len(postings) == 2
+    assert {posting.job_type for posting in postings} == {"社会招聘", "校园招聘"}
+    assert all("向量检索" in posting.raw_jd_text for posting in postings)
+    assert all("/position/" in (posting.apply_url or "") for posting in postings)
+
+
+def test_bilibili_source_bootstraps_csrf_and_maps_both_recruitment_routes():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/csrf/token"):
+            return httpx.Response(200, json={"code": 0, "data": "csrf-token"}, request=request)
+        assert request.headers["X-CSRF"] == "csrf-token"
+        body = json.loads(request.content)
+        assert body["positionName"] == "Agent"
+        route = "campus" if "/campus/" in request.url.path else "social"
+        return httpx.Response(
+            200,
+            json={"data": {"list": [{
+                "id": f"bili-{route}", "positionName": "AI Agent 研发实习生",
+                "workLocation": ["上海"], "positionTypeName": "技术",
+                "positionDescription": "建设 Agent Harness、RAG 与自动评测。",
+            }]}},
+            request=request,
+        )
+
+    postings = asyncio.run(
+        BilibiliCareersSource(transport=httpx.MockTransport(handler)).search(
+            query="Agent 开发", location="上海", limit=5
+        )
+    )
+
+    assert len(postings) == 2
+    assert all("Agent Harness" in posting.raw_jd_text for posting in postings)
+    assert {posting.apply_url.split("/")[3] for posting in postings} == {"campus", "social"}
+
+
+def test_antgroup_source_uses_bounded_pages_and_filters_complete_jd():
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert body["pageSize"] == 20
+        assert body["pageIndex"] in {1, 2, 3}
+        rows = []
+        if body["pageIndex"] == 1:
+            rows.append({
+                "id": "ant-agent-1", "name": "智能体算法实习生",
+                "workLocations": [{"name": "杭州"}], "categoryName": "算法",
+                "batchTypeDesc": "实习生", "description": "研发 Long-horizon Agent。",
+                "requirement": "熟悉强化学习、LLM 和 Python。",
+            })
+        return httpx.Response(200, json={"success": True, "content": rows}, request=request)
+
+    postings = asyncio.run(
+        AntGroupCareersSource(transport=httpx.MockTransport(handler)).search(
+            query="Agent 开发", location="杭州", limit=5
+        )
+    )
+
+    assert len(postings) == 1
+    assert postings[0].company == "蚂蚁集团"
+    assert "Long-horizon Agent" in postings[0].raw_jd_text
+
+
+def test_qihu360_source_loads_official_details_before_filtering():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["X-Requested-With"] == "XMLHttpRequest"
+        if request.url.path.endswith("/getlistsearch"):
+            return httpx.Response(
+                200,
+                json={"code": 0, "data": [
+                    {"id": 1, "title": "大模型算法工程师", "area": "北京", "type": "技术"},
+                    {"id": 2, "title": "销售经理", "area": "北京", "type": "销售"},
+                ]},
+                request=request,
+            )
+        job_id = request.url.params["id"]
+        details = {
+            "1": {"id": 1, "title": "大模型算法工程师", "area": "北京", "description": "负责 Agent 平台。", "qualification": "熟悉 RAG 与 Python。"},
+            "2": {"id": 2, "title": "销售经理", "area": "北京", "description": "负责销售。"},
+        }
+        return httpx.Response(200, json={"code": 0, "data": details[job_id]}, request=request)
+
+    postings = asyncio.run(
+        Qihu360CareersSource(transport=httpx.MockTransport(handler)).search(
+            query="Agent 开发", location="北京", limit=5
+        )
+    )
+
+    assert len(postings) == 1
+    assert postings[0].external_id == "1"
+    assert "熟悉 RAG" in postings[0].raw_jd_text
+    assert postings[0].apply_url == "https://hr.360.cn/hr/detail/1"
 
 
 def test_minimax_source_preserves_official_card_granularity():

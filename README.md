@@ -70,7 +70,7 @@ PDF/结构化简历 + 中文目标岗位
   - 支持对一阶段 Top20 chunk 使用 CrossEncoder reranker，默认 Top5 作为召回锚点。
   - `EvidenceClassifier` 会区分 shipped project、metric evidence、coursework、planned learning 和 missing-skill disclosure，并影响 RAG 证据排序。
 - 岗位来源：
-  - 默认中文主链路接入 24 个适配器、32 个企业官方招聘门户：在腾讯、百度、美团、字节、阿里、京东、中国电信、华为、科大讯飞、TCL、美的、小米、OPPO、创维、万得及 9 个 Moka 官方站基础上，新增滴滴、荣耀、快手、联想、vivo、网易、MiniMax 和智谱。
+  - 默认中文主链路接入 28 个适配器、39 个企业官方招聘门户：除腾讯、百度、美团、字节、阿里、京东等既有来源外，已接入小红书、哔哩哔哩、蚂蚁集团、360；共享 Moka 浏览器源新增大疆、金山办公和中兴通讯。
   - 腾讯使用公开职位 JSON；百度读取公开 SSR 数据；美团使用搜索与详情 JSON；阿里动态发现实习批次并读取完整 JD。
   - 字节岗位接口需要官网动态 `_signature`，因此使用 Playwright 触发官网请求并捕获结构化 JSON，不硬编码签名，也不依赖 DOM selector。
   - 海外 ATS 只作为少量英文辅助，不进入默认中文链路；Greenhouse 这类中国招聘场景弱的源不作为核心能力接入。

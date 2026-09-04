@@ -230,6 +230,10 @@ class Settings(BaseSettings):
     lenovo_careers_enabled: bool = True
     vivo_careers_enabled: bool = True
     netease_careers_enabled: bool = True
+    xiaohongshu_careers_enabled: bool = True
+    bilibili_careers_enabled: bool = True
+    antgroup_careers_enabled: bool = True
+    qihu360_careers_enabled: bool = True
     minimax_careers_enabled: bool = True
     zhipu_careers_enabled: bool = True
     job_source_browser_headless: bool = True
