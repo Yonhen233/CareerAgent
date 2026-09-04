@@ -6,7 +6,7 @@ from app.core.database import get_db
 from app.main import app
 from app.models.entities import Job, JobChunk, JobSearchResult, JobSearchSession, MatchResult, Profile
 from app.models.schemas import JobDiscoveryRequest
-from app.services.job_discovery import JobDiscoveryService
+from app.services.job_discovery import DiscoveryCandidate, JobDiscoveryService
 from app.services.job_search import JobSearchService
 from app.services.job_sources import JobPosting
 from app.services.text_splitter import ResumeTextSplitter
@@ -242,8 +242,101 @@ def test_explicit_preference_is_kept_when_profile_is_also_provided(db_session):
 
     assert session.input_mode == "preference_and_profile"
     assert session.location == "北京"
-    assert session.resolved_query.startswith("只看北京的 Agent 平台实习")
+    assert session.resolved_query == "只看北京的 Agent 平台实习"
+    assert "LangGraph" not in session.resolved_query
     assert [result.job_id for result in session.results] == [beijing.id]
+
+
+def test_preference_location_overrides_profile_location_when_field_is_empty(db_session):
+    profile = Profile(
+        name="李明",
+        target_roles_json=["Agent 开发实习生"],
+        source_type="guided",
+        raw_resume_text="Python Agent 项目",
+        structured_profile_json={"location": "深圳", "skills": ["Python", "Agent"]},
+    )
+    db_session.add(profile)
+    db_session.commit()
+    db_session.refresh(profile)
+    beijing = _job(
+        db_session,
+        external_id="preference-location-beijing",
+        title="Agent 开发实习生",
+        location="北京",
+        skills=["Python", "Agent"],
+    )
+    _job(
+        db_session,
+        external_id="preference-location-shenzhen",
+        title="Agent 开发实习生",
+        location="深圳",
+        skills=["Python", "Agent"],
+    )
+
+    session = asyncio.run(
+        JobDiscoveryService(job_search=NoLiveSearch(), matcher=FakeMatcher()).discover(
+            db_session,
+            JobDiscoveryRequest(
+                preference_text="只看北京或远程的 Agent 开发实习",
+                profile_id=profile.id,
+                source_mode="corpus",
+                limit=10,
+            ),
+        )
+    )
+
+    assert session.location == "北京 / 远程"
+    assert [result.job_id for result in session.results] == [beijing.id]
+
+
+def test_sparse_jd_match_score_cannot_override_stronger_query_relevance(db_session):
+    profile = Profile(
+        name="李明",
+        source_type="guided",
+        raw_resume_text="Agent Python 项目",
+        structured_profile_json={"skills": ["Agent", "Python"]},
+    )
+    db_session.add(profile)
+    db_session.commit()
+    db_session.refresh(profile)
+    sparse = _job(
+        db_session,
+        external_id="sparse-match-signal",
+        title="Agent 操作系统工程师",
+        location="北京",
+        skills=["Agent"],
+    )
+    relevant = _job(
+        db_session,
+        external_id="strong-retrieval-signal",
+        title="Agent RAG 后端开发实习生",
+        location="北京",
+        skills=["Agent", "Python", "RAG", "LangGraph"],
+    )
+    service = JobDiscoveryService(job_search=NoLiveSearch(), matcher=FakeMatcher())
+    candidates = [
+        DiscoveryCandidate(
+            job=sparse,
+            retrieval_score=65.0,
+            rule_score=0.0,
+            semantic_score=0.0,
+            reasons=[],
+            rerank={},
+        ),
+        DiscoveryCandidate(
+            job=relevant,
+            retrieval_score=80.0,
+            rule_score=0.0,
+            semantic_score=0.0,
+            reasons=[],
+            rerank={},
+        ),
+    ]
+
+    service._attach_matches(db_session, profile, candidates)
+
+    assert candidates[0].job.id == relevant.id
+    assert candidates[1].match_signal_confidence == 0.25
 
 
 def test_discovery_session_api_can_be_restored_after_page_refresh(db_session):
@@ -323,6 +416,94 @@ def test_discovery_limits_expensive_vector_stage_to_bounded_job_pool(db_session,
 
     assert results
     assert len(captured_job_ids) == 40
+
+
+def test_rule_score_normalization_preserves_relevance_differences(db_session, monkeypatch):
+    strong = _job(
+        db_session,
+        external_id="rule-normalization-strong",
+        title="Agent RAG 后端开发实习生",
+        location="北京",
+        skills=["Python", "RAG", "LangGraph"],
+    )
+    weak = _job(
+        db_session,
+        external_id="rule-normalization-weak",
+        title="大模型算法研究实习生",
+        location="北京",
+        skills=["Python", "PyTorch"],
+    )
+    service = JobDiscoveryService()
+    monkeypatch.setattr(service.vector_index, "query_job_corpus", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        service.reranker,
+        "rerank_dicts",
+        lambda _query, candidates, *, top_k: candidates[:top_k],
+    )
+
+    candidates, _ = service._retrieve_candidates(
+        db_session,
+        query="北京 Agent RAG 后端开发实习",
+        location="北京",
+        internship_only=True,
+        tenant_id=None,
+        limit=10,
+    )
+
+    scores = {candidate.job.id: candidate.retrieval_score for candidate in candidates}
+    assert scores[strong.id] > scores[weak.id]
+    assert scores[strong.id] < 100
+
+
+def test_candidate_quality_floor_removes_tail_noise(db_session):
+    relevant = _job(
+        db_session,
+        external_id="candidate-floor-agent",
+        title="Agent RAG 后端开发实习生",
+        location="北京",
+        skills=["Python", "RAG", "LangGraph"],
+    )
+    noise = _job(
+        db_session,
+        external_id="candidate-floor-autonomous-driving",
+        title="自动驾驶决策规划算法实习生",
+        location="北京",
+        skills=["Python", "PyTorch"],
+    )
+    noise.raw_jd_text = "负责自动驾驶决策规划、控制算法和仿真评测。要求熟悉 Python、PyTorch。"
+    noise.structured_jd_json = {
+        "required_skills": ["Python", "PyTorch"],
+        "responsibilities": ["自动驾驶决策规划与控制"],
+        "qualifications": ["熟悉 Python 和 PyTorch"],
+    }
+    db_session.add(noise)
+    db_session.commit()
+    SQLiteVectorIndex().upsert_job_chunks(
+        db_session,
+        noise.id,
+        ResumeTextSplitter().split_jd_text(
+            noise.raw_jd_text,
+            noise.structured_jd_json,
+            prefix=f"job_{noise.id}",
+        ),
+    )
+
+    session = asyncio.run(
+        JobDiscoveryService(job_search=NoLiveSearch()).discover(
+            db_session,
+            JobDiscoveryRequest(
+                preference_text="北京 Agent RAG 后端开发实习",
+                location="北京",
+                source_mode="corpus",
+                limit=10,
+            ),
+        )
+    )
+
+    result_ids = [result.job_id for result in session.results]
+    assert relevant.id in result_ids
+    assert noise.id not in result_ids
+    assert session.retrieval_quality_json["query_strategy"]["weak_candidate_count"] >= 1
 
 
 def test_live_search_ingest_uses_fast_structured_parser_without_llm(monkeypatch):

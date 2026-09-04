@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -31,6 +32,8 @@ class DiscoveryCandidate:
     rerank: dict[str, Any]
     match_result_id: int | None = None
     match_score: float | None = None
+    calibrated_match_score: float | None = None
+    match_signal_confidence: float | None = None
     matched_skills: list[str] | None = None
     missing_skills: list[str] | None = None
     final_score: float = 0.0
@@ -62,7 +65,11 @@ class JobDiscoveryService:
         profile = self._load_profile(db, payload.profile_id, tenant_id=tenant_id)
         preference = (payload.preference_text or "").strip()
         resolved_query = self._resolved_query(preference, profile)
-        location = (payload.location or "").strip() or self._profile_location(profile)
+        location = (
+            (payload.location or "").strip()
+            or self._preference_location(preference)
+            or self._profile_location(profile)
+        )
         input_mode = self._input_mode(preference, profile)
         session = JobSearchSession(
             tenant_id=tenant_id,
@@ -196,7 +203,10 @@ class JobDiscoveryService:
 
         raw_candidates: list[dict[str, Any]] = []
         for job, relevance in lightweight_candidates:
-            rule_norm = self._clamp((relevance.score + 8.0) / 28.0)
+            # The relevance scorer can legitimately exceed 28 for a strong
+            # multi-intent match. The previous denominator saturated several
+            # materially different jobs at 1.0 and erased the lexical signal.
+            rule_norm = self._clamp((relevance.score + 8.0) / 44.0)
             semantic = self._clamp(semantic_by_job.get(job.id, 0.0))
             retrieval_score = round(semantic * 0.58 + rule_norm * 0.42, 6)
             raw_candidates.append(
@@ -207,6 +217,7 @@ class JobDiscoveryService:
                     "score": retrieval_score,
                     "metadata": {
                         "rule_score": relevance.score,
+                        "rule_score_normalized": rule_norm,
                         "semantic_score": semantic,
                         "reasons": relevance.reasons,
                         "retrieval": {
@@ -224,10 +235,18 @@ class JobDiscoveryService:
             raw_candidates[: max(30, limit * 3)],
             top_k=max(30, limit * 3),
         )
+        top_score = max((float(item.get("score") or 0.0) for item in reranked), default=0.0)
+        candidate_score_floor = max(0.25, top_score * 0.55)
+        unfiltered_count = len(reranked)
+        reranked = [
+            item for item in reranked if float(item.get("score") or 0.0) >= candidate_score_floor
+        ]
         quality = self.retrieval_quality.assess(query, reranked, min_evidence_chunks=1)
         quality["query_strategy"] = {
             "name": "metadata_filter_then_hybrid_retrieval_and_rerank",
             "candidate_pool_size": len(raw_candidates),
+            "candidate_score_floor": round(candidate_score_floor, 6),
+            "weak_candidate_count": unfiltered_count - len(reranked),
         }
         candidates = [
             DiscoveryCandidate(
@@ -248,9 +267,17 @@ class JobDiscoveryService:
             match = self.matcher.create_match_result(db, profile, candidate.job)
             candidate.match_result_id = match.id
             candidate.match_score = round(float(match.overall_score), 2)
+            candidate.match_signal_confidence = self._match_signal_confidence(candidate.job)
+            candidate.calibrated_match_score = round(
+                50.0 + (candidate.match_score - 50.0) * candidate.match_signal_confidence,
+                2,
+            )
             candidate.matched_skills = list(match.matched_skills_json or [])
             candidate.missing_skills = list(match.missing_skills_json or [])
-            candidate.final_score = round(candidate.retrieval_score * 0.45 + candidate.match_score * 0.55, 2)
+            candidate.final_score = round(
+                candidate.retrieval_score * 0.75 + candidate.calibrated_match_score * 0.25,
+                2,
+            )
         candidates.sort(key=lambda item: item.final_score, reverse=True)
 
     def _persist_results(
@@ -276,6 +303,13 @@ class JobDiscoveryService:
                         "rerank": candidate.rerank,
                         "matched_skills": candidate.matched_skills or [],
                         "missing_skills": candidate.missing_skills or [],
+                        "ranking": {
+                            "retrieval_weight": 0.75,
+                            "match_weight": 0.25,
+                            "raw_match_score": candidate.match_score,
+                            "calibrated_match_score": candidate.calibrated_match_score,
+                            "match_signal_confidence": candidate.match_signal_confidence,
+                        },
                     },
                 )
             )
@@ -299,13 +333,15 @@ class JobDiscoveryService:
         return profile
 
     def _resolved_query(self, preference: str, profile: Profile | None) -> str:
+        if preference:
+            return preference
         if not profile:
-            return preference or "Agent 开发 实习 校招"
+            return "Agent 开发 实习 校招"
         structured = profile.structured_profile_json or {}
         roles = list(profile.target_roles_json or structured.get("target_roles") or [])
         skills = list(structured.get("skills") or [])
         profile_terms = " ".join([*roles[:3], *skills[:10]]).strip()
-        return " ".join(item for item in [preference, profile_terms] if item).strip() or "Agent 开发 实习 校招"
+        return profile_terms or "Agent 开发 实习 校招"
 
     def _external_query(self, profile: Profile | None) -> str:
         if profile:
@@ -322,6 +358,48 @@ class JobDiscoveryService:
             return None
         value = (profile.structured_profile_json or {}).get("location")
         return str(value).strip() if value else None
+
+    def _preference_location(self, preference: str) -> str | None:
+        text = (preference or "").strip()
+        if not text:
+            return None
+        candidates = (
+            "北京",
+            "上海",
+            "深圳",
+            "广州",
+            "杭州",
+            "成都",
+            "南京",
+            "武汉",
+            "西安",
+            "苏州",
+            "重庆",
+            "天津",
+            "长沙",
+            "合肥",
+            "厦门",
+            "远程",
+        )
+        found = [item for item in candidates if re.search(re.escape(item), text)]
+        return " / ".join(found) or None
+
+    def _match_signal_confidence(self, job: Job) -> float:
+        structured = job.structured_jd_json or {}
+        payload = job.source_payload_json or {}
+        granularity = str(
+            payload.get("granularity")
+            or structured.get("source_granularity")
+            or "job_detail"
+        )
+        if granularity != "job_detail":
+            return 0.0
+        requirements = [
+            str(item).strip()
+            for item in (structured.get("required_skills") or [])
+            if str(item).strip()
+        ]
+        return round(min(len(requirements) / 4.0, 1.0), 2)
 
     def _input_mode(self, preference: str, profile: Profile | None) -> str:
         if preference and profile:

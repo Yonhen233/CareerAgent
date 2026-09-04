@@ -424,7 +424,7 @@ def test_llm_router_sends_and_logs_effective_flash_model(monkeypatch, db_session
     get_settings.cache_clear()
 
 
-def test_non_deepseek_provider_omits_thinking_options(monkeypatch):
+def test_deepseek_v4_gateway_disables_thinking_by_model_name(monkeypatch):
     monkeypatch.setenv("LLM_BASE_URL", "https://llmapi.paratera.com")
     monkeypatch.setenv("LLM_MODEL", "DeepSeek-V4-Pro")
     monkeypatch.setenv("LLM_THINKING_MODE", "auto")
@@ -433,12 +433,12 @@ def test_non_deepseek_provider_omits_thinking_options(monkeypatch):
     get_settings.cache_clear()
     client = LLMClient()
 
-    assert client._provider_options() == {}
+    assert client._provider_options() == {"thinking": {"type": "disabled"}}
     get_settings.cache_clear()
 
 
 def test_openai_compatible_base_url_overrides_default_llm_base(monkeypatch):
-    monkeypatch.delenv("LLM_BASE_URL", raising=False)
+    monkeypatch.setenv("LLM_BASE_URL", "")
     monkeypatch.setenv("BASE_URL", "https://api.deepseek.com")
     from app.core.config import get_settings
 

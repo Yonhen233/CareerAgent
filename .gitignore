@@ -18,6 +18,7 @@ data/exports/
 data/chroma/
 data/models/
 data/runtime/
+data/backups/
 logs/
 artifacts/
 .tmp_logs/

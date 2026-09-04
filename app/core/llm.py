@@ -665,9 +665,11 @@ class LLMClient:
         if mode in {"omit", "none", "off"}:
             return {}
 
-        base_url = self.settings.effective_llm_base_url.lower()
         selected_model = (model or self.settings.llm_model).lower()
-        is_deepseek_v4 = "api.deepseek.com" in base_url and selected_model.startswith("deepseek-v4")
+        # OpenAI-compatible gateways commonly proxy DeepSeek under their own
+        # domain. Model capability, not the gateway hostname, determines
+        # whether structured calls need thinking disabled.
+        is_deepseek_v4 = selected_model.startswith("deepseek-v4")
         if mode == "auto" and not is_deepseek_v4:
             return {}
 
