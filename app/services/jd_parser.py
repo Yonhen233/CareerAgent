@@ -583,6 +583,16 @@ JD:
         ]
         guessed_title = title or self._guess_title(lines)
         responsibilities, qualifications, preferred_lines = self._split_responsibilities(lines)
+        metadata_values = {
+            re.sub(r"\s+", " ", str(value or "").strip()).lower()
+            for value in (guessed_title, company, location)
+            if str(value or "").strip()
+        }
+        responsibilities = [
+            item
+            for item in responsibilities
+            if re.sub(r"\s+", " ", item.strip()).lower() not in metadata_values
+        ]
         skill_text = "\n".join(responsibilities + qualifications) or raw_text
         skills = self._extract_skills(skill_text)
         preferred_skills = [
@@ -599,8 +609,8 @@ JD:
             job_type=job_type,
             required_skills=skills[:24],
             preferred_skills=preferred_skills[:12],
-            responsibilities=responsibilities[:12],
-            qualifications=qualifications[:12],
+            responsibilities=responsibilities[:24],
+            qualifications=qualifications[:24],
             keywords=keywords,
             seniority="intern" if job_type and "intern" in job_type.lower() else None,
         ).model_dump()
@@ -666,48 +676,20 @@ JD:
         responsibilities: list[str] = []
         qualifications: list[str] = []
         preferred: list[str] = []
-        mode = "responsibility"
-        qualification_tokens = [
-            "qualification",
-            "requirement",
-            "must have",
-            "what you bring",
-            "任职",
-            "要求",
-            "岗位要求",
-            "基本要求",
-        ]
-        responsibility_tokens = [
-            "responsibil",
-            "what you",
-            "you will",
-            "岗位职责",
-            "工作职责",
-            "工作内容",
-            "主要职责",
-            "职责描述",
-            "负责",
-        ]
-        preferred_tokens = ["preferred", "nice to have", "bonus", "plus", "optional", "加分", "优先", "非必须"]
+        unclassified: list[str] = []
+        mode: str | None = None
         for line in lines:
-            lowered = line.lower()
-            if any(token in lowered for token in preferred_tokens):
-                mode = "preferred"
+            header_mode = self._jd_section_header_mode(line)
+            if header_mode:
+                mode = header_mode
                 content = self._content_after_header(line)
                 if len(content) >= 8:
-                    preferred.append(content)
-                continue
-            if any(token in lowered for token in qualification_tokens):
-                mode = "qualification"
-                content = self._content_after_header(line)
-                if len(content) >= 8:
-                    qualifications.append(content)
-                continue
-            if any(token in lowered for token in responsibility_tokens):
-                mode = "responsibility"
-                content = self._content_after_header(line)
-                if len(content) >= 8:
-                    responsibilities.append(content)
+                    if mode == "preferred":
+                        preferred.append(content)
+                    elif mode == "qualification":
+                        qualifications.append(content)
+                    else:
+                        responsibilities.append(content)
                 continue
             if len(line) < 8:
                 continue
@@ -715,18 +697,69 @@ JD:
                 preferred.append(line)
             elif mode == "qualification":
                 qualifications.append(line)
-            else:
+            elif mode == "responsibility":
                 responsibilities.append(line)
+            else:
+                unclassified.append(line)
+        if not responsibilities and not qualifications:
+            responsibilities = unclassified
         return responsibilities, qualifications, preferred
+
+    def _jd_section_header_mode(self, line: str) -> str | None:
+        value = re.sub(r"^\s*(?:\d+[.、)]\s*)?", "", line.strip())
+        header_groups = {
+            "responsibility": (
+                r"岗位职责",
+                r"工作职责",
+                r"工作内容",
+                r"主要职责",
+                r"职责描述",
+                r"职位描述",
+                r"岗位描述",
+                r"responsibilities?",
+                r"what you(?:'ll| will) do",
+                r"you will",
+            ),
+            "qualification": (
+                r"任职要求",
+                r"任职资格",
+                r"岗位要求",
+                r"职位要求",
+                r"基本要求",
+                r"能力要求",
+                r"qualifications?",
+                r"requirements?",
+                r"what you bring",
+                r"must have",
+            ),
+            "preferred": (
+                r"加分项",
+                r"加分要求",
+                r"优先",
+                r"优先条件",
+                r"优先考虑",
+                r"optional",
+                r"preferred(?: qualifications?)?",
+                r"nice to have",
+                r"bonus",
+            ),
+        }
+        for mode, headers in header_groups.items():
+            header_pattern = "|".join(headers)
+            if re.match(rf"^(?:{header_pattern})(?:\s*[:：]|\s*$)", value, flags=re.IGNORECASE):
+                return mode
+        return None
 
     def _content_after_header(self, line: str) -> str:
         parts = re.split(r"[:：]", line, maxsplit=1)
         if len(parts) == 2 and parts[1].strip():
             return parts[1].strip(" -•\t")
         header_pattern = (
-            r"^(?:岗位职责|工作职责|工作内容|主要职责|职责描述|负责|"
-            r"任职要求|任职资格|岗位要求|基本要求|要求|"
-            r"responsibilities?|qualifications?|requirements?)\s*"
+            r"^(?:岗位职责|工作职责|工作内容|主要职责|职责描述|职位描述|岗位描述|"
+            r"任职要求|任职资格|岗位要求|职位要求|基本要求|能力要求|"
+            r"加分项|加分要求|优先|优先条件|优先考虑|optional|"
+            r"responsibilities?|qualifications?|requirements?|preferred(?: qualifications?)?|"
+            r"nice to have|bonus)\s*[:：]?\s*"
         )
         content = re.sub(header_pattern, "", line, count=1, flags=re.IGNORECASE).strip(" -•\t")
         if content != line.strip(" -•\t"):

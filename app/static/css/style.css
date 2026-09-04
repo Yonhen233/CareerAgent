@@ -1438,6 +1438,27 @@ a {
   border-bottom: 1px solid var(--line);
 }
 
+.jd-summary-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.jd-summary-heading h2 {
+  margin: 2px 0 0;
+  font-size: 20px;
+}
+
+.jd-summary-note {
+  margin: 10px 0 12px;
+  padding: 10px 12px;
+  border-left: 3px solid #3b82f6;
+  background: #f3f7fd;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
 .jd-section:last-child {
   border-bottom: 0;
 }
@@ -1463,8 +1484,17 @@ a {
 }
 
 .raw-jd-details summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
   cursor: pointer;
   font-weight: 720;
+}
+
+.raw-jd-details summary small {
+  color: var(--muted);
+  font-weight: 500;
 }
 
 .raw-jd-details pre {
@@ -1472,6 +1502,9 @@ a {
   margin: 14px 0 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  font-family: inherit;
+  font-size: 15px;
+  line-height: 1.75;
 }
 
 .job-profile-panel,

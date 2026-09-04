@@ -352,6 +352,11 @@ def test_job_detail_page_exposes_optional_profile_match_and_tailor_flow():
     assert "run-job-match" in response.text
     assert "run-job-tailor" in response.text
     assert "评分、修改建议和事实检查会单独展示" in response.text
+    assert "岗位重点" in response.text
+    assert "不替代招聘方原文" in response.text
+    assert 'class="raw-jd-details" open' in response.text
+    assert "完整原始 JD" in response.text
+    assert "job-detail-coverage" in response.text
     assert "loadJobDetail" in main_js
     assert "runJobDetailMatch" in main_js
     assert "runJobDetailTailor" in main_js
@@ -362,6 +367,8 @@ def test_job_detail_page_exposes_optional_profile_match_and_tailor_flow():
     assert 'required_skill_coverage: "必备技能覆盖"' in main_js
     assert 'semantic_similarity: "语义相关度"' in main_js
     assert "applyLink.hidden = !isPublicApplyUrl(job.apply_url)" in main_js
+    assert "structuredItemCount" in main_js
+    assert "原文 ${rawText.length} 字" in main_js
     assert '["example.com", "localhost", "127.0.0.1"]' in main_js
     assert ".job-detail-grid" in style_css
     assert ".job-detail-tabs" in style_css

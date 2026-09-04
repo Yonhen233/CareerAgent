@@ -20,9 +20,20 @@
         <button type="button" data-job-tab="interview">面试准备</button>
       </nav>
       <section class="job-tab-panel active" data-job-panel="jd">
+        <div class="jd-summary-heading">
+          <div>
+            <p class="eyebrow">快速浏览</p>
+            <h2>岗位重点</h2>
+          </div>
+          <span id="job-detail-coverage" class="status-pill">正在整理</span>
+        </div>
+        <p class="jd-summary-note">这里按职责、要求和技能整理重点，不替代招聘方原文。完整内容会在下方直接展示。</p>
         <div id="job-detail-structured"></div>
-        <details class="raw-jd-details">
-          <summary>查看原始 JD</summary>
+        <details class="raw-jd-details" open>
+          <summary>
+            <span>完整原始 JD</span>
+            <small>以招聘方原文为准</small>
+          </summary>
           <pre id="job-detail-raw-jd"></pre>
         </details>
       </section>

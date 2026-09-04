@@ -1030,6 +1030,10 @@ function renderJobDetail(job) {
     ["preferred_skills", "加分项"],
   ];
   const structuredSlot = $("#job-detail-structured");
+  const structuredItemCount = sectionLabels.reduce(
+    (count, [key]) => count + (Array.isArray(structured[key]) ? structured[key].length : 0),
+    0,
+  );
   if (structuredSlot) {
     structuredSlot.innerHTML = sectionLabels.map(([key, label]) => {
       const items = structured[key] || [];
@@ -1038,7 +1042,14 @@ function renderJobDetail(job) {
     }).join("") || `<section class="jd-section"><p class="meta">该岗位暂时没有结构化字段，请查看下方原始 JD。</p></section>`;
   }
   const raw = $("#job-detail-raw-jd");
-  if (raw) raw.textContent = job.raw_jd_text || "";
+  const rawText = String(job.raw_jd_text || "").trim();
+  if (raw) raw.textContent = rawText || "招聘方暂未提供完整 JD 原文。";
+  const coverage = $("#job-detail-coverage");
+  if (coverage) {
+    coverage.textContent = rawText
+      ? `已整理 ${structuredItemCount} 项 · 原文 ${rawText.length} 字`
+      : `已整理 ${structuredItemCount} 项`;
+  }
   const applyLink = $("#job-apply-link");
   if (applyLink) {
     applyLink.hidden = !isPublicApplyUrl(job.apply_url);

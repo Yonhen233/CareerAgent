@@ -408,6 +408,50 @@ def test_jd_parser_promotes_general_evaluation_experience_to_required_skill():
     assert "Model Evaluation" in parsed["required_skills"]
 
 
+def test_jd_parser_preserves_body_lines_that_contain_header_words():
+    from app.services.jd_parser import JDParserService
+
+    parsed = JDParserService().heuristic_parse(
+        "岗位名称：Agent 平台开发实习生\n"
+        "公司：示例科技\n"
+        "岗位职责\n"
+        "1. 负责建设 Agent 工具调用链路和运行观测。\n"
+        "2. 参与 RAG 检索、重排和引用评测。\n"
+        "任职要求\n"
+        "1. 要求熟悉 Python、FastAPI 和 SQL。\n"
+        "2. 具备独立定位线上问题的能力。\n"
+        "加分项\n"
+        "1. 有 LangGraph 项目经验者优先。",
+        title="Agent 平台开发实习生",
+        company="示例科技",
+    )
+
+    assert parsed["responsibilities"] == [
+        "1. 负责建设 Agent 工具调用链路和运行观测。",
+        "2. 参与 RAG 检索、重排和引用评测。",
+    ]
+    assert parsed["qualifications"] == [
+        "1. 要求熟悉 Python、FastAPI 和 SQL。",
+        "2. 具备独立定位线上问题的能力。",
+    ]
+    assert parsed["preferred_skills"] == ["LangGraph"]
+    assert all("岗位名称" not in item and "公司" not in item for item in parsed["responsibilities"])
+
+
+def test_jd_parser_keeps_long_official_requirement_sections():
+    from app.services.jd_parser import JDParserService
+
+    requirements = [f"{index}. 任职条件 {index}：具备相关工程实践能力。" for index in range(1, 19)]
+    parsed = JDParserService().heuristic_parse(
+        "Agent 平台工程师\n岗位职责\n负责建设 Agent 平台。\n任职要求\n"
+        + "\n".join(requirements),
+        title="Agent 平台工程师",
+    )
+
+    assert len(parsed["qualifications"]) == 18
+    assert parsed["qualifications"][-1] == requirements[-1]
+
+
 def test_jd_parser_filters_llm_keywords_not_present_in_jd():
     from app.services.jd_parser import JDParserService
 
