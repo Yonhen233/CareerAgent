@@ -1,5 +1,30 @@
 [
   {
+    "name": "全默认来源生产健康检查",
+    "query": "Agent 大模型开发",
+    "limit": 5,
+    "sources": [
+      "tencent",
+      "baidu",
+      "meituan",
+      "bytedance",
+      "alibaba",
+      "jd",
+      "tcl",
+      "midea",
+      "wind",
+      "moka_cn"
+    ],
+    "expectations": {
+      "min_reachable_source_rate": 1.0,
+      "min_result_source_rate": 0.7,
+      "min_non_empty_jd_rate": 1.0,
+      "min_apply_url_rate": 1.0,
+      "min_query_relevance_rate": 0.75,
+      "min_agent_related_rate": 0.75
+    }
+  },
+  {
     "name": "中文 Agent 开发实习",
     "query": "Agent 开发实习生",
     "limit": 8,

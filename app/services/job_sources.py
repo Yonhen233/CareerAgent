@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass, field
+from html.parser import HTMLParser
 from typing import Any, Awaitable, Callable
 from urllib.parse import urlencode
 
@@ -35,6 +36,82 @@ class JobSource:
     async def search(self, *, query: str, location: str | None, limit: int) -> list[JobPosting]:
         raise NotImplementedError
 
+
+class _HTMLTextExtractor(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in {"br", "p", "li", "div"} and self.parts and self.parts[-1] != "\n":
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        text = data.strip()
+        if text:
+            self.parts.append(text)
+
+    def text(self) -> str:
+        return "\n".join(part for part in self.parts if part != "\n").strip()
+
+
+class _TCLJobListParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.rows: list[dict[str, str]] = []
+        self.current: dict[str, str] | None = None
+        self.item_depth = 0
+        self.capture: str | None = None
+        self.capture_depth = 0
+        self.tag_index = 0
+        self.tag_section_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        values = {key: value or "" for key, value in attrs}
+        classes = set(values.get("class", "").split())
+        if self.current is None and tag == "div" and "proInfoConList" in classes:
+            self.current = {}
+            self.item_depth = 1
+            self.tag_index = 0
+            return
+        if self.current is None:
+            return
+        self.item_depth += 1
+        if tag == "div" and "head" in classes:
+            self.current["external_id"] = values.get("data-postid", "").strip()
+        if tag == "div" and "name" in classes:
+            self.capture = "title"
+            self.capture_depth = self.item_depth
+        elif tag == "div" and "tag" in classes:
+            self.tag_section_depth = self.item_depth
+        elif tag == "span" and self.tag_section_depth:
+            self.capture = f"tag_{self.tag_index}"
+            self.capture_depth = self.item_depth
+            self.tag_index += 1
+        elif tag == "a" and "tool-btn" in classes:
+            self.current["apply_url"] = values.get("href", "").strip()
+
+    def handle_endtag(self, tag: str) -> None:
+        if self.current is None:
+            return
+        if self.capture and self.capture_depth == self.item_depth:
+            self.capture = None
+            self.capture_depth = 0
+        if self.tag_section_depth == self.item_depth:
+            self.tag_section_depth = 0
+        self.item_depth -= 1
+        if self.item_depth == 0:
+            self.rows.append(self.current)
+            self.current = None
+
+    def handle_data(self, data: str) -> None:
+        if self.current is None or not self.capture:
+            return
+        text = data.strip()
+        if text:
+            self.current[self.capture] = " ".join(
+                part for part in [self.current.get(self.capture, ""), text] if part
+            )
 
 class TencentCareersSource(JobSource):
     name = "tencent"
@@ -570,6 +647,575 @@ class AlibabaCareersSource(JobSource):
         )
 
 
+class JDCareersSource(JobSource):
+    """JD Careers public JSON search with complete social-job descriptions."""
+
+    name = "jd"
+    endpoint = "https://zhaopin.jd.com/web/job/job_list"
+    landing_page = "https://zhaopin.jd.com/web/job/job_info_list/3"
+
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        self.transport = transport
+
+    async def search(self, *, query: str, location: str | None, limit: int) -> list[JobPosting]:
+        settings = get_settings()
+        headers = {
+            "User-Agent": settings.user_agent,
+            "Accept": "application/json, text/plain, */*",
+            "Origin": "https://zhaopin.jd.com",
+            "Referer": self.landing_page,
+            "X-Requested-With": "XMLHttpRequest",
+        }
+        request_size = min(max(limit * 3, 20), 50)
+        form = {
+            "pageIndex": "0",
+            "pageSize": str(request_size),
+            "workCityJson": "[]",
+            "jobTypeJson": "[]",
+            "jobSearch": _job_source_search_key(query),
+            "depTypeJson": "[]",
+        }
+        async with httpx.AsyncClient(
+            timeout=settings.job_search_timeout_seconds,
+            headers=headers,
+            transport=self.transport,
+        ) as client:
+            response = await client.post(self.endpoint, data=form)
+            response.raise_for_status()
+        rows = response.json()
+        if not isinstance(rows, list):
+            raise ValueError("JD Careers response is not a job list")
+
+        postings: list[JobPosting] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            posting = self._map_row(row)
+            if not posting.title or not posting.external_id:
+                continue
+            if location and location.lower() not in source_posting_haystack(posting):
+                continue
+            postings.append(posting)
+        return rank_postings_for_query(postings, query)[:limit]
+
+    def _map_row(self, row: dict[str, Any]) -> JobPosting:
+        external_id = str(row.get("requirementId") or row.get("reqNumber") or "").strip()
+        title = str(row.get("positionNameOpen") or row.get("positionName") or "").strip()
+        location = str(row.get("workCity") or "").strip() or None
+        job_type = str(row.get("jobType") or "").strip() or "社会招聘"
+        raw_jd = _join_jd_sections(
+            ("岗位名称", title),
+            ("公司", "京东"),
+            ("工作地点", location),
+            ("招聘类型", job_type),
+            ("所属部门", row.get("positionDeptName") or row.get("reqDepartment")),
+            ("岗位职责", row.get("workContent")),
+            ("任职要求", row.get("qualification")),
+            ("岗位编号", row.get("reqNumber") or row.get("positionCode")),
+            ("发布日期", row.get("formatPublishTime")),
+        )
+        return JobPosting(
+            source=self.name,
+            external_id=external_id,
+            title=title,
+            company="京东",
+            location=location,
+            job_type=job_type,
+            apply_url=(
+                f"https://zhaopin.jd.com/web/job-info-detail?requementId={external_id}"
+                if external_id
+                else None
+            ),
+            raw_jd_text=raw_jd,
+            payload=row,
+        )
+
+
+class TCLCareersSource(JobSource):
+    """TCL campus source backed by its public search and detail endpoints."""
+
+    name = "tcl"
+    landing_page = "https://zhaopin.tcl.com/campus/recruiting.html?id=57"
+    search_endpoint = "https://zhaopin.tcl.com/Ajax/campus_search.html"
+    detail_endpoint = "https://zhaopin.tcl.com/Ajax/job_detail.html"
+
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        self.transport = transport
+
+    async def search(self, *, query: str, location: str | None, limit: int) -> list[JobPosting]:
+        settings = get_settings()
+        headers = {
+            "User-Agent": settings.user_agent,
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Origin": "https://zhaopin.tcl.com",
+            "Referer": self.landing_page,
+            "X-Requested-With": "XMLHttpRequest",
+        }
+        form = {
+            "keyType": "1",
+            "cate_id": "100",
+            "keys": _job_source_search_key(query),
+        }
+        async with httpx.AsyncClient(
+            timeout=settings.job_search_timeout_seconds,
+            headers=headers,
+            transport=self.transport,
+        ) as client:
+            response = await client.post(self.search_endpoint, params={"page": 1}, data=form)
+            response.raise_for_status()
+            payload = response.json()
+            rows = self._extract_rows(payload)
+            preliminary = [self._map_list_row(row) for row in rows]
+            preliminary = [
+                posting
+                for posting in preliminary
+                if posting.title
+                and posting.external_id
+                and (not location or location.lower() in source_posting_haystack(posting))
+            ]
+            selected = rank_postings_for_query(preliminary, query)[:limit]
+            semaphore = asyncio.Semaphore(min(max(settings.job_ingest_concurrency, 1), 8))
+
+            async def _load_detail(posting: JobPosting) -> JobPosting:
+                async with semaphore:
+                    detail_response = await client.post(
+                        self.detail_endpoint,
+                        params={"postid": posting.external_id, "recruitType": "1"},
+                    )
+                    detail_response.raise_for_status()
+                    detail = detail_response.json()
+                    if not isinstance(detail, dict) or detail.get("title") != "success":
+                        raise ValueError(
+                            f"TCL Careers detail failed for {posting.external_id}: invalid response"
+                        )
+                    return self._merge_detail(posting, detail)
+
+            postings = await asyncio.gather(*[_load_detail(posting) for posting in selected])
+        return rank_postings_for_query(postings, query)[:limit]
+
+    def _extract_rows(self, payload: Any) -> list[dict[str, str]]:
+        if not isinstance(payload, dict) or payload.get("title") != "success":
+            raise ValueError("TCL Careers search failed: invalid response")
+        content = payload.get("content")
+        if not isinstance(content, str):
+            raise ValueError("TCL Careers response does not contain HTML content")
+        parser = _TCLJobListParser()
+        parser.feed(content)
+        return [
+            {
+                "external_id": row.get("external_id", ""),
+                "title": row.get("title", ""),
+                "company": row.get("tag_0", "TCL"),
+                "location": row.get("tag_1", ""),
+                "category": row.get("tag_2", ""),
+                "headcount": row.get("tag_3", ""),
+                "published_at": row.get("tag_4", ""),
+                "apply_url": row.get("apply_url", ""),
+            }
+            for row in parser.rows
+        ]
+
+    def _map_list_row(self, row: dict[str, str]) -> JobPosting:
+        raw_jd = _join_jd_sections(
+            ("岗位名称", row.get("title")),
+            ("公司", row.get("company") or "TCL"),
+            ("工作地点", row.get("location")),
+            ("招聘类型", "校园招聘"),
+            ("职位类别", row.get("category")),
+            ("招聘人数", row.get("headcount")),
+            ("发布日期", row.get("published_at")),
+        )
+        return JobPosting(
+            source=self.name,
+            external_id=row.get("external_id", ""),
+            title=row.get("title", ""),
+            company=row.get("company") or "TCL",
+            location=row.get("location") or None,
+            job_type="校园招聘",
+            apply_url=row.get("apply_url") or None,
+            raw_jd_text=raw_jd,
+            payload=dict(row),
+        )
+
+    def _merge_detail(self, posting: JobPosting, detail: dict[str, Any]) -> JobPosting:
+        posting.raw_jd_text = _join_jd_sections(
+            ("岗位名称", posting.title),
+            ("公司", posting.company),
+            ("工作地点", posting.location),
+            ("招聘类型", posting.job_type),
+            ("职位类别", posting.payload.get("category")),
+            ("岗位职责", _html_text(detail.get("workContent"))),
+            ("任职要求", _html_text(detail.get("serviceCondition"))),
+            ("发布日期", posting.payload.get("published_at")),
+        )
+        posting.payload = {**posting.payload, "detail": detail}
+        return posting
+
+
+class MideaCareersSource(JobSource):
+    """Midea public recruitment API with complete social-job descriptions."""
+
+    name = "midea"
+    endpoint = "https://recruit.midea.com/backend/rec/home/out/official/position/list"
+    landing_page = "https://recruit.midea.com/recruitOut/ihr/social/socialHome"
+
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        self.transport = transport
+
+    async def search(self, *, query: str, location: str | None, limit: int) -> list[JobPosting]:
+        settings = get_settings()
+        headers = {
+            "User-Agent": settings.user_agent,
+            "Accept": "application/json",
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Origin": "https://recruit.midea.com",
+            "Referer": self.landing_page,
+        }
+        search_keys = _job_source_search_keys(query)[:3]
+        request_size = min(max(limit * 2, 10), 50)
+        async with httpx.AsyncClient(
+            timeout=settings.job_search_timeout_seconds,
+            headers=headers,
+            transport=self.transport,
+        ) as client:
+            responses = await asyncio.gather(
+                *[
+                    client.post(
+                        self.endpoint,
+                        data={
+                            "pageSize": str(request_size),
+                            "pageIndex": "1",
+                            "publicationName": key,
+                        },
+                    )
+                    for key in search_keys
+                ]
+            )
+
+        postings: list[JobPosting] = []
+        seen: set[str] = set()
+        for response in responses:
+            response.raise_for_status()
+            payload = response.json()
+            rows = payload.get("data") if isinstance(payload, dict) else None
+            if not isinstance(rows, list):
+                raise ValueError("Midea Careers response does not contain data list")
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                posting = self._map_row(row)
+                if not posting.title or not posting.external_id or posting.external_id in seen:
+                    continue
+                if location and location.lower() not in source_posting_haystack(posting):
+                    continue
+                seen.add(posting.external_id)
+                postings.append(posting)
+        return rank_postings_for_query(postings, query)[:limit]
+
+    def _map_row(self, row: dict[str, Any]) -> JobPosting:
+        external_id = str(row.get("positionId") or row.get("demandCode") or "").strip()
+        title = str(row.get("publicationName") or row.get("demandPositionName") or "").strip()
+        location = str(row.get("workingPlace") or "").strip() or None
+        raw_jd = _join_jd_sections(
+            ("岗位名称", title),
+            ("公司", "美的集团"),
+            ("工作地点", location),
+            ("招聘类型", "社会招聘"),
+            ("所属事业部", row.get("superiorUnitName")),
+            ("组织信息", row.get("unitFullInfo")),
+            ("岗位职责", row.get("postDuties")),
+            ("任职要求", row.get("qualification")),
+            ("学历要求", row.get("education")),
+            ("岗位编号", row.get("demandCode")),
+        )
+        return JobPosting(
+            source=self.name,
+            external_id=external_id,
+            title=title,
+            company="美的集团",
+            location=location,
+            job_type="社会招聘",
+            apply_url=(
+                "https://recruit.midea.com/recruitOut/ihr/social/jobApplication"
+                f"?positionId={external_id}"
+            ),
+            raw_jd_text=raw_jd,
+            payload=row,
+        )
+
+
+class WindCareersSource(JobSource):
+    """Wind careers source backed by its public generated position dataset."""
+
+    name = "wind"
+    endpoint = "https://www.wind.com.cn/portal/zh/JoinUs/js/channelPositions.js?v=20251210"
+    landing_page = "https://www.wind.com.cn/portal/zh/JoinUs/recruit.html"
+    marker = "var channelPositions ="
+
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        self.transport = transport
+
+    async def search(self, *, query: str, location: str | None, limit: int) -> list[JobPosting]:
+        settings = get_settings()
+        headers = {
+            "User-Agent": settings.user_agent,
+            "Accept": "application/javascript, text/javascript, */*",
+            "Referer": self.landing_page,
+        }
+        async with httpx.AsyncClient(
+            timeout=settings.job_search_timeout_seconds,
+            headers=headers,
+            transport=self.transport,
+        ) as client:
+            response = await client.get(self.endpoint)
+            response.raise_for_status()
+        marker_index = response.text.find(self.marker)
+        if marker_index < 0:
+            raise ValueError("Wind Careers position dataset marker is missing")
+        raw = response.text[marker_index + len(self.marker) :].lstrip()
+        rows, _ = json.JSONDecoder().raw_decode(raw)
+        if not isinstance(rows, list):
+            raise ValueError("Wind Careers position dataset is not a list")
+
+        postings: list[JobPosting] = []
+        for row in rows:
+            if not isinstance(row, dict) or row.get("InUse") is False:
+                continue
+            posting = self._map_row(row)
+            if not posting.title or not posting.external_id:
+                continue
+            if location and location.lower() not in source_posting_haystack(posting):
+                continue
+            if not is_query_relevant_posting(posting, query):
+                continue
+            postings.append(posting)
+        return rank_postings_for_query(postings, query)[:limit]
+
+    def _map_row(self, row: dict[str, Any]) -> JobPosting:
+        external_id = str(row.get("ChannelPositionID") or row.get("PositionID") or "").strip()
+        title = str(row.get("ChannelPositionName") or row.get("PositionName") or "").strip()
+        locations = [
+            str(item.get("Name") or "").strip()
+            for item in row.get("WorkPlace") or []
+            if isinstance(item, dict) and str(item.get("Name") or "").strip()
+        ]
+        projects = [
+            str(item.get("Name") or "").strip()
+            for item in row.get("Projects") or []
+            if isinstance(item, dict) and str(item.get("Name") or "").strip()
+        ]
+        job_type = " / ".join(
+            part for part in [str(row.get("PositionTypeText") or "").strip(), *projects] if part
+        ) or None
+        raw_jd = _join_jd_sections(
+            ("岗位名称", title),
+            ("公司", "Wind 万得"),
+            ("工作地点", "、".join(locations)),
+            ("招聘类型", job_type),
+            ("职位类别", row.get("PositionClassName")),
+            ("岗位职责", row.get("ChannelPositionDesc")),
+            ("任职要求", row.get("ChannelPositionRequirement")),
+            ("发布日期", row.get("PublishDate")),
+        )
+        return JobPosting(
+            source=self.name,
+            external_id=external_id,
+            title=title,
+            company="Wind 万得",
+            location="、".join(locations) or None,
+            job_type=job_type,
+            apply_url=(
+                f"{self.landing_page}?channelPositionId={external_id}"
+                f"&positionType={row.get('PositionType') or ''}"
+            ),
+            raw_jd_text=raw_jd,
+            payload=row,
+        )
+
+
+@dataclass(frozen=True)
+class MokaCareerSite:
+    key: str
+    company: str
+    mode: str
+    org_id: str
+    site_id: int
+
+    @property
+    def jobs_url(self) -> str:
+        return (
+            f"https://app.mokahr.com/{self.mode}-recruitment/"
+            f"{self.org_id}/{self.site_id}#/jobs?page=1&anchorName=jobsList"
+        )
+
+
+class MokaChinaCareersSource(JobSource):
+    """Shared-browser adapter for verified Chinese company sites hosted by Moka."""
+
+    name = "moka_cn"
+    sites = (
+        MokaCareerSite("shokz", "韶音科技", "campus", "aftershokzhr", 36940),
+        MokaCareerSite("deepseek", "DeepSeek", "social", "high-flyer", 140576),
+        MokaCareerSite("biren", "壁仞科技", "social", "biren", 44726),
+        MokaCareerSite("ruijie", "锐捷网络", "campus", "ruijie", 136206),
+        MokaCareerSite("pwrd", "完美世界", "campus", "pwrd", 144582),
+        MokaCareerSite("sina", "新浪集团", "campus", "sina", 43536),
+        MokaCareerSite("snb", "苏商银行", "social", "snb", 45591),
+        MokaCareerSite("linecorp", "LINE MAN Technology", "social", "linecorp", 150828),
+    )
+
+    def __init__(
+        self,
+        posting_loader: Callable[[str, int], Awaitable[list[JobPosting]]] | None = None,
+    ) -> None:
+        self.posting_loader = posting_loader
+
+    async def search(self, *, query: str, location: str | None, limit: int) -> list[JobPosting]:
+        loader = self.posting_loader or self._load_browser_postings
+        postings = await loader(_job_source_search_key(query), limit)
+        postings = [
+            posting
+            for posting in postings
+            if not location or location.lower() in source_posting_haystack(posting)
+        ]
+        return rank_postings_for_query(postings, query)[:limit]
+
+    async def _load_browser_postings(self, query: str, limit: int) -> list[JobPosting]:
+        settings = get_settings()
+        try:
+            from playwright.async_api import async_playwright
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                "Moka China careers sources require Playwright and Chromium. "
+                "Install them with `pip install playwright` and `playwright install chromium`."
+            ) from exc
+
+        postings: list[JobPosting] = []
+        errors: dict[str, str] = {}
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=settings.job_source_browser_headless)
+            try:
+                semaphore = asyncio.Semaphore(3)
+
+                async def _load_one(site: MokaCareerSite) -> tuple[str, list[JobPosting], str | None]:
+                    async with semaphore:
+                        context = await browser.new_context(user_agent=settings.user_agent)
+                        page = await context.new_page()
+                        try:
+                            rows = await self._load_site(page, site, query, limit)
+                            return site.key, rows, None
+                        except Exception as exc:  # noqa: BLE001
+                            return site.key, [], str(exc)
+                        finally:
+                            await context.close()
+
+                site_results = await asyncio.gather(*[_load_one(site) for site in self.sites])
+                for key, rows, error in site_results:
+                    postings.extend(rows)
+                    if error:
+                        errors[key] = error
+            finally:
+                await browser.close()
+        if not postings and errors:
+            detail = "; ".join(f"{key}: {value}" for key, value in errors.items())
+            raise ValueError(f"Moka China careers sources returned no jobs: {detail}")
+        return postings
+
+    async def _load_site(self, page: Any, site: MokaCareerSite, query: str, limit: int) -> list[JobPosting]:
+        settings = get_settings()
+        await page.goto(
+            site.jobs_url,
+            wait_until="networkidle",
+            timeout=settings.job_source_browser_timeout_ms,
+        )
+        search_inputs = page.get_by_placeholder("输入职位关键字")
+        if await search_inputs.count() == 0:
+            raise ValueError("Moka job search input is missing")
+        search_input = search_inputs.last
+        await search_input.fill(query)
+        async with page.expect_response(
+            lambda response: "/website/jobs/v2" in response.url and response.status == 200,
+            timeout=settings.job_source_browser_timeout_ms,
+        ):
+            await search_input.press("Enter")
+        await page.wait_for_timeout(500)
+
+        links = await page.locator('a[href*="#/job/"]').evaluate_all(
+            """elements => elements.map(element => ({
+                text: (element.innerText || '').trim(),
+                href: element.href || ''
+            }))"""
+        )
+        candidates: list[tuple[str, str]] = []
+        seen: set[str] = set()
+        for item in links:
+            if not isinstance(item, dict):
+                continue
+            href = str(item.get("href") or "").strip()
+            title = _moka_link_title(item.get("text"))
+            if (
+                not href
+                or not title
+                or href in seen
+                or query.lower() not in title.lower()
+            ):
+                continue
+            seen.add(href)
+            candidates.append((title, href))
+        candidates = candidates[: min(max(limit, 3), 8)]
+
+        postings: list[JobPosting] = []
+        for title, href in candidates:
+            detail_page = await page.context.new_page()
+            try:
+                await detail_page.goto(
+                    href,
+                    wait_until="networkidle",
+                    timeout=settings.job_source_browser_timeout_ms,
+                )
+                await detail_page.get_by_text("职位描述", exact=True).first.wait_for(
+                    state="visible",
+                    timeout=settings.job_source_browser_timeout_ms,
+                )
+                body_text = await detail_page.locator("body").inner_text()
+            finally:
+                await detail_page.close()
+            posting = self._map_detail(site, title, href, body_text)
+            if len(posting.raw_jd_text) >= 200:
+                postings.append(posting)
+        return postings
+
+    def _map_detail(
+        self,
+        site: MokaCareerSite,
+        title: str,
+        href: str,
+        body_text: str,
+    ) -> JobPosting:
+        external_id = href.rsplit("/job/", 1)[-1].split("?", 1)[0].split("#", 1)[0]
+        detail, metadata = _moka_detail_sections(body_text)
+        location = metadata.get("location")
+        job_type = metadata.get("job_type") or ("实习" if "实习" in title else None)
+        raw_jd = _join_jd_sections(
+            ("岗位名称", title),
+            ("公司", site.company),
+            ("工作地点", location),
+            ("招聘类型", job_type),
+            ("职位描述", detail),
+        )
+        return JobPosting(
+            source=f"moka_{site.key}",
+            external_id=external_id,
+            title=title,
+            company=site.company,
+            location=location,
+            job_type=job_type,
+            apply_url=href,
+            raw_jd_text=raw_jd,
+            payload={"site": site.key, "detail_text": detail, **metadata},
+        )
+
+
 class LeverCareersSource(JobSource):
     """Explicit English auxiliary source; it is never part of the Chinese default path."""
 
@@ -651,6 +1297,16 @@ class JobSourceRegistry:
             self.sources[ByteDanceCareersSource.name] = ByteDanceCareersSource()
         if settings.alibaba_careers_enabled:
             self.sources[AlibabaCareersSource.name] = AlibabaCareersSource()
+        if settings.jd_careers_enabled:
+            self.sources[JDCareersSource.name] = JDCareersSource()
+        if settings.tcl_careers_enabled:
+            self.sources[TCLCareersSource.name] = TCLCareersSource()
+        if settings.midea_careers_enabled:
+            self.sources[MideaCareersSource.name] = MideaCareersSource()
+        if settings.wind_careers_enabled:
+            self.sources[WindCareersSource.name] = WindCareersSource()
+        if settings.moka_china_careers_enabled:
+            self.sources[MokaChinaCareersSource.name] = MokaChinaCareersSource()
         if settings.lever_careers_enabled:
             self.sources[LeverCareersSource.name] = LeverCareersSource()
 
@@ -685,6 +1341,58 @@ def _nested_text(value: Any, *paths: str) -> str:
     return ""
 
 
+def _html_text(value: Any) -> str:
+    parser = _HTMLTextExtractor()
+    parser.feed(str(value or ""))
+    return parser.text()
+
+
+def _moka_link_title(value: Any) -> str:
+    ignored = {"急", "实习", "全职", "校招", "社招"}
+    for line in str(value or "").splitlines():
+        text = line.strip()
+        if text and text not in ignored and not text.startswith("发布于"):
+            return text
+    return ""
+
+
+def _moka_detail_sections(value: str) -> tuple[str, dict[str, str]]:
+    lines = [line.strip() for line in str(value or "").splitlines() if line.strip()]
+    start = lines.index("职位描述") + 1 if "职位描述" in lines else 0
+    end = lines.index("职位信息", start) if "职位信息" in lines[start:] else len(lines)
+    detail = "\n".join(lines[start:end]).strip()
+    metadata: dict[str, str] = {}
+    for line in lines[:start]:
+        if "|" not in line:
+            continue
+        parts = [part.strip() for part in line.split("|") if part.strip()]
+        if len(parts) > 1 and parts[-1] in {"实习", "全职", "兼职", "校招", "社招"}:
+            metadata["location"] = parts[0]
+            metadata["job_type"] = parts[-1]
+            break
+        if len(parts) > 1 and _looks_like_location(parts[-1]):
+            metadata["location"] = parts[-1]
+            break
+    for index, line in enumerate(lines[end:], start=end):
+        if line == "职位性质" and index + 1 < len(lines):
+            offset = index + 1
+            while offset < len(lines) and lines[offset] == "职位性质":
+                offset += 1
+            if offset < len(lines):
+                metadata["job_type"] = lines[offset]
+    return detail, metadata
+
+
+def _looks_like_location(value: str) -> bool:
+    text = value.strip()
+    signals = (
+        "北京", "上海", "天津", "重庆", "深圳", "广州", "杭州", "南京", "武汉",
+        "成都", "西安", "苏州", "合肥", "长沙", "厦门", "青岛", "大连", "海外",
+        "远程", "市", "省",
+    )
+    return any(signal in text for signal in signals)
+
+
 def _job_source_search_key(query: str) -> str:
     text = str(query or "").strip()
     lowered = text.lower()
@@ -695,3 +1403,25 @@ def _job_source_search_key(query: str) -> str:
         if signal in text:
             return signal
     return text
+
+
+def _job_source_search_keys(query: str) -> list[str]:
+    text = str(query or "").strip()
+    lowered = text.lower()
+    keys: list[str] = []
+    signals = (
+        ("agent", "Agent"),
+        ("智能体", "智能体"),
+        ("大模型", "大模型"),
+        ("llm", "大模型"),
+        ("rag", "RAG"),
+        ("ai", "AI"),
+    )
+    for signal, key in signals:
+        haystack = lowered if signal.isascii() else text
+        if signal in haystack and key not in keys:
+            keys.append(key)
+    fallback = _job_source_search_key(text)
+    if fallback and fallback not in keys:
+        keys.append(fallback)
+    return keys or [text]

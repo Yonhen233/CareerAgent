@@ -44,7 +44,7 @@ CareerAgent/
 │   │   ├── resume_tailor.py                  # RAG 证据约束简历定制与 ReAct repair
 │   │   ├── resume_delivery.py                # HTML/Markdown 简历交付
 │   │   │
-│   │   ├── job_sources.py                    # 腾讯/百度/美团/字节/阿里岗位源适配器
+│   │   ├── job_sources.py                    # 10 个适配器、17 个国内企业官方岗位门户
 │   │   ├── job_search.py                     # 真实招聘源并发搜索与入库
 │   │   ├── job_discovery.py                  # 可选简历的跨岗位检索、匹配和会话持久化
 │   │   ├── job_relevance.py                  # 中文岗位相关性排序
@@ -121,6 +121,7 @@ CareerAgent/
 │   ├── rag_cases.json                         # RAG 召回/排序样本
 │   ├── jd_parser_cases.json                   # 中英 JD 结构化样本
 │   ├── job_relevance_cases.json               # 中文岗位排序标注
+│   ├── real_job_source_cases.json              # 真实招聘源生产健康检查与 release gate
 │   ├── agent_full_flow_cases.json             # Agent 全流程组件覆盖
 │   ├── llm_workflow_cases.json                # 真实 LLM 分阶段流程
 │   ├── application_packet_cases.json          # 投递包事实边界

@@ -213,6 +213,11 @@ class Settings(BaseSettings):
     meituan_careers_enabled: bool = True
     bytedance_careers_enabled: bool = True
     alibaba_careers_enabled: bool = True
+    jd_careers_enabled: bool = True
+    tcl_careers_enabled: bool = True
+    midea_careers_enabled: bool = True
+    wind_careers_enabled: bool = True
+    moka_china_careers_enabled: bool = True
     job_source_browser_headless: bool = True
     job_source_browser_timeout_ms: int = 30000
     lever_careers_enabled: bool = False

@@ -7,7 +7,13 @@ from app.services.job_sources import (
     AlibabaCareersSource,
     BaiduCareersSource,
     ByteDanceCareersSource,
+    JDCareersSource,
     MeituanCareersSource,
+    MideaCareersSource,
+    MokaChinaCareersSource,
+    TCLCareersSource,
+    WindCareersSource,
+    JobPosting,
 )
 
 
@@ -274,3 +280,196 @@ def test_alibaba_source_discovers_internship_batches_and_searches_full_jd():
     assert "Agent 基础设施、记忆、工具编排和可观测体系" in posting.raw_jd_text
     assert "Python、LangGraph、MCP、RAG 和高并发系统" in posting.raw_jd_text
     assert posting.apply_url.endswith("/199903480006?batchId=100000540002")
+
+
+def test_jd_source_maps_public_json_with_complete_agent_jd():
+    row = {
+        "requirementId": 221760,
+        "positionNameOpen": "AI Agent开发工程师",
+        "positionDeptName": "京东集团",
+        "workCity": "北京市",
+        "jobType": "研发类",
+        "workContent": "负责 Agent Loop、工具调用和 Graph RAG。",
+        "qualification": "熟悉 Python、LangGraph、Rerank 和模型评测。",
+        "reqNumber": "ZP2607308944",
+        "formatPublishTime": "2026-07-30",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/web/job/job_list"
+        assert b"jobSearch=Agent" in request.content
+        return httpx.Response(200, json=[row], request=request)
+
+    postings = asyncio.run(
+        JDCareersSource(transport=httpx.MockTransport(handler)).search(
+            query="Agent 开发",
+            location="北京",
+            limit=5,
+        )
+    )
+
+    assert len(postings) == 1
+    posting = postings[0]
+    assert posting.source == "jd"
+    assert posting.company == "京东"
+    assert posting.external_id == "221760"
+    assert posting.location == "北京市"
+    assert "Graph RAG" in posting.raw_jd_text
+    assert "LangGraph、Rerank" in posting.raw_jd_text
+    assert posting.apply_url.endswith("requementId=221760")
+
+
+def test_tcl_source_parses_official_html_then_loads_detail():
+    list_html = """
+    <div class="item proInfoConList">
+      <div class="head" data-postid="agent-1" data-recruitType="1">
+        <div class="name">Agent工程师</div>
+        <div class="tag">
+          <span>格创东智（深圳）科技有限公司</span><span>武汉市</span>
+          <span>研发技术类</span><span>若干</span><span>2026-08-26 09:15:34</span>
+        </div>
+      </div>
+      <a data-id="agent-1" href="https://wecruit.hotjob.cn/pos/agent-1" class="tool-btn">立即申请</a>
+    </div>
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/campus_search.html"):
+            assert b"keys=Agent" in request.content
+            return httpx.Response(
+                200,
+                json={"title": "success", "total_counts": 1, "content": list_html},
+                request=request,
+            )
+        assert request.url.path.endswith("/job_detail.html")
+        assert request.url.params["postid"] == "agent-1"
+        return httpx.Response(
+            200,
+            json={
+                "title": "success",
+                "workContent": "1. 负责 <b>Agent</b> 应用研发；<br/>2. 建设 RAG。",
+                "serviceCondition": "熟悉 Python、LangGraph 与模型评测。",
+            },
+            request=request,
+        )
+
+    postings = asyncio.run(
+        TCLCareersSource(transport=httpx.MockTransport(handler)).search(
+            query="Agent 开发",
+            location="武汉",
+            limit=5,
+        )
+    )
+
+    assert len(postings) == 1
+    posting = postings[0]
+    assert posting.source == "tcl"
+    assert posting.company == "格创东智（深圳）科技有限公司"
+    assert posting.location == "武汉市"
+    assert posting.job_type == "校园招聘"
+    assert "负责\nAgent\n应用研发" in posting.raw_jd_text
+    assert "Python、LangGraph" in posting.raw_jd_text
+    assert posting.apply_url == "https://wecruit.hotjob.cn/pos/agent-1"
+
+
+def test_wind_source_reads_generated_position_dataset():
+    rows = [
+        {
+            "ChannelPositionID": 662,
+            "ChannelPositionName": "大模型算法工程师（实习）",
+            "PositionType": 9002,
+            "PositionTypeText": "校招",
+            "PositionClassName": "软件研发类",
+            "WorkPlace": [{"Name": "上海"}],
+            "Projects": [{"Name": "实习生招聘"}],
+            "ChannelPositionDesc": "研发 LLM、Agent 与 AI 应用。",
+            "ChannelPositionRequirement": "熟悉 Python、RAG 和向量检索。",
+            "PublishDate": "2026-08-01",
+            "InUse": True,
+        }
+    ]
+    script = f"(function () {{ var channelPositions = {json.dumps(rows, ensure_ascii=False)}; }})();"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=script, request=request)
+
+    postings = asyncio.run(
+        WindCareersSource(transport=httpx.MockTransport(handler)).search(
+            query="Agent 开发实习生",
+            location="上海",
+            limit=5,
+        )
+    )
+
+    assert len(postings) == 1
+    posting = postings[0]
+    assert posting.source == "wind"
+    assert posting.company == "Wind 万得"
+    assert posting.job_type == "校招 / 实习生招聘"
+    assert "Agent 与 AI 应用" in posting.raw_jd_text
+    assert posting.apply_url.endswith("channelPositionId=662&positionType=9002")
+
+
+def test_midea_source_uses_multiple_agent_query_terms_and_deduplicates():
+    row = {
+        "positionId": "midea-agent-1",
+        "demandCode": "P20260001",
+        "publicationName": "具身智能机器人智能体平台高级研究员",
+        "superiorUnitName": "中央研究院",
+        "workingPlace": "上海市-上海市,广东省-佛山",
+        "postDuties": "负责智能体平台、工具编排和多智能体协作。",
+        "qualification": "熟悉 Python、大模型、RAG 与 Agent 评测。",
+        "education": "硕士及以上",
+    }
+    calls: list[bytes] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.content)
+        return httpx.Response(200, json={"data": [row], "total": 1}, request=request)
+
+    postings = asyncio.run(
+        MideaCareersSource(transport=httpx.MockTransport(handler)).search(
+            query="Agent 大模型开发",
+            location="上海",
+            limit=5,
+        )
+    )
+
+    assert len(calls) == 2
+    assert any(b"publicationName=Agent" in call for call in calls)
+    assert len(postings) == 1
+    posting = postings[0]
+    assert posting.source == "midea"
+    assert posting.company == "美的集团"
+    assert "工具编排和多智能体协作" in posting.raw_jd_text
+    assert posting.apply_url.endswith("positionId=midea-agent-1")
+
+
+def test_moka_china_source_preserves_per_company_source_identity():
+    async def loader(query: str, limit: int) -> list[JobPosting]:
+        assert query == "Agent"
+        assert limit == 5
+        return [
+            JobPosting(
+                source="moka_shokz",
+                external_id="agent-intern-1",
+                title="AI 创新专项实习生（Agent 开发方向）",
+                company="韶音科技",
+                location="深圳",
+                job_type="实习",
+                apply_url="https://app.mokahr.com/campus-recruitment/aftershokzhr/36940#/job/agent-intern-1",
+                raw_jd_text="开发 Agent、RAG、工具调用和评测能力。",
+            )
+        ]
+
+    postings = asyncio.run(
+        MokaChinaCareersSource(posting_loader=loader).search(
+            query="Agent 开发实习生",
+            location="深圳",
+            limit=5,
+        )
+    )
+
+    assert len(postings) == 1
+    assert postings[0].source == "moka_shokz"
+    assert postings[0].company == "韶音科技"

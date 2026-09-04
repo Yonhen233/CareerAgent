@@ -11,11 +11,12 @@ if str(ROOT) not in sys.path:
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
 
-from app.core.database import SessionLocal, init_db
-from app.services.evaluation_service import EvaluationService
+from app.core.database import SessionLocal, init_db  # noqa: E402
+from app.services.evaluation_service import EvaluationService  # noqa: E402
 
 
 METRIC_EXPECTATIONS = {
+    "min_reachable_source_rate": "reachable_source_rate",
     "min_result_source_rate": "result_source_rate",
     "min_non_empty_jd_rate": "non_empty_jd_rate",
     "min_apply_url_rate": "apply_url_rate",
