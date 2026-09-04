@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from typing import Any, Awaitable, Callable
@@ -207,6 +210,38 @@ class _HuaweiAIListParser(HTMLParser):
         href = values.get("href", "")
         if "social-recruitment-detail.html" in href:
             self.hrefs.append(href)
+
+
+class _HeadingSummaryParser(HTMLParser):
+    """Extract adjacent h3/p cards without depending on presentation classes."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.rows: list[dict[str, str]] = []
+        self.capture: str | None = None
+        self.parts: list[str] = []
+        self.pending_title: str | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in {"h3", "p"}:
+            self.capture = tag
+            self.parts = []
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag != self.capture:
+            return
+        text = " ".join(self.parts).strip()
+        if tag == "h3":
+            self.pending_title = text or None
+        elif self.pending_title and text:
+            self.rows.append({"title": self.pending_title, "summary": text})
+            self.pending_title = None
+        self.capture = None
+        self.parts = []
+
+    def handle_data(self, data: str) -> None:
+        if self.capture and data.strip():
+            self.parts.append(data.strip())
 
 class TencentCareersSource(JobSource):
     name = "tencent"
@@ -1779,6 +1814,672 @@ class WindCareersSource(JobSource):
         )
 
 
+class DidiCareersSource(JobSource):
+    """DiDi official recruitment API with per-position detail enrichment."""
+
+    name = "didi"
+    list_endpoint = "https://talent.didiglobal.com/recruit-portal-service/api/job/front/list"
+    detail_endpoint = "https://talent.didiglobal.com/recruit-portal-service/api/job/front/view"
+
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        self.transport = transport
+
+    async def search(self, *, query: str, location: str | None, limit: int) -> list[JobPosting]:
+        settings = get_settings()
+        headers = {"User-Agent": settings.user_agent, "Referer": "https://talent.didiglobal.com/"}
+        params = {
+            "jobName": _job_source_search_key(query),
+            "page": 1,
+            "size": min(max(limit * 3, 20), 50),
+        }
+        async with httpx.AsyncClient(
+            timeout=settings.job_search_timeout_seconds,
+            headers=headers,
+            transport=self.transport,
+        ) as client:
+            response = await client.get(self.list_endpoint, params=params)
+            response.raise_for_status()
+            payload = response.json()
+            data = payload.get("data") if isinstance(payload, dict) else None
+            rows = (
+                data.get("items") or data.get("records") or data.get("list")
+                if isinstance(data, dict)
+                else None
+            )
+            if not isinstance(rows, list):
+                raise ValueError("DiDi Careers response does not contain data.records")
+
+            async def _detail(row: dict[str, Any]) -> dict[str, Any]:
+                job_id = str(row.get("jdId") or row.get("id") or "").strip()
+                if not job_id:
+                    return row
+                detail_response = await client.get(f"{self.detail_endpoint}/{job_id}")
+                detail_response.raise_for_status()
+                detail_payload = detail_response.json()
+                detail = detail_payload.get("data") if isinstance(detail_payload, dict) else None
+                if not isinstance(detail, dict):
+                    raise ValueError(f"DiDi Careers detail {job_id} is missing data")
+                return {**row, **detail}
+
+            details = await asyncio.gather(*[_detail(row) for row in rows if isinstance(row, dict)])
+
+        postings = [self._map_row(row) for row in details]
+        postings = [
+            posting for posting in postings
+            if posting.title
+            and (not location or location.lower() in source_posting_haystack(posting))
+        ]
+        return rank_postings_for_query(postings, query)[:limit]
+
+    def _map_row(self, row: dict[str, Any]) -> JobPosting:
+        external_id = str(row.get("jdId") or row.get("id") or row.get("jdNo") or "").strip()
+        title = str(row.get("jobName") or "").strip()
+        work_area = str(row.get("workArea") or "").strip()
+        recruit_type = str(row.get("recruitType") or "").strip()
+        job_type = {"1": "社会招聘", "2": "校园招聘", "3": "实习招聘"}.get(
+            recruit_type, recruit_type
+        ) or str(row.get("jobType") or "").strip() or None
+        raw_jd = _join_jd_sections(
+            ("岗位名称", title),
+            ("公司", "滴滴"),
+            ("工作地点", work_area),
+            ("所属部门", row.get("deptName")),
+            ("招聘类型", job_type),
+            ("岗位职责", row.get("jobDesc")),
+            ("任职要求", row.get("qualification")),
+            ("岗位编号", row.get("jdNo")),
+        )
+        return JobPosting(
+            source=self.name,
+            external_id=external_id,
+            title=title,
+            company="滴滴",
+            location=work_area or None,
+            job_type=job_type,
+            apply_url=f"https://talent.didiglobal.com/social/detail/{external_id}",
+            raw_jd_text=raw_jd,
+            payload=row,
+        )
+
+
+class HonorCareersSource(JobSource):
+    """Honor internship source backed by its public HotJob endpoints."""
+
+    name = "honor"
+    suite = "SU61b9ba97bef57c13bca5cffd"
+    base_url = "https://career.honor.com/wecruit/positionInfo"
+    landing_page = f"https://career.honor.com/{suite}/mc/position/intern"
+
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        self.transport = transport
+
+    async def search(self, *, query: str, location: str | None, limit: int) -> list[JobPosting]:
+        settings = get_settings()
+        headers = {"User-Agent": settings.user_agent, "Referer": self.landing_page}
+        list_url = f"{self.base_url}/listPosition/{self.suite}"
+        detail_url = f"{self.base_url}/listPositionDetail/{self.suite}"
+        common_params = {"iSaJAx": "isAjax", "request_locale": "zh_CN"}
+        form = {
+            "recruitType": "12",
+            "externalProjectStr": "101401,101601",
+            "currentPage": "1",
+            "pageSize": str(min(max(limit * 3, 20), 50)),
+            "coordinateLat": "",
+            "coordinateLng": "",
+            "externalOrgStr": "",
+            "externalPostIdsStr": "",
+            "postKey": _job_source_search_key(query),
+        }
+        async with httpx.AsyncClient(
+            timeout=settings.job_search_timeout_seconds,
+            headers=headers,
+            transport=self.transport,
+        ) as client:
+            response = await client.post(list_url, params=common_params, data=form)
+            response.raise_for_status()
+            payload = response.json()
+            data = payload.get("data") if isinstance(payload, dict) else None
+            page_form = data.get("pageForm") if isinstance(data, dict) else None
+            rows = page_form.get("pageData") if isinstance(page_form, dict) else None
+            if not isinstance(rows, list):
+                raise ValueError("Honor Careers response does not contain data.pageForm.pageData")
+
+            async def _detail(row: dict[str, Any]) -> dict[str, Any]:
+                post_id = str(row.get("postId") or "").strip()
+                detail_response = await client.post(
+                    detail_url,
+                    params=common_params,
+                    data={"postId": post_id, "recruitType": "12"},
+                )
+                detail_response.raise_for_status()
+                detail_payload = detail_response.json()
+                detail = detail_payload.get("data") if isinstance(detail_payload, dict) else None
+                if not isinstance(detail, dict):
+                    raise ValueError(f"Honor Careers detail {post_id} is missing data")
+                return {**row, **detail}
+
+            details = await asyncio.gather(*[_detail(row) for row in rows if isinstance(row, dict)])
+
+        postings = [self._map_row(row) for row in details]
+        postings = [
+            posting for posting in postings
+            if posting.title
+            and (not location or location.lower() in source_posting_haystack(posting))
+        ]
+        return rank_postings_for_query(postings, query)[:limit]
+
+    def _map_row(self, row: dict[str, Any]) -> JobPosting:
+        external_id = str(row.get("postId") or "").strip()
+        title = str(row.get("postName") or "").strip()
+        company = str(row.get("company") or row.get("orgName") or "荣耀").strip()
+        location = str(row.get("workPlaceStr") or "").strip()
+        job_type = " / ".join(
+            str(value).strip()
+            for value in [row.get("workTypeStr"), row.get("projectName")]
+            if str(value or "").strip()
+        ) or "实习招聘"
+        raw_jd = _join_jd_sections(
+            ("岗位名称", title),
+            ("公司", company),
+            ("工作地点", location),
+            ("招聘类型", job_type),
+            ("职位类别", row.get("postTypeName")),
+            ("岗位职责", row.get("workContent")),
+            ("任职要求", row.get("serviceCondition")),
+            ("学历要求", row.get("education") or row.get("educationStr")),
+            ("发布日期", row.get("publishDate")),
+        )
+        return JobPosting(
+            source=self.name,
+            external_id=external_id,
+            title=title,
+            company=company,
+            location=location or None,
+            job_type=job_type,
+            apply_url=f"https://career.honor.com/{self.suite}/mc/detail?postId={external_id}&recruitType=12",
+            raw_jd_text=raw_jd,
+            payload=row,
+        )
+
+
+class KuaishouCareersSource(JobSource):
+    """Kuaishou social and daily-internship source using the site's public signing algorithm."""
+
+    name = "kuaishou"
+    endpoint = "https://zhaopin.kuaishou.cn/recruit/e/api/v1/open/positions/simple"
+    signing_key = "652f962a-0575-4575-98d2-f04e2291bee2"
+    city_names = {
+        "Beijing": "北京", "Shanghai": "上海", "Guangzhou": "广州", "Shenzhen": "深圳",
+        "Hangzhou": "杭州", "Chengdu": "成都", "Wuhan": "武汉", "Xian": "西安",
+        "Tianjin": "天津", "Wuxi": "无锡", "Yantai": "烟台",
+    }
+
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        self.transport = transport
+
+    @classmethod
+    def _signature(cls, params: dict[str, str], timestamp_ms: int) -> str:
+        canonical = urlencode(sorted(params.items()))
+        message = f"{timestamp_ms}{canonical}{cls.signing_key}".encode()
+        return hmac.new(cls.signing_key.encode(), message, hashlib.sha256).hexdigest()
+
+    async def search(self, *, query: str, location: str | None, limit: int) -> list[JobPosting]:
+        settings = get_settings()
+        request_size = min(max(limit * 2, 20), 50)
+        async with httpx.AsyncClient(
+            timeout=settings.job_search_timeout_seconds,
+            headers={"User-Agent": settings.user_agent, "Referer": "https://zhaopin.kuaishou.cn/"},
+            transport=self.transport,
+        ) as client:
+            async def _load(position_nature: str) -> list[dict[str, Any]]:
+                params = {
+                    "name": _job_source_search_key(query),
+                    "pageNum": "1",
+                    "pageSize": str(request_size),
+                    "positionNatureCode": position_nature,
+                    "workLocationCode": "domestic",
+                }
+                timestamp_ms = int(time.time() * 1000)
+                response = await client.get(
+                    self.endpoint,
+                    params=params,
+                    headers={
+                        "sign": self._signature(params, timestamp_ms),
+                        "signTimestamp": str(timestamp_ms),
+                    },
+                )
+                response.raise_for_status()
+                payload = response.json()
+                result = payload.get("result") if isinstance(payload, dict) else None
+                rows = result.get("list") if isinstance(result, dict) else None
+                if payload.get("code") != 0 or not isinstance(rows, list):
+                    raise ValueError(f"Kuaishou Careers search failed: {payload.get('message')}")
+                return [row for row in rows if isinstance(row, dict)]
+
+            row_groups = await asyncio.gather(_load("C001"), _load("C002"))
+
+        seen: set[str] = set()
+        postings: list[JobPosting] = []
+        for row in [item for group in row_groups for item in group]:
+            posting = self._map_row(row)
+            if posting.external_id in seen:
+                continue
+            seen.add(posting.external_id)
+            if location and location.lower() not in source_posting_haystack(posting):
+                continue
+            postings.append(posting)
+        return rank_postings_for_query(postings, query)[:limit]
+
+    def _map_row(self, row: dict[str, Any]) -> JobPosting:
+        external_id = str(row.get("id") or "").strip()
+        title = str(row.get("name") or "").strip()
+        raw_locations = row.get("workLocationsCode") or row.get("workLocationCode") or []
+        if not isinstance(raw_locations, list):
+            raw_locations = re.split(r"[,，;；]", str(raw_locations))
+        location = "、".join(
+            self.city_names.get(str(code).strip(), str(code).strip())
+            for code in raw_locations
+            if str(code).strip()
+        )
+        nature = str(row.get("positionNatureCode") or "").strip()
+        job_type = "日常实习" if nature == "C002" else "社会招聘"
+        route = "trainee" if nature == "C002" else "social"
+        raw_jd = _join_jd_sections(
+            ("岗位名称", title),
+            ("公司", "快手"),
+            ("工作地点", location),
+            ("招聘类型", job_type),
+            ("职位类别", row.get("positionCategoryCode")),
+            ("岗位职责", row.get("description")),
+            ("任职要求", row.get("positionDemand")),
+            ("更新时间", row.get("updateTime")),
+        )
+        return JobPosting(
+            source=self.name,
+            external_id=external_id,
+            title=title,
+            company="快手",
+            location=location or None,
+            job_type=job_type,
+            apply_url=f"https://zhaopin.kuaishou.cn/#/official/{route}/job-info/{external_id}",
+            raw_jd_text=raw_jd,
+            payload=row,
+        )
+
+
+class LenovoCareersSource(JobSource):
+    """Lenovo China campus source; the list API already carries complete JD fields."""
+
+    name = "lenovo"
+    endpoint = "https://talent.lenovo.com.cn/gateway/jobBase/list"
+    city_names = {
+        "1": "北京", "2": "上海", "3": "广州", "4": "重庆", "5": "深圳",
+        "6": "天津", "7": "成都", "8": "武汉", "9": "惠州", "10": "厦门",
+        "12": "杭州", "13": "大连", "16": "西安", "20": "南京", "22": "合肥",
+        "23": "苏州", "26": "长沙", "32": "无锡", "34": "海口",
+    }
+
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        self.transport = transport
+
+    async def search(self, *, query: str, location: str | None, limit: int) -> list[JobPosting]:
+        settings = get_settings()
+        params = {
+            "projectType": 1,
+            "pageNum": 1,
+            "pageSize": min(max(limit * 3, 20), 50),
+            "keyword": _job_source_search_key(query),
+        }
+        async with httpx.AsyncClient(
+            timeout=settings.job_search_timeout_seconds,
+            headers={"User-Agent": settings.user_agent},
+            transport=self.transport,
+        ) as client:
+            response = await client.get(self.endpoint, params=params)
+            response.raise_for_status()
+        payload = response.json()
+        result = payload.get("result") if isinstance(payload, dict) else None
+        rows = result.get("rows") if isinstance(result, dict) else None
+        if payload.get("code") != 0 or not isinstance(rows, list):
+            raise ValueError(f"Lenovo Careers search failed: {payload.get('message')}")
+        postings = [self._map_row(row) for row in rows if isinstance(row, dict)]
+        postings = [
+            posting for posting in postings
+            if posting.title
+            and (not location or location.lower() in source_posting_haystack(posting))
+        ]
+        return rank_postings_for_query(postings, query)[:limit]
+
+    def _map_row(self, row: dict[str, Any]) -> JobPosting:
+        external_id = str(row.get("id") or "").strip()
+        title = str(row.get("jobName") or "").strip()
+        city_codes = re.split(r"[,，;；]", str(row.get("workPlace") or ""))
+        location = "、".join(self.city_names.get(code.strip(), code.strip()) for code in city_codes if code.strip())
+        raw_jd = _join_jd_sections(
+            ("岗位名称", title),
+            ("公司", "联想"),
+            ("工作地点", location),
+            ("招聘类型", "校园招聘"),
+            ("职位类别", row.get("typeName")),
+            ("岗位职责", _html_text(row.get("jobDuties"))),
+            ("任职要求", _html_text(row.get("jobRequirement"))),
+            ("学历要求", row.get("educationRequired")),
+        )
+        return JobPosting(
+            source=self.name,
+            external_id=external_id,
+            title=title,
+            company="联想",
+            location=location or None,
+            job_type="校园招聘",
+            apply_url=f"https://talent.lenovo.com.cn/position/detail?id={external_id}",
+            raw_jd_text=raw_jd,
+            payload=row,
+        )
+
+
+class VivoCareersSource(JobSource):
+    """vivo social source whose search rows include the full JD."""
+
+    name = "vivo"
+    endpoint = "https://career.vivo.com/api/social/webSite/portal/page"
+
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        self.transport = transport
+
+    async def search(self, *, query: str, location: str | None, limit: int) -> list[JobPosting]:
+        settings = get_settings()
+        body = {
+            "city_code_list": [],
+            "company_id": 1,
+            "group_id": 1,
+            "user_id": None,
+            "job_category_id_list": [],
+            "keyword": _job_source_search_key(query),
+            "max_results": min(max(limit * 3, 20), 50),
+            "page": 1,
+            "yoe_list": [],
+            "loading": True,
+        }
+        async with httpx.AsyncClient(
+            timeout=settings.job_search_timeout_seconds,
+            headers={"User-Agent": settings.user_agent, "Referer": "https://career.vivo.com/jobs"},
+            transport=self.transport,
+        ) as client:
+            response = await client.post(self.endpoint, json=body)
+            response.raise_for_status()
+        payload = response.json()
+        rows = payload.get("data") if isinstance(payload, dict) else None
+        if payload.get("code") != 0 or not isinstance(rows, list):
+            raise ValueError(f"vivo Careers search failed: {payload.get('message')}")
+        postings = [self._map_row(row) for row in rows if isinstance(row, dict)]
+        postings = [
+            posting for posting in postings
+            if posting.title
+            and is_query_relevant_posting(posting, query)
+            and (not location or location.lower() in source_posting_haystack(posting))
+        ]
+        return rank_postings_for_query(postings, query)[:limit]
+
+    def _map_row(self, row: dict[str, Any]) -> JobPosting:
+        external_id = str(row.get("job_id") or row.get("job_code") or "").strip()
+        title = str(row.get("job_title") or "").strip()
+        locations = []
+        for item in row.get("job_location_list") or []:
+            if isinstance(item, dict):
+                value = str(item.get("city") or item.get("location") or "").strip()
+                if value and value not in locations:
+                    locations.append(value)
+        location = "、".join(locations)
+        raw_jd = _join_jd_sections(
+            ("岗位名称", title),
+            ("公司", "vivo"),
+            ("工作地点", location),
+            ("招聘类型", "社会招聘"),
+            ("所属部门", row.get("requirement_org_name")),
+            ("职位类别", row.get("job_category")),
+            ("岗位描述", row.get("job_desc")),
+            ("学历要求", row.get("degree_range_name")),
+        )
+        return JobPosting(
+            source=self.name,
+            external_id=external_id,
+            title=title,
+            company="vivo",
+            location=location or None,
+            job_type="社会招聘",
+            apply_url=f"https://career.vivo.com/jobs/{external_id}",
+            raw_jd_text=raw_jd,
+            payload=row,
+        )
+
+
+class NetEaseCareersSource(JobSource):
+    """NetEase current campus and AI-special projects from official public APIs."""
+
+    name = "netease"
+    navigation_endpoint = "https://campus.163.com/api/campuspc/project/navigation/list"
+
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        self.transport = transport
+
+    async def search(self, *, query: str, location: str | None, limit: int) -> list[JobPosting]:
+        settings = get_settings()
+        async with httpx.AsyncClient(
+            timeout=settings.job_search_timeout_seconds,
+            headers={"User-Agent": settings.user_agent},
+            transport=self.transport,
+        ) as client:
+            navigation_response = await client.get(self.navigation_endpoint)
+            navigation_response.raise_for_status()
+            navigation_payload = navigation_response.json()
+            navigation = navigation_payload.get("data") if isinstance(navigation_payload, dict) else None
+            projects: list[tuple[str, str, int]] = []
+            for group in navigation or []:
+                if not isinstance(group, dict):
+                    continue
+                for item in group.get("children") or []:
+                    if not isinstance(item, dict):
+                        continue
+                    link = str(item.get("link") or "").strip()
+                    match = re.search(r"https://(campus(?:\.game)?\.163\.com)/.+[?&]id=(\d+)", link)
+                    if not match:
+                        continue
+                    projects.append(
+                        (str(item.get("title") or "网易").strip(), f"https://{match.group(1)}", int(match.group(2)))
+                    )
+            if not projects:
+                raise ValueError("NetEase Careers navigation contains no supported current projects")
+
+            async def _load(company: str, host: str, project_id: int) -> list[JobPosting]:
+                response = await client.get(
+                    f"{host}/api/campuspc/position/getJobList",
+                    params={"pageSize": 100, "currentPage": 1, "projectId": project_id},
+                )
+                response.raise_for_status()
+                payload = response.json()
+                data = payload.get("data") if isinstance(payload, dict) else None
+                rows = data.get("list") if isinstance(data, dict) else None
+                if not isinstance(rows, list):
+                    raise ValueError(f"NetEase project {project_id} response is missing data.list")
+                return [self._map_row(company, host, project_id, row) for row in rows if isinstance(row, dict)]
+
+            groups = await asyncio.gather(*[_load(*project) for project in projects])
+        postings = [posting for group in groups for posting in group]
+        postings = [
+            posting for posting in postings
+            if posting.title
+            and is_query_relevant_posting(posting, query)
+            and (not location or location.lower() in source_posting_haystack(posting))
+        ]
+        return rank_postings_for_query(postings, query)[:limit]
+
+    def _map_row(
+        self, company: str, host: str, project_id: int, row: dict[str, Any]
+    ) -> JobPosting:
+        external_id = str(row.get("id") or "").strip()
+        title = str(row.get("positionName") or "").strip()
+        location = str(row.get("workPlaceName") or row.get("interviewCityName") or "").strip()
+        raw_jd = _join_jd_sections(
+            ("岗位名称", title),
+            ("公司", company),
+            ("工作地点", location),
+            ("招聘类型", row.get("positionTypeName") or "校园招聘"),
+            ("岗位职责", row.get("positionDescription")),
+            ("任职要求", row.get("positionRequirement")),
+            ("更新时间", row.get("updateTime")),
+        )
+        return JobPosting(
+            source=self.name,
+            external_id=f"{project_id}:{external_id}",
+            title=title,
+            company=company,
+            location=location or None,
+            job_type=str(row.get("positionTypeName") or "校园招聘").strip(),
+            apply_url=f"{host}/app/detail/index?id={external_id}&projectId={project_id}",
+            raw_jd_text=raw_jd,
+            payload={"project_id": project_id, **row},
+        )
+
+
+class MiniMaxCareersSource(JobSource):
+    """MiniMax official Feishu portal source using visible, server-populated job cards."""
+
+    name = "minimax"
+    search_page = "https://vrfi1sk8a0.jobs.feishu.cn/379481/"
+
+    def __init__(
+        self,
+        posting_loader: Callable[[str, int], Awaitable[list[JobPosting]]] | None = None,
+    ) -> None:
+        self.posting_loader = posting_loader
+
+    async def search(self, *, query: str, location: str | None, limit: int) -> list[JobPosting]:
+        loader = self.posting_loader or self._load_browser_postings
+        postings = await loader(_job_source_search_key(query), min(max(limit * 2, 20), 50))
+        postings = [
+            posting for posting in postings
+            if is_query_relevant_posting(posting, query)
+            and (not location or location.lower() in source_posting_haystack(posting))
+        ]
+        return rank_postings_for_query(postings, query)[:limit]
+
+    async def _load_browser_postings(self, query: str, limit: int) -> list[JobPosting]:
+        settings = get_settings()
+        try:
+            from playwright.async_api import async_playwright
+        except Exception as exc:  # noqa: BLE001
+            raise RuntimeError(
+                "MiniMax Careers requires Playwright and Chromium. Install them with "
+                "`pip install playwright` and `playwright install chromium`."
+            ) from exc
+        page_url = f"{self.search_page}?{urlencode({'keywords': query})}"
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(headless=settings.job_source_browser_headless)
+            page = await browser.new_page(user_agent=settings.user_agent)
+            try:
+                await page.goto(page_url, wait_until="networkidle", timeout=settings.job_source_browser_timeout_ms)
+                await page.locator(".positionItem").first.wait_for(
+                    state="visible", timeout=settings.job_source_browser_timeout_ms
+                )
+                rows = await page.locator(".positionItem").evaluate_all(
+                    """elements => elements.map(element => ({
+                        title: (element.querySelector('.positionItem-title-text')?.textContent || '').trim(),
+                        metadata: (element.querySelector('.positionItem-subTitle')?.innerText || '').trim(),
+                        description: (element.querySelector('.positionItem-jobDesc')?.innerText || '').trim()
+                    }))"""
+                )
+            finally:
+                await browser.close()
+        postings: list[JobPosting] = []
+        for row in rows[:limit]:
+            if not isinstance(row, dict):
+                continue
+            title = str(row.get("title") or "").strip()
+            metadata = str(row.get("metadata") or "").strip()
+            description = str(row.get("description") or "").strip()
+            if not title:
+                continue
+            external_id = hashlib.sha256(f"{title}|{metadata}".encode()).hexdigest()[:20]
+            location = metadata.splitlines()[0].strip() if metadata else None
+            raw_jd = _join_jd_sections(
+                ("岗位名称", title),
+                ("公司", "MiniMax"),
+                ("岗位元数据", metadata),
+                ("官网职位卡片描述", description),
+            )
+            postings.append(
+                JobPosting(
+                    source=self.name,
+                    external_id=external_id,
+                    title=title,
+                    company="MiniMax",
+                    location=location,
+                    job_type="实习" if "实习" in metadata or "实习" in title else "校园/社会招聘",
+                    apply_url=page_url,
+                    raw_jd_text=raw_jd,
+                    payload={**row, "granularity": "official_job_card"},
+                )
+            )
+        return postings
+
+
+class ZhipuCareersSource(JobSource):
+    """Zhipu official category-level opportunities; the site does not expose individual JDs."""
+
+    name = "zhipu"
+    landing_page = "https://www.zhipuai.cn/zh/joinus"
+    apply_url = "https://zhipu-ai.feishu.cn/share/base/form/shrcndgpmRlJoD5rMmIavUrPwzg"
+
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        self.transport = transport
+
+    async def search(self, *, query: str, location: str | None, limit: int) -> list[JobPosting]:
+        settings = get_settings()
+        async with httpx.AsyncClient(
+            timeout=settings.job_search_timeout_seconds,
+            headers={"User-Agent": settings.user_agent},
+            transport=self.transport,
+            follow_redirects=True,
+        ) as client:
+            response = await client.get(self.landing_page)
+            response.raise_for_status()
+        parser = _HeadingSummaryParser()
+        parser.feed(response.text)
+        cities = "北京、上海、深圳、杭州、成都、吉隆坡"
+        postings: list[JobPosting] = []
+        for row in parser.rows:
+            title = row["title"]
+            if "校招" not in title and "社招" not in title:
+                continue
+            summary = row["summary"]
+            external_id = hashlib.sha256(title.encode()).hexdigest()[:20]
+            posting = JobPosting(
+                source=self.name,
+                external_id=external_id,
+                title=f"{title}（岗位类别）",
+                company="智谱AI",
+                location=cities,
+                job_type="校招" if "校招" in title else "社会招聘",
+                apply_url=self.apply_url,
+                raw_jd_text=_join_jd_sections(
+                    ("岗位类别", title),
+                    ("公司", "智谱AI"),
+                    ("可选城市", cities),
+                    ("官网类别说明", summary),
+                    ("数据粒度", "岗位类别；官网未公开单岗位完整 JD"),
+                ),
+                payload={**row, "granularity": "category", "source_page": self.landing_page},
+            )
+            if is_query_relevant_posting(posting, query):
+                postings.append(posting)
+        postings = [
+            posting for posting in postings
+            if not location or location.lower() in source_posting_haystack(posting)
+        ]
+        return rank_postings_for_query(postings, query)[:limit]
+
+
 @dataclass(frozen=True)
 class MokaCareerSite:
     key: str
@@ -2067,6 +2768,22 @@ class JobSourceRegistry:
             self.sources[WindCareersSource.name] = WindCareersSource()
         if settings.moka_china_careers_enabled:
             self.sources[MokaChinaCareersSource.name] = MokaChinaCareersSource()
+        if settings.didi_careers_enabled:
+            self.sources[DidiCareersSource.name] = DidiCareersSource()
+        if settings.honor_careers_enabled:
+            self.sources[HonorCareersSource.name] = HonorCareersSource()
+        if settings.kuaishou_careers_enabled:
+            self.sources[KuaishouCareersSource.name] = KuaishouCareersSource()
+        if settings.lenovo_careers_enabled:
+            self.sources[LenovoCareersSource.name] = LenovoCareersSource()
+        if settings.vivo_careers_enabled:
+            self.sources[VivoCareersSource.name] = VivoCareersSource()
+        if settings.netease_careers_enabled:
+            self.sources[NetEaseCareersSource.name] = NetEaseCareersSource()
+        if settings.minimax_careers_enabled:
+            self.sources[MiniMaxCareersSource.name] = MiniMaxCareersSource()
+        if settings.zhipu_careers_enabled:
+            self.sources[ZhipuCareersSource.name] = ZhipuCareersSource()
         if settings.lever_careers_enabled:
             self.sources[LeverCareersSource.name] = LeverCareersSource()
 

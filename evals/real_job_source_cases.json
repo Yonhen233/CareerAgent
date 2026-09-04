@@ -19,7 +19,15 @@
       "oppo",
       "skyworth",
       "wind",
-      "moka_cn"
+      "moka_cn",
+      "didi",
+      "honor",
+      "kuaishou",
+      "lenovo",
+      "vivo",
+      "netease",
+      "minimax",
+      "zhipu"
     ],
     "expectations": {
       "min_reachable_source_rate": 1.0,

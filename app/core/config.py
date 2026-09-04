@@ -224,6 +224,14 @@ class Settings(BaseSettings):
     skyworth_careers_enabled: bool = True
     wind_careers_enabled: bool = True
     moka_china_careers_enabled: bool = True
+    didi_careers_enabled: bool = True
+    honor_careers_enabled: bool = True
+    kuaishou_careers_enabled: bool = True
+    lenovo_careers_enabled: bool = True
+    vivo_careers_enabled: bool = True
+    netease_careers_enabled: bool = True
+    minimax_careers_enabled: bool = True
+    zhipu_careers_enabled: bool = True
     job_source_browser_headless: bool = True
     job_source_browser_timeout_ms: int = 30000
     lever_careers_enabled: bool = False

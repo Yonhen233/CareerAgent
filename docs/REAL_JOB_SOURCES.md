@@ -22,8 +22,16 @@
 | `skyworth` | [创维 2027 届校园招聘](https://skyworth.hotjob.cn/) | 动态发现 HotJob suite + 官方列表接口 + 受限并发详情接口 | 职责、要求、专业、学历、子公司、地点 | 是 | 当前酷开算法岗位明确覆盖 RAG、Agentic Workflow、多智能体与 Function Calling |
 | `wind` | [万得招聘](https://www.wind.com.cn/portal/zh/JoinUs/index.html) | 官网发布的岗位数据文件 | 完整职位描述、要求、地点 | 是 | 静态数据版本会变化，解析异常直接作为 source error 暴露 |
 | `moka_cn` | 9 个企业官方 Moka 招聘门户 | Playwright 搜索官网并读取职位详情 | 标题、完整 JD、地点、官方详情 URL | 是 | 覆盖韶音、DeepSeek、壁仞、锐捷、完美世界、新浪、苏商银行、LINE MAN Technology、月之暗面；单浏览器多上下文并发，避免重复启动浏览器 |
+| `didi` | [滴滴招聘](https://talent.didiglobal.com/) | 公开列表 JSON + 并发详情 JSON | 职责、要求、部门、地点、类型 | 是 | 当前 Agent 岗位密度高，以社招为主；详情协议变化直接报 source error |
+| `honor` | [荣耀招聘](https://www.honor.com/cn/career/) | 官方 HotJob 实习列表 + 详情接口 | 职责、要求、学历、部门、地点 | 是 | 当前按实习项目检索，标题可能不含 Agent，需在完整 JD 上判相关性 |
+| `kuaishou` | [快手招聘](https://zhaopin.kuaishou.cn/) | 官网公开 HMAC 签名算法 + JSON | 完整职责、要求、地点、岗位 ID | 是 | 并发查询社招与日常实习；签名按当前参数和时间戳实时生成，不保存静态签名 |
+| `lenovo` | [联想招聘](https://talent.lenovo.com.cn/position?projectType=1) | 公开校招 JSON | 完整职责、要求、类别、学历、地点 | 是 | 搜索字段必须使用 `keyword`；错误使用 `jobName` 会被上游静默忽略 |
+| `vivo` | [vivo 招聘](https://career.vivo.com/jobs) | 公开社招 JSON | 完整岗位描述、组织、地点、学历 | 是 | 上游可能返回弱相关行，适配器在统一排序前执行 query relevance 过滤 |
+| `netease` | [网易校园招聘](https://campus.163.com/) | 当前项目发现后的公开岗位 JSON | 完整职责、要求、项目、地点 | 是 | 覆盖网易互联网、网易互娱和丹子 AI 实习专项，按项目 ID 保留 provenance |
+| `minimax` | [MiniMax 招聘](https://www.minimaxi.com/careers) | Playwright 读取官方飞书门户的职位卡片 | 标题、招聘项目、地点、卡片职责 | 是 | 飞书门户未暴露稳定单岗位链接，payload 明确标记 `official_job_card`，不冒充完整详情 JD |
+| `zhipu` | [智谱招聘](https://www.zhipuai.cn/zh/joinus) | 结构化解析官网岗位类别卡片 | 类别、简述、可选城市、官方申请表 | 是 | 官网只公开类别级机会，payload 标记 `category`，前端与后续分析可识别其证据粒度 |
 
-默认中文搜索会通过 `asyncio.gather` 并发运行 16 个 Source 适配器，覆盖 24 个企业官方招聘门户。每个适配器只负责把官方数据映射为统一 `JobPosting`；跨来源排序、实习过滤、JD 解析、SQLite upsert 和 chunk 索引由后续服务统一处理。
+默认中文搜索会通过 `asyncio.gather` 并发运行 24 个 Source 适配器，覆盖 32 个企业官方招聘门户。每个适配器只负责把官方数据映射为统一 `JobPosting`；跨来源排序、实习过滤、JD 解析、SQLite upsert 和 chunk 索引由后续服务统一处理。
 
 `moka_cn` 被设计成一个聚合适配器，而不是同时启动 9 个独立浏览器：它共享一个 Chromium 实例，最多并行打开 3 个企业上下文。岗位仍以 `moka_shokz`、`moka_deepseek`、`moka_moonshot` 等细分来源写入 payload，便于追踪具体企业。这个选择以较高的浏览器尾延迟换取可控的内存和浏览器进程数。
 
@@ -41,16 +49,9 @@
 
 当前实现每次搜索都先发现有效的 `internship` 批次，再并发查询各批次。这样招聘年度变化时不需要修改固定 `batchId`。阿里搜索接口按单个检索词工作，`Agent 开发实习生` 这种自然语言整句会返回空结果，因此 Source 会先提取 `Agent`、`RAG`、`LLM`、`大模型` 等核心检索词，最终仍使用完整用户 query 做统一相关性重排。
 
-## 尚未进入默认链路
+## 数据粒度边界
 
-| 站点 | 实测结论 | 暂不接入原因 |
-| --- | --- | --- |
-| 滴滴招聘 | 公开列表可按 `Agent` 返回完整社招 JD | 本轮没有检索到 Agent 实习岗位，不符合当前实习优先场景 |
-| MiniMax 招聘 | 官网提供 2027 校招、2028 实习、日常实习和社招入口 | 岗位托管在飞书招聘门户，仍需验证稳定的列表发现协议和详情解析 |
-| 智谱招聘 | 官网可查看校招与社招岗位分类，并可进入申请表 | 当前页面没有暴露稳定的可分页岗位列表接口 |
-| 快手、滴滴、网易、荣耀、联想、vivo | 均有官方招聘入口或可检索到岗位页 | 尚未同时通过岗位发现、完整 JD、稳定投递 URL 和连续 smoke 四项门控 |
-
-这些站点不会用假数据或静默降级冒充成功。后续只有在“岗位发现、完整 JD、稳定投递 URL、连续 smoke”四项都通过后才进入默认 Source。
+来源接入不再把“必须是单岗位完整 JD”误当成所有官网都能满足的统一前提。滴滴、荣耀、快手、联想、vivo 和网易提供岗位级完整 JD；MiniMax 当前提供官方职位卡片级职责；智谱只提供岗位类别级机会。后二者仍有浏览价值，但必须在 payload 和正文中显式标明粒度，匹配分析不能把类别简述当成完整任职要求，也不能生成不存在的技能差距。
 
 ## 真实评测
 
@@ -85,7 +86,9 @@ python scripts/run_real_job_source_eval.py
 
 `Agent 开发实习生` 单 case 返回 40 条岗位，实习率 0.8500、Agent 相关率 0.9750。Source 级耗时中，阿里约 1.4 秒，字节约 4.6 秒；五源并发后的总耗时约 7.3 秒，不是五个来源耗时相加。
 
-2026-09-04 最新全默认来源生产健康检查为 EvaluationRun `#176`，查询 `Agent 大模型开发`、每源最多 5 条。16/16 适配器可达且均返回结果，共得到 72 条完整岗位；JD 非空率、投递链接率、query relevance 和 Agent 相关率均为 1.0000，实习/校招占比 0.6111，总墙钟约 35.8 秒。该结果不调用 LLM，也不消耗模型 Token。OPPO 与含月之暗面的 Moka 聚合源独立验证为 EvaluationRun `#174`：2/2 可达，共 10 条，JD、链接和相关性指标均为 1.0000，耗时约 30.8 秒。
+2026-09-04 最新全默认来源生产健康检查为 EvaluationRun `#181`，查询 `Agent 大模型开发`、每源最多 5 条。24/24 适配器可达且均返回结果，共得到 103 条岗位；JD 非空率、投递链接率、query relevance 和 Agent 相关率均为 1.0000，实习/校招占比 0.5922，总墙钟约 40.3 秒。该结果不调用 LLM，也不消耗模型 Token。
+
+新增八源最终独立验证为 EvaluationRun `#180`：8/8 可达且均有结果，共 31 条；JD 非空率、投递链接率、query relevance 和 Agent 相关率均为 1.0000，实习/校招占比 0.5484，耗时 7.1 秒。第一轮 `#177` 暴露滴滴列表实际使用 `data.items` 而不是 `records/list`，修复并重跑后才允许进入默认门控。
 
 评测集保留旧五源的 8 类查询用于纵向对比，并增加一个全默认来源 production gate：`reachable_source_rate` 必须为 1.0000；`result_source_rate` 允许不低于 0.7000，因为“官网正常但当前没有匹配岗位”不是协议故障。可达率与有结果率必须分开判断。
 
@@ -116,6 +119,14 @@ XIAOMI_CAREERS_ENABLED=true
 SKYWORTH_CAREERS_ENABLED=true
 WIND_CAREERS_ENABLED=true
 MOKA_CHINA_CAREERS_ENABLED=true
+DIDI_CAREERS_ENABLED=true
+HONOR_CAREERS_ENABLED=true
+KUAISHOU_CAREERS_ENABLED=true
+LENOVO_CAREERS_ENABLED=true
+VIVO_CAREERS_ENABLED=true
+NETEASE_CAREERS_ENABLED=true
+MINIMAX_CAREERS_ENABLED=true
+ZHIPU_CAREERS_ENABLED=true
 JOB_SOURCE_BROWSER_HEADLESS=true
 JOB_SOURCE_BROWSER_TIMEOUT_MS=30000
 ```
@@ -130,5 +141,7 @@ JOB_SOURCE_BROWSER_TIMEOUT_MS=30000
 - 中国电信服务端 HTML 字段、华为 AI 列表与详情 JSON、科大讯飞 `Data` 数组的协议变化。
 - 小米 `searchJobPage` 的分页/字段协议、创维 HotJob suite 发现、列表与详情接口协议变化。
 - 京东、美的社招源被“只看实习/校招”过滤后的有效结果率，避免把正常过滤误报为来源失效。
+- 快手签名算法、滴滴 `data.items`、荣耀 HotJob suite、网易当前项目 ID 和联想 `keyword` 参数的协议变化。
+- MiniMax `official_job_card` 与智谱 `category` 的证据粒度，避免在后续 RAG 中被误当成完整 JD。
 
 Source 网络错误只作为来源层指标记录，不会伪装成岗位搜索成功；核心 Agent 回归仍使用可控岗位源，避免招聘站临时波动掩盖业务逻辑回归。

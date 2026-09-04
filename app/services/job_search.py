@@ -146,6 +146,9 @@ class JobSearchService:
                     company=posting.company,
                     location=posting.location,
                 )
+                structured["source_granularity"] = str(
+                    posting.payload.get("granularity") or "job_detail"
+                )
                 return posting, structured
 
         return await asyncio.gather(*[_parse(posting) for posting in postings])

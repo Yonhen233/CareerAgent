@@ -129,10 +129,21 @@ class MatcherService:
     def build_match_payload(self, db: Session, profile: Profile, job: Job) -> dict[str, Any]:
         profile_data = profile.structured_profile_json or {}
         job_data = job.structured_jd_json or {}
+        source_granularity = str(
+            (job.source_payload_json or {}).get("granularity")
+            or job_data.get("source_granularity")
+            or "job_detail"
+        )
+        requirements_complete = source_granularity == "job_detail"
 
         required = [str(x).strip() for x in job_data.get("required_skills", []) if str(x).strip()]
         preferred = [str(x).strip() for x in job_data.get("preferred_skills", []) if str(x).strip()]
-        all_required = required or [str(x).strip() for x in job_data.get("keywords", [])[:12] if str(x).strip()]
+        if requirements_complete:
+            all_required = required or [
+                str(x).strip() for x in job_data.get("keywords", [])[:12] if str(x).strip()
+            ]
+        else:
+            all_required = []
         resume_text = self._support_text(profile, profile_data).lower()
         resume_tokens = set(tokenize(resume_text))
 
@@ -143,7 +154,7 @@ class MatcherService:
             and self._skill_has_positive_or_neutral_support(skill, resume_text)
         ]
         missing = [skill for skill in all_required if skill not in matched]
-        required_score = len(matched) / max(len(all_required), 1)
+        required_score = len(matched) / max(len(all_required), 1) if requirements_complete else 0.0
 
         semantic_score = self._semantic_similarity(resume_text, job.raw_jd_text)
         evidence, retrieval_quality = self.retrieve_evidence_with_quality(db, profile.id, job, top_k=8)
@@ -169,6 +180,14 @@ class MatcherService:
             "preferred_skill_coverage": round(preference_score * 100, 2),
             "negative_evidence_penalty": round(negative_penalty * 100, 2),
         }
+        suggestions = self._suggestions(missing, dimension_scores)
+        analysis_limitations: list[str] = []
+        if not requirements_complete:
+            analysis_limitations.append(
+                "官网当前只提供职位卡片或岗位类别，未公开完整任职要求；"
+                "系统不会据此生成缺失技能结论，请打开官方入口确认完整 JD。"
+            )
+            suggestions.insert(0, analysis_limitations[0])
         return {
             "overall_score": round(overall * 100, 2),
             "dimension_scores": dimension_scores,
@@ -176,7 +195,10 @@ class MatcherService:
             "missing_skills": missing,
             "relevant_evidence": evidence,
             "retrieval_quality": retrieval_quality,
-            "suggestions": self._suggestions(missing, dimension_scores),
+            "suggestions": suggestions,
+            "source_granularity": source_granularity,
+            "requirements_complete": requirements_complete,
+            "analysis_limitations": analysis_limitations,
         }
 
     def create_match_result(

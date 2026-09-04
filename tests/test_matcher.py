@@ -113,6 +113,33 @@ def test_matcher_does_not_treat_machine_learning_as_negative_evidence():
     assert matcher._contains_negative_evidence("currently learning RAG from tutorials") is True
 
 
+def test_matcher_does_not_invent_skill_gaps_from_category_level_source(db_session):
+    profile = Profile(
+        name="Candidate",
+        source_type="guided",
+        raw_resume_text="Python Agent project",
+        structured_profile_json={"skills": ["Python"], "raw_text": "Python Agent project"},
+    )
+    job = Job(
+        source="zhipu",
+        external_id="category-1",
+        title="算法（校招）（岗位类别）",
+        raw_jd_text="官网类别说明：面向大模型算法、强化学习与评测。",
+        structured_jd_json={"keywords": ["大模型", "强化学习", "评测"]},
+        source_payload_json={"granularity": "category"},
+    )
+    db_session.add_all([profile, job])
+    db_session.commit()
+
+    payload = MatcherService().build_match_payload(db_session, profile, job)
+
+    assert payload["requirements_complete"] is False
+    assert payload["source_granularity"] == "category"
+    assert payload["missing_skills"] == []
+    assert payload["analysis_limitations"]
+    assert "未公开完整任职要求" in payload["suggestions"][0]
+
+
 def test_matcher_does_not_match_agent_inside_project_name_agenttrace():
     text = "agenttrace: built a trace viewer and rag citation checker"
 

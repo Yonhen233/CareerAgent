@@ -1,5 +1,6 @@
 import asyncio
 import json
+from urllib.parse import parse_qs
 
 import httpx
 
@@ -8,18 +9,26 @@ from app.services.job_sources import (
     BaiduCareersSource,
     ByteDanceCareersSource,
     ChinaTelecomCareersSource,
+    DidiCareersSource,
+    HonorCareersSource,
     HuaweiCareersSource,
     IFlytekCareersSource,
     JDCareersSource,
+    KuaishouCareersSource,
+    LenovoCareersSource,
     MeituanCareersSource,
     MideaCareersSource,
     MokaChinaCareersSource,
     MokaCareerSite,
+    MiniMaxCareersSource,
+    NetEaseCareersSource,
     OPPOCareersSource,
     SkyworthCareersSource,
     TCLCareersSource,
     WindCareersSource,
     XiaomiCareersSource,
+    VivoCareersSource,
+    ZhipuCareersSource,
     JobPosting,
 )
 
@@ -653,6 +662,288 @@ def test_moka_apply_site_builds_moonshot_jobs_url():
         "https://app.mokahr.com/apply/moonshot/148506"
         "#/jobs?page=1&anchorName=jobsList"
     )
+
+
+def test_didi_source_enriches_list_row_with_complete_detail():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/front/list"):
+            assert request.url.params["jobName"] == "Agent"
+            return httpx.Response(
+                200,
+                json={"data": {"items": [{"jdId": 65493, "jobName": "Agent平台研发工程师"}]}},
+                request=request,
+            )
+        assert request.url.path.endswith("/front/view/65493")
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "jdId": 65493,
+                    "jobName": "Agent平台研发工程师",
+                    "workArea": "北京市",
+                    "deptName": "AI平台部",
+                    "recruitType": "1",
+                    "jobDesc": "建设 Agent Runtime、工具注册、记忆和上下文压缩。",
+                    "qualification": "熟悉 Python、RAG、向量数据库和 Agent 评测。",
+                    "jdNo": "A65493",
+                }
+            },
+            request=request,
+        )
+
+    postings = asyncio.run(
+        DidiCareersSource(transport=httpx.MockTransport(handler)).search(
+            query="Agent 大模型开发", location="北京", limit=5
+        )
+    )
+
+    assert len(postings) == 1
+    assert postings[0].company == "滴滴"
+    assert "上下文压缩" in postings[0].raw_jd_text
+    assert "向量数据库" in postings[0].raw_jd_text
+    assert postings[0].apply_url.endswith("/social/detail/65493")
+
+
+def test_honor_source_enriches_internship_detail():
+    row = {
+        "postId": "honor-agent-1",
+        "postName": "大模型算法工程师",
+        "workPlaceStr": "深圳市",
+        "company": "AI与软件业务部",
+        "workTypeStr": "实习",
+        "projectName": "2026年实习生",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = parse_qs(request.content.decode())
+        if "/listPosition/" in request.url.path:
+            assert body["postKey"] == ["Agent"]
+            return httpx.Response(
+                200,
+                json={"data": {"pageForm": {"pageData": [row]}}},
+                request=request,
+            )
+        assert body["postId"] == ["honor-agent-1"]
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    **row,
+                    "workContent": "研发 Agentic LLM、任务规划和工具调用。",
+                    "serviceCondition": "熟悉 Python、RAG 和模型评测。",
+                    "education": "硕士研究生",
+                }
+            },
+            request=request,
+        )
+
+    postings = asyncio.run(
+        HonorCareersSource(transport=httpx.MockTransport(handler)).search(
+            query="Agent 开发实习生", location="深圳", limit=5
+        )
+    )
+
+    assert len(postings) == 1
+    assert postings[0].company == "AI与软件业务部"
+    assert "Agentic LLM" in postings[0].raw_jd_text
+    assert "模型评测" in postings[0].raw_jd_text
+    assert "recruitType=12" in postings[0].apply_url
+
+
+def test_kuaishou_source_signs_and_combines_social_and_intern_jobs():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers.get("sign")
+        assert request.headers.get("signTimestamp")
+        nature = request.url.params["positionNatureCode"]
+        row = {
+            "id": 32418 if nature == "C001" else 32419,
+            "name": "Agent Infra 研发工程师" if nature == "C001" else "Agent开发实习生",
+            "positionNatureCode": nature,
+            "positionCategoryCode": "工程类",
+            "workLocationCode": "Beijing",
+            "description": "建设 Agent Runtime、任务规划、工具调用和多 Agent 协同。",
+            "positionDemand": "熟悉 Python、RAG、LangGraph 和 Prompt 安全。",
+        }
+        return httpx.Response(
+            200,
+            json={"code": 0, "message": "ok", "result": {"list": [row], "total": 1}},
+            request=request,
+        )
+
+    postings = asyncio.run(
+        KuaishouCareersSource(transport=httpx.MockTransport(handler)).search(
+            query="Agent 开发", location="北京", limit=5
+        )
+    )
+
+    assert len(postings) == 2
+    assert {posting.job_type for posting in postings} == {"社会招聘", "日常实习"}
+    assert all("LangGraph" in posting.raw_jd_text for posting in postings)
+    assert any("/trainee/job-info/" in posting.apply_url for posting in postings)
+
+
+def test_lenovo_source_maps_html_jd_and_city_code():
+    row = {
+        "id": 2404,
+        "jobName": "AI Agent开发工程师",
+        "workPlace": "1",
+        "typeName": "AI开发类",
+        "educationRequired": "本科及以上",
+        "jobDuties": "<p>建设 Agent Runtime、Skill 和工具调用。<br>优化上下文管理。</p>",
+        "jobRequirement": "<p>熟悉 Python、LangGraph、RAG 和多智能体。</p>",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["keyword"] == "Agent"
+        return httpx.Response(
+            200, json={"code": 0, "message": "成功", "result": {"rows": [row]}}, request=request
+        )
+
+    postings = asyncio.run(
+        LenovoCareersSource(transport=httpx.MockTransport(handler)).search(
+            query="Agent 开发", location="北京", limit=5
+        )
+    )
+
+    assert len(postings) == 1
+    assert postings[0].location == "北京"
+    assert "上下文管理" in postings[0].raw_jd_text
+    assert "<p>" not in postings[0].raw_jd_text
+    assert postings[0].apply_url.endswith("detail?id=2404")
+
+
+def test_vivo_source_filters_irrelevant_rows_and_keeps_complete_jd():
+    rows = [
+        {
+            "job_id": "vivo-agent-1",
+            "job_title": "AI解决方案FDE",
+            "requirement_org_name": "AI平台",
+            "job_location_list": [{"city": "深圳", "location": "宝安区"}],
+            "job_desc": "负责 Agent 编排、RAG、Skill、向量数据库与评测平台。",
+        },
+        {
+            "job_id": "vivo-sales-1",
+            "job_title": "渠道销售",
+            "job_location_list": [{"city": "深圳"}],
+            "job_desc": "负责渠道销售。",
+        },
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert json.loads(request.content)["keyword"] == "Agent"
+        return httpx.Response(200, json={"code": 0, "message": "success", "data": rows}, request=request)
+
+    postings = asyncio.run(
+        VivoCareersSource(transport=httpx.MockTransport(handler)).search(
+            query="Agent 开发", location="深圳", limit=5
+        )
+    )
+
+    assert len(postings) == 1
+    assert postings[0].external_id == "vivo-agent-1"
+    assert "向量数据库" in postings[0].raw_jd_text
+
+
+def test_netease_source_searches_current_projects_and_filters_locally():
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/project/navigation/list"):
+            return httpx.Response(
+                200,
+                json={
+                    "code": 200,
+                    "data": [
+                        {
+                            "children": [
+                                {
+                                    "title": "网易互联网2027届校园招聘",
+                                    "link": "https://campus.163.com/app/job/position?id=103",
+                                },
+                                {
+                                    "title": "网易互娱2027届校园招聘",
+                                    "link": "https://campus.game.163.com/app/job/position?id=102",
+                                },
+                            ]
+                        }
+                    ],
+                },
+                request=request,
+            )
+        project_id = int(request.url.params["projectId"])
+        rows = []
+        if project_id == 103:
+            rows.append(
+                {
+                    "id": 4858,
+                    "positionName": "AI Agent 应用开发工程师-网易有道",
+                    "positionTypeName": "校园招聘",
+                    "workPlaceName": "北京市",
+                    "positionDescription": "研发 Agent 工作流、RAG 和工具调用。",
+                    "positionRequirement": "熟悉 Python、LLM、向量检索和评测。",
+                }
+            )
+        return httpx.Response(200, json={"data": {"list": rows, "total": len(rows)}}, request=request)
+
+    postings = asyncio.run(
+        NetEaseCareersSource(transport=httpx.MockTransport(handler)).search(
+            query="Agent 开发", location="北京", limit=5
+        )
+    )
+
+    assert len(postings) == 1
+    assert postings[0].company == "网易互联网2027届校园招聘"
+    assert postings[0].external_id == "103:4858"
+    assert "向量检索" in postings[0].raw_jd_text
+    assert "projectId=103" in postings[0].apply_url
+
+
+def test_minimax_source_preserves_official_card_granularity():
+    async def loader(query: str, limit: int) -> list[JobPosting]:
+        assert query == "Agent"
+        assert limit == 20
+        return [
+            JobPosting(
+                source="minimax",
+                external_id="card-1",
+                title="Agent 服务端开发实习生",
+                company="MiniMax",
+                location="北京、上海",
+                job_type="实习",
+                apply_url="https://vrfi1sk8a0.jobs.feishu.cn/379481/?keywords=Agent",
+                raw_jd_text="开发 AI Agent / AI APP，建设 Agent Runtime。",
+                payload={"granularity": "official_job_card"},
+            )
+        ]
+
+    postings = asyncio.run(
+        MiniMaxCareersSource(posting_loader=loader).search(
+            query="Agent 开发实习生", location="上海", limit=5
+        )
+    )
+
+    assert len(postings) == 1
+    assert postings[0].payload["granularity"] == "official_job_card"
+
+
+def test_zhipu_source_exposes_category_level_data_honestly():
+    html = """
+    <h3>算法/研发（社招）</h3><p>持续改进大模型训练框架和策略。</p>
+    <h3>算法（校招）</h3><p>面向大模型算法、强化学习与评测。</p>
+    <h3>运营（校招）</h3><p>结合大模型技术设计创新的 AI 解决方案。</p>
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=html, request=request)
+
+    postings = asyncio.run(
+        ZhipuCareersSource(transport=httpx.MockTransport(handler)).search(
+            query="Agent 大模型开发", location="北京", limit=5
+        )
+    )
+
+    assert len(postings) == 3
+    assert all(posting.company == "智谱AI" for posting in postings)
+    assert all(posting.payload["granularity"] == "category" for posting in postings)
+    assert all("官网未公开单岗位完整 JD" in posting.raw_jd_text for posting in postings)
 
 
 def test_china_telecom_source_parses_complete_jd_from_official_search_html():

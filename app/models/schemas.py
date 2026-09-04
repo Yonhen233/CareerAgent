@@ -210,7 +210,8 @@ class JobSearchRequest(BaseModel):
         default_factory=lambda: [
             "tencent", "baidu", "meituan", "bytedance", "alibaba", "jd",
             "china_telecom", "huawei", "iflytek", "tcl", "midea", "xiaomi", "oppo", "skyworth",
-            "wind", "moka_cn"
+            "wind", "moka_cn", "didi", "honor", "kuaishou", "lenovo", "vivo", "netease",
+            "minimax", "zhipu"
         ]
     )
     store_results: bool = True
@@ -262,7 +263,8 @@ class JobDiscoveryRequest(BaseModel):
         default_factory=lambda: [
             "tencent", "baidu", "meituan", "bytedance", "alibaba", "jd",
             "china_telecom", "huawei", "iflytek", "tcl", "midea", "xiaomi", "oppo", "skyworth",
-            "wind", "moka_cn"
+            "wind", "moka_cn", "didi", "honor", "kuaishou", "lenovo", "vivo", "netease",
+            "minimax", "zhipu"
         ]
     )
 
