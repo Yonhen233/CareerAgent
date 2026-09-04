@@ -214,6 +214,9 @@ class Settings(BaseSettings):
     bytedance_careers_enabled: bool = True
     alibaba_careers_enabled: bool = True
     jd_careers_enabled: bool = True
+    china_telecom_careers_enabled: bool = True
+    huawei_careers_enabled: bool = True
+    iflytek_careers_enabled: bool = True
     tcl_careers_enabled: bool = True
     midea_careers_enabled: bool = True
     wind_careers_enabled: bool = True

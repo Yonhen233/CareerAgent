@@ -221,14 +221,14 @@ Content-Type: application/json
   "location": "上海",
   "internship_only": true,
   "limit": 20,
-  "sources": ["tencent", "baidu", "meituan", "bytedance", "alibaba", "jd", "tcl", "midea", "wind", "moka_cn"],
+  "sources": ["tencent", "baidu", "meituan", "bytedance", "alibaba", "jd", "china_telecom", "huawei", "iflytek", "tcl", "midea", "wind", "moka_cn"],
   "store_results": true
 }
 ```
 
 效果：
 
-- 默认并发请求 10 个中文岗位适配器，覆盖腾讯、百度、美团、字节、阿里、京东、TCL、美的、万得及 8 个企业 Moka 官方站；海外 ATS 类 source 仅作为显式开启的英文辅助源。
+- 默认并发请求 13 个中文岗位适配器，覆盖 20 个企业官方招聘门户；海外 ATS 类 source 仅作为显式开启的英文辅助源。
 - 对 source 返回结果执行中文岗位相关性排序，让 Agent/开发/实习信号强的岗位优先于产品、销售或泛 AI 岗位。
 - 并发解析多个 JD。
 - 顺序写入 SQLite，避免 Session 并发写入风险。
@@ -825,7 +825,7 @@ POST /evaluations/interview-source-smoke?query=Agent%20%E5%BC%80%E5%8F%91%E5%AE%
 
 ```http
 POST /evaluations/real-job-source-smoke
-POST /evaluations/real-job-source-smoke?query=Agent%20%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%BC%80%E5%8F%91&limit=5&sources=tencent&sources=baidu&sources=meituan&sources=bytedance&sources=alibaba&sources=jd&sources=tcl&sources=midea&sources=wind&sources=moka_cn
+POST /evaluations/real-job-source-smoke?query=Agent%20%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%BC%80%E5%8F%91&limit=5&sources=tencent&sources=baidu&sources=meituan&sources=bytedance&sources=alibaba&sources=jd&sources=china_telecom&sources=huawei&sources=iflytek&sources=tcl&sources=midea&sources=wind&sources=moka_cn
 ```
 
 该评测只检查招聘源可达性、返回数量和岗位质量，不调用 LLM 解析 JD，不写入主岗位库，也不影响核心 `agent-full-flow` 回归。返回的 `summary_json` 包含 `reachable_source_rate`、`result_source_rate`、`total_result_count`、`non_empty_jd_rate`、`apply_url_rate`、`internship_like_rate`、`query_relevance_rate`、`agent_related_rate` 和 `source_errors`；`case_results_json` 会按 source 保存错误、耗时和样例岗位。所有 source 可达但部分 source 没有结果时，状态为 `completed_with_empty_sources`。

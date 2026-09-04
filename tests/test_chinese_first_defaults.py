@@ -8,8 +8,8 @@ def test_job_search_defaults_are_chinese_first():
 
     assert request.query == "Agent 开发实习生"
     assert request.sources == [
-        "tencent", "baidu", "meituan", "bytedance", "alibaba", "jd", "tcl",
-        "midea", "wind", "moka_cn",
+        "tencent", "baidu", "meituan", "bytedance", "alibaba", "jd",
+        "china_telecom", "huawei", "iflytek", "tcl", "midea", "wind", "moka_cn",
     ]
 
 
@@ -26,6 +26,9 @@ def test_job_source_registry_defaults_to_chinese_source_only(monkeypatch):
     monkeypatch.setenv("BYTEDANCE_CAREERS_ENABLED", "true")
     monkeypatch.setenv("ALIBABA_CAREERS_ENABLED", "true")
     monkeypatch.setenv("JD_CAREERS_ENABLED", "true")
+    monkeypatch.setenv("CHINA_TELECOM_CAREERS_ENABLED", "true")
+    monkeypatch.setenv("HUAWEI_CAREERS_ENABLED", "true")
+    monkeypatch.setenv("IFLYTEK_CAREERS_ENABLED", "true")
     monkeypatch.setenv("TCL_CAREERS_ENABLED", "true")
     monkeypatch.setenv("MIDEA_CAREERS_ENABLED", "true")
     monkeypatch.setenv("WIND_CAREERS_ENABLED", "true")
@@ -38,8 +41,8 @@ def test_job_source_registry_defaults_to_chinese_source_only(monkeypatch):
         get_settings.cache_clear()
 
     assert list(registry.sources) == [
-        "tencent", "baidu", "meituan", "bytedance", "alibaba", "jd", "tcl",
-        "midea", "wind", "moka_cn",
+        "tencent", "baidu", "meituan", "bytedance", "alibaba", "jd",
+        "china_telecom", "huawei", "iflytek", "tcl", "midea", "wind", "moka_cn",
     ]
     assert "lever" not in registry.sources
     assert "greenhouse" not in registry.sources

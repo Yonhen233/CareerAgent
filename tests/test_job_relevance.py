@@ -57,6 +57,8 @@ def test_relevance_score_exposes_ranking_reasons():
 def test_internship_signal_uses_word_boundary_for_internal_tools():
     internal_tools = _posting("Internal Tools Engineer", "Engineering", "Build internal tools for Agent teams.")
     chinese_campus = _posting("大模型智能体开发校招", "校招", "参与智能体应用开发。")
+    full_campus_term = _posting("AI Agent 研发工程师", "2027年度秋季校园招聘", "参与智能体应用开发。")
 
     assert is_internship_like_posting(internal_tools) is False
     assert is_internship_like_posting(chinese_campus) is True
+    assert is_internship_like_posting(full_campus_term) is True

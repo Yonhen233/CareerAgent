@@ -7,6 +7,9 @@ from app.services.job_sources import (
     AlibabaCareersSource,
     BaiduCareersSource,
     ByteDanceCareersSource,
+    ChinaTelecomCareersSource,
+    HuaweiCareersSource,
+    IFlytekCareersSource,
     JDCareersSource,
     MeituanCareersSource,
     MideaCareersSource,
@@ -473,3 +476,141 @@ def test_moka_china_source_preserves_per_company_source_identity():
     assert len(postings) == 1
     assert postings[0].source == "moka_shokz"
     assert postings[0].company == "韶音科技"
+
+
+def test_china_telecom_source_parses_complete_jd_from_official_search_html():
+    html = """
+    <form id="searchForm"></form>
+    <ul>
+      <li class="position_list-list-demo">
+        <div onclick="javascript:toDetailPostUrl(139062,1,1)">
+          <div class="position_list-list-demo-title">算法工程师（AI Agent方向）</div>
+          <div class="position_list-first-row"><span>中通服软件科技有限公司</span><span>上海市</span></div>
+        </div>
+        <div id="hidden139062">
+          <div class="detailedInformation">招聘项目:<br>2027年度秋季校园招聘</div>
+          <div class="detailedInformation">职位类别:<br>研发类</div>
+          <div class="detailedInformation">学历要求:<br>硕士研究生及以上</div>
+          <div class="detailedInformation">工作描述:<br>负责 Agent 任务规划、工具调用、记忆和错误恢复。</div>
+          <div class="detailedInformation">职位要求:<br>熟悉 Python、RAG、LangChain 和评测。</div>
+        </div>
+      </li>
+    </ul>
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert b"keyWord=Agent" in request.content
+        return httpx.Response(200, text=html, request=request)
+
+    postings = asyncio.run(
+        ChinaTelecomCareersSource(transport=httpx.MockTransport(handler)).search(
+            query="Agent 开发",
+            location="上海",
+            limit=5,
+        )
+    )
+
+    assert len(postings) == 1
+    posting = postings[0]
+    assert posting.source == "china_telecom"
+    assert posting.external_id == "139062"
+    assert posting.company == "中通服软件科技有限公司"
+    assert posting.location == "上海市"
+    assert "任务规划、工具调用" in posting.raw_jd_text
+    assert "Python、RAG" in posting.raw_jd_text
+    assert "postIdsAry=139062" in posting.apply_url
+
+
+def test_huawei_source_loads_ai_zone_then_enriches_public_json_details():
+    landing_html = """
+    <ul>
+      <li><a href="/reccampportal/portal5/social-recruitment-detail.html?jobId=27323&amp;dataSource=1">
+        <h6>算法专家（多模态/大模型）</h6><p>中国/北京</p>
+      </a></li>
+    </ul>
+    """
+    detail = {
+        "jobId": 27323,
+        "jobCode": "AD2025092300009",
+        "jobname": "算法专家（多模态/大模型）",
+        "jobArea": "中国/北京",
+        "deptName": "行业垂直作战组织",
+        "jobFamilyName": "研发族",
+        "mainBusiness": "建设 Agentic 大模型训练和推理系统。",
+        "jobRequire": "熟悉 Python、大模型、RAG 和高并发服务。",
+    }
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        if request.url.path.endswith("social-recruitment-ai.html"):
+            return httpx.Response(200, text=landing_html, request=request)
+        assert request.url.params["jobId"] == "27323"
+        assert request.url.params["dataSource"] == "1"
+        return httpx.Response(200, json=detail, request=request)
+
+    postings = asyncio.run(
+        HuaweiCareersSource(transport=httpx.MockTransport(handler)).search(
+            query="Agent 大模型",
+            location="北京",
+            limit=5,
+        )
+    )
+
+    assert len(calls) == 2
+    assert len(postings) == 1
+    posting = postings[0]
+    assert posting.source == "huawei"
+    assert posting.company == "华为"
+    assert posting.external_id == "27323"
+    assert "Agentic 大模型" in posting.raw_jd_text
+    assert "Python、大模型、RAG" in posting.raw_jd_text
+    assert posting.apply_url.endswith("dataSource=1&jobId=27323")
+
+
+def test_iflytek_source_uses_data_when_upstream_total_is_incorrect():
+    row = {
+        "Id": "agent-harness-1",
+        "JobAdId": 190840001,
+        "JobAdName": "Agent研发工程师-Harness方向(J13347)",
+        "Category": "校园招聘",
+        "CategoryId": "2",
+        "LocNames": ["安徽省·合肥市", "北京市"],
+        "Duty": "负责 Agent Harness、工具调用、上下文工程与错误恢复。",
+        "Require": "熟悉 Python、LangGraph、RAG 和 Agent 评测。",
+        "ClassificationOne": "AI研发类",
+        "Kind": "",
+        "ChangeDate": "2026-08-24T11:16:28",
+    }
+    calls: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        calls.append(payload)
+        rows = [row] if payload["Category"] == ["2"] else []
+        return httpx.Response(
+            200,
+            json={"Code": 200, "Message": "operation success", "Data": rows, "Total": 0},
+            request=request,
+        )
+
+    postings = asyncio.run(
+        IFlytekCareersSource(transport=httpx.MockTransport(handler)).search(
+            query="Agent 开发",
+            location="北京",
+            limit=5,
+        )
+    )
+
+    assert len(calls) == 3
+    assert {call["Category"][0] for call in calls} == {"1", "2", "3"}
+    assert all(call["KeyWords"] == "Agent" for call in calls)
+    assert len(postings) == 1
+    posting = postings[0]
+    assert posting.source == "iflytek"
+    assert posting.company == "科大讯飞"
+    assert posting.location == "安徽省·合肥市、北京市"
+    assert "Agent Harness" in posting.raw_jd_text
+    assert "Python、LangGraph" in posting.raw_jd_text
+    assert posting.apply_url.endswith("/campus/jobdetail/agent-harness-1")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from typing import Any, Awaitable, Callable
@@ -112,6 +113,100 @@ class _TCLJobListParser(HTMLParser):
             self.current[self.capture] = " ".join(
                 part for part in [self.current.get(self.capture, ""), text] if part
             )
+
+
+class _ChinaTelecomListParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.rows: list[dict[str, Any]] = []
+        self.current: dict[str, Any] | None = None
+        self.item_depth = 0
+        self.capture: str | None = None
+        self.capture_depth = 0
+        self.first_row_depth = 0
+        self.detail_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        values = {key: value or "" for key, value in attrs}
+        classes = set(values.get("class", "").split())
+        if self.current is None and tag == "li" and "position_list-list-demo" in classes:
+            self.current = {"row_parts": [], "details": []}
+            self.item_depth = 1
+            return
+        if self.current is None:
+            return
+        if tag in {"br", "img", "input", "meta", "link", "hr"}:
+            if tag == "br" and self.detail_depth:
+                self.current.setdefault("current_detail", []).append("\n")
+            return
+        self.item_depth += 1
+        onclick = values.get("onclick", "")
+        if "toDetailPostUrl(" in onclick and "onclick" not in self.current:
+            self.current["onclick"] = onclick
+        if tag == "div" and "position_list-list-demo-title" in classes:
+            self.capture = "title"
+            self.capture_depth = self.item_depth
+        elif tag == "div" and "position_list-first-row" in classes:
+            self.first_row_depth = self.item_depth
+        elif tag == "span" and self.first_row_depth:
+            self.capture = "row_part"
+            self.capture_depth = self.item_depth
+        elif tag == "div" and "detailedInformation" in classes:
+            self.detail_depth = self.item_depth
+            self.capture = "detail"
+            self.capture_depth = self.item_depth
+            self.current["current_detail"] = []
+
+    def handle_endtag(self, tag: str) -> None:
+        if self.current is None:
+            return
+        if tag in {"br", "img", "input", "meta", "link", "hr"}:
+            return
+        if self.capture and self.capture_depth == self.item_depth and self.capture != "detail":
+            self.capture = None
+            self.capture_depth = 0
+        if self.first_row_depth == self.item_depth:
+            self.first_row_depth = 0
+        if self.detail_depth == self.item_depth:
+            detail = "".join(self.current.pop("current_detail", [])).strip()
+            if detail:
+                self.current["details"].append(detail)
+            self.detail_depth = 0
+            self.capture = None
+            self.capture_depth = 0
+        self.item_depth -= 1
+        if self.item_depth == 0:
+            self.rows.append(self.current)
+            self.current = None
+
+    def handle_data(self, data: str) -> None:
+        if self.current is None or not self.capture:
+            return
+        text = data.strip()
+        if not text:
+            return
+        if self.capture == "title":
+            self.current["title"] = " ".join(
+                part for part in [self.current.get("title", ""), text] if part
+            )
+        elif self.capture == "row_part":
+            self.current["row_parts"].append(text)
+        elif self.capture == "detail":
+            self.current.setdefault("current_detail", []).append(text)
+
+
+class _HuaweiAIListParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.hrefs: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag != "a":
+            return
+        values = {key: value or "" for key, value in attrs}
+        href = values.get("href", "")
+        if "social-recruitment-detail.html" in href:
+            self.hrefs.append(href)
 
 class TencentCareersSource(JobSource):
     name = "tencent"
@@ -731,6 +826,333 @@ class JDCareersSource(JobSource):
         )
 
 
+class ChinaTelecomCareersSource(JobSource):
+    """China Telecom campus source with complete JD content in search results."""
+
+    name = "china_telecom"
+    endpoint = "https://wejob.chinatelecom.com.cn/wt/TELE/mobweb/v8/position/list"
+    landing_page = f"{endpoint}?brandCode=1&recruitType=1&request_locale=zh_CN"
+
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        self.transport = transport
+
+    async def search(self, *, query: str, location: str | None, limit: int) -> list[JobPosting]:
+        settings = get_settings()
+        headers = {
+            "User-Agent": settings.user_agent,
+            "Accept": "text/html,application/xhtml+xml",
+            "Origin": "https://wejob.chinatelecom.com.cn",
+            "Referer": self.landing_page,
+        }
+        form = {
+            "workPlaceCode": "",
+            "workPlaceCodeName": "",
+            "cityName": "地点",
+            "postTypeCode": "",
+            "keyWord": _job_source_search_key(query),
+            "recruitType": "1",
+            "brandCode": "1",
+            "fromCamChooseSearchType": "false",
+        }
+        async with httpx.AsyncClient(
+            timeout=settings.job_search_timeout_seconds,
+            headers=headers,
+            transport=self.transport,
+        ) as client:
+            response = await client.post(
+                self.endpoint,
+                params={"brandCode": "1", "request_locale": "zh_CN"},
+                data=form,
+            )
+            response.raise_for_status()
+
+        postings = self._parse_results(response.text)
+        postings = [
+            posting
+            for posting in postings
+            if (not location or location.lower() in source_posting_haystack(posting))
+            and is_query_relevant_posting(posting, query)
+        ]
+        return rank_postings_for_query(postings, query)[:limit]
+
+    def _parse_results(self, html: str) -> list[JobPosting]:
+        parser = _ChinaTelecomListParser()
+        parser.feed(html)
+        postings: list[JobPosting] = []
+        for item in parser.rows:
+            title = str(item.get("title") or "").strip()
+            onclick = str(item.get("onclick") or "")
+            match = re.search(r"toDetailPostUrl\((\d+),(\d+),(\d+)\)", onclick)
+            if not title or not match:
+                continue
+            external_id, recruit_type, current_page = match.groups()
+            row_parts = [str(part).strip() for part in item.get("row_parts") or [] if str(part).strip()]
+            company = row_parts[0] if row_parts else "中国电信"
+            job_location = row_parts[1] if len(row_parts) > 1 else None
+            fields: dict[str, str] = {}
+            for detail in item.get("details") or []:
+                text = str(detail).strip()
+                label, separator, value = text.partition(":")
+                if not separator:
+                    label, separator, value = text.partition("：")
+                if separator and value.strip():
+                    fields[label.strip()] = value.strip()
+            job_type = fields.get("招聘项目") or "校园招聘"
+            raw_jd = _join_jd_sections(
+                ("岗位名称", title),
+                ("公司", company),
+                ("工作地点", job_location),
+                ("招聘类型", job_type),
+                ("职位类别", fields.get("职位类别")),
+                ("学历要求", fields.get("学历要求")),
+                ("专业要求", fields.get("专业要求")),
+                ("岗位职责", fields.get("工作描述")),
+                ("任职要求", fields.get("职位要求")),
+            )
+            apply_url = (
+                f"{self.endpoint.rsplit('/list', 1)[0]}/detail?safe=Y&canBack=true"
+                f"&recruitType={recruit_type}&postIdsAry={external_id}"
+                f"&postCanApply=0&entityPage.currentPage={current_page}&brandCode=1"
+            )
+            postings.append(
+                JobPosting(
+                    source=self.name,
+                    external_id=external_id,
+                    title=title,
+                    company=company,
+                    location=job_location,
+                    job_type=job_type,
+                    apply_url=apply_url,
+                    raw_jd_text=raw_jd,
+                    payload={"fields": fields, "recruit_type": recruit_type},
+                )
+            )
+        return postings
+
+
+class HuaweiCareersSource(JobSource):
+    """Huawei official AI job zone plus public JSON detail endpoint."""
+
+    name = "huawei"
+    landing_page = "https://career.huawei.com/reccampportal/portal5/social-recruitment-ai.html"
+    detail_endpoint = (
+        "https://career.huawei.com/reccampportal/services/portal/portalpub/getJobDetail/newHr"
+    )
+
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        self.transport = transport
+
+    async def search(self, *, query: str, location: str | None, limit: int) -> list[JobPosting]:
+        settings = get_settings()
+        headers = {
+            "User-Agent": settings.user_agent,
+            "Accept": "application/json, text/html, */*",
+            "Referer": self.landing_page,
+        }
+        async with httpx.AsyncClient(
+            timeout=settings.job_search_timeout_seconds,
+            headers=headers,
+            transport=self.transport,
+        ) as client:
+            response = await client.get(self.landing_page)
+            response.raise_for_status()
+            candidates = self._parse_candidates(response.text)
+            semaphore = asyncio.Semaphore(min(max(settings.job_ingest_concurrency, 1), 8))
+
+            async def _load(candidate: dict[str, str]) -> JobPosting:
+                async with semaphore:
+                    detail_response = await client.get(
+                        self.detail_endpoint,
+                        params={
+                            "jobId": candidate["external_id"],
+                            "dataSource": candidate["data_source"],
+                        },
+                    )
+                    detail_response.raise_for_status()
+                    payload = detail_response.json()
+                    if not isinstance(payload, dict) or not payload.get("jobname"):
+                        raise ValueError(
+                            f"Huawei Careers detail failed for {candidate['external_id']}"
+                        )
+                    return self._map_detail(payload, candidate)
+
+            postings = await asyncio.gather(*[_load(candidate) for candidate in candidates])
+
+        postings = [
+            posting
+            for posting in postings
+            if (not location or location.lower() in source_posting_haystack(posting))
+            and is_query_relevant_posting(posting, query)
+        ]
+        return rank_postings_for_query(postings, query)[:limit]
+
+    def _parse_candidates(self, html: str) -> list[dict[str, str]]:
+        parser = _HuaweiAIListParser()
+        parser.feed(html)
+        candidates: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for href in parser.hrefs:
+            match = re.search(r"jobId=(\d+)(?:&amp;|&).*?dataSource=(\d+)", href)
+            if not match:
+                match = re.search(r"jobId=(\d+)", href)
+            if not match:
+                continue
+            external_id = match.group(1)
+            if external_id in seen:
+                continue
+            seen.add(external_id)
+            candidates.append(
+                {
+                    "external_id": external_id,
+                    "data_source": match.group(2) if match.lastindex and match.lastindex >= 2 else "1",
+                }
+            )
+        if not candidates:
+            raise ValueError("Huawei Careers AI zone contains no job detail links")
+        return candidates
+
+    def _map_detail(self, row: dict[str, Any], candidate: dict[str, str]) -> JobPosting:
+        external_id = str(row.get("jobId") or candidate["external_id"]).strip()
+        title = str(row.get("jobname") or row.get("externalJobName") or "").strip()
+        location = str(row.get("jobArea") or row.get("jobAddress") or "").strip() or None
+        raw_jd = _join_jd_sections(
+            ("岗位名称", title),
+            ("公司", "华为"),
+            ("工作地点", location),
+            ("招聘类型", "社会招聘 / AI 岗位专区"),
+            ("所属部门", row.get("deptName")),
+            ("职位族", row.get("jobFamilyName")),
+            ("岗位职责", row.get("mainBusiness")),
+            ("任职要求", row.get("jobRequire")),
+            ("岗位编号", row.get("jobCode")),
+        )
+        return JobPosting(
+            source=self.name,
+            external_id=external_id,
+            title=title,
+            company="华为",
+            location=location,
+            job_type="社会招聘 / AI 岗位专区",
+            apply_url=(
+                "https://career.huawei.com/reccampportal/portal5/"
+                f"social-recruitment-detail.html?dataSource={candidate['data_source']}"
+                f"&jobId={external_id}"
+            ),
+            raw_jd_text=raw_jd,
+            payload=row,
+        )
+
+
+class IFlytekCareersSource(JobSource):
+    """iFlytek public Beisen API across social, campus and internship categories."""
+
+    name = "iflytek"
+    endpoint = "https://iflytek.zhiye.com/api/Jobad/GetJobAdPageList"
+    landing_page = "https://iflytek.zhiye.com/"
+    category_routes = {"1": "social", "2": "campus", "3": "intern"}
+
+    def __init__(self, transport: httpx.AsyncBaseTransport | None = None) -> None:
+        self.transport = transport
+
+    async def search(self, *, query: str, location: str | None, limit: int) -> list[JobPosting]:
+        settings = get_settings()
+        headers = {
+            "User-Agent": settings.user_agent,
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Origin": "https://iflytek.zhiye.com",
+            "Referer": self.landing_page,
+        }
+        request_size = min(max(limit * 3, 20), 50)
+        search_key = _job_source_search_key(query)
+        async with httpx.AsyncClient(
+            timeout=settings.job_search_timeout_seconds,
+            headers=headers,
+            transport=self.transport,
+        ) as client:
+            responses = await asyncio.gather(
+                *[
+                    client.post(
+                        self.endpoint,
+                        json={
+                            "PageIndex": 0,
+                            "PageSize": request_size,
+                            "Category": [category_id],
+                            "KeyWords": search_key,
+                            "SpecialType": 0,
+                            "PortalId": "",
+                            "DisplayFields": [
+                                "Category",
+                                "Kind",
+                                "LocId",
+                                "ClassificationOne",
+                                "WorkWeChatQrCode",
+                            ],
+                        },
+                    )
+                    for category_id in self.category_routes
+                ]
+            )
+
+        postings: list[JobPosting] = []
+        seen: set[str] = set()
+        for response in responses:
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict) or int(payload.get("Code") or 0) != 200:
+                raise ValueError("iFlytek Careers search returned an invalid response")
+            # The upstream currently reports Total=0 while Data is populated.
+            # Data is therefore the authoritative collection contract.
+            rows = payload.get("Data")
+            if not isinstance(rows, list):
+                raise ValueError("iFlytek Careers response does not contain Data list")
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                posting = self._map_row(row)
+                if not posting.title or not posting.external_id or posting.external_id in seen:
+                    continue
+                if location and location.lower() not in source_posting_haystack(posting):
+                    continue
+                if not is_query_relevant_posting(posting, query):
+                    continue
+                seen.add(posting.external_id)
+                postings.append(posting)
+        return rank_postings_for_query(postings, query)[:limit]
+
+    def _map_row(self, row: dict[str, Any]) -> JobPosting:
+        external_id = str(row.get("Id") or row.get("JobAdId") or "").strip()
+        title = str(row.get("JobAdName") or "").strip()
+        category_id = str(row.get("CategoryId") or "").strip()
+        category = str(row.get("Category") or "").strip()
+        locations = [str(value).strip() for value in row.get("LocNames") or [] if str(value).strip()]
+        job_type = " / ".join(
+            part for part in [category, str(row.get("Kind") or "").strip()] if part
+        ) or None
+        raw_jd = _join_jd_sections(
+            ("岗位名称", title),
+            ("公司", "科大讯飞"),
+            ("工作地点", "、".join(locations)),
+            ("招聘类型", job_type),
+            ("职位类别", row.get("ClassificationOne")),
+            ("岗位职责", row.get("Duty")),
+            ("任职要求", row.get("Require")),
+            ("发布日期", row.get("ChangeDate")),
+        )
+        route = self.category_routes.get(category_id, "jobs")
+        return JobPosting(
+            source=self.name,
+            external_id=external_id,
+            title=title,
+            company="科大讯飞",
+            location="、".join(locations) or None,
+            job_type=job_type,
+            apply_url=f"https://iflytek.zhiye.com/{route}/jobdetail/{external_id}",
+            raw_jd_text=raw_jd,
+            payload=row,
+        )
+
+
 class TCLCareersSource(JobSource):
     """TCL campus source backed by its public search and detail endpoints."""
 
@@ -1299,6 +1721,12 @@ class JobSourceRegistry:
             self.sources[AlibabaCareersSource.name] = AlibabaCareersSource()
         if settings.jd_careers_enabled:
             self.sources[JDCareersSource.name] = JDCareersSource()
+        if settings.china_telecom_careers_enabled:
+            self.sources[ChinaTelecomCareersSource.name] = ChinaTelecomCareersSource()
+        if settings.huawei_careers_enabled:
+            self.sources[HuaweiCareersSource.name] = HuaweiCareersSource()
+        if settings.iflytek_careers_enabled:
+            self.sources[IFlytekCareersSource.name] = IFlytekCareersSource()
         if settings.tcl_careers_enabled:
             self.sources[TCLCareersSource.name] = TCLCareersSource()
         if settings.midea_careers_enabled:

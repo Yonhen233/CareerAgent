@@ -221,7 +221,10 @@ def _term_present(text: str, term: str) -> bool:
 
 
 def _contains_internship_signal(text: str) -> bool:
-    return "实习" in text or "校招" in text or INTERNSHIP_PATTERN.search(text) is not None
+    return (
+        any(signal in text for signal in ("实习", "校招", "校园招聘", "应届毕业生"))
+        or INTERNSHIP_PATTERN.search(text) is not None
+    )
 
 
 def _has_agent_signal(text: str) -> bool:

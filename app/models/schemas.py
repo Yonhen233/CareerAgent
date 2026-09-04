@@ -208,8 +208,8 @@ class JobSearchRequest(BaseModel):
     limit: int = Field(default=20, ge=1, le=80)
     sources: list[str] = Field(
         default_factory=lambda: [
-            "tencent", "baidu", "meituan", "bytedance", "alibaba", "jd", "tcl",
-            "midea", "wind", "moka_cn"
+            "tencent", "baidu", "meituan", "bytedance", "alibaba", "jd",
+            "china_telecom", "huawei", "iflytek", "tcl", "midea", "wind", "moka_cn"
         ]
     )
     store_results: bool = True
@@ -259,8 +259,8 @@ class JobDiscoveryRequest(BaseModel):
     source_mode: Literal["corpus", "live", "hybrid"] = "hybrid"
     sources: list[str] = Field(
         default_factory=lambda: [
-            "tencent", "baidu", "meituan", "bytedance", "alibaba", "jd", "tcl",
-            "midea", "wind", "moka_cn"
+            "tencent", "baidu", "meituan", "bytedance", "alibaba", "jd",
+            "china_telecom", "huawei", "iflytek", "tcl", "midea", "wind", "moka_cn"
         ]
     )
 

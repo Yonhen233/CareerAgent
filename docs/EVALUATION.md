@@ -740,12 +740,12 @@ POST /evaluations/interview-source-smoke?query=Agent%20%E5%BC%80%E5%8F%91%E5%AE%
 
 ```http
 POST /evaluations/real-job-source-smoke
-POST /evaluations/real-job-source-smoke?query=Agent%20%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%BC%80%E5%8F%91&limit=5&sources=tencent&sources=baidu&sources=meituan&sources=bytedance&sources=alibaba&sources=jd&sources=tcl&sources=midea&sources=wind&sources=moka_cn
+POST /evaluations/real-job-source-smoke?query=Agent%20%E5%A4%A7%E6%A8%A1%E5%9E%8B%E5%BC%80%E5%8F%91&limit=5&sources=tencent&sources=baidu&sources=meituan&sources=bytedance&sources=alibaba&sources=jd&sources=china_telecom&sources=huawei&sources=iflytek&sources=tcl&sources=midea&sources=wind&sources=moka_cn
 ```
 
 评测内容：
 
-- 并发访问 10 个真实岗位适配器、17 个企业官方招聘门户；Lever 这类海外 ATS 不参与默认中文评测，只能在显式英文辅助场景下单独评测。
+- 并发访问 13 个真实岗位适配器、20 个企业官方招聘门户；Lever 这类海外 ATS 不参与默认中文评测，只能在显式英文辅助场景下单独评测。
 - 字节由 Playwright 触发官网动态签名请求并读取结构化 JSON；阿里先动态发现 2027 届、日常和研究型实习批次，再并发搜索完整 JD。
 - 对每个 source 单独记录 `status`、`source_reachable`、`result_count`、`latency_ms`、`error` 和 `sample_jobs`。
 - 不调用 LLM 解析 JD，不写入主岗位库，只评估 source 层健康度，避免 LLM、embedding 或数据库状态掩盖招聘源问题。

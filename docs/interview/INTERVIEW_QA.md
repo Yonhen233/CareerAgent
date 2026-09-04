@@ -122,7 +122,7 @@ DeepSeek V4 结构化节点在官方接口上自动 `thinking: disabled`，避�
 
 ### Q19：FastAPI 并发是怎么设计的？哪些流程能并行？
 
-能并行的是互不共享事务的外部 I/O：10 个岗位适配器、美团/TCL 详情、阿里批次、Moka 企业上下文、批量 JD 解析、HTTP/LLM 请求和批量 reranker。它们使用 gather + semaphore 或 batch predict。
+能并行的是互不共享事务的外部 I/O：13 个岗位适配器、美团/TCL/华为详情、阿里批次、科大讯飞招聘类别、Moka 企业上下文、批量 JD 解析、HTTP/LLM 请求和批量 reranker。它们使用 gather + semaphore 或 batch predict。
 
 不能盲目并行的是同一 SQLAlchemy Session 的写入、具有前后依赖的 LangGraph 节点和高风险副作用。多个 worker 可以并行不同 run；单 run 内写库按顺序执行。这样既利用 I/O 等待时间，又避免同步 Session 和 SQLite 写锁问题。
 
