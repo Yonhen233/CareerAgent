@@ -1630,6 +1630,31 @@ a {
   display: none;
 }
 
+.profile-library-actions,
+.profile-library-toolbar {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+}
+
+.profile-library-toolbar {
+  justify-content: space-between;
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.profile-library-toolbar label {
+  width: min(520px, 100%);
+}
+
+.profile-library-summary {
+  padding-bottom: 10px;
+  white-space: nowrap;
+}
+
 .notice:empty {
   display: none;
 }

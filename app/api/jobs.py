@@ -12,6 +12,7 @@ from app.models.entities import Job, JobChunk
 from app.models.schemas import JobChunkResponse, JobCreateRequest, JobResponse, JobSearchRequest, JobSearchResponse
 from app.services.jd_parser import JDParserService
 from app.services.job_search import JobSearchService
+from app.services.job_visibility import user_visible_jobs
 from app.services.text_splitter import ResumeTextSplitter
 from app.services.vector_index import SQLiteVectorIndex
 
@@ -108,7 +109,7 @@ def list_jobs(db: Session = Depends(get_db), auth: AuthContext = Depends(optiona
     query = db.query(Job)
     if get_settings().rbac_enabled:
         query = query.filter(Job.tenant_id == auth.tenant_id)
-    rows = query.order_by(Job.discovered_at.desc()).limit(200).all()
+    rows = user_visible_jobs(query.order_by(Job.discovered_at.desc()).limit(400).all())[:200]
     return [JobResponse.model_validate(row) for row in rows]
 
 

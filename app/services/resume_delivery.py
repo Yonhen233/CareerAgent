@@ -117,7 +117,7 @@ class ResumeHTMLRenderer:
                 f"""
                 <section class="entry">
                   <h3>{escape(str(name))}</h3>
-                  {f'<p>{escape(str(description))}</p>' if description else ''}
+                  {f'<p class="preserve-lines">{escape(str(description))}</p>' if description else ''}
                   {f'<p class="impact">{escape(str(impact))}</p>' if impact else ''}
                   {self._chips(tech_stack)}
                 </section>
@@ -275,6 +275,7 @@ class ResumeHTMLRenderer:
     .resume-section:first-of-type {{ padding-top: 0; }}
     .entry + .entry {{ margin-top: 16px; }}
     .impact {{ color: var(--accent); font-weight: 600; }}
+    .preserve-lines {{ white-space: pre-line; }}
     .muted {{ color: var(--muted); }}
     .chips {{ display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }}
     .chips span {{

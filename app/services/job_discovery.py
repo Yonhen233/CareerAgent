@@ -10,6 +10,7 @@ from app.models.entities import Job, JobSearchResult, JobSearchSession, Profile
 from app.models.schemas import JobDiscoveryRequest
 from app.services.job_relevance import is_internship_like_posting, score_job_posting
 from app.services.job_search import JobSearchService
+from app.services.job_visibility import user_visible_jobs
 from app.services.matcher import MatcherService
 from app.services.reranker import RerankerService
 from app.services.vector_index import SQLiteVectorIndex
@@ -154,7 +155,7 @@ class JobDiscoveryService:
         rows_query = db.query(Job)
         if self.settings.rbac_enabled:
             rows_query = rows_query.filter(Job.tenant_id == tenant_id)
-        jobs = rows_query.order_by(Job.updated_at.desc()).limit(800).all()
+        jobs = user_visible_jobs(rows_query.order_by(Job.updated_at.desc()).limit(800).all())
         if internship_only:
             jobs = [job for job in jobs if is_internship_like_posting(job)]
         if location:

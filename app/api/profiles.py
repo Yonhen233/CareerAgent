@@ -76,7 +76,7 @@ def create_guided_profile(
 
 @router.get("", response_model=list[ProfileResponse])
 def list_profiles(db: Session = Depends(get_db), auth: AuthContext = Depends(optional_auth_context)) -> list[ProfileResponse]:
-    rows = _apply_tenant(db.query(Profile), auth).order_by(Profile.created_at.desc()).all()
+    rows = _apply_tenant(db.query(Profile), auth).order_by(Profile.created_at.desc()).limit(50).all()
     return [ProfileResponse.model_validate(row) for row in rows]
 
 

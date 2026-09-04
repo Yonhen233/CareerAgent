@@ -13,6 +13,7 @@ from app.models.schemas import (
     JobResponse,
 )
 from app.services.job_discovery import JobDiscoveryService
+from app.services.job_visibility import user_visible_jobs
 from app.services.retrieval_quality import RetrievalQualityError
 
 router = APIRouter(prefix="/job-discovery", tags=["job-discovery"])
@@ -67,12 +68,17 @@ def list_discovery_sessions(
 
 
 def _response(session: JobSearchSession) -> JobDiscoverySessionResponse:
+    visible_job_ids = {job.id for job in user_visible_jobs(result.job for result in session.results)}
+    visible_results = [result for result in session.results if result.job_id in visible_job_ids]
+    summary = JobDiscoverySessionSummary.model_validate(session).model_copy(
+        update={"result_count": len(visible_results)}
+    )
     return JobDiscoverySessionResponse(
-        session=JobDiscoverySessionSummary.model_validate(session),
+        session=summary,
         results=[
             JobDiscoveryResultResponse(
                 id=result.id,
-                rank=result.rank,
+                rank=rank,
                 retrieval_score=result.retrieval_score,
                 match_score=result.match_score,
                 final_score=result.final_score,
@@ -80,6 +86,6 @@ def _response(session: JobSearchSession) -> JobDiscoverySessionResponse:
                 reason=result.reason_json or {},
                 job=JobResponse.model_validate(result.job),
             )
-            for result in session.results
+            for rank, result in enumerate(visible_results, start=1)
         ],
     )

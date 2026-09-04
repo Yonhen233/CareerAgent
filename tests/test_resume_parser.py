@@ -1,8 +1,6 @@
 import asyncio
 import json
 
-import pytest
-
 from app.services.resume_parser import ResumeParserService
 
 
@@ -20,6 +18,43 @@ CareerAgent: Built a FastAPI RAG workflow with SQLite, tool calling, and evaluat
     assert "FastAPI" in parsed["skills"]
     assert "RAG" in parsed["skills"]
     assert "SQLite" in parsed["skills"]
+
+
+def test_heuristic_resume_parser_keeps_multiple_chinese_education_and_projects_separate():
+    service = ResumeParserService()
+    text = """
+陈卓
+chenzhuo@example.com | 13800000000
+教育经历
+清华大学
+硕士
+计算机科学与技术
+2025.09 - 2028.06
+研究方向：智能体系统
+吉林大学
+本科
+软件工程
+2021.09 - 2025.06
+专业技能
+Python、LangGraph、RAG、Redis
+项目经历
+CareerAgent 智能求职助手
+2026.06 - 2026.08
+技术栈：Python、LangGraph、RAG、Redis
+构建岗位检索和简历定制工作流，项目正文中也会提到实习岗位。
+DL-to-HLS Agent
+2026.05 - 至今
+技术栈：Python、Agent
+把深度学习模型转换为硬件描述流程。
+"""
+
+    parsed = service._heuristic_parse(text)
+
+    assert parsed["self_summary"] is None
+    assert [item["school"] for item in parsed["education"]] == ["清华大学", "吉林大学"]
+    assert [item["name"] for item in parsed["projects"]] == ["CareerAgent 智能求职助手", "DL-to-HLS Agent"]
+    assert "DL-to-HLS Agent" not in parsed["projects"][0]["description"]
+    assert "2026.05 - 至今" in parsed["projects"][1]["description"]
 
 
 def test_heuristic_resume_parser_extracts_name_from_title_line():

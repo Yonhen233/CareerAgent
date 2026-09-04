@@ -16,6 +16,7 @@
       </label>
       <button class="primary" type="submit"><i data-lucide="file-up"></i> 解析简历</button>
     </form>
+    <div id="upload-profile-result" class="result-list compact-result" aria-live="polite"></div>
   </div>
   <div class="panel span-7 profile-guide-panel profile-entry-panel">
     <div class="panel-heading compact">
@@ -235,8 +236,17 @@
       <p class="eyebrow">已保存</p>
       <h2>我的简历档案</h2>
     </div>
-    <label class="inline-field">针对岗位 ID（可选）<input id="resume-review-job-id" type="number" min="1" placeholder="用于 JD 针对性评分"></label>
-    <button class="ghost" data-refresh="profiles"><i data-lucide="refresh-cw"></i> 刷新</button>
+    <div class="profile-library-actions">
+      <label class="inline-field">针对岗位 ID（可选）<input id="resume-review-job-id" type="number" min="1" placeholder="用于 JD 针对性评分"></label>
+      <button class="ghost" data-refresh="profiles"><i data-lucide="refresh-cw"></i> 刷新</button>
+    </div>
+  </div>
+  <div class="profile-library-toolbar">
+    <label>
+      搜索最近档案
+      <input id="profile-library-search" type="search" placeholder="输入姓名、档案 ID、目标岗位或技能">
+    </label>
+    <span id="profile-library-summary" class="meta">显示最近 50 份档案</span>
   </div>
   <div id="profiles-list" class="result-list"></div>
 </section>

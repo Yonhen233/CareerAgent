@@ -21,7 +21,7 @@ def _job(db_session, *, external_id: str, title: str, location: str, skills: lis
         company="测试公司",
         location=location,
         job_type="实习",
-        apply_url=f"https://example.com/{external_id}",
+        apply_url=None,
         raw_jd_text=(
             f"岗位：{title}\n岗位职责：参与 Agent 与 RAG 系统开发。\n"
             f"任职要求：熟悉{'、'.join(skills)}。\n招聘类型：实习"
@@ -111,6 +111,48 @@ def test_preference_only_search_does_not_require_profile(db_session):
     assert session.retrieval_quality_json["top_vector_score"] > 0
     assert db_session.query(JobSearchSession).count() == 1
     assert db_session.query(JobSearchResult).count() == 2
+
+
+def test_user_discovery_excludes_evaluation_jobs_and_deduplicates_postings(db_session):
+    first = _job(
+        db_session,
+        external_id="real-agent-role-1",
+        title="Agent 开发实习生",
+        location="深圳",
+        skills=["Python", "RAG"],
+    )
+    duplicate = _job(
+        db_session,
+        external_id="real-agent-role-2",
+        title="Agent 开发实习生",
+        location="深圳",
+        skills=["Python", "RAG"],
+    )
+    fixture = _job(
+        db_session,
+        external_id="evaluation-only",
+        title="Agent 评测样本岗位",
+        location="深圳",
+        skills=["Python", "RAG"],
+    )
+    fixture.source = "llm_eval"
+    db_session.commit()
+
+    session = asyncio.run(
+        JobDiscoveryService(job_search=NoLiveSearch()).discover(
+            db_session,
+            JobDiscoveryRequest(
+                preference_text="深圳 Agent RAG 实习",
+                location="深圳",
+                source_mode="corpus",
+                limit=10,
+            ),
+        )
+    )
+
+    assert session.result_count == 1
+    assert session.results[0].job_id in {first.id, duplicate.id}
+    assert session.results[0].job.source != "llm_eval"
 
 
 def test_profile_only_search_derives_query_and_adds_match_evidence(db_session):

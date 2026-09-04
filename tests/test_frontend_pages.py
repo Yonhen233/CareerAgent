@@ -361,7 +361,8 @@ def test_job_detail_page_exposes_optional_profile_match_and_tailor_flow():
     assert 'api("/resumes/tailor"' in main_js
     assert 'required_skill_coverage: "必备技能覆盖"' in main_js
     assert 'semantic_similarity: "语义相关度"' in main_js
-    assert "applyLink.hidden = !job.apply_url" in main_js
+    assert "applyLink.hidden = !isPublicApplyUrl(job.apply_url)" in main_js
+    assert '["example.com", "localhost", "127.0.0.1"]' in main_js
     assert ".job-detail-grid" in style_css
     assert ".job-detail-tabs" in style_css
     assert ".job-gap-grid" in style_css

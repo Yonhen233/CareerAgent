@@ -39,6 +39,47 @@ function toast(message) {
   }, 3600);
 }
 
+function userFriendlyErrorMessage(message, action = "完成此操作") {
+  const text = String(message || "").trim();
+  if (/HTTP 402|Insufficient Balance|余额不足/i.test(text)) {
+    return `当前 AI 服务余额不足，暂时无法${action}。请充值或更换可用模型后重试。`;
+  }
+  if (/LLM is required|LLM_API_KEY|Set LLM_FALLBACK_ENABLED/i.test(text)) {
+    return `当前 AI 服务未启用，暂时无法${action}。请在模型配置完成后重试。`;
+  }
+  if (/Failed to parse resume/i.test(text) && text.includes(":")) {
+    return `PDF 解析失败：${text.split(":").slice(1).join(":").trim()}`;
+  }
+  return text || `${action}失败，请稍后重试。`;
+}
+
+function isPublicApplyUrl(value) {
+  try {
+    const url = new URL(String(value || ""));
+    return ["http:", "https:"].includes(url.protocol)
+      && !["example.com", "localhost", "127.0.0.1"].includes(url.hostname.toLowerCase());
+  } catch (_error) {
+    return false;
+  }
+}
+
+function jobSourceLabel(value) {
+  const source = String(value || "").toLowerCase();
+  const labels = {
+    manual: "手动添加",
+    natural_language: "自然语言添加",
+    alibaba: "阿里巴巴官网",
+    baidu: "百度官网",
+    meituan: "美团官网",
+    bytedance: "字节跳动官网",
+    tencent: "腾讯官网",
+    jd: "京东官网",
+    huawei: "华为官网",
+    xiaomi: "小米官网",
+  };
+  return labels[source] || (source ? `${value} 招聘` : "已保存岗位");
+}
+
 function getAdminToken() {
   return window.localStorage?.getItem(ADMIN_TOKEN_KEY) || "";
 }
@@ -70,7 +111,7 @@ async function api(path, options = {}) {
       throw error;
     }
     detail = parsed?.detail || parsed?.error || detail;
-    throw new Error(detail);
+    throw new Error(userFriendlyErrorMessage(detail));
   }
   return response.json();
 }
@@ -396,7 +437,20 @@ async function loadGlobalLLMWarning() {
 
 async function loadProfiles() {
   const rows = await api("/profiles");
-  renderItems("#profiles-list", rows, (row) => `
+  const keyword = String($("#profile-library-search")?.value || "").trim().toLowerCase();
+  const visibleRows = rows.filter((row) => {
+    const structured = row.structured_profile_json || {};
+    const haystack = [
+      row.id, row.name, row.email, row.headline,
+      ...(row.target_roles_json || []), ...(structured.skills || []),
+    ].join(" ").toLowerCase();
+    return !keyword || haystack.includes(keyword);
+  });
+  const summary = $("#profile-library-summary");
+  if (summary) summary.textContent = keyword
+    ? `最近 50 份中找到 ${visibleRows.length} 份档案`
+    : `显示最近 ${rows.length} 份档案`;
+  renderItems("#profiles-list", visibleRows, (row) => `
     <article class="item">
       <div class="item-title"><span>#${row.id} ${escapeHtml(row.name || "未命名简历")}</span><span class="meta">${row.source_type === "pdf" ? "PDF 上传" : "手动填写"}</span></div>
       <div class="meta">${escapeHtml(row.headline || "")}</div>
@@ -420,6 +474,8 @@ function profileSummaryText(profile) {
 
 function updateResumeSourceSelection(source) {
   const selectedSource = source || "none";
+  const form = $("#career-start-form");
+  if (form) form.dataset.resumeSource = selectedSource;
   const noResumeButton = $("#use-no-resume");
   noResumeButton?.classList.toggle("is-selected", selectedSource === "none");
   noResumeButton?.setAttribute("aria-pressed", selectedSource === "none" ? "true" : "false");
@@ -784,7 +840,7 @@ function renderJobDiscovery(body) {
             <span>${escapeHtml(row.company || "未知公司")}</span>
             <span>${escapeHtml(row.location || "地点未注明")}</span>
             <span>${escapeHtml(row.job_type || "类型未注明")}</span>
-            <span>${escapeHtml(row.source || "manual")}</span>
+            <span>${escapeHtml(jobSourceLabel(row.source))}</span>
           </div>
           ${tags(structured.required_skills || structured.keywords || [])}
           ${reasons.length ? `<p class="job-result-reason"><strong>为什么出现：</strong>${escapeHtml(reasons.slice(0, 3).join("；"))}</p>` : ""}
@@ -796,7 +852,7 @@ function renderJobDiscovery(body) {
           ` : ""}
           <div class="flow-result-actions">
             <a class="button primary" href="${jobDetailUrl(row.id, session?.id, session?.profile_id)}"><i data-lucide="panel-right-open"></i> 查看岗位详情</a>
-            ${row.apply_url ? `<a class="button ghost" href="${escapeHtml(row.apply_url)}" target="_blank" rel="noopener"><i data-lucide="external-link"></i> 官方投递页</a>` : ""}
+            ${isPublicApplyUrl(row.apply_url) ? `<a class="button ghost" href="${escapeHtml(row.apply_url)}" target="_blank" rel="noopener"><i data-lucide="external-link"></i> 官方投递页</a>` : ""}
           </div>
         </div>
       </article>
@@ -985,8 +1041,8 @@ function renderJobDetail(job) {
   if (raw) raw.textContent = job.raw_jd_text || "";
   const applyLink = $("#job-apply-link");
   if (applyLink) {
-    applyLink.hidden = !job.apply_url;
-    if (job.apply_url) applyLink.href = job.apply_url;
+    applyLink.hidden = !isPublicApplyUrl(job.apply_url);
+    if (isPublicApplyUrl(job.apply_url)) applyLink.href = job.apply_url;
   }
 }
 
@@ -1970,7 +2026,7 @@ async function loadApplications() {
     <article class="item application-card">
       <div class="item-title"><span>${escapeHtml(packageLabel(packageId))} · 岗位 ${escapeHtml(row.job_id)}</span><span class="status-pill ${row.status === "ready" ? "ok" : ""}">${row.status === "ready" ? "准备好了" : row.status === "withdrawn" ? "已撤回" : escapeHtml(row.status)}</span></div>
       <div class="meta">投递材料 · 定制简历 ${row.resume_version_id || "-"}</div>
-      ${row.apply_url ? `<p><a class="button ghost" href="${escapeHtml(row.apply_url)}" target="_blank"><i data-lucide="external-link"></i> 打开投递页</a></p>` : ""}
+      ${isPublicApplyUrl(row.apply_url) ? `<p><a class="button ghost" href="${escapeHtml(row.apply_url)}" target="_blank"><i data-lucide="external-link"></i> 打开投递页</a></p>` : ""}
       ${applicationValidation(row)}
       ${row.outreach_message ? `<p class="message-preview">${escapeHtml(row.outreach_message)}</p>` : ""}
       <pre class="application-letter">${escapeHtml(row.cover_letter || "")}</pre>
@@ -2952,12 +3008,13 @@ function renderActiveRunMonitor(rows) {
     return;
   }
   el.hidden = false;
-  const visibleRows = displayRows;
+  const visibleRows = displayRows.slice(0, 4);
+  const hiddenRowCount = Math.max(0, displayRows.length - visibleRows.length);
   const hasRunning = activeRows.some((row) => ["queued", "running"].includes(row.status));
   const waitingCount = activeRows.filter((row) => row.status === "waiting_for_confirmation").length;
   const collapsedPreference = window.localStorage?.getItem(ACTIVE_RUN_COLLAPSED_KEY);
   const collapsed = collapsedPreference === null
-    ? false
+    ? displayRows.length > 1
     : collapsedPreference === "1";
   const monitorTitle = activeRows.length
     ? (finishedRows.length ? "求职流程状态" : "正在处理的求职流程")
@@ -3003,6 +3060,7 @@ function renderActiveRunMonitor(rows) {
         </button>
       ` : ""}
       ${waitingCount ? `<span>逐条确认，互不覆盖</span>` : ""}
+      ${hiddenRowCount ? `<span>另有 ${hiddenRowCount} 条，请到历史记录查看</span>` : ""}
     </div>
   `;
   if (window.lucide) window.lucide.createIcons();
@@ -3444,6 +3502,7 @@ function updateStartInputGuidance(form) {
   const raw = formJson(form);
   const hasPreference = Boolean(String(raw.instruction || "").trim());
   const hasProfile = Boolean(raw.profile_id || form.elements.resume_file?.files?.[0]);
+  const hasUnparsedPdf = Boolean(form.elements.resume_file?.files?.[0]) && !form.dataset.parsedProfileId;
   let title = "本次只搜索岗位";
   let detail = "当前未使用简历，看到感兴趣的 JD 后仍可继续做匹配分析。";
   let buttonText = "浏览 Agent 岗位";
@@ -3456,7 +3515,7 @@ function updateStartInputGuidance(form) {
   } else if (hasProfile) {
     title = "将从简历中推断适合的岗位";
     detail = "系统会读取目标岗位、技能和经历生成搜索条件，结果页仍可修改需求后重新搜索。";
-    buttonText = "解析简历并匹配岗位";
+    buttonText = hasUnparsedPdf ? "解析简历并匹配岗位" : "匹配简历并查找岗位";
     submitSummary = "将从简历推断方向并匹配岗位";
   } else if (hasPreference) {
     title = "将按你的求职需求搜索";
@@ -4376,6 +4435,12 @@ function bindForms() {
   const careerStartForm = $("#career-start-form");
   if (careerStartForm) {
     updateSelectedProfileCard(null, "none");
+    const requestedProfileId = Number(new URLSearchParams(window.location.search).get("profile_id") || 0);
+    if (requestedProfileId > 0) {
+      api(`/profiles/${requestedProfileId}`)
+        .then((profile) => updateSelectedProfileCard(profile))
+        .catch((error) => toast(error.message));
+    }
     careerStartForm.addEventListener("input", () => updateStartInputGuidance(careerStartForm));
     careerStartForm.addEventListener("change", async (event) => {
       updateStartInputGuidance(careerStartForm);
@@ -4475,12 +4540,34 @@ function bindForms() {
   $("#upload-profile-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = event.currentTarget;
+    const button = form.querySelector('button[type="submit"]');
+    const result = $("#upload-profile-result");
     const data = new FormData(form);
-    const response = await fetch("/profiles/upload", { method: "POST", body: data, headers: authHeaders() });
-    if (!response.ok) throw new Error(await response.text());
-    toast("Profile created");
-    form.reset();
-    loadProfiles();
+    if (button) button.disabled = true;
+    if (result) result.innerHTML = `<article class="item meta">正在读取 PDF 并建立简历档案...</article>`;
+    try {
+      const response = await fetch("/profiles/upload", { method: "POST", body: data, headers: authHeaders() });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(userFriendlyErrorMessage(body.detail, "解析这份 PDF 简历"));
+      if (result) result.innerHTML = `
+        <article class="item validation-ok">
+          <strong>简历档案 #${escapeHtml(body.id)} 已建立</strong>
+          <p>${escapeHtml(body.name || "未识别姓名")} · ${escapeHtml(profileSummaryText(body))}</p>
+          <div class="flow-result-actions">
+            <a class="button ghost" href="/profiles/${escapeHtml(body.id)}/html" target="_blank"><i data-lucide="eye"></i> 预览解析结果</a>
+            <a class="button primary" href="/?profile_id=${escapeHtml(body.id)}"><i data-lucide="search"></i> 用这份简历找岗位</a>
+          </div>
+        </article>`;
+      toast("简历解析完成");
+      form.reset();
+      await loadProfiles();
+      if (window.lucide) window.lucide.createIcons();
+    } catch (error) {
+      if (result) result.innerHTML = `<article class="item validation-risk"><strong>没有建立简历档案</strong><p>${escapeHtml(error.message)}</p></article>`;
+      toast(error.message);
+    } finally {
+      if (button) button.disabled = false;
+    }
   });
 
   $("#guided-profile-form")?.addEventListener("submit", async (event) => {
@@ -4504,6 +4591,8 @@ function bindForms() {
     }
     loadProfiles();
   });
+
+  $("#profile-library-search")?.addEventListener("input", () => loadProfiles().catch((error) => toast(error.message)));
 
   $("#job-search-form")?.addEventListener("submit", async (event) => {
     event.preventDefault();

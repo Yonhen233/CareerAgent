@@ -352,7 +352,11 @@ Resume:
             location=None,
             availability=None,
             headline=self._guess_headline(lines),
-            self_summary="\n".join(sections.get("summary", [])[:4]) or None,
+            self_summary=(
+                "\n".join(sections.get("summary", [])[:4]) or None
+                if self._has_explicit_summary_heading(lines)
+                else None
+            ),
             enabled_sections=[],
             target_roles=[],
             education=self._parse_loose_items(sections.get("education", []), "education"),
@@ -481,10 +485,11 @@ Resume:
         return any(cue in lowered for cue in role_cues)
 
     def _section_lines(self, lines: list[str]) -> dict[str, list[str]]:
-        section = "summary"
+        section: str | None = None
         output: dict[str, list[str]] = {
             "summary": [],
             "education": [],
+            "skills": [],
             "projects": [],
             "experience": [],
             "campus": [],
@@ -492,41 +497,111 @@ Resume:
             "awards": [],
         }
         for line in lines:
-            key = line.lower().strip(":：")
-            if any(token in key for token in ["summary", "profile", "个人总结", "自我评价", "个人优势"]):
-                section = "summary"
-                continue
-            if any(token in key for token in ["education", "教育", "学历"]):
-                section = "education"
-                continue
-            if any(token in key for token in ["project", "项目"]):
-                section = "projects"
-                continue
-            if any(token in key for token in ["experience", "work", "实习", "工作经历"]):
-                section = "experience"
-                continue
-            if any(token in key for token in ["campus", "校园", "社团", "学生会", "实践经历"]):
-                section = "campus"
-                continue
-            if any(token in key for token in ["certificate", "certification", "证书", "技能证书"]):
-                section = "certifications"
-                continue
-            if any(token in key for token in ["award", "honor", "获奖"]):
-                section = "awards"
+            detected = self._resume_section_heading(line)
+            if detected:
+                section = detected
                 continue
             if section in output:
                 output[section].append(line)
         return output
 
+    def _resume_section_heading(self, value: str) -> str | None:
+        key = re.sub(r"[\s:：|｜/_-]+", "", str(value or "").strip().lower())
+        aliases = {
+            "summary": {"summary", "profile", "个人总结", "自我评价", "个人优势"},
+            "education": {"education", "educationbackground", "教育", "教育经历", "教育背景", "学历", "学历信息"},
+            "skills": {"skills", "skill", "专业技能", "技能", "技术能力", "技能清单"},
+            "projects": {"project", "projects", "projectexperience", "项目", "项目经历", "项目经验"},
+            "experience": {"experience", "workexperience", "internshipexperience", "实习", "实习经历", "工作经历", "工作经验"},
+            "campus": {"campus", "campusexperience", "校园经历", "社团经历", "学生会经历", "实践经历"},
+            "certifications": {"certificate", "certificates", "certification", "certifications", "证书", "技能证书"},
+            "awards": {"award", "awards", "honor", "honors", "获奖", "荣誉", "荣誉奖项"},
+        }
+        for section, names in aliases.items():
+            if key in names:
+                return section
+        return None
+
     def _parse_loose_items(self, lines: list[str], kind: str) -> list[dict]:
         if not lines:
             return []
-        joined = "\n".join(lines[:16])
         if kind == "education":
-            return [{"school": lines[0][:120], "degree": "", "major": "", "duration": "", "details": joined}]
+            groups = self._split_education_items(lines)
+            return [self._map_loose_education(group) for group in groups]
         if kind == "experience":
+            joined = "\n".join(lines[:24])
             return [{"company": "", "role": lines[0][:120], "duration": "", "details": joined, "tech_stack": []}]
-        return [{"name": lines[0][:120], "description": joined, "tech_stack": self._extract_skills(joined), "impact": ""}]
+        groups = self._split_project_items(lines)
+        return [self._map_loose_project(group) for group in groups]
+
+    def _has_explicit_summary_heading(self, lines: list[str]) -> bool:
+        headings = {"summary", "profile", "个人总结", "自我评价", "个人优势"}
+        return any(line.lower().strip(" :：") in headings for line in lines)
+
+    def _split_education_items(self, lines: list[str]) -> list[list[str]]:
+        starts = [
+            index for index, line in enumerate(lines)
+            if re.search(r"(?:大学|学院|University|College)", line, flags=re.IGNORECASE)
+            and len(line) <= 120
+        ]
+        if not starts:
+            return [lines[:24]]
+        groups = []
+        for position, start in enumerate(starts):
+            end = starts[position + 1] if position + 1 < len(starts) else len(lines)
+            groups.append(lines[start:end])
+        return groups
+
+    def _map_loose_education(self, lines: list[str]) -> dict:
+        duration = next((line for line in lines if self._looks_like_duration(line)), "")
+        degree = next(
+            (line for line in lines[1:5] if re.search(r"本科|学士|硕士|研究生|博士|大专|Bachelor|Master|PhD", line, re.I)),
+            "",
+        )
+        ignored = {lines[0], duration, degree}
+        major = next(
+            (line for line in lines[1:6] if line not in ignored and not re.search(r"GPA|排名|奖学金", line, re.I)),
+            "",
+        )
+        details = "\n".join(line for line in lines[1:] if line not in {degree, major, duration})
+        return {
+            "school": lines[0][:120], "degree": degree[:80], "major": major[:120],
+            "duration": duration[:80], "details": details,
+        }
+
+    def _split_project_items(self, lines: list[str]) -> list[list[str]]:
+        starts = [
+            index for index in range(len(lines) - 1)
+            if self._looks_like_duration(lines[index + 1])
+            and not self._looks_like_duration(lines[index])
+            and not re.match(r"^(?:技术栈|Tech Stack)\s*[:：]", lines[index], re.I)
+        ]
+        if not starts:
+            return [lines[:32]]
+        groups = []
+        for position, start in enumerate(starts):
+            end = starts[position + 1] if position + 1 < len(starts) else len(lines)
+            groups.append(lines[start:end])
+        return groups
+
+    def _map_loose_project(self, lines: list[str]) -> dict:
+        joined = "\n".join(lines)
+        description_lines = lines[1:]
+        description = "\n".join(description_lines)
+        return {
+            "name": lines[0][:120],
+            "description": description,
+            "tech_stack": self._extract_skills(joined),
+            "impact": "",
+        }
+
+    def _looks_like_duration(self, value: str) -> bool:
+        text = str(value or "").strip()
+        return bool(re.search(
+            r"(?:19|20)\d{2}(?:[./年-]\d{1,2})?\s*(?:-|–|—|至|~)\s*(?:(?:19|20)\d{2}(?:[./年-]\d{1,2})?|至今|现在|Present)",
+            text,
+            flags=re.IGNORECASE,
+        ))
 
     def _guided_payload_to_text(self, payload: GuidedProfileRequest) -> str:
         parts = [payload.name]
