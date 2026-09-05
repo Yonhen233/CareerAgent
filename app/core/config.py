@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     llm_flash_model: str = "deepseek-v4-flash"
     llm_pro_model: str = "deepseek-v4-pro"
     llm_flash_trace_prefixes: str = (
-        "natural_language.,resume_parser.,jd_parser.,evaluation.llm_judge_suitability,"
+        "natural_language.,job_discovery.,resume_parser.,jd_parser.,evaluation.llm_judge_suitability,"
         "resume_tailor.,application.,matcher."
     )
     llm_pro_trace_prefixes: str = (

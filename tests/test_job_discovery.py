@@ -189,7 +189,7 @@ def test_profile_only_search_derives_query_and_adds_match_evidence(db_session):
 
     assert session.input_mode == "profile_only"
     assert "Agent 开发实习生" in session.resolved_query
-    assert "Python" in session.resolved_query
+    assert any("Python" in item for item in session.retrieval_quality_json["intent_plan"]["query_variants"])
     assert session.results[0].job_id == expected.id
     assert session.results[0].match_score == 100
     assert session.results[0].match_result_id is not None
@@ -247,7 +247,7 @@ def test_explicit_preference_is_kept_when_profile_is_also_provided(db_session):
     assert [result.job_id for result in session.results] == [beijing.id]
 
 
-def test_preference_location_overrides_profile_location_when_field_is_empty(db_session):
+def test_explicit_search_location_is_a_hard_constraint_and_does_not_use_profile_residence(db_session):
     profile = Profile(
         name="李明",
         target_roles_json=["Agent 开发实习生"],
@@ -279,6 +279,7 @@ def test_preference_location_overrides_profile_location_when_field_is_empty(db_s
             JobDiscoveryRequest(
                 preference_text="只看北京或远程的 Agent 开发实习",
                 profile_id=profile.id,
+                location="北京 / 远程",
                 source_mode="corpus",
                 limit=10,
             ),
@@ -286,6 +287,37 @@ def test_preference_location_overrides_profile_location_when_field_is_empty(db_s
     )
 
     assert session.location == "北京 / 远程"
+    assert [result.job_id for result in session.results] == [beijing.id]
+
+
+def test_remote_job_is_not_silently_included_when_only_beijing_is_requested(db_session):
+    beijing = _job(
+        db_session,
+        external_id="only-beijing",
+        title="Agent 开发实习生",
+        location="北京",
+        skills=["Python", "Agent"],
+    )
+    _job(
+        db_session,
+        external_id="remote-not-requested",
+        title="Agent 开发实习生",
+        location="远程",
+        skills=["Python", "Agent"],
+    )
+
+    session = asyncio.run(
+        JobDiscoveryService(job_search=NoLiveSearch()).discover(
+            db_session,
+            JobDiscoveryRequest(
+                preference_text="Agent 开发实习",
+                location="北京",
+                source_mode="corpus",
+                limit=10,
+            ),
+        )
+    )
+
     assert [result.job_id for result in session.results] == [beijing.id]
 
 

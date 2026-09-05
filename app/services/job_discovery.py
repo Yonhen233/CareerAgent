@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -11,6 +10,7 @@ from app.models.entities import Job, JobSearchResult, JobSearchSession, Profile
 from app.models.schemas import JobDiscoveryRequest
 from app.services.job_relevance import is_internship_like_posting, score_job_posting
 from app.services.job_search import JobSearchService
+from app.services.job_search_intent import JobSearchIntentService
 from app.services.job_visibility import user_visible_jobs
 from app.services.matcher import MatcherService
 from app.services.reranker import RerankerService
@@ -47,6 +47,7 @@ class JobDiscoveryService:
         matcher: MatcherService | None = None,
         vector_index: SQLiteVectorIndex | None = None,
         reranker: RerankerService | None = None,
+        intent_service: JobSearchIntentService | None = None,
     ) -> None:
         self.settings = get_settings()
         self.job_search = job_search or JobSearchService()
@@ -57,6 +58,7 @@ class JobDiscoveryService:
             anchor_top_n=0,
         )
         self.retrieval_quality = RetrievalQualityService(self.settings)
+        self.intent_service = intent_service or JobSearchIntentService()
 
     async def discover(
         self,
@@ -67,12 +69,14 @@ class JobDiscoveryService:
     ) -> JobSearchSession:
         profile = self._load_profile(db, payload.profile_id, tenant_id=tenant_id)
         preference = (payload.preference_text or "").strip()
-        resolved_query = self._resolved_query(preference, profile)
-        location = (
-            (payload.location or "").strip()
-            or self._preference_location(preference)
-            or self._profile_location(profile)
+        intent = await self.intent_service.plan(
+            db,
+            preference=preference,
+            profile=profile,
+            explicit_location=payload.location,
         )
+        resolved_query = intent.retrieval_query
+        location = " / ".join(intent.locations) or None
         input_mode = self._input_mode(preference, profile)
         session = JobSearchSession(
             tenant_id=tenant_id,
@@ -95,7 +99,7 @@ class JobDiscoveryService:
             if payload.source_mode in {"live", "hybrid"}:
                 live_jobs, source_errors = await self.job_search.search(
                     db,
-                    query=preference or self._external_query(profile),
+                    query=resolved_query,
                     location=location,
                     internship_only=payload.internship_only,
                     limit=max(payload.limit, 20),
@@ -114,7 +118,10 @@ class JobDiscoveryService:
                 internship_only=payload.internship_only,
                 tenant_id=tenant_id,
                 limit=payload.limit,
+                query_variants=intent.query_variants,
+                excluded_terms=intent.excluded_terms,
             )
+            retrieval_quality["intent_plan"] = intent.as_dict()
             session.retrieval_quality_json = retrieval_quality
             if not retrieval_quality.get("passed"):
                 raise RetrievalQualityError(
@@ -161,6 +168,8 @@ class JobDiscoveryService:
         internship_only: bool,
         tenant_id: str | None,
         limit: int,
+        query_variants: list[str] | None = None,
+        excluded_terms: list[str] | None = None,
     ) -> tuple[list[DiscoveryCandidate], dict[str, Any]]:
         rows_query = db.query(Job)
         if self.settings.rbac_enabled:
@@ -175,15 +184,23 @@ class JobDiscoveryService:
                 for job in jobs
                 if not location_terms
                 or any(term in (job.location or "").lower() for term in location_terms)
-                or "远程" in (job.location or "")
+                or ("远程" in location_terms and "远程" in (job.location or ""))
+            ]
+        if excluded_terms:
+            excluded = [term.lower() for term in excluded_terms if term.strip()]
+            jobs = [
+                job for job in jobs
+                if not any(term in self._job_text(job).lower() for term in excluded)
             ]
         if not jobs:
             quality = self.retrieval_quality.assess(query, [], min_evidence_chunks=1)
             return [], quality
 
-        all_scored_jobs: list[tuple[Job, Any]] = [
-            (job, score_job_posting(job, query)) for job in jobs
-        ]
+        queries = list(dict.fromkeys(item.strip() for item in (query_variants or [query]) if item.strip())) or [query]
+        all_scored_jobs: list[tuple[Job, Any]] = []
+        for job in jobs:
+            relevance_rows = [score_job_posting(job, item) for item in queries]
+            all_scored_jobs.append((job, max(relevance_rows, key=lambda item: item.score)))
         all_scored_jobs.sort(
             key=lambda item: (item[1].score, item[0].updated_at),
             reverse=True,
@@ -191,25 +208,32 @@ class JobDiscoveryService:
         candidate_pool_size = max(24, min(160, limit * 8))
         lexical_pool_size = max(12, min(candidate_pool_size // 2, limit * 3))
         lexical_candidates = all_scored_jobs[:lexical_pool_size]
-        chunks = self.vector_index.query_job_corpus(
-            db,
-            query,
-            job_ids={job.id for job in jobs},
-            top_k=candidate_pool_size,
-            rerank=False,
-        )
+        chunk_lists = [
+            self.vector_index.query_job_corpus(
+                db,
+                item,
+                job_ids={job.id for job in jobs},
+                top_k=candidate_pool_size,
+                rerank=False,
+            )
+            for item in queries
+        ]
         semantic_by_job: dict[int, float] = {}
-        for chunk in chunks:
-            job_id = int((chunk.metadata or {}).get("job_id") or 0)
-            if job_id:
-                vector_score = float(
-                    ((chunk.metadata or {}).get("retrieval") or {}).get("vector_score")
-                    or 0.0
-                )
-                semantic_by_job[job_id] = max(semantic_by_job.get(job_id, 0.0), vector_score)
+        semantic_query_hits: dict[int, set[int]] = {}
+        for query_index, chunks in enumerate(chunk_lists):
+            for chunk in chunks:
+                job_id = int((chunk.metadata or {}).get("job_id") or 0)
+                if job_id:
+                    vector_score = float(
+                        ((chunk.metadata or {}).get("retrieval") or {}).get("vector_score")
+                        or 0.0
+                    )
+                    semantic_by_job[job_id] = max(semantic_by_job.get(job_id, 0.0), vector_score)
+                    semantic_query_hits.setdefault(job_id, set()).add(query_index)
 
         semantic_job_ids = {
             int((chunk.metadata or {}).get("job_id") or 0)
+            for chunks in chunk_lists
             for chunk in chunks
             if int((chunk.metadata or {}).get("job_id") or 0)
         }
@@ -249,6 +273,7 @@ class JobDiscoveryService:
                         "rule_score_normalized": rule_norm,
                         "semantic_score": semantic,
                         "semantic_score_normalized": semantic_norm,
+                        "query_hit_indexes": sorted(semantic_query_hits.get(job.id, set())),
                         "reasons": relevance.reasons,
                         "retrieval": {
                             "vector_score": semantic,
@@ -261,8 +286,9 @@ class JobDiscoveryService:
                 }
             )
         raw_candidates.sort(key=lambda item: item["score"], reverse=True)
+        rerank_query = self._rerank_query(query, queries)
         reranked = self.reranker.rerank_dicts(
-            query,
+            rerank_query,
             raw_candidates[: max(30, limit * 3)],
             top_k=max(30, limit * 3),
         )
@@ -280,6 +306,10 @@ class JobDiscoveryService:
             "lexical_weight": 0.28,
             "candidate_score_floor": round(candidate_score_floor, 6),
             "weak_candidate_count": unfiltered_count - len(reranked),
+            "query_count": len(queries),
+            "query_variants": queries,
+            "rerank_query": rerank_query,
+            "semantic_fusion": "max_vector_score_across_queries",
         }
         candidates = [
             DiscoveryCandidate(
@@ -365,58 +395,6 @@ class JobDiscoveryService:
             raise ValueError(f"Profile #{profile_id} not found.")
         return profile
 
-    def _resolved_query(self, preference: str, profile: Profile | None) -> str:
-        if preference:
-            return preference
-        if not profile:
-            return "Agent 开发 实习 校招"
-        structured = profile.structured_profile_json or {}
-        roles = list(profile.target_roles_json or structured.get("target_roles") or [])
-        skills = list(structured.get("skills") or [])
-        profile_terms = " ".join([*roles[:3], *skills[:10]]).strip()
-        return profile_terms or "Agent 开发 实习 校招"
-
-    def _external_query(self, profile: Profile | None) -> str:
-        if profile:
-            structured = profile.structured_profile_json or {}
-            roles = list(profile.target_roles_json or structured.get("target_roles") or [])
-            if roles:
-                return str(roles[0])
-            if profile.headline:
-                return profile.headline
-        return "Agent 开发实习生"
-
-    def _profile_location(self, profile: Profile | None) -> str | None:
-        if not profile:
-            return None
-        value = (profile.structured_profile_json or {}).get("location")
-        return str(value).strip() if value else None
-
-    def _preference_location(self, preference: str) -> str | None:
-        text = (preference or "").strip()
-        if not text:
-            return None
-        candidates = (
-            "北京",
-            "上海",
-            "深圳",
-            "广州",
-            "杭州",
-            "成都",
-            "南京",
-            "武汉",
-            "西安",
-            "苏州",
-            "重庆",
-            "天津",
-            "长沙",
-            "合肥",
-            "厦门",
-            "远程",
-        )
-        found = [item for item in candidates if re.search(re.escape(item), text)]
-        return " / ".join(found) or None
-
     def _match_signal_confidence(self, job: Job) -> float:
         structured = job.structured_jd_json or {}
         payload = job.source_payload_json or {}
@@ -456,6 +434,11 @@ class JobDiscoveryService:
             job.raw_jd_text[:4000],
         ]
         return "\n".join(str(item) for item in fields if item)
+
+    @staticmethod
+    def _rerank_query(primary: str, queries: list[str]) -> str:
+        compact = [" ".join(item.split())[:180] for item in queries if item.strip()]
+        return "\n".join(dict.fromkeys([" ".join(primary.split())[:180], *compact]))[:480]
 
     def _clamp(self, value: float) -> float:
         return max(0.0, min(1.0, value))

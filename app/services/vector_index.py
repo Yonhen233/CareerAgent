@@ -11,7 +11,6 @@ from app.services.embedding_service import (
     EmbeddingService,
     cosine_similarity,
     expand_query_text,
-    hash_embedding,
     tokenize,
 )
 from app.services.reranker import RerankerService
@@ -139,7 +138,9 @@ class SQLiteVectorIndex:
         query_hits: dict[str, list[int]] = {}
         for query_index, ranked in enumerate(ranked_lists):
             for rank, chunk in enumerate(ranked, start=1):
-                by_uid.setdefault(chunk.chunk_uid, chunk)
+                current = by_uid.get(chunk.chunk_uid)
+                if current is None or chunk.score > current.score:
+                    by_uid[chunk.chunk_uid] = chunk
                 rrf_scores[chunk.chunk_uid] = rrf_scores.get(chunk.chunk_uid, 0.0) + 1.0 / (
                     self.settings.rag_multi_query_rrf_k + rank
                 )
@@ -165,8 +166,15 @@ class SQLiteVectorIndex:
         fused.sort(key=lambda item: item.score, reverse=True)
         candidates = fused[:first_stage_limit]
         if self.settings.reranker_enabled:
-            return self.reranker.rerank_chunks(queries[0], candidates, top_k=top_k)
+            rerank_query = self._multi_query_rerank_text(queries)
+            return self.reranker.rerank_chunks(rerank_query, candidates, top_k=top_k)
         return candidates[:top_k]
+
+    @staticmethod
+    def _multi_query_rerank_text(queries: list[str]) -> str:
+        # Rerank against every retrieval perspective; no single variant is privileged.
+        compact = [" ".join(query.split())[:220] for query in queries if query.strip()]
+        return "\n".join(dict.fromkeys(compact))[:660]
 
     def upsert_job_chunks(self, db: Session, job_id: int, chunks: list[TextChunk]) -> int:
         db.query(JobChunk).filter(JobChunk.job_id == job_id).delete()
