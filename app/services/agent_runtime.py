@@ -24,6 +24,7 @@ from app.services.agent_reliability import (
 )
 from app.services.retrieval_quality import RetrievalQualityError
 from app.core.redaction import SecurityRedactor
+from app.core.retry import full_jitter_delay
 
 T = TypeVar("T")
 EventSink = Callable[[str, dict[str, Any]], None]
@@ -212,13 +213,18 @@ class AgentToolRuntime:
                 )
                 if not retry:
                     raise
-                delay = self.settings.agent_tool_retry_backoff_seconds * attempt
+                delay = full_jitter_delay(
+                    base_seconds=self.settings.agent_tool_retry_backoff_seconds,
+                    retry_number=attempt,
+                    max_seconds=self.settings.agent_tool_retry_max_backoff_seconds,
+                )
                 event_sink(
                     "tool_retry_scheduled",
                     {
                         "tool_name": tool_name,
                         "next_attempt": attempt + 1,
                         "delay_seconds": delay,
+                        "retry_strategy": "capped_exponential_full_jitter",
                         "error_id": envelope.error_id,
                     },
                 )

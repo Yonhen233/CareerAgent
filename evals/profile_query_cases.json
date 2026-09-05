@@ -1,0 +1,68 @@
+[
+  {
+    "name": "rag_backend",
+    "expected_role": "rag_backend",
+    "forbidden_query_terms": ["计算机视觉", "推荐算法"],
+    "profile": {
+      "skills": ["Python", "FastAPI", "Elasticsearch", "向量数据库"],
+      "projects": [{
+        "name": "企业知识库问答",
+        "description": "搭建文档解析、混合检索、重排与引用溯源服务，完成离线召回评测和线上接口交付",
+        "tech_stack": ["Python", "FastAPI", "RAG"]
+      }]
+    }
+  },
+  {
+    "name": "agent_runtime",
+    "expected_role": "agent_runtime",
+    "forbidden_query_terms": ["模型训练", "计算机视觉"],
+    "profile": {
+      "skills": ["Python", "LangGraph", "Redis", "SQLite"],
+      "projects": [{
+        "name": "任务执行 Agent",
+        "description": "实现工具注册、状态图编排、checkpoint 中断恢复、人工审批、幂等执行和运行轨迹观测",
+        "tech_stack": ["LangGraph", "Redis"]
+      }]
+    }
+  },
+  {
+    "name": "llm_eval",
+    "expected_role": "llm_eval",
+    "forbidden_query_terms": ["模型预训练", "广告推荐"],
+    "profile": {
+      "skills": ["Python", "pytest", "LLM Evaluation"],
+      "projects": [{
+        "name": "大模型应用评测平台",
+        "description": "构建中英文测试集，评估事实一致性、工具调用成功率、任务完成率、延迟和 token 成本，并把 bad case 固化为回归用例",
+        "tech_stack": ["Python", "pytest"]
+      }]
+    }
+  },
+  {
+    "name": "ai_product",
+    "expected_role": "ai_product",
+    "forbidden_query_terms": ["算法训练", "后端架构师"],
+    "profile": {
+      "skills": ["需求分析", "原型设计", "数据分析"],
+      "work_experience": [{
+        "name": "AI 产品实习",
+        "role": "产品实习生",
+        "description": "访谈用户并设计智能客服工作流，定义人工接管和回答质量指标，推动研发上线",
+        "impact": "完成可用版本交付"
+      }]
+    }
+  },
+  {
+    "name": "planned_learning_is_not_delivery",
+    "expected_role": "python_junior",
+    "forbidden_query_terms": ["Agent 开发", "RAG 工程师", "LangGraph 开发"],
+    "profile": {
+      "skills": ["Python 基础", "HTML", "CSS"],
+      "projects": [{
+        "name": "课程笔记",
+        "description": "阅读过 RAG、Agent 和 FastAPI 文章，计划以后学习 LangGraph；没有交付过大模型应用",
+        "tech_stack": []
+      }]
+    }
+  }
+]

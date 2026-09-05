@@ -5,7 +5,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.core.llm import LLMClient, extract_json_object
+from app.core.llm import LLMClient, LLMConfigurationError, LLMResponseError, extract_json_object
 from app.models.entities import Profile
 
 
@@ -43,18 +43,19 @@ class JobSearchIntentService:
         profile: Profile | None,
         explicit_location: str | None,
     ) -> JobSearchIntent:
-        fallback = self._evidence_preserving_plan(
+        evidence_seed = self._evidence_preserving_plan(
             preference=preference,
             profile=profile,
             explicit_location=explicit_location,
         )
         if not self.llm.available:
-            return fallback
-        try:
-            planned = await self._llm_plan(db, preference=preference, profile=profile, fallback=fallback)
-            return planned
-        except Exception:  # noqa: BLE001 - search must survive optional semantic planning failure
-            return fallback
+            raise LLMConfigurationError("岗位意图理解需要可用的 LLM，无法使用静态 Query 兜底。")
+        return await self._llm_plan(
+            db,
+            preference=preference,
+            profile=profile,
+            evidence_seed=evidence_seed,
+        )
 
     def _evidence_preserving_plan(
         self,
@@ -91,7 +92,7 @@ class JobSearchIntentService:
         *,
         preference: str,
         profile: Profile | None,
-        fallback: JobSearchIntent,
+        evidence_seed: JobSearchIntent,
     ) -> JobSearchIntent:
         # When the user states a goal, the resume must not silently change that goal.
         # Profile evidence is only used here to infer intent in profile-only searches.
@@ -113,7 +114,7 @@ class JobSearchIntentService:
                 "direction; semantic expansion is allowed, invented experience is not.\n\n"
                 f"User preference:\n{preference or '(not provided)'}\n\n"
                 f"Grounded profile evidence:\n{profile_context or '(not provided)'}\n\n"
-                f"Deterministic fallback:\n{fallback.as_dict()}"
+                f"Grounded evidence views (input context, not an answer fallback):\n{evidence_seed.as_dict()}"
             ),
             temperature=0,
             max_tokens=500,
@@ -122,16 +123,18 @@ class JobSearchIntentService:
             trace_name="job_discovery.query_planning",
         )
         payload = extract_json_object(text)
-        primary = self._bounded_text(payload.get("retrieval_query"), fallback.retrieval_query)
+        primary = self._bounded_text(payload.get("retrieval_query"))
+        if not primary:
+            raise LLMResponseError("岗位意图规划结果缺少 retrieval_query。")
         variants = self._unique(
-            [primary, *[self._bounded_text(item, "") for item in payload.get("query_variants") or []]]
+            [primary, *[self._bounded_text(item) for item in payload.get("query_variants") or []]]
         )[:3]
         parsed_locations = self._grounded_values(payload.get("locations"), preference)
         exclusions = self._grounded_values(payload.get("excluded_terms"), preference)
         return JobSearchIntent(
             retrieval_query=primary,
-            query_variants=variants or fallback.query_variants,
-            locations=fallback.locations or parsed_locations,
+            query_variants=variants,
+            locations=evidence_seed.locations or parsed_locations,
             excluded_terms=exclusions,
             planner_mode="llm_grounded",
             profile_inference_used=not bool(preference.strip()) and bool(profile),
@@ -200,9 +203,9 @@ class JobSearchIntentService:
         return self._unique(text.splitlines())
 
     @staticmethod
-    def _bounded_text(value: Any, fallback: str) -> str:
+    def _bounded_text(value: Any) -> str:
         text = " ".join(str(value or "").split()).strip()
-        return text[:240] or fallback
+        return text[:240]
 
     @staticmethod
     def _unique(values: list[str]) -> list[str]:

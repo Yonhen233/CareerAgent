@@ -1,11 +1,46 @@
 # 开发日志
 
+## 2026-09-05 21:10 +08:00：取消降质静态兜底，并按成熟 Agent 范式收敛重试责任
+
+### 问题不是“多重试几次”，而是先判断重试能否改变结果
+
+本轮复盘发现，岗位意图规划和岗位适配分析在 LLM 不可用、响应异常或引用门控失败时，会悄悄返回本地拼接 Query 或本地匹配基线。接口看似仍然成功，实际语义理解能力已经改变，用户却无法分辨。这种“可用性数字好看、答案质量降级且不透明”的行为不适合以 LLM 语义为产品前提的 CareerAgent，因此改为：LLM 配置缺失立即报配置错误；暂时性网络和服务故障由唯一的 LLM Client 有界重试；结构或证据门控仍失败则明确失败，不再把静态结果伪装成 AI 分析。
+
+重试方案对照了 LangGraph Fault Tolerance、LangGraph Durable Execution、AWS Backoff with Jitter 与幂等 API 指南。实现遵循五个边界：
+
+1. **按错误语义重试。** 网络断连、请求超时、HTTP 408/429/5xx 属于暂时性依赖故障；配置、鉴权、普通 4xx、输入合同、预算、证据不足和质量门控失败不会原样重试。HTTP 409 不再默认重试，因为冲突本身不证明稍后可恢复。
+2. **只有一个重试 Owner。** LLM HTTP 由 `LLMClient` 负责，注册为 `retry_owner=runtime` 的幂等 Tool 由 `AgentToolRuntime` 负责，Parser/生成器的结构修复由业务 Handler 负责，Worker 只恢复被标记为 retryable 的整条任务。这样避免 Client、Tool、Graph 和 Worker 同时重试导致调用数乘法放大。
+3. **指数退避加 full jitter。** 旧实现是 `base * attempt` 的线性等待，多实例同时失败时仍会在相近时刻再次冲击依赖。现在使用有上限的指数退避，并在 `[0, exponential_cap]` 内随机等待。上限来自显式配置，默认值受交互型 Agent 的 180 秒端到端 SLO 约束，而不是无限等待。
+4. **尊重服务端节流信号。** 解析 `Retry-After` 的秒数和 HTTP 日期；若它在本次延迟预算内，就至少等待该时长。若服务端要求等待时间已经超过本地预算，直接失败并记录 `retry_after_exceeds_latency_budget`，不能提前重试继续冲击服务，也不能让页面无上限等待。
+5. **副作用必须幂等。** 只读检索 Tool 可以按合同重试；邮件发送、浏览器投递等外部副作用不会自动重放，必须依赖持久化审批、业务幂等键和人工确认。LangGraph checkpoint 解决恢复位置，幂等键解决“外部动作成功但 checkpoint 尚未写入”的重复执行窗口，两者不能互相替代。
+
+### 本轮 Bad Case 和验证
+
+- **Bad Case：所有 4xx 都当暂时错误。** 原实现包含 HTTP 409。修复后只有 408、429 和 5xx 进入 HTTP 重试，409 与其他客户端错误第一次即失败。
+- **Bad Case：看到 `Retry-After: 60`，本地只等 5 秒又请求。** 这既不尊重上游，也可能加剧限流。现在超过本地等待预算时停止重试，并把抑制原因写进 `llm_call_logs.prompt_preview_json`。
+- **Bad Case：重试隐藏额外费用。** 每个 HTTP attempt 继续分别占用 `LLMCallBudget.max_http_attempts` 并形成独立日志；预算不足会在发出下一次 HTTP 请求前终止，所以恢复能力不能绕过 Token 和调用次数上限。
+- **Bad Case：质量门控失败后返回本地分数。** 岗位适配的引用完整率不足现在抛出 `LLMResponseError`。同一 Prompt 原样再调通常不会提供新的纠错信息；需要修复时应由唯一结构/质量 repair 层把具体错误反馈给模型，并受 `max_repair_calls` 约束。
+- 故障注入覆盖 429 恢复、`Retry-After`、超预算抑制、409 立即失败、预算中止、幂等 Tool 恢复、非幂等 Tool 单次执行和持久化熔断。
+
+### “只有简历时能否形成合适 Query”的真实评测
+
+此前只有结构测试，只能证明项目/工作/校园经历被放入 Query 上下文，不能证明方向判断正确。本轮新增 `evals/profile_query_cases.json` 与 `scripts/run_profile_query_eval.py`，使用 5 个无 target role/headline 的真实语义样例：RAG 后端、Agent Runtime、LLM 评测、AI 产品，以及“只阅读并计划学习、没有交付”的负例。真实 `DeepSeek-V4-Flash` 先生成 Query，再由当前多语言 embedding 在 6 个相邻岗位族描述中盲排。
+
+EvaluationRun `#190` 结果：Top1 岗位方向准确率 `1.0000`、MRR `1.0000`、禁止的无证据方向出现率 `0.0000`；5 次模型调用无重试，共 `2,392` tokens，embedding provider 为 `sentence_transformers`。负例没有被包装成 Agent/RAG 工程经历，而是生成初级 Python 后端/Web Query。该结果证明这 5 个固定 case 的当前链路有效，不代表所有中文简历都达到 100%；后续应扩展不同教育背景、交叉岗位和人工 pairwise 岗位选择标注。
+
+参考：
+
+- LangGraph Fault Tolerance: https://docs.langchain.com/oss/python/langgraph/fault-tolerance
+- LangGraph Functional API / Durable Execution: https://docs.langchain.com/oss/python/langgraph/functional-api
+- AWS Exponential Backoff and Jitter: https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/
+- AWS Making retries safe with idempotent APIs: https://aws.amazon.com/builders-library/making-retries-safe-with-idempotent-APIs/
+
 ## 2026-09-05 18:35 +08:00：岗位意图规划与 Multi-Query 从词表规则改为证据驱动语义方案
 
 ### 用户问题与最终方案
 
 - 旧岗位发现只有两种简单路径：有求职描述时直接把整段原文作为 Query；只有简历时拼接目标岗位和前 10 个技能。前者会被长句、地点和否定约束稀释，后者无法从真实项目和工作经历判断更适合的岗位方向。
-- 新增 `JobSearchIntentService`。生产环境有 LLM 时，用一次 Flash 生成结构化检索意图和最多 3 条互补 Query；地点、排除项必须同时返回用户原文 evidence，服务端验证 evidence 确实存在后才允许成为过滤条件。LLM 调用失败时不启动另一套岗位/城市词典，而是保留用户原文做语义检索。
+- 新增 `JobSearchIntentService`。使用一次 Flash 生成结构化检索意图和最多 3 条互补 Query；地点、排除项必须同时返回用户原文 evidence，服务端验证 evidence 确实存在后才允许成为过滤条件。后续严格化后，LLM 不可用或输出合同失败会直接报错，不再保留用户原文作为静态运行路径。
 - 明确表单填写的地点属于硬约束；简历中的 `location` 只表示现居地，不再自动变成求职城市。简历只有显式 `job_preferences.locations` 或 `target_locations` 才可作为约束来源，目前产品表单尚未写入这两个字段。
 - 只有简历、没有目标岗位时，不再先用规则猜一个岗位标签。系统从项目、工作/校园经历和技能形成不同 evidence view，直接对现有 JD 语义索引做 multi-query 召回，由真实岗位库决定候选岗位族；明确写过的 target role 仍保留为主 Query。
 - 岗位发现现在按各 Query 分别检索完整 JD chunk 库，候选取并集，同一岗位使用跨 Query 最高原始向量分；统一 rerank Query 包含全部检索视角。意图计划、Query 列表、命中索引和融合方式写入 retrieval provenance，便于定位某个结果为何入选。
@@ -17,7 +52,7 @@
 
 同一轮还发现旧过滤器无论用户是否选择远程，都会额外放行 `location=远程` 的岗位；因此“只看北京”并不是真的硬约束。现在只有地点值明确包含远程时才返回远程岗位，并用独立回归样例锁定该边界。
 
-**2. “不用 LLM”不等于必须维护一套语言规则。** 第一版修复草案准备增加城市枚举、否定词正则和岗位类别映射，但这种方式会持续漏掉“大湾区、长三角、base 上海、不要偏售前”等表达。最终删除这套词表解析：无 LLM 时系统诚实地执行原文语义搜索；有 LLM 时让模型理解语言，程序只负责 schema、原文证据和权限边界。
+**2. “不用词表规则”不等于需要保留无 LLM 的降级流程。** 第一版修复草案准备增加城市枚举、否定词正则和岗位类别映射，但这种方式会持续漏掉“大湾区、长三角、base 上海、不要偏售前”等表达。最终删除词表解析，并在后续严格化为：由 LLM 理解语言，程序负责 schema、原文证据和权限边界；LLM 不可用则有界重试后明确失败。
 
 **3. 简历技能列表不能代表最适合的岗位。** Python、SQL、Docker 同时可出现在后端、数据、算法和 Agent 岗。只拼技能会让通用技术压过项目交付语义。新路径优先使用项目/经历中的动作、对象和结果做 Query，技能只作为另一条辅助检索视角；这属于“用证据检索岗位”，不是硬编码职业分类器。
 
@@ -43,7 +78,7 @@
 - 真实页面中，选择已有档案后点击“分析匹配与差距”，请求期间操作区没有持续反馈，用户会把正常等待理解为卡死。现将按钮切换为禁用加载态，在操作按钮旁和结果区同时显示处理阶段；失败时保留已选档案并给出可重试提示。静态资源版本同步更新，避免浏览器缓存旧脚本造成“代码已修、页面仍无变化”。
 - 原岗位列表和详情把 `required_skills`、职责涉及技术、候选框架和关键词放在同一组标签中，并在详细分析前展示快速字符串匹配产生的“已匹配/需补充”。这会把辅助解析伪装成最终判断。用户页现只展示岗位职责、任职要求和完整原文；岗位列表只承诺语义相关排序，能力结论必须进入详情后结合简历证据生成。
 - 岗位检索改为全岗位库向量召回与词法候选取并集，不再先用手工规则把向量检索限制在 Top 40。第一阶段按语义 72%、词法 28% 融合，再使用无词法锚定的 reranker；简历适配的本地基线也从“必备技能覆盖 38%”调整为语义相似 42%、经历证据 30%、明确技能 12% 和其他条件 16%。
-- 用户点选岗位后的详细适配改为一次 Flash LLM 语义判断。输入为完整 JD、简历事实源和简历 RAG Top Evidence；每条匹配必须同时引用 JD 与简历原文，每条硬性缺口必须引用任职要求原文。程序校验引用、资格段落边界、结论互斥和替代条件，不通过则回退到本地语义检索，不能把模型自由文本直接发布给用户。
+- 用户点选岗位后的详细适配改为一次 Flash LLM 语义判断。输入为完整 JD、简历事实源和简历 RAG Top Evidence；每条匹配必须同时引用 JD 与简历原文，每条硬性缺口必须引用任职要求原文。程序校验引用、资格段落边界、结论互斥和替代条件；当前严格策略下不通过会明确失败，不能把模型自由文本或本地基线伪装成最终 AI 分析发布给用户。
 - 批量岗位搜索不调用 LLM，避免搜索 20 个岗位就产生 20 次模型开销；只有用户主动点选一个岗位进行详细匹配时调用一次 Flash。普通测试进程明确清空真实 API Key，需要在线评测时由独立 smoke 显式开启，防止单元回归意外消耗余额。
 
 ### 值得复盘的 Bad Case 与设计选择

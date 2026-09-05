@@ -1,6 +1,9 @@
 import asyncio
 import json
 
+import pytest
+
+from app.core.llm import LLMConfigurationError, LLMResponseError
 from app.models.entities import Job, Profile
 from app.services.semantic_match_analysis import SemanticMatchAnalysisService
 
@@ -55,6 +58,10 @@ class FakeAlternativeGapLLM(FakeGroundedLLM):
         return json.dumps(payload, ensure_ascii=False)
 
 
+class UnavailableLLM:
+    available = False
+
+
 def _fixtures():
     profile = Profile(
         name="候选人",
@@ -105,18 +112,15 @@ def test_semantic_match_accepts_only_cited_conclusions(db_session):
 
 def test_semantic_match_rejects_uncited_model_conclusions(db_session):
     profile, job, baseline = _fixtures()
-    result = asyncio.run(
-        SemanticMatchAnalysisService(FakeUngroundedLLM()).analyze(
-            db_session,
-            profile=profile,
-            job=job,
-            baseline=baseline,
+    with pytest.raises(LLMResponseError, match="引用完整性门禁"):
+        asyncio.run(
+            SemanticMatchAnalysisService(FakeUngroundedLLM()).analyze(
+                db_session,
+                profile=profile,
+                job=job,
+                baseline=baseline,
+            )
         )
-    )
-
-    assert result.applied is False
-    assert result.payload is baseline
-    assert result.metadata["quality_gate"] == "insufficient_verbatim_citations"
 
 
 def test_semantic_match_rejects_gap_for_already_satisfied_alternative(db_session):
@@ -132,3 +136,16 @@ def test_semantic_match_rejects_gap_for_already_satisfied_alternative(db_session
 
     assert result.applied is True
     assert result.payload["missing_skills"] == []
+
+
+def test_semantic_match_requires_llm_instead_of_returning_local_baseline(db_session):
+    profile, job, baseline = _fixtures()
+    with pytest.raises(LLMConfigurationError, match="需要可用的 LLM"):
+        asyncio.run(
+            SemanticMatchAnalysisService(UnavailableLLM()).analyze(
+                db_session,
+                profile=profile,
+                job=job,
+                baseline=baseline,
+            )
+        )

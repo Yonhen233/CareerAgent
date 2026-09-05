@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.core.llm import LLMClient, extract_json_object, format_exception
+from app.core.llm import LLMClient, LLMConfigurationError, LLMResponseError, extract_json_object
 from app.models.entities import Job, Profile
 
 
@@ -34,12 +34,7 @@ class SemanticMatchAnalysisService:
         baseline: dict[str, Any],
     ) -> SemanticMatchResult:
         if not self.llm.available:
-            return SemanticMatchResult(
-                applied=False,
-                payload=baseline,
-                metadata={"mode": "semantic_retrieval_fallback"},
-                warning="AI 语义分析未启用，当前结果来自本地语义检索。",
-            )
+            raise LLMConfigurationError("岗位适配与差距分析需要可用的 LLM。")
 
         profile_source = self._profile_source(profile)
         jd_source = str(job.raw_jd_text or "").strip()
@@ -82,24 +77,16 @@ RAG RETRIEVED RESUME EVIDENCE:
 KNOWN ALTERNATIVE REQUIREMENTS (satisfying the minimum means other options are not gaps):
 {alternative_context[:2000]}
 """
-        try:
-            text = await self.llm.generate_text(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                temperature=0.1,
-                max_tokens=1100,
-                response_format={"type": "json_object"},
-                db=db,
-                trace_name="matcher.semantic_fit",
-            )
-            parsed = extract_json_object(text)
-        except Exception as exc:  # noqa: BLE001
-            return SemanticMatchResult(
-                applied=False,
-                payload=baseline,
-                metadata={"mode": "semantic_retrieval_fallback", "error": format_exception(exc)},
-                warning="AI 语义分析暂时不可用，当前结果来自本地语义检索。",
-            )
+        text = await self.llm.generate_text(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=0.1,
+            max_tokens=1100,
+            response_format={"type": "json_object"},
+            db=db,
+            trace_name="matcher.semantic_fit",
+        )
+        parsed = extract_json_object(text)
 
         matched = self._ground_matched(parsed.get("matched"), jd_source, profile_source)
         qualification_source = "\n".join(
@@ -126,17 +113,9 @@ KNOWN ALTERNATIVE REQUIREMENTS (satisfying the minimum means other options are n
         ]
         requested_count = len(parsed.get("matched") or []) * 2 + len(parsed.get("gaps") or [])
         if requested_count == 0 or grounded_citation_count / requested_count < 0.75:
-            return SemanticMatchResult(
-                applied=False,
-                payload=baseline,
-                metadata={
-                    "mode": "semantic_retrieval_fallback",
-                    "quality_gate": "insufficient_verbatim_citations",
-                    "citation_grounding_rate": round(
-                        grounded_citation_count / max(requested_count, 1), 4
-                    ),
-                },
-                warning="AI 语义结论未通过引用校验，当前结果来自本地语义检索。",
+            raise LLMResponseError(
+                "岗位适配分析未通过引用完整性门禁："
+                f"citation_grounding_rate={grounded_citation_count / max(requested_count, 1):.4f}"
             )
 
         fit_score = self._score(parsed.get("fit_score"), baseline.get("overall_score", 0.0))

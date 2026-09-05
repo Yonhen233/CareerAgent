@@ -4,10 +4,12 @@ from fastapi.testclient import TestClient
 
 from app.core.database import get_db
 from app.main import app
+from app.api import job_discovery as job_discovery_api
 from app.models.entities import Job, JobChunk, JobSearchResult, JobSearchSession, MatchResult, Profile
 from app.models.schemas import JobDiscoveryRequest
 from app.services.job_discovery import DiscoveryCandidate, JobDiscoveryService
 from app.services.job_search import JobSearchService
+from app.services.job_search_intent import JobSearchIntentService
 from app.services.job_sources import JobPosting
 from app.services.text_splitter import ResumeTextSplitter
 from app.services.vector_index import SQLiteVectorIndex
@@ -50,6 +52,21 @@ class NoLiveSearch:
         raise AssertionError("corpus mode must not call external job sources")
 
 
+class DeterministicIntentForTests:
+    """Unit-test double; production discovery always requires the LLM planner."""
+
+    async def plan(self, _db, *, preference, profile, explicit_location):
+        return JobSearchIntentService()._evidence_preserving_plan(
+            preference=preference,
+            profile=profile,
+            explicit_location=explicit_location,
+        )
+
+
+def _service(**kwargs):
+    return JobDiscoveryService(intent_service=DeterministicIntentForTests(), **kwargs)
+
+
 class FakeMatcher:
     def create_match_result(self, db, profile, job):
         required = job.structured_jd_json.get("required_skills") or []
@@ -90,7 +107,7 @@ def test_preference_only_search_does_not_require_profile(db_session):
     )
 
     session = asyncio.run(
-        JobDiscoveryService(job_search=NoLiveSearch()).discover(
+        _service(job_search=NoLiveSearch()).discover(
             db_session,
             JobDiscoveryRequest(
                 preference_text="深圳 Agent RAG 开发实习",
@@ -139,7 +156,7 @@ def test_user_discovery_excludes_evaluation_jobs_and_deduplicates_postings(db_se
     db_session.commit()
 
     session = asyncio.run(
-        JobDiscoveryService(job_search=NoLiveSearch()).discover(
+        _service(job_search=NoLiveSearch()).discover(
             db_session,
             JobDiscoveryRequest(
                 preference_text="深圳 Agent RAG 实习",
@@ -181,7 +198,7 @@ def test_profile_only_search_derives_query_and_adds_match_evidence(db_session):
     )
 
     session = asyncio.run(
-        JobDiscoveryService(job_search=NoLiveSearch(), matcher=FakeMatcher()).discover(
+        _service(job_search=NoLiveSearch(), matcher=FakeMatcher()).discover(
             db_session,
             JobDiscoveryRequest(profile_id=profile.id, source_mode="corpus", limit=10),
         )
@@ -228,7 +245,7 @@ def test_explicit_preference_is_kept_when_profile_is_also_provided(db_session):
     )
 
     session = asyncio.run(
-        JobDiscoveryService(job_search=NoLiveSearch(), matcher=FakeMatcher()).discover(
+        _service(job_search=NoLiveSearch(), matcher=FakeMatcher()).discover(
             db_session,
             JobDiscoveryRequest(
                 preference_text="只看北京的 Agent 平台实习",
@@ -274,7 +291,7 @@ def test_explicit_search_location_is_a_hard_constraint_and_does_not_use_profile_
     )
 
     session = asyncio.run(
-        JobDiscoveryService(job_search=NoLiveSearch(), matcher=FakeMatcher()).discover(
+        _service(job_search=NoLiveSearch(), matcher=FakeMatcher()).discover(
             db_session,
             JobDiscoveryRequest(
                 preference_text="只看北京或远程的 Agent 开发实习",
@@ -307,7 +324,7 @@ def test_remote_job_is_not_silently_included_when_only_beijing_is_requested(db_s
     )
 
     session = asyncio.run(
-        JobDiscoveryService(job_search=NoLiveSearch()).discover(
+        _service(job_search=NoLiveSearch()).discover(
             db_session,
             JobDiscoveryRequest(
                 preference_text="Agent 开发实习",
@@ -345,7 +362,7 @@ def test_sparse_jd_match_score_cannot_override_stronger_query_relevance(db_sessi
         location="北京",
         skills=["Agent", "Python", "RAG", "LangGraph"],
     )
-    service = JobDiscoveryService(job_search=NoLiveSearch(), matcher=FakeMatcher())
+    service = _service(job_search=NoLiveSearch(), matcher=FakeMatcher())
     candidates = [
         DiscoveryCandidate(
             job=sparse,
@@ -371,7 +388,7 @@ def test_sparse_jd_match_score_cannot_override_stronger_query_relevance(db_sessi
     assert candidates[1].match_signal_confidence == 0.25
 
 
-def test_discovery_session_api_can_be_restored_after_page_refresh(db_session):
+def test_discovery_session_api_can_be_restored_after_page_refresh(db_session, monkeypatch):
     job = _job(
         db_session,
         external_id="session-restore",
@@ -379,6 +396,8 @@ def test_discovery_session_api_can_be_restored_after_page_refresh(db_session):
         location="上海",
         skills=["Python", "RAG"],
     )
+    service = _service()
+    monkeypatch.setattr(job_discovery_api, "JobDiscoveryService", lambda: service)
     app.dependency_overrides[get_db] = lambda: db_session
     try:
         client = TestClient(app)
@@ -521,7 +540,7 @@ def test_candidate_quality_floor_removes_tail_noise(db_session):
     )
 
     session = asyncio.run(
-        JobDiscoveryService(job_search=NoLiveSearch()).discover(
+        _service(job_search=NoLiveSearch()).discover(
             db_session,
             JobDiscoveryRequest(
                 preference_text="北京 Agent RAG 后端开发实习",

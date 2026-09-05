@@ -16,6 +16,7 @@ import httpx
 from app.agents.prompt_registry import PromptRegistry
 from app.core.config import get_settings
 from app.core.redaction import SecurityRedactor
+from app.core.retry import full_jitter_delay, parse_retry_after
 from app.services.context_runtime import ContextRuntimeV2, ContextScope
 from app.services.token_optimization import OutputTokenPolicy, PromptSectionProfiler
 
@@ -37,6 +38,17 @@ class LLMBudgetExceededError(RuntimeError):
 
 class _RetryableLLMResponseError(LLMResponseError):
     """Raised for transient LLM HTTP responses that are worth retrying."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int,
+        retry_after_seconds: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.retry_after_seconds = retry_after_seconds
 
 
 _LLM_TRACE_CONTEXT: ContextVar[dict[str, Any]] = ContextVar("llm_trace_context", default={})
@@ -489,8 +501,13 @@ class LLMClient:
                     response = await client.post(self._chat_url(), headers=headers, json=payload)
                 if response.status_code >= 400:
                     error = f"LLM request failed with HTTP {response.status_code}: {response.text[:500]}"
-                    if response.status_code in {408, 409, 429} or response.status_code >= 500:
-                        raise _RetryableLLMResponseError(error)
+                    if response.status_code in {408, 429} or response.status_code >= 500:
+                        response_headers = getattr(response, "headers", {}) or {}
+                        raise _RetryableLLMResponseError(
+                            error,
+                            status_code=response.status_code,
+                            retry_after_seconds=parse_retry_after(response_headers.get("Retry-After")),
+                        )
                     raise LLMResponseError(error)
 
                 body = response.json()
@@ -550,7 +567,41 @@ class LLMClient:
                 return content
             except Exception as exc:
                 retryable = isinstance(exc, (httpx.TransportError, _RetryableLLMResponseError))
-                will_retry = retryable and attempt < max_attempts
+                retry_after = getattr(exc, "retry_after_seconds", None)
+                retry_after_within_budget = (
+                    retry_after is None
+                    or retry_after <= self.settings.llm_retry_max_backoff_seconds
+                )
+                will_retry = retryable and attempt < max_attempts and retry_after_within_budget
+                retry_delay = None
+                retry_reason = None
+                if will_retry:
+                    retry_delay = full_jitter_delay(
+                        base_seconds=self.settings.llm_retry_backoff_seconds,
+                        retry_number=attempt,
+                        max_seconds=self.settings.llm_retry_max_backoff_seconds,
+                        retry_after_seconds=retry_after,
+                    )
+                    retry_reason = (
+                        f"http_{exc.status_code}"
+                        if isinstance(exc, _RetryableLLMResponseError)
+                        else "transport_error"
+                    )
+                    attempt_preview.update(
+                        {
+                            "retry_strategy": "capped_exponential_full_jitter",
+                            "retry_reason": retry_reason,
+                            "retry_delay_seconds": round(retry_delay, 3),
+                        }
+                    )
+                elif retryable and attempt < max_attempts and not retry_after_within_budget:
+                    attempt_preview.update(
+                        {
+                            "retry_strategy": "capped_exponential_full_jitter",
+                            "retry_suppressed_reason": "retry_after_exceeds_latency_budget",
+                            "provider_retry_after_seconds": retry_after,
+                        }
+                    )
                 error_message = format_exception(exc)
                 self._record_llm_call(
                     db,
@@ -564,7 +615,7 @@ class LLMClient:
                     route_name=route.name,
                 )
                 if will_retry:
-                    await asyncio.sleep(max(self.settings.llm_retry_backoff_seconds, 0) * attempt)
+                    await asyncio.sleep(retry_delay or 0.0)
                     continue
                 raise
 

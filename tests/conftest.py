@@ -2,6 +2,7 @@ import os
 
 os.environ["EMBEDDING_PROVIDER"] = "hash"
 os.environ["RERANKER_ENABLED"] = "false"
+os.environ["APP_ENV"] = "test"
 os.environ["LLM_FALLBACK_ENABLED"] = "true"
 os.environ["LLM_API_KEY"] = ""
 os.environ["OPENAI_API_KEY"] = ""

@@ -1,5 +1,8 @@
 import asyncio
 
+import pytest
+
+from app.core.llm import LLMConfigurationError
 from app.models.entities import Profile
 from app.services.job_search_intent import JobSearchIntentService
 
@@ -21,7 +24,7 @@ class PlannedLLM:
         )
 
 
-def test_profile_only_intent_uses_delivery_evidence_without_treating_residence_as_constraint(db_session):
+def test_profile_only_baseline_uses_delivery_evidence_without_treating_residence_as_constraint(db_session):
     profile = Profile(
         name="候选人",
         source_type="guided",
@@ -36,10 +39,8 @@ def test_profile_only_intent_uses_delivery_evidence_without_treating_residence_a
     db_session.add(profile)
     db_session.commit()
 
-    intent = asyncio.run(
-        JobSearchIntentService(llm=UnavailableLLM()).plan(
-            db_session, preference="", profile=profile, explicit_location=None
-        )
+    intent = JobSearchIntentService(llm=UnavailableLLM())._evidence_preserving_plan(
+        preference="", profile=profile, explicit_location=None
     )
 
     assert "混合检索" in intent.retrieval_query
@@ -64,15 +65,13 @@ def test_llm_intent_requires_verbatim_evidence_for_natural_language_constraints(
     assert "前端" not in intent.excluded_terms
 
 
-def test_explicit_location_remains_authoritative_when_llm_is_unavailable(db_session):
-    intent = asyncio.run(
-        JobSearchIntentService(llm=UnavailableLLM()).plan(
-            db_session,
-            preference="找一个适合我的岗位",
-            profile=None,
-            explicit_location="深圳 / 远程",
+def test_job_search_intent_requires_llm_instead_of_using_static_fallback(db_session):
+    with pytest.raises(LLMConfigurationError, match="无法使用静态 Query 兜底"):
+        asyncio.run(
+            JobSearchIntentService(llm=UnavailableLLM()).plan(
+                db_session,
+                preference="找一个适合我的岗位",
+                profile=None,
+                explicit_location="深圳 / 远程",
+            )
         )
-    )
-
-    assert intent.locations == ["深圳", "远程"]
-    assert intent.retrieval_query == "找一个适合我的岗位"

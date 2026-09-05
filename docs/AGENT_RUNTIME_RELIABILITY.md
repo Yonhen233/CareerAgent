@@ -108,6 +108,15 @@ CareerAgent 的规则是：
 - Redis worker 读取 `ErrorEnvelope.retryable`，不可重试的 poison payload 第一次就进入 DLQ；
 - 邮件发送、网页提交等外部副作用永不自动重试。
 
+底层等待策略采用 capped exponential backoff with full jitter，而不是固定间隔或线性退避。LLM Client 只重试 transport error、HTTP 408/429/5xx，并解析服务端 `Retry-After`；配置/鉴权/普通 4xx/预算/质量门控失败立即停止。若 `Retry-After` 已超过当前交互延迟预算，系统不会提前撞上游，也不会无限挂起，而是记录 `retry_after_exceeds_latency_budget` 后向上返回失败。每个 HTTP attempt 都计入 `LLMCallBudget.max_http_attempts`，因此重试不能绕过成本上限。
+
+这里区分两种容易混淆的“再试一次”：
+
+- **Transient retry**：请求语义不变，等待依赖恢复；只适合幂等请求和暂时性故障。
+- **Semantic repair**：Prompt 必须带回 schema、引用或任务门控的具体失败原因，让模型生成修正版；由业务层的 `max_repair_calls` 单独限制，不能被 HTTP retry 代替。
+
+实现依据与边界参考 LangGraph 的 per-node RetryPolicy/timeout/error handler、Durable Execution 对 checkpoint 与幂等副作用的要求，以及 AWS 对 bounded exponential backoff、jitter 和 idempotency token 的建议。最大尝试次数和等待上限仍是产品 SLO/Token 预算参数，不从这些文档中的示例数字照抄。
+
 ## 5. 持久化 Circuit Breaker
 
 `tool_circuit_states` 保存 Tool、作用域、连续失败次数、最后错误类别和冷却时间。连续可重试依赖错误达到阈值后状态变为 `open`；冷却结束后只允许 half-open 探测，成功才关闭。

@@ -223,7 +223,14 @@ def test_matches_api_returns_structured_error_for_matching_failure(db_session, m
         def create_match_result(self, db, profile, job, *, payload=None):  # noqa: ANN001
             raise ValueError("Unsupported reranker provider: keyword")
 
+    class PassingSemanticAnalysis:
+        async def analyze(self, db, *, profile, job, baseline):  # noqa: ANN001
+            from app.services.semantic_match_analysis import SemanticMatchResult
+
+            return SemanticMatchResult(applied=True, payload=baseline, metadata={})
+
     monkeypatch.setattr("app.api.matches.MatcherService", BrokenMatcher)
+    monkeypatch.setattr("app.api.matches.SemanticMatchAnalysisService", PassingSemanticAnalysis)
 
     with pytest.raises(HTTPException) as exc_info:
         asyncio.run(create_match(MatchCreateRequest(profile_id=profile.id, job_id=job.id), db_session))

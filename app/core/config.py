@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 120.0
     llm_retry_attempts: int = 1
     llm_retry_backoff_seconds: float = 0.75
+    llm_retry_max_backoff_seconds: float = Field(default=8.0, ge=0.0, le=120.0)
     llm_fallback_enabled: bool = False
     llm_thinking_mode: str = "auto"
     llm_reasoning_effort: str = "high"
@@ -124,6 +125,7 @@ class Settings(BaseSettings):
     agent_max_no_progress_cycles: int = Field(default=2, ge=1, le=10)
     agent_strict_tool_contracts: bool = True
     agent_tool_retry_backoff_seconds: float = Field(default=0.4, ge=0.0, le=10.0)
+    agent_tool_retry_max_backoff_seconds: float = Field(default=5.0, ge=0.0, le=120.0)
     agent_tool_circuit_failure_threshold: int = Field(default=3, ge=1, le=20)
     agent_tool_circuit_cooldown_seconds: int = Field(default=60, ge=1, le=3600)
     agent_online_quality_min_score: float = Field(default=0.75, ge=0.0, le=1.0)
@@ -248,6 +250,15 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+
+    @model_validator(mode="after")
+    def restrict_llm_fallback_to_test_harness(self) -> "Settings":
+        # Product behavior must never silently replace an LLM-dependent result
+        # with heuristic content. Deterministic fallbacks remain available only
+        # to isolated unit/evaluation fixtures that explicitly run as test.
+        if self.llm_fallback_enabled and self.app_env.strip().lower() not in {"test", "testing"}:
+            self.llm_fallback_enabled = False
+        return self
 
     @property
     def base_path(self) -> Path:
