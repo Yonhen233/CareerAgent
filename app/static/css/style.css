@@ -2258,6 +2258,7 @@ button svg,
 }
 
 .resume-source-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -2292,13 +2293,22 @@ button svg,
 }
 
 .resume-choice-indicator {
-  display: inline-flex;
+  display: none;
+  position: absolute;
+  top: 12px;
+  right: 12px;
   align-items: center;
-  align-self: flex-start;
   gap: 6px;
-  min-height: 38px;
+  padding: 4px 7px;
+  border-radius: 5px;
   color: #087a53;
+  background: #e3f6ec;
+  font-size: 12px;
   font-weight: 760;
+}
+
+.resume-source-card.is-selected > .resume-choice-indicator {
+  display: inline-flex;
 }
 
 .resume-source-card > div {

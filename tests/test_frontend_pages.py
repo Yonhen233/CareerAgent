@@ -137,6 +137,7 @@ def test_dashboard_exposes_user_start_flow_and_console_entry():
     assert "请选择本次是否使用简历" in response.text
     assert "本次只搜索岗位" in response.text
     assert "不使用简历" in response.text
+    assert response.text.count("resume-choice-indicator") == 3
     assert "上传并自动建立档案" in response.text
     assert "手动填写或自然语言生成" in response.text
     assert "profile-picker-dialog" in response.text
@@ -468,7 +469,7 @@ def test_agent_runs_page_exposes_langgraph_event_timeline():
     assert "data-rewind-run" in main_js
     assert "data-withdraw-run" in main_js
     assert "/withdrawal-preview" in main_js
-    assert "20260905-semantic-match-2" in response.text
+    assert "20260905-resume-choice-3" in response.text
     assert "20260722-ops-console-1" not in response.text
     assert "event-timeline" in style_css
     assert "event-row" in style_css
