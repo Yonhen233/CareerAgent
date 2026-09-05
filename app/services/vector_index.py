@@ -56,11 +56,16 @@ class SQLiteVectorIndex:
         db.query(ResumeChunk).filter(ResumeChunk.profile_id == profile_id).delete()
         valid_chunks = [chunk for chunk in chunks if chunk.text.strip()]
         texts = [chunk.text.strip() for chunk in valid_chunks]
-        embeddings = self.embedding_service.embed_texts(texts)
+        retrieval_texts = [
+            self._retrieval_text(text, chunk.metadata or {})
+            for text, chunk in zip(texts, valid_chunks, strict=False)
+        ]
+        embeddings = self.embedding_service.embed_texts(retrieval_texts)
         inserted = 0
         for chunk, vector in zip(valid_chunks, embeddings.vectors, strict=False):
             text = chunk.text.strip()
             metadata = self._metadata_with_embedding(chunk.metadata or {}, embeddings)
+            metadata["embedding_text_version"] = "retrieval_context_v1"
             row = ResumeChunk(
                 profile_id=profile_id,
                 chunk_uid=chunk.uid,
@@ -78,7 +83,7 @@ class SQLiteVectorIndex:
             self.vector_library.upsert(
                 collection_name=f"profile_{profile_id}_chunks",
                 ids=[chunk.uid for chunk in valid_chunks],
-                documents=texts,
+                documents=retrieval_texts,
                 metadatas=[self._chroma_metadata(chunk.metadata or {}, embeddings) for chunk in valid_chunks],
                 embeddings=embeddings.vectors,
             )
@@ -325,11 +330,14 @@ class SQLiteVectorIndex:
         missing_positions: list[int] = []
         for index, row in enumerate(rows):
             vector = row.embedding_json or []
-            if expected_dimensions and len(vector) == expected_dimensions:
+            metadata = dict(row.metadata_json or {})
+            expected_version = "retrieval_context_v1" if metadata.get("retrieval_context") else None
+            version_matches = not expected_version or metadata.get("embedding_text_version") == expected_version
+            if expected_dimensions and len(vector) == expected_dimensions and version_matches:
                 vectors.append(vector)
                 continue
             vectors.append(None)
-            missing_texts.append(row.text)
+            missing_texts.append(self._retrieval_text(row.text, metadata))
             missing_positions.append(index)
 
         if missing_texts:
@@ -340,8 +348,17 @@ class SQLiteVectorIndex:
                 row.embedding_json = vector
                 metadata = dict(row.metadata_json or {})
                 metadata["embedding"] = recomputed.info()
+                if metadata.get("retrieval_context"):
+                    metadata["embedding_text_version"] = "retrieval_context_v1"
                 row.metadata_json = metadata
         return [vector or [] for vector in vectors], len(missing_positions)
+
+    @staticmethod
+    def _retrieval_text(text: str, metadata: dict[str, Any]) -> str:
+        context = str(metadata.get("retrieval_context") or "").strip()
+        if not context or context in text:
+            return text
+        return f"[简历上下文] {context}\n[当前证据] {text}"
 
     def _metadata_with_embedding(self, metadata: dict[str, Any], embeddings: EmbeddingBatch) -> dict[str, Any]:
         enriched = dict(metadata)

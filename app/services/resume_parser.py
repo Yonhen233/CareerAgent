@@ -230,6 +230,13 @@ Resume:
             normalized = ProfileStructured.model_validate(
                 self._merge_parsed_with_heuristic(heuristic, parsed)
             ).model_dump()
+            # The model decides the structure, while an explicitly labelled skills
+            # section provides a cheap, grounded completeness check for taxonomy
+            # items that are occasionally omitted in bilingual documents.
+            normalized["skills"] = self._merge_explicit_section_skills(
+                grounding_source,
+                normalized.get("skills") or [],
+            )
             normalized, rejected_fields = self._remove_unsupported_taxonomy_fields(
                 grounding_source,
                 normalized,
@@ -413,6 +420,12 @@ Resume:
                 found.append(skill)
         return sorted(set(found), key=lambda x: x.lower())
 
+    def _merge_explicit_section_skills(self, raw_text: str, parsed_skills: list[str]) -> list[str]:
+        sections = self._section_lines([line.strip() for line in raw_text.splitlines() if line.strip()])
+        explicit_text = "\n".join(sections.get("skills", []))
+        grounded = self._extract_skills(explicit_text)
+        return list(dict.fromkeys([*(str(item).strip() for item in parsed_skills if str(item).strip()), *grounded]))
+
     def _remove_unsupported_taxonomy_fields(
         self,
         grounding_source: str,
@@ -510,7 +523,7 @@ Resume:
         aliases = {
             "summary": {"summary", "profile", "个人总结", "自我评价", "个人优势"},
             "education": {"education", "educationbackground", "教育", "教育经历", "教育背景", "学历", "学历信息"},
-            "skills": {"skills", "skill", "专业技能", "技能", "技术能力", "技能清单"},
+            "skills": {"skills", "skill", "technicalskills", "专业技能", "技能", "技术能力", "技能清单"},
             "projects": {"project", "projects", "projectexperience", "项目", "项目经历", "项目经验"},
             "experience": {"experience", "workexperience", "internshipexperience", "实习", "实习经历", "工作经历", "工作经验"},
             "campus": {"campus", "campusexperience", "校园经历", "社团经历", "学生会经历", "实践经历"},

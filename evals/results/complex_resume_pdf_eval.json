@@ -1,0 +1,3866 @@
+{
+  "evaluation_type": "complex_resume_pdf_and_chunk",
+  "summary": {
+    "case_count": 16,
+    "query_count": 64,
+    "page_count_accuracy": 1,
+    "ocr_route_accuracy": 1,
+    "mean_section_recall": 1.0,
+    "mean_critical_fact_recall": 1.0,
+    "mean_character_retention_proxy": 0.9966,
+    "page_provenance_accuracy": 1,
+    "retrieval_recall_at_1": 0.2812,
+    "retrieval_recall_at_3": 0.9688,
+    "retrieval_recall_at_5": 1,
+    "retrieval_mrr": 0.5591,
+    "failed_case_count": 1,
+    "layout_block_boundaries_preserved": true
+  },
+  "cases": [
+    {
+      "case_id": "runtime_agent",
+      "layout": "standard_one_page",
+      "page_count_correct": true,
+      "ocr_route_correct": true,
+      "section_recall": 1.0,
+      "critical_fact_recall": 1.0,
+      "minimum_fact_similarity": 1.0,
+      "character_retention_proxy": 1.0,
+      "chunk_count": 3,
+      "page_metadata_coverage": 1.0,
+      "retrieval_failures": [],
+      "diagnostics": {
+        "version": "careeragent-pdf-extraction-v1",
+        "parser": "pymupdf+rapidocr",
+        "page_count": 1,
+        "text_page_count": 1,
+        "ocr_page_count": 0,
+        "blank_page_count": 0,
+        "usable_text_page_count": 1,
+        "text_page_coverage": 1.0,
+        "repeated_margin_lines_removed": [],
+        "warnings": [],
+        "pages": [
+          {
+            "page_no": 1,
+            "extraction_method": "text_layer",
+            "character_count": 2110,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.8986,
+            "image_count": 0,
+            "layout_mode": "block_order",
+            "ocr_confidence": null,
+            "warnings": []
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "rag_engineer",
+      "layout": "standard_one_page",
+      "page_count_correct": true,
+      "ocr_route_correct": true,
+      "section_recall": 1.0,
+      "critical_fact_recall": 1.0,
+      "minimum_fact_similarity": 1.0,
+      "character_retention_proxy": 1.0,
+      "chunk_count": 3,
+      "page_metadata_coverage": 1.0,
+      "retrieval_failures": [],
+      "diagnostics": {
+        "version": "careeragent-pdf-extraction-v1",
+        "parser": "pymupdf+rapidocr",
+        "page_count": 1,
+        "text_page_count": 1,
+        "ocr_page_count": 0,
+        "blank_page_count": 0,
+        "usable_text_page_count": 1,
+        "text_page_coverage": 1.0,
+        "repeated_margin_lines_removed": [],
+        "warnings": [],
+        "pages": [
+          {
+            "page_no": 1,
+            "extraction_method": "text_layer",
+            "character_count": 2059,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.8946,
+            "image_count": 0,
+            "layout_mode": "block_order",
+            "ocr_confidence": null,
+            "warnings": []
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "llm_safety",
+      "layout": "standard_one_page",
+      "page_count_correct": true,
+      "ocr_route_correct": true,
+      "section_recall": 1.0,
+      "critical_fact_recall": 1.0,
+      "minimum_fact_similarity": 1.0,
+      "character_retention_proxy": 1.0,
+      "chunk_count": 3,
+      "page_metadata_coverage": 1.0,
+      "retrieval_failures": [],
+      "diagnostics": {
+        "version": "careeragent-pdf-extraction-v1",
+        "parser": "pymupdf+rapidocr",
+        "page_count": 1,
+        "text_page_count": 1,
+        "ocr_page_count": 0,
+        "blank_page_count": 0,
+        "usable_text_page_count": 1,
+        "text_page_coverage": 1.0,
+        "repeated_margin_lines_removed": [],
+        "warnings": [],
+        "pages": [
+          {
+            "page_no": 1,
+            "extraction_method": "text_layer",
+            "character_count": 2069,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.8956,
+            "image_count": 0,
+            "layout_mode": "block_order",
+            "ocr_confidence": null,
+            "warnings": []
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "enterprise_agent",
+      "layout": "standard_one_page",
+      "page_count_correct": true,
+      "ocr_route_correct": true,
+      "section_recall": 1.0,
+      "critical_fact_recall": 1.0,
+      "minimum_fact_similarity": 1.0,
+      "character_retention_proxy": 1.0,
+      "chunk_count": 3,
+      "page_metadata_coverage": 1.0,
+      "retrieval_failures": [],
+      "diagnostics": {
+        "version": "careeragent-pdf-extraction-v1",
+        "parser": "pymupdf+rapidocr",
+        "page_count": 1,
+        "text_page_count": 1,
+        "ocr_page_count": 0,
+        "blank_page_count": 0,
+        "usable_text_page_count": 1,
+        "text_page_coverage": 1.0,
+        "repeated_margin_lines_removed": [],
+        "warnings": [],
+        "pages": [
+          {
+            "page_no": 1,
+            "extraction_method": "text_layer",
+            "character_count": 2072,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.8948,
+            "image_count": 0,
+            "layout_mode": "block_order",
+            "ocr_confidence": null,
+            "warnings": []
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "agent_infra",
+      "layout": "two_column_one_page",
+      "page_count_correct": true,
+      "ocr_route_correct": true,
+      "section_recall": 1.0,
+      "critical_fact_recall": 1.0,
+      "minimum_fact_similarity": 1.0,
+      "character_retention_proxy": 1.0,
+      "chunk_count": 4,
+      "page_metadata_coverage": 1.0,
+      "retrieval_failures": [],
+      "diagnostics": {
+        "version": "careeragent-pdf-extraction-v1",
+        "parser": "pymupdf+rapidocr",
+        "page_count": 1,
+        "text_page_count": 1,
+        "ocr_page_count": 0,
+        "blank_page_count": 0,
+        "usable_text_page_count": 1,
+        "text_page_coverage": 1.0,
+        "repeated_margin_lines_removed": [],
+        "warnings": [],
+        "pages": [
+          {
+            "page_no": 1,
+            "extraction_method": "text_layer",
+            "character_count": 2066,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.8964,
+            "image_count": 0,
+            "layout_mode": "two_column_blocks",
+            "ocr_confidence": null,
+            "warnings": []
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "ai_product",
+      "layout": "two_column_one_page",
+      "page_count_correct": true,
+      "ocr_route_correct": true,
+      "section_recall": 1.0,
+      "critical_fact_recall": 1.0,
+      "minimum_fact_similarity": 1.0,
+      "character_retention_proxy": 1.0,
+      "chunk_count": 4,
+      "page_metadata_coverage": 1.0,
+      "retrieval_failures": [],
+      "diagnostics": {
+        "version": "careeragent-pdf-extraction-v1",
+        "parser": "pymupdf+rapidocr",
+        "page_count": 1,
+        "text_page_count": 1,
+        "ocr_page_count": 0,
+        "blank_page_count": 0,
+        "usable_text_page_count": 1,
+        "text_page_coverage": 1.0,
+        "repeated_margin_lines_removed": [],
+        "warnings": [],
+        "pages": [
+          {
+            "page_no": 1,
+            "extraction_method": "text_layer",
+            "character_count": 2050,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.8951,
+            "image_count": 0,
+            "layout_mode": "two_column_blocks",
+            "ocr_confidence": null,
+            "warnings": []
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "multimodal_agent",
+      "layout": "two_column_one_page",
+      "page_count_correct": true,
+      "ocr_route_correct": true,
+      "section_recall": 1.0,
+      "critical_fact_recall": 1.0,
+      "minimum_fact_similarity": 1.0,
+      "character_retention_proxy": 1.0,
+      "chunk_count": 4,
+      "page_metadata_coverage": 1.0,
+      "retrieval_failures": [],
+      "diagnostics": {
+        "version": "careeragent-pdf-extraction-v1",
+        "parser": "pymupdf+rapidocr",
+        "page_count": 1,
+        "text_page_count": 1,
+        "ocr_page_count": 0,
+        "blank_page_count": 0,
+        "usable_text_page_count": 1,
+        "text_page_coverage": 1.0,
+        "repeated_margin_lines_removed": [],
+        "warnings": [],
+        "pages": [
+          {
+            "page_no": 1,
+            "extraction_method": "text_layer",
+            "character_count": 2072,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.8958,
+            "image_count": 0,
+            "layout_mode": "two_column_blocks",
+            "ocr_confidence": null,
+            "warnings": []
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "speech_agent",
+      "layout": "two_column_one_page",
+      "page_count_correct": true,
+      "ocr_route_correct": true,
+      "section_recall": 1.0,
+      "critical_fact_recall": 1.0,
+      "minimum_fact_similarity": 1.0,
+      "character_retention_proxy": 1.0,
+      "chunk_count": 4,
+      "page_metadata_coverage": 1.0,
+      "retrieval_failures": [],
+      "diagnostics": {
+        "version": "careeragent-pdf-extraction-v1",
+        "parser": "pymupdf+rapidocr",
+        "page_count": 1,
+        "text_page_count": 1,
+        "ocr_page_count": 0,
+        "blank_page_count": 0,
+        "usable_text_page_count": 1,
+        "text_page_coverage": 1.0,
+        "repeated_margin_lines_removed": [],
+        "warnings": [],
+        "pages": [
+          {
+            "page_no": 1,
+            "extraction_method": "text_layer",
+            "character_count": 2058,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.8955,
+            "image_count": 0,
+            "layout_mode": "two_column_blocks",
+            "ocr_confidence": null,
+            "warnings": []
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "data_agent",
+      "layout": "dense_two_page",
+      "page_count_correct": true,
+      "ocr_route_correct": true,
+      "section_recall": 1.0,
+      "critical_fact_recall": 1.0,
+      "minimum_fact_similarity": 1.0,
+      "character_retention_proxy": 1.0,
+      "chunk_count": 4,
+      "page_metadata_coverage": 1.0,
+      "retrieval_failures": [],
+      "diagnostics": {
+        "version": "careeragent-pdf-extraction-v1",
+        "parser": "pymupdf+rapidocr",
+        "page_count": 2,
+        "text_page_count": 2,
+        "ocr_page_count": 0,
+        "blank_page_count": 0,
+        "usable_text_page_count": 2,
+        "text_page_coverage": 1.0,
+        "repeated_margin_lines_removed": [
+          "数据分析 Agent 实习生",
+          "CareerAgent 合成评测简历 | 第 1 页 / 2",
+          "CareerAgent 合成评测简历 | 第 2 页 / 2"
+        ],
+        "warnings": [
+          "repeated_page_margins_removed"
+        ],
+        "pages": [
+          {
+            "page_no": 1,
+            "extraction_method": "text_layer",
+            "character_count": 1099,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.8835,
+            "image_count": 0,
+            "layout_mode": "block_order",
+            "ocr_confidence": null,
+            "warnings": []
+          },
+          {
+            "page_no": 2,
+            "extraction_method": "text_layer",
+            "character_count": 1013,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.9082,
+            "image_count": 0,
+            "layout_mode": "block_order",
+            "ocr_confidence": null,
+            "warnings": []
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "nlp_research",
+      "layout": "dense_two_page",
+      "page_count_correct": true,
+      "ocr_route_correct": true,
+      "section_recall": 1.0,
+      "critical_fact_recall": 1.0,
+      "minimum_fact_similarity": 1.0,
+      "character_retention_proxy": 1.0,
+      "chunk_count": 4,
+      "page_metadata_coverage": 1.0,
+      "retrieval_failures": [],
+      "diagnostics": {
+        "version": "careeragent-pdf-extraction-v1",
+        "parser": "pymupdf+rapidocr",
+        "page_count": 2,
+        "text_page_count": 2,
+        "ocr_page_count": 0,
+        "blank_page_count": 0,
+        "usable_text_page_count": 2,
+        "text_page_coverage": 1.0,
+        "repeated_margin_lines_removed": [
+          "NLP 与 Agent 研究实习生",
+          "CareerAgent 合成评测简历 | 第 1 页 / 2",
+          "CareerAgent 合成评测简历 | 第 2 页 / 2"
+        ],
+        "warnings": [
+          "repeated_page_margins_removed"
+        ],
+        "pages": [
+          {
+            "page_no": 1,
+            "extraction_method": "text_layer",
+            "character_count": 1107,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.8862,
+            "image_count": 0,
+            "layout_mode": "block_order",
+            "ocr_confidence": null,
+            "warnings": []
+          },
+          {
+            "page_no": 2,
+            "extraction_method": "text_layer",
+            "character_count": 1019,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.9078,
+            "image_count": 0,
+            "layout_mode": "block_order",
+            "ocr_confidence": null,
+            "warnings": []
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "coding_agent",
+      "layout": "dense_two_page",
+      "page_count_correct": true,
+      "ocr_route_correct": true,
+      "section_recall": 1.0,
+      "critical_fact_recall": 1.0,
+      "minimum_fact_similarity": 1.0,
+      "character_retention_proxy": 1.0,
+      "chunk_count": 4,
+      "page_metadata_coverage": 1.0,
+      "retrieval_failures": [],
+      "diagnostics": {
+        "version": "careeragent-pdf-extraction-v1",
+        "parser": "pymupdf+rapidocr",
+        "page_count": 2,
+        "text_page_count": 2,
+        "ocr_page_count": 0,
+        "blank_page_count": 0,
+        "usable_text_page_count": 2,
+        "text_page_coverage": 1.0,
+        "repeated_margin_lines_removed": [
+          "Coding Agent 开发实习生",
+          "CareerAgent 合成评测简历 | 第 1 页 / 2",
+          "CareerAgent 合成评测简历 | 第 2 页 / 2"
+        ],
+        "warnings": [
+          "repeated_page_margins_removed"
+        ],
+        "pages": [
+          {
+            "page_no": 1,
+            "extraction_method": "text_layer",
+            "character_count": 1112,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.8858,
+            "image_count": 0,
+            "layout_mode": "block_order",
+            "ocr_confidence": null,
+            "warnings": []
+          },
+          {
+            "page_no": 2,
+            "extraction_method": "text_layer",
+            "character_count": 1022,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.909,
+            "image_count": 0,
+            "layout_mode": "block_order",
+            "ocr_confidence": null,
+            "warnings": []
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "service_agent",
+      "layout": "dense_two_page",
+      "page_count_correct": true,
+      "ocr_route_correct": true,
+      "section_recall": 1.0,
+      "critical_fact_recall": 1.0,
+      "minimum_fact_similarity": 1.0,
+      "character_retention_proxy": 1.0,
+      "chunk_count": 4,
+      "page_metadata_coverage": 1.0,
+      "retrieval_failures": [],
+      "diagnostics": {
+        "version": "careeragent-pdf-extraction-v1",
+        "parser": "pymupdf+rapidocr",
+        "page_count": 2,
+        "text_page_count": 2,
+        "ocr_page_count": 0,
+        "blank_page_count": 0,
+        "usable_text_page_count": 2,
+        "text_page_coverage": 1.0,
+        "repeated_margin_lines_removed": [
+          "智能客服 Agent 后端实习生",
+          "CareerAgent 合成评测简历 | 第 1 页 / 2",
+          "CareerAgent 合成评测简历 | 第 2 页 / 2"
+        ],
+        "warnings": [
+          "repeated_page_margins_removed"
+        ],
+        "pages": [
+          {
+            "page_no": 1,
+            "extraction_method": "text_layer",
+            "character_count": 1102,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.8848,
+            "image_count": 0,
+            "layout_mode": "block_order",
+            "ocr_confidence": null,
+            "warnings": []
+          },
+          {
+            "page_no": 2,
+            "extraction_method": "text_layer",
+            "character_count": 1011,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.908,
+            "image_count": 0,
+            "layout_mode": "block_order",
+            "ocr_confidence": null,
+            "warnings": []
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "mobile_agent",
+      "layout": "research_two_page",
+      "page_count_correct": true,
+      "ocr_route_correct": true,
+      "section_recall": 1.0,
+      "critical_fact_recall": 1.0,
+      "minimum_fact_similarity": 1.0,
+      "character_retention_proxy": 1.0,
+      "chunk_count": 4,
+      "page_metadata_coverage": 1.0,
+      "retrieval_failures": [],
+      "diagnostics": {
+        "version": "careeragent-pdf-extraction-v1",
+        "parser": "pymupdf+rapidocr",
+        "page_count": 2,
+        "text_page_count": 2,
+        "ocr_page_count": 0,
+        "blank_page_count": 0,
+        "usable_text_page_count": 2,
+        "text_page_coverage": 1.0,
+        "repeated_margin_lines_removed": [
+          "端侧 Agent 工程实习生",
+          "CareerAgent 合成评测简历 | 第 1 页 / 2",
+          "CareerAgent 合成评测简历 | 第 2 页 / 2"
+        ],
+        "warnings": [
+          "repeated_page_margins_removed"
+        ],
+        "pages": [
+          {
+            "page_no": 1,
+            "extraction_method": "text_layer",
+            "character_count": 1090,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.8826,
+            "image_count": 0,
+            "layout_mode": "block_order",
+            "ocr_confidence": null,
+            "warnings": []
+          },
+          {
+            "page_no": 2,
+            "extraction_method": "text_layer",
+            "character_count": 1005,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.9085,
+            "image_count": 0,
+            "layout_mode": "block_order",
+            "ocr_confidence": null,
+            "warnings": []
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "compliance_agent",
+      "layout": "research_two_page",
+      "page_count_correct": true,
+      "ocr_route_correct": true,
+      "section_recall": 1.0,
+      "critical_fact_recall": 1.0,
+      "minimum_fact_similarity": 1.0,
+      "character_retention_proxy": 1.0,
+      "chunk_count": 4,
+      "page_metadata_coverage": 1.0,
+      "retrieval_failures": [],
+      "diagnostics": {
+        "version": "careeragent-pdf-extraction-v1",
+        "parser": "pymupdf+rapidocr",
+        "page_count": 2,
+        "text_page_count": 2,
+        "ocr_page_count": 0,
+        "blank_page_count": 0,
+        "usable_text_page_count": 2,
+        "text_page_coverage": 1.0,
+        "repeated_margin_lines_removed": [
+          "金融合规 Agent 研究实习生",
+          "CareerAgent 合成评测简历 | 第 1 页 / 2",
+          "CareerAgent 合成评测简历 | 第 2 页 / 2"
+        ],
+        "warnings": [
+          "repeated_page_margins_removed"
+        ],
+        "pages": [
+          {
+            "page_no": 1,
+            "extraction_method": "text_layer",
+            "character_count": 1095,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.8849,
+            "image_count": 0,
+            "layout_mode": "block_order",
+            "ocr_confidence": null,
+            "warnings": []
+          },
+          {
+            "page_no": 2,
+            "extraction_method": "text_layer",
+            "character_count": 1008,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.9077,
+            "image_count": 0,
+            "layout_mode": "block_order",
+            "ocr_confidence": null,
+            "warnings": []
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "robotics_agent_scan",
+      "layout": "scan_two_column",
+      "page_count_correct": true,
+      "ocr_route_correct": true,
+      "section_recall": 1.0,
+      "critical_fact_recall": 1.0,
+      "minimum_fact_similarity": 1.0,
+      "character_retention_proxy": 0.9764,
+      "chunk_count": 3,
+      "page_metadata_coverage": 1.0,
+      "retrieval_failures": [],
+      "diagnostics": {
+        "version": "careeragent-pdf-extraction-v1",
+        "parser": "pymupdf+rapidocr",
+        "page_count": 1,
+        "text_page_count": 0,
+        "ocr_page_count": 1,
+        "blank_page_count": 0,
+        "usable_text_page_count": 1,
+        "text_page_coverage": 1.0,
+        "repeated_margin_lines_removed": [],
+        "warnings": [
+          "ocr_used"
+        ],
+        "pages": [
+          {
+            "page_no": 1,
+            "extraction_method": "ocr",
+            "character_count": 1984,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.8947,
+            "image_count": 1,
+            "layout_mode": "ocr_two_column",
+            "ocr_confidence": 0.9938554945940239,
+            "warnings": [
+              "page_text_recovered_by_ocr"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "bilingual_agent_mixed",
+      "layout": "mixed_text_scan",
+      "page_count_correct": true,
+      "ocr_route_correct": true,
+      "section_recall": 1.0,
+      "critical_fact_recall": 1.0,
+      "minimum_fact_similarity": 1.0,
+      "character_retention_proxy": 0.9693,
+      "chunk_count": 9,
+      "page_metadata_coverage": 1.0,
+      "retrieval_failures": [
+        "quantified_outcome",
+        "project_focus"
+      ],
+      "diagnostics": {
+        "version": "careeragent-pdf-extraction-v1",
+        "parser": "pymupdf+rapidocr",
+        "page_count": 2,
+        "text_page_count": 1,
+        "ocr_page_count": 1,
+        "blank_page_count": 0,
+        "usable_text_page_count": 2,
+        "text_page_coverage": 1.0,
+        "repeated_margin_lines_removed": [],
+        "warnings": [
+          "ocr_used"
+        ],
+        "pages": [
+          {
+            "page_no": 1,
+            "extraction_method": "text_layer",
+            "character_count": 2056,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.9465,
+            "image_count": 0,
+            "layout_mode": "block_order",
+            "ocr_confidence": null,
+            "warnings": []
+          },
+          {
+            "page_no": 2,
+            "extraction_method": "ocr",
+            "character_count": 1640,
+            "printable_ratio": 1.0,
+            "replacement_character_ratio": 0.0,
+            "alnum_ratio": 0.9646,
+            "image_count": 1,
+            "layout_mode": "ocr_reading_order",
+            "ocr_confidence": 0.9830154328038738,
+            "warnings": [
+              "page_text_recovered_by_ocr"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "retrieval": [
+    {
+      "case_id": "runtime_agent",
+      "expectation_id": "distinctive_implementation",
+      "query": "这位Agent Runtime 开发实习生候选人在核心系统中完成了什么有辨识度的工程实现？",
+      "expected_text": "实现基于租约的任务接管协议",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 2,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.5,
+      "top_chunks": [
+        {
+          "uid": "runtime_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4591,
+          "relevant_similarity": 0.1176,
+          "preview": "周昕\n\nAgent Runtime 开发实习生\n\n周昕｜Agent Runtime 开发实习生｜runtime_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完"
+        },
+        {
+          "uid": "runtime_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4529,
+          "relevant_similarity": 1.0,
+          "preview": "模拟云智实验室｜Agent Runtime 开发实习生｜2026.03-2026.08。面向长任务构建 checkpoint 恢复与幂等工具网关。实现基于租约的任务接管协议；将工具输入输出改为强类型合同，为外部动\n作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接中断和服务端错误实现"
+        },
+        {
+          "uid": "runtime_agent_page_1_2",
+          "page_no": 1,
+          "score": 0.4091,
+          "relevant_similarity": 0.1176,
+          "preview": "核心项目：面向长任务构建 checkpoint 恢复与幂等工具网关。完成一百二十次故障注入实验；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补 Query，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "runtime_agent",
+      "expectation_id": "quantified_outcome",
+      "query": "这位Agent Runtime 开发实习生候选人最重要的量化成果是什么？",
+      "expected_text": "完成一百二十次故障注入实验",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "runtime_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4717,
+          "relevant_similarity": 0.1765,
+          "preview": "模拟云智实验室｜Agent Runtime 开发实习生｜2026.03-2026.08。面向长任务构建 checkpoint 恢复与幂等工具网关。实现基于租约的任务接管协议；将工具输入输出改为强类型合同，为外部动\n作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接中断和服务端错误实现"
+        },
+        {
+          "uid": "runtime_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4533,
+          "relevant_similarity": 0.2941,
+          "preview": "周昕\n\nAgent Runtime 开发实习生\n\n周昕｜Agent Runtime 开发实习生｜runtime_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完"
+        },
+        {
+          "uid": "runtime_agent_page_1_2",
+          "page_no": 1,
+          "score": 0.3888,
+          "relevant_similarity": 1.0,
+          "preview": "核心项目：面向长任务构建 checkpoint 恢复与幂等工具网关。完成一百二十次故障注入实验；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补 Query，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "runtime_agent",
+      "expectation_id": "project_focus",
+      "query": "这位Agent Runtime 开发实习生候选人的核心项目解决了什么业务或技术问题？",
+      "expected_text": "核心项目：面向长任务构建 checkpoint 恢复与幂等工具网关",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "runtime_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4584,
+          "relevant_similarity": 0.3333,
+          "preview": "周昕\n\nAgent Runtime 开发实习生\n\n周昕｜Agent Runtime 开发实习生｜runtime_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完"
+        },
+        {
+          "uid": "runtime_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4514,
+          "relevant_similarity": 0.7222,
+          "preview": "模拟云智实验室｜Agent Runtime 开发实习生｜2026.03-2026.08。面向长任务构建 checkpoint 恢复与幂等工具网关。实现基于租约的任务接管协议；将工具输入输出改为强类型合同，为外部动\n作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接中断和服务端错误实现"
+        },
+        {
+          "uid": "runtime_agent_page_1_2",
+          "page_no": 1,
+          "score": 0.4374,
+          "relevant_similarity": 1.0,
+          "preview": "核心项目：面向长任务构建 checkpoint 恢复与幂等工具网关。完成一百二十次故障注入实验；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补 Query，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "runtime_agent",
+      "expectation_id": "retrieval_evaluation",
+      "query": "候选人如何评估检索质量和事实可靠性？",
+      "expected_text": "使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 1,
+      "recall_at_1": true,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 1.0,
+      "top_chunks": [
+        {
+          "uid": "runtime_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.3457,
+          "relevant_similarity": 1.0,
+          "preview": "模拟云智实验室｜Agent Runtime 开发实习生｜2026.03-2026.08。面向长任务构建 checkpoint 恢复与幂等工具网关。实现基于租约的任务接管协议；将工具输入输出改为强类型合同，为外部动\n作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接中断和服务端错误实现"
+        },
+        {
+          "uid": "runtime_agent_page_1_2",
+          "page_no": 1,
+          "score": 0.3118,
+          "relevant_similarity": 0.2597,
+          "preview": "核心项目：面向长任务构建 checkpoint 恢复与幂等工具网关。完成一百二十次故障注入实验；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补 Query，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展"
+        },
+        {
+          "uid": "runtime_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.2893,
+          "relevant_similarity": 0.6753,
+          "preview": "周昕\n\nAgent Runtime 开发实习生\n\n周昕｜Agent Runtime 开发实习生｜runtime_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "rag_engineer",
+      "expectation_id": "distinctive_implementation",
+      "query": "这位RAG 检索工程实习生候选人在核心系统中完成了什么有辨识度的工程实现？",
+      "expected_text": "实现查询级 RRF 融合",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 2,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.5,
+      "top_chunks": [
+        {
+          "uid": "rag_engineer_page_1_0",
+          "page_no": 1,
+          "score": 0.461,
+          "relevant_similarity": 0.2143,
+          "preview": "林然\n\nRAG 检索工程实习生\n\n林然｜RAG 检索工程实习生｜rag_engineer@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事"
+        },
+        {
+          "uid": "rag_engineer_page_1_1",
+          "page_no": 1,
+          "score": 0.4547,
+          "relevant_similarity": 1.0,
+          "preview": "模拟云智实验室｜RAG 检索工程实习生｜2026.03-2026.08。构建中文企业知识库的混合召回与重排链路。实现查询级 RRF 融合；将工具输入输出改为强类型合同，为外部动作增加审批、幂等键\n和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错误和引用门控失"
+        },
+        {
+          "uid": "rag_engineer_page_1_2",
+          "page_no": 1,
+          "score": 0.3985,
+          "relevant_similarity": 0.2143,
+          "preview": "核心项目：构建中文企业知识库的混合召回与重排链路。Recall@5 从 0.81 提升至 0.94；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补 Query，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "rag_engineer",
+      "expectation_id": "quantified_outcome",
+      "query": "这位RAG 检索工程实习生候选人最重要的量化成果是什么？",
+      "expected_text": "Recall@5 从 0.81 提升至 0.94",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "rag_engineer_page_1_1",
+          "page_no": 1,
+          "score": 0.4739,
+          "relevant_similarity": 0.3333,
+          "preview": "模拟云智实验室｜RAG 检索工程实习生｜2026.03-2026.08。构建中文企业知识库的混合召回与重排链路。实现查询级 RRF 融合；将工具输入输出改为强类型合同，为外部动作增加审批、幂等键\n和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错误和引用门控失"
+        },
+        {
+          "uid": "rag_engineer_page_1_0",
+          "page_no": 1,
+          "score": 0.4569,
+          "relevant_similarity": 0.2917,
+          "preview": "林然\n\nRAG 检索工程实习生\n\n林然｜RAG 检索工程实习生｜rag_engineer@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事"
+        },
+        {
+          "uid": "rag_engineer_page_1_2",
+          "page_no": 1,
+          "score": 0.3886,
+          "relevant_similarity": 1.0,
+          "preview": "核心项目：构建中文企业知识库的混合召回与重排链路。Recall@5 从 0.81 提升至 0.94；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补 Query，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "rag_engineer",
+      "expectation_id": "project_focus",
+      "query": "这位RAG 检索工程实习生候选人的核心项目解决了什么业务或技术问题？",
+      "expected_text": "核心项目：构建中文企业知识库的混合召回与重排链路",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "rag_engineer_page_1_0",
+          "page_no": 1,
+          "score": 0.4575,
+          "relevant_similarity": 0.1071,
+          "preview": "林然\n\nRAG 检索工程实习生\n\n林然｜RAG 检索工程实习生｜rag_engineer@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事"
+        },
+        {
+          "uid": "rag_engineer_page_1_1",
+          "page_no": 1,
+          "score": 0.4509,
+          "relevant_similarity": 0.6786,
+          "preview": "模拟云智实验室｜RAG 检索工程实习生｜2026.03-2026.08。构建中文企业知识库的混合召回与重排链路。实现查询级 RRF 融合；将工具输入输出改为强类型合同，为外部动作增加审批、幂等键\n和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错误和引用门控失"
+        },
+        {
+          "uid": "rag_engineer_page_1_2",
+          "page_no": 1,
+          "score": 0.4311,
+          "relevant_similarity": 1.0,
+          "preview": "核心项目：构建中文企业知识库的混合召回与重排链路。Recall@5 从 0.81 提升至 0.94；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补 Query，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "rag_engineer",
+      "expectation_id": "retrieval_evaluation",
+      "query": "候选人如何评估检索质量和事实可靠性？",
+      "expected_text": "使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 1,
+      "recall_at_1": true,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 1.0,
+      "top_chunks": [
+        {
+          "uid": "rag_engineer_page_1_1",
+          "page_no": 1,
+          "score": 0.3561,
+          "relevant_similarity": 1.0,
+          "preview": "模拟云智实验室｜RAG 检索工程实习生｜2026.03-2026.08。构建中文企业知识库的混合召回与重排链路。实现查询级 RRF 融合；将工具输入输出改为强类型合同，为外部动作增加审批、幂等键\n和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错误和引用门控失"
+        },
+        {
+          "uid": "rag_engineer_page_1_2",
+          "page_no": 1,
+          "score": 0.3222,
+          "relevant_similarity": 0.2597,
+          "preview": "核心项目：构建中文企业知识库的混合召回与重排链路。Recall@5 从 0.81 提升至 0.94；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补 Query，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态"
+        },
+        {
+          "uid": "rag_engineer_page_1_0",
+          "page_no": 1,
+          "score": 0.2996,
+          "relevant_similarity": 0.6753,
+          "preview": "林然\n\nRAG 检索工程实习生\n\n林然｜RAG 检索工程实习生｜rag_engineer@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "llm_safety",
+      "expectation_id": "distinctive_implementation",
+      "query": "这位大模型安全评测实习生候选人在核心系统中完成了什么有辨识度的工程实现？",
+      "expected_text": "构造三百六十条提示词注入样例",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 2,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.5,
+      "top_chunks": [
+        {
+          "uid": "llm_safety_page_1_0",
+          "page_no": 1,
+          "score": 0.482,
+          "relevant_similarity": 0.1111,
+          "preview": "赵一宁\n\n大模型安全评测实习生\n\n赵一宁｜大模型安全评测实习生｜llm_safety@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边"
+        },
+        {
+          "uid": "llm_safety_page_1_1",
+          "page_no": 1,
+          "score": 0.4768,
+          "relevant_similarity": 1.0,
+          "preview": "模拟云智实验室｜大模型安全评测实习生｜2026.03-2026.08。建立越权工具调用与事实幻觉的发布门禁。构造三百六十条提示词注入样例；将工具输入输出改为强类型合同，为外部动作增加审批\n、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错误和引用门控失"
+        },
+        {
+          "uid": "llm_safety_page_1_2",
+          "page_no": 1,
+          "score": 0.3984,
+          "relevant_similarity": 0.1111,
+          "preview": "核心项目：建立越权工具调用与事实幻觉的发布门禁。高风险指令召回率达到 96.7%；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补 Query，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计划、工具调"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "llm_safety",
+      "expectation_id": "quantified_outcome",
+      "query": "这位大模型安全评测实习生候选人最重要的量化成果是什么？",
+      "expected_text": "高风险指令召回率达到 96.7%",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "llm_safety_page_1_1",
+          "page_no": 1,
+          "score": 0.5035,
+          "relevant_similarity": 0.1579,
+          "preview": "模拟云智实验室｜大模型安全评测实习生｜2026.03-2026.08。建立越权工具调用与事实幻觉的发布门禁。构造三百六十条提示词注入样例；将工具输入输出改为强类型合同，为外部动作增加审批\n、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错误和引用门控失"
+        },
+        {
+          "uid": "llm_safety_page_1_0",
+          "page_no": 1,
+          "score": 0.4892,
+          "relevant_similarity": 0.1579,
+          "preview": "赵一宁\n\n大模型安全评测实习生\n\n赵一宁｜大模型安全评测实习生｜llm_safety@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边"
+        },
+        {
+          "uid": "llm_safety_page_1_2",
+          "page_no": 1,
+          "score": 0.3892,
+          "relevant_similarity": 1.0,
+          "preview": "核心项目：建立越权工具调用与事实幻觉的发布门禁。高风险指令召回率达到 96.7%；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补 Query，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计划、工具调"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "llm_safety",
+      "expectation_id": "project_focus",
+      "query": "这位大模型安全评测实习生候选人的核心项目解决了什么业务或技术问题？",
+      "expected_text": "核心项目：建立越权工具调用与事实幻觉的发布门禁",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "llm_safety_page_1_0",
+          "page_no": 1,
+          "score": 0.4867,
+          "relevant_similarity": 0.1111,
+          "preview": "赵一宁\n\n大模型安全评测实习生\n\n赵一宁｜大模型安全评测实习生｜llm_safety@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边"
+        },
+        {
+          "uid": "llm_safety_page_1_1",
+          "page_no": 1,
+          "score": 0.481,
+          "relevant_similarity": 0.6667,
+          "preview": "模拟云智实验室｜大模型安全评测实习生｜2026.03-2026.08。建立越权工具调用与事实幻觉的发布门禁。构造三百六十条提示词注入样例；将工具输入输出改为强类型合同，为外部动作增加审批\n、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错误和引用门控失"
+        },
+        {
+          "uid": "llm_safety_page_1_2",
+          "page_no": 1,
+          "score": 0.4294,
+          "relevant_similarity": 1.0,
+          "preview": "核心项目：建立越权工具调用与事实幻觉的发布门禁。高风险指令召回率达到 96.7%；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补 Query，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计划、工具调"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "llm_safety",
+      "expectation_id": "retrieval_evaluation",
+      "query": "候选人如何评估检索质量和事实可靠性？",
+      "expected_text": "使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 1,
+      "recall_at_1": true,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 1.0,
+      "top_chunks": [
+        {
+          "uid": "llm_safety_page_1_1",
+          "page_no": 1,
+          "score": 0.3899,
+          "relevant_similarity": 1.0,
+          "preview": "模拟云智实验室｜大模型安全评测实习生｜2026.03-2026.08。建立越权工具调用与事实幻觉的发布门禁。构造三百六十条提示词注入样例；将工具输入输出改为强类型合同，为外部动作增加审批\n、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错误和引用门控失"
+        },
+        {
+          "uid": "llm_safety_page_1_2",
+          "page_no": 1,
+          "score": 0.3448,
+          "relevant_similarity": 0.2597,
+          "preview": "核心项目：建立越权工具调用与事实幻觉的发布门禁。高风险指令召回率达到 96.7%；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补 Query，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计划、工具调"
+        },
+        {
+          "uid": "llm_safety_page_1_0",
+          "page_no": 1,
+          "score": 0.3222,
+          "relevant_similarity": 0.6753,
+          "preview": "赵一宁\n\n大模型安全评测实习生\n\n赵一宁｜大模型安全评测实习生｜llm_safety@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "enterprise_agent",
+      "expectation_id": "distinctive_implementation",
+      "query": "这位企业 Agent 应用开发实习生候选人在核心系统中完成了什么有辨识度的工程实现？",
+      "expected_text": "交付合同审核 Agent 工作流",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 2,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.5,
+      "top_chunks": [
+        {
+          "uid": "enterprise_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4604,
+          "relevant_similarity": 0.4444,
+          "preview": "王璐\n\n企业 Agent 应用开发实习生\n\n王璐｜企业 Agent 应用开发实习生｜enterprise_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件"
+        },
+        {
+          "uid": "enterprise_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4549,
+          "relevant_similarity": 1.0,
+          "preview": "模拟云智实验室｜企业 Agent 应用开发实习生｜2026.03-2026.08。把文档检索、条款比对和审批节点接入企业流程。交付合同审核 Agent 工作流；将工具输入输出改为强类型合同，为外部动作\n增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，"
+        },
+        {
+          "uid": "enterprise_agent_page_1_2",
+          "page_no": 1,
+          "score": 0.3938,
+          "relevant_similarity": 0.3889,
+          "preview": "核心项目：把文档检索、条款比对和审批节点接入企业流程。人工复核耗时降低 38%；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补 Query，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计划、工具调用"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "enterprise_agent",
+      "expectation_id": "quantified_outcome",
+      "query": "这位企业 Agent 应用开发实习生候选人最重要的量化成果是什么？",
+      "expected_text": "人工复核耗时降低 38%",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "enterprise_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.472,
+          "relevant_similarity": 0.1333,
+          "preview": "模拟云智实验室｜企业 Agent 应用开发实习生｜2026.03-2026.08。把文档检索、条款比对和审批节点接入企业流程。交付合同审核 Agent 工作流；将工具输入输出改为强类型合同，为外部动作\n增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，"
+        },
+        {
+          "uid": "enterprise_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4565,
+          "relevant_similarity": 0.1333,
+          "preview": "王璐\n\n企业 Agent 应用开发实习生\n\n王璐｜企业 Agent 应用开发实习生｜enterprise_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件"
+        },
+        {
+          "uid": "enterprise_agent_page_1_2",
+          "page_no": 1,
+          "score": 0.3787,
+          "relevant_similarity": 1.0,
+          "preview": "核心项目：把文档检索、条款比对和审批节点接入企业流程。人工复核耗时降低 38%；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补 Query，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计划、工具调用"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "enterprise_agent",
+      "expectation_id": "project_focus",
+      "query": "这位企业 Agent 应用开发实习生候选人的核心项目解决了什么业务或技术问题？",
+      "expected_text": "核心项目：把文档检索、条款比对和审批节点接入企业流程",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "enterprise_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4553,
+          "relevant_similarity": 0.1639,
+          "preview": "王璐\n\n企业 Agent 应用开发实习生\n\n王璐｜企业 Agent 应用开发实习生｜enterprise_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件"
+        },
+        {
+          "uid": "enterprise_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4491,
+          "relevant_similarity": 0.6885,
+          "preview": "模拟云智实验室｜企业 Agent 应用开发实习生｜2026.03-2026.08。把文档检索、条款比对和审批节点接入企业流程。交付合同审核 Agent 工作流；将工具输入输出改为强类型合同，为外部动作\n增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，"
+        },
+        {
+          "uid": "enterprise_agent_page_1_2",
+          "page_no": 1,
+          "score": 0.4184,
+          "relevant_similarity": 1.0,
+          "preview": "核心项目：把文档检索、条款比对和审批节点接入企业流程。人工复核耗时降低 38%；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补 Query，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计划、工具调用"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "enterprise_agent",
+      "expectation_id": "retrieval_evaluation",
+      "query": "候选人如何评估检索质量和事实可靠性？",
+      "expected_text": "使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 1,
+      "recall_at_1": true,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 1.0,
+      "top_chunks": [
+        {
+          "uid": "enterprise_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.3435,
+          "relevant_similarity": 1.0,
+          "preview": "模拟云智实验室｜企业 Agent 应用开发实习生｜2026.03-2026.08。把文档检索、条款比对和审批节点接入企业流程。交付合同审核 Agent 工作流；将工具输入输出改为强类型合同，为外部动作\n增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，"
+        },
+        {
+          "uid": "enterprise_agent_page_1_2",
+          "page_no": 1,
+          "score": 0.3097,
+          "relevant_similarity": 0.2597,
+          "preview": "核心项目：把文档检索、条款比对和审批节点接入企业流程。人工复核耗时降低 38%；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补 Query，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计划、工具调用"
+        },
+        {
+          "uid": "enterprise_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.2871,
+          "relevant_similarity": 0.6753,
+          "preview": "王璐\n\n企业 Agent 应用开发实习生\n\n王璐｜企业 Agent 应用开发实习生｜enterprise_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "agent_infra",
+      "expectation_id": "distinctive_implementation",
+      "query": "这位Agent 基础设施实习生候选人在核心系统中完成了什么有辨识度的工程实现？",
+      "expected_text": "实现工具执行沙箱与资源配额",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 2,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.5,
+      "top_chunks": [
+        {
+          "uid": "agent_infra_page_1_0",
+          "page_no": 1,
+          "score": 0.4515,
+          "relevant_similarity": 0.1765,
+          "preview": "陈航｜Agent 基础设施实习生｜agent_infra@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边界。\n\n陈航\n\nAgent "
+        },
+        {
+          "uid": "agent_infra_page_1_2",
+          "page_no": 1,
+          "score": 0.4455,
+          "relevant_similarity": 1.0,
+          "preview": "模拟云智实验室｜Agent 基础设施实习生｜2026.03-2026.08。建设多租户 Agent 网关和运行\n观测平台。实现工具执行沙箱与资源配额；将工具输入输出改为强类型合同，为外部动作增加审\n批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常\n早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错"
+        },
+        {
+          "uid": "agent_infra_page_1_1",
+          "page_no": 1,
+          "score": 0.3803,
+          "relevant_similarity": 0.1765,
+          "preview": "核心项目：建设多租户 Agent 网关和运行观测平台。P95 调用延迟稳定在 420 毫秒；系统记录\nQuery、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补\nQuery，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计"
+        },
+        {
+          "uid": "agent_infra_page_1_3",
+          "page_no": 1,
+          "score": 0.3684,
+          "relevant_similarity": 0.1818,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent\n工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue 分类、测试补\n齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设\n计竞赛二等奖，英语 CET-6；曾负责跨专业五人团队的迭代排期和技术评审。"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "agent_infra",
+      "expectation_id": "quantified_outcome",
+      "query": "这位Agent 基础设施实习生候选人最重要的量化成果是什么？",
+      "expected_text": "P95 调用延迟稳定在 420 毫秒",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "agent_infra_page_1_2",
+          "page_no": 1,
+          "score": 0.4637,
+          "relevant_similarity": 0.2632,
+          "preview": "模拟云智实验室｜Agent 基础设施实习生｜2026.03-2026.08。建设多租户 Agent 网关和运行\n观测平台。实现工具执行沙箱与资源配额；将工具输入输出改为强类型合同，为外部动作增加审\n批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常\n早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错"
+        },
+        {
+          "uid": "agent_infra_page_1_0",
+          "page_no": 1,
+          "score": 0.4466,
+          "relevant_similarity": 0.2703,
+          "preview": "陈航｜Agent 基础设施实习生｜agent_infra@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边界。\n\n陈航\n\nAgent "
+        },
+        {
+          "uid": "agent_infra_page_1_1",
+          "page_no": 1,
+          "score": 0.3698,
+          "relevant_similarity": 1.0,
+          "preview": "核心项目：建设多租户 Agent 网关和运行观测平台。P95 调用延迟稳定在 420 毫秒；系统记录\nQuery、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补\nQuery，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计"
+        },
+        {
+          "uid": "agent_infra_page_1_3",
+          "page_no": 1,
+          "score": 0.3527,
+          "relevant_similarity": 0.0,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent\n工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue 分类、测试补\n齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设\n计竞赛二等奖，英语 CET-6；曾负责跨专业五人团队的迭代排期和技术评审。"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "agent_infra",
+      "expectation_id": "project_focus",
+      "query": "这位Agent 基础设施实习生候选人的核心项目解决了什么业务或技术问题？",
+      "expected_text": "核心项目：建设多租户 Agent 网关和运行观测平台",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "agent_infra_page_1_0",
+          "page_no": 1,
+          "score": 0.451,
+          "relevant_similarity": 0.25,
+          "preview": "陈航｜Agent 基础设施实习生｜agent_infra@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边界。\n\n陈航\n\nAgent "
+        },
+        {
+          "uid": "agent_infra_page_1_2",
+          "page_no": 1,
+          "score": 0.4378,
+          "relevant_similarity": 0.6786,
+          "preview": "模拟云智实验室｜Agent 基础设施实习生｜2026.03-2026.08。建设多租户 Agent 网关和运行\n观测平台。实现工具执行沙箱与资源配额；将工具输入输出改为强类型合同，为外部动作增加审\n批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常\n早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错"
+        },
+        {
+          "uid": "agent_infra_page_1_1",
+          "page_no": 1,
+          "score": 0.4048,
+          "relevant_similarity": 1.0,
+          "preview": "核心项目：建设多租户 Agent 网关和运行观测平台。P95 调用延迟稳定在 420 毫秒；系统记录\nQuery、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补\nQuery，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计"
+        },
+        {
+          "uid": "agent_infra_page_1_3",
+          "page_no": 1,
+          "score": 0.3651,
+          "relevant_similarity": 0.25,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent\n工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue 分类、测试补\n齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设\n计竞赛二等奖，英语 CET-6；曾负责跨专业五人团队的迭代排期和技术评审。"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "agent_infra",
+      "expectation_id": "retrieval_evaluation",
+      "query": "候选人如何评估检索质量和事实可靠性？",
+      "expected_text": "使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 1,
+      "recall_at_1": true,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 1.0,
+      "top_chunks": [
+        {
+          "uid": "agent_infra_page_1_2",
+          "page_no": 1,
+          "score": 0.3445,
+          "relevant_similarity": 1.0,
+          "preview": "模拟云智实验室｜Agent 基础设施实习生｜2026.03-2026.08。建设多租户 Agent 网关和运行\n观测平台。实现工具执行沙箱与资源配额；将工具输入输出改为强类型合同，为外部动作增加审\n批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常\n早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错"
+        },
+        {
+          "uid": "agent_infra_page_1_1",
+          "page_no": 1,
+          "score": 0.2993,
+          "relevant_similarity": 0.2597,
+          "preview": "核心项目：建设多租户 Agent 网关和运行观测平台。P95 调用延迟稳定在 420 毫秒；系统记录\nQuery、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补\nQuery，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计"
+        },
+        {
+          "uid": "agent_infra_page_1_0",
+          "page_no": 1,
+          "score": 0.2881,
+          "relevant_similarity": 0.6753,
+          "preview": "陈航｜Agent 基础设施实习生｜agent_infra@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边界。\n\n陈航\n\nAgent "
+        },
+        {
+          "uid": "agent_infra_page_1_3",
+          "page_no": 1,
+          "score": 0.2768,
+          "relevant_similarity": 0.1299,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent\n工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue 分类、测试补\n齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设\n计竞赛二等奖，英语 CET-6；曾负责跨专业五人团队的迭代排期和技术评审。"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "ai_product",
+      "expectation_id": "distinctive_implementation",
+      "query": "这位AI Agent 产品实习生候选人在核心系统中完成了什么有辨识度的工程实现？",
+      "expected_text": "设计客服转人工的置信度策略",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 2,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.5,
+      "top_chunks": [
+        {
+          "uid": "ai_product_page_1_0",
+          "page_no": 1,
+          "score": 0.4724,
+          "relevant_similarity": 0.1765,
+          "preview": "孙悦｜AI Agent 产品实习生｜ai_product@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边界。\n\n孙悦\n\nAI Age"
+        },
+        {
+          "uid": "ai_product_page_1_2",
+          "page_no": 1,
+          "score": 0.4661,
+          "relevant_similarity": 1.0,
+          "preview": "模拟云智实验室｜AI Agent 产品实习生｜2026.03-2026.08。从用户访谈到灰度上线推动智能\n客服工作流。设计客服转人工的置信度策略；将工具输入输出改为强类型合同，为外部动作增加\n审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异\n常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错误"
+        },
+        {
+          "uid": "ai_product_page_1_1",
+          "page_no": 1,
+          "score": 0.4099,
+          "relevant_similarity": 0.1765,
+          "preview": "核心项目：从用户访谈到灰度上线推动智能客服工作流。试点问题解决率提升 17\n个百分点；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补\nQuery，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计划、工"
+        },
+        {
+          "uid": "ai_product_page_1_3",
+          "page_no": 1,
+          "score": 0.4036,
+          "relevant_similarity": 0.1429,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent\n工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue 分类、测试补\n齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设\n计竞赛二等奖，英语 CET-6；曾负责跨专业五人团队的迭代排期和技术评审。"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "ai_product",
+      "expectation_id": "quantified_outcome",
+      "query": "这位AI Agent 产品实习生候选人最重要的量化成果是什么？",
+      "expected_text": "试点问题解决率提升 17 个百分点",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "ai_product_page_1_2",
+          "page_no": 1,
+          "score": 0.4875,
+          "relevant_similarity": 0.1053,
+          "preview": "模拟云智实验室｜AI Agent 产品实习生｜2026.03-2026.08。从用户访谈到灰度上线推动智能\n客服工作流。设计客服转人工的置信度策略；将工具输入输出改为强类型合同，为外部动作增加\n审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异\n常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错误"
+        },
+        {
+          "uid": "ai_product_page_1_0",
+          "page_no": 1,
+          "score": 0.4691,
+          "relevant_similarity": 0.1053,
+          "preview": "孙悦｜AI Agent 产品实习生｜ai_product@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边界。\n\n孙悦\n\nAI Age"
+        },
+        {
+          "uid": "ai_product_page_1_1",
+          "page_no": 1,
+          "score": 0.4046,
+          "relevant_similarity": 1.0,
+          "preview": "核心项目：从用户访谈到灰度上线推动智能客服工作流。试点问题解决率提升 17\n个百分点；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补\nQuery，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计划、工"
+        },
+        {
+          "uid": "ai_product_page_1_3",
+          "page_no": 1,
+          "score": 0.3954,
+          "relevant_similarity": 0.1053,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent\n工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue 分类、测试补\n齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设\n计竞赛二等奖，英语 CET-6；曾负责跨专业五人团队的迭代排期和技术评审。"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "ai_product",
+      "expectation_id": "project_focus",
+      "query": "这位AI Agent 产品实习生候选人的核心项目解决了什么业务或技术问题？",
+      "expected_text": "核心项目：从用户访谈到灰度上线推动智能客服工作流",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "ai_product_page_1_0",
+          "page_no": 1,
+          "score": 0.4802,
+          "relevant_similarity": 0.1429,
+          "preview": "孙悦｜AI Agent 产品实习生｜ai_product@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边界。\n\n孙悦\n\nAI Age"
+        },
+        {
+          "uid": "ai_product_page_1_2",
+          "page_no": 1,
+          "score": 0.4662,
+          "relevant_similarity": 0.6786,
+          "preview": "模拟云智实验室｜AI Agent 产品实习生｜2026.03-2026.08。从用户访谈到灰度上线推动智能\n客服工作流。设计客服转人工的置信度策略；将工具输入输出改为强类型合同，为外部动作增加\n审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异\n常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错误"
+        },
+        {
+          "uid": "ai_product_page_1_1",
+          "page_no": 1,
+          "score": 0.4592,
+          "relevant_similarity": 1.0,
+          "preview": "核心项目：从用户访谈到灰度上线推动智能客服工作流。试点问题解决率提升 17\n个百分点；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补\nQuery，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计划、工"
+        },
+        {
+          "uid": "ai_product_page_1_3",
+          "page_no": 1,
+          "score": 0.4102,
+          "relevant_similarity": 0.1071,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent\n工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue 分类、测试补\n齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设\n计竞赛二等奖，英语 CET-6；曾负责跨专业五人团队的迭代排期和技术评审。"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "ai_product",
+      "expectation_id": "retrieval_evaluation",
+      "query": "候选人如何评估检索质量和事实可靠性？",
+      "expected_text": "使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 1,
+      "recall_at_1": true,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 1.0,
+      "top_chunks": [
+        {
+          "uid": "ai_product_page_1_2",
+          "page_no": 1,
+          "score": 0.3294,
+          "relevant_similarity": 1.0,
+          "preview": "模拟云智实验室｜AI Agent 产品实习生｜2026.03-2026.08。从用户访谈到灰度上线推动智能\n客服工作流。设计客服转人工的置信度策略；将工具输入输出改为强类型合同，为外部动作增加\n审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异\n常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错误"
+        },
+        {
+          "uid": "ai_product_page_1_0",
+          "page_no": 1,
+          "score": 0.2843,
+          "relevant_similarity": 0.6753,
+          "preview": "孙悦｜AI Agent 产品实习生｜ai_product@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边界。\n\n孙悦\n\nAI Age"
+        },
+        {
+          "uid": "ai_product_page_1_1",
+          "page_no": 1,
+          "score": 0.2843,
+          "relevant_similarity": 0.2597,
+          "preview": "核心项目：从用户访谈到灰度上线推动智能客服工作流。试点问题解决率提升 17\n个百分点；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补\nQuery，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计划、工"
+        },
+        {
+          "uid": "ai_product_page_1_3",
+          "page_no": 1,
+          "score": 0.2617,
+          "relevant_similarity": 0.1299,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent\n工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue 分类、测试补\n齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设\n计竞赛二等奖，英语 CET-6；曾负责跨专业五人团队的迭代排期和技术评审。"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "multimodal_agent",
+      "expectation_id": "distinctive_implementation",
+      "query": "这位多模态 Agent 算法实习生候选人在核心系统中完成了什么有辨识度的工程实现？",
+      "expected_text": "实现图文证据对齐模块",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 2,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.5,
+      "top_chunks": [
+        {
+          "uid": "multimodal_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4699,
+          "relevant_similarity": 0.2857,
+          "preview": "李思远｜多模态 Agent 算法实习生｜multimodal_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边界。\n\n李思"
+        },
+        {
+          "uid": "multimodal_agent_page_1_2",
+          "page_no": 1,
+          "score": 0.4642,
+          "relevant_similarity": 1.0,
+          "preview": "模拟云智实验室｜多模态 Agent\n算法实习生｜2026.03-2026.08。开发面向复杂文档的视觉问答 Agent。实现图文证据对齐模\n块；将工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试\n共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接\n中断和服务端错误实现有界指数退避，对参数错误和引"
+        },
+        {
+          "uid": "multimodal_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4068,
+          "relevant_similarity": 0.2143,
+          "preview": "核心项目：开发面向复杂文档的视觉问答 Agent。票据字段准确率达到 93.4%；系统记录\nQuery、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补\nQuery，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计划、工具调"
+        },
+        {
+          "uid": "multimodal_agent_page_1_3",
+          "page_no": 1,
+          "score": 0.3953,
+          "relevant_similarity": 0.1429,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent\n工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue 分类、测试补\n齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设\n计竞赛二等奖，英语 CET-6；曾负责跨专业五人团队的迭代排期和技术评审。"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "multimodal_agent",
+      "expectation_id": "quantified_outcome",
+      "query": "这位多模态 Agent 算法实习生候选人最重要的量化成果是什么？",
+      "expected_text": "票据字段准确率达到 93.4%",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "multimodal_agent_page_1_2",
+          "page_no": 1,
+          "score": 0.4856,
+          "relevant_similarity": 0.1667,
+          "preview": "模拟云智实验室｜多模态 Agent\n算法实习生｜2026.03-2026.08。开发面向复杂文档的视觉问答 Agent。实现图文证据对齐模\n块；将工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试\n共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接\n中断和服务端错误实现有界指数退避，对参数错误和引"
+        },
+        {
+          "uid": "multimodal_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4694,
+          "relevant_similarity": 0.2222,
+          "preview": "李思远｜多模态 Agent 算法实习生｜multimodal_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边界。\n\n李思"
+        },
+        {
+          "uid": "multimodal_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4042,
+          "relevant_similarity": 1.0,
+          "preview": "核心项目：开发面向复杂文档的视觉问答 Agent。票据字段准确率达到 93.4%；系统记录\nQuery、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补\nQuery，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计划、工具调"
+        },
+        {
+          "uid": "multimodal_agent_page_1_3",
+          "page_no": 1,
+          "score": 0.388,
+          "relevant_similarity": 0.0556,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent\n工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue 分类、测试补\n齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设\n计竞赛二等奖，英语 CET-6；曾负责跨专业五人团队的迭代排期和技术评审。"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "multimodal_agent",
+      "expectation_id": "project_focus",
+      "query": "这位多模态 Agent 算法实习生候选人的核心项目解决了什么业务或技术问题？",
+      "expected_text": "核心项目：开发面向复杂文档的视觉问答 Agent",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "multimodal_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4794,
+          "relevant_similarity": 0.2222,
+          "preview": "李思远｜多模态 Agent 算法实习生｜multimodal_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边界。\n\n李思"
+        },
+        {
+          "uid": "multimodal_agent_page_1_2",
+          "page_no": 1,
+          "score": 0.4666,
+          "relevant_similarity": 0.6667,
+          "preview": "模拟云智实验室｜多模态 Agent\n算法实习生｜2026.03-2026.08。开发面向复杂文档的视觉问答 Agent。实现图文证据对齐模\n块；将工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试\n共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接\n中断和服务端错误实现有界指数退避，对参数错误和引"
+        },
+        {
+          "uid": "multimodal_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4412,
+          "relevant_similarity": 1.0,
+          "preview": "核心项目：开发面向复杂文档的视觉问答 Agent。票据字段准确率达到 93.4%；系统记录\nQuery、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补\nQuery，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计划、工具调"
+        },
+        {
+          "uid": "multimodal_agent_page_1_3",
+          "page_no": 1,
+          "score": 0.403,
+          "relevant_similarity": 0.1852,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent\n工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue 分类、测试补\n齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设\n计竞赛二等奖，英语 CET-6；曾负责跨专业五人团队的迭代排期和技术评审。"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "multimodal_agent",
+      "expectation_id": "retrieval_evaluation",
+      "query": "候选人如何评估检索质量和事实可靠性？",
+      "expected_text": "使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 1,
+      "recall_at_1": true,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 1.0,
+      "top_chunks": [
+        {
+          "uid": "multimodal_agent_page_1_2",
+          "page_no": 1,
+          "score": 0.3441,
+          "relevant_similarity": 1.0,
+          "preview": "模拟云智实验室｜多模态 Agent\n算法实习生｜2026.03-2026.08。开发面向复杂文档的视觉问答 Agent。实现图文证据对齐模\n块；将工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试\n共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接\n中断和服务端错误实现有界指数退避，对参数错误和引"
+        },
+        {
+          "uid": "multimodal_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.2989,
+          "relevant_similarity": 0.2597,
+          "preview": "核心项目：开发面向复杂文档的视觉问答 Agent。票据字段准确率达到 93.4%；系统记录\nQuery、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补\nQuery，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计划、工具调"
+        },
+        {
+          "uid": "multimodal_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.2877,
+          "relevant_similarity": 0.6753,
+          "preview": "李思远｜多模态 Agent 算法实习生｜multimodal_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边界。\n\n李思"
+        },
+        {
+          "uid": "multimodal_agent_page_1_3",
+          "page_no": 1,
+          "score": 0.2764,
+          "relevant_similarity": 0.1299,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent\n工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue 分类、测试补\n齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设\n计竞赛二等奖，英语 CET-6；曾负责跨专业五人团队的迭代排期和技术评审。"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "speech_agent",
+      "expectation_id": "distinctive_implementation",
+      "query": "这位语音 Agent 开发实习生候选人在核心系统中完成了什么有辨识度的工程实现？",
+      "expected_text": "实现可打断的流式语音状态机",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 2,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.5,
+      "top_chunks": [
+        {
+          "uid": "speech_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4651,
+          "relevant_similarity": 0.2353,
+          "preview": "郑清｜语音 Agent 开发实习生｜speech_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边界。\n\n郑清\n\n语音 A"
+        },
+        {
+          "uid": "speech_agent_page_1_2",
+          "page_no": 1,
+          "score": 0.4592,
+          "relevant_similarity": 1.0,
+          "preview": "模拟云智实验室｜语音 Agent 开发实习生｜2026.03-2026.08。构建支持实时打断和上下文续\n接的语音助手。实现可打断的流式语音状态机；将工具输入输出改为强类型合同，为外部动作增\n加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和\n异常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错误"
+        },
+        {
+          "uid": "speech_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4117,
+          "relevant_similarity": 0.3529,
+          "preview": "核心项目：构建支持实时打断和上下文续接的语音助手。首字延迟由 1.8 秒降低至 760\n毫秒；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补\nQuery，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示"
+        },
+        {
+          "uid": "speech_agent_page_1_3",
+          "page_no": 1,
+          "score": 0.3999,
+          "relevant_similarity": 0.1667,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent\n工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue 分类、测试补\n齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设\n计竞赛二等奖，英语 CET-6；曾负责跨专业五人团队的迭代排期和技术评审。"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "speech_agent",
+      "expectation_id": "quantified_outcome",
+      "query": "这位语音 Agent 开发实习生候选人最重要的量化成果是什么？",
+      "expected_text": "首字延迟由 1.8 秒降低至 760 毫秒",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "speech_agent_page_1_2",
+          "page_no": 1,
+          "score": 0.4768,
+          "relevant_similarity": 0.1429,
+          "preview": "模拟云智实验室｜语音 Agent 开发实习生｜2026.03-2026.08。构建支持实时打断和上下文续\n接的语音助手。实现可打断的流式语音状态机；将工具输入输出改为强类型合同，为外部动作增\n加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和\n异常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错误"
+        },
+        {
+          "uid": "speech_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4597,
+          "relevant_similarity": 0.1905,
+          "preview": "郑清｜语音 Agent 开发实习生｜speech_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边界。\n\n郑清\n\n语音 A"
+        },
+        {
+          "uid": "speech_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4085,
+          "relevant_similarity": 1.0,
+          "preview": "核心项目：构建支持实时打断和上下文续接的语音助手。首字延迟由 1.8 秒降低至 760\n毫秒；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补\nQuery，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示"
+        },
+        {
+          "uid": "speech_agent_page_1_3",
+          "page_no": 1,
+          "score": 0.3914,
+          "relevant_similarity": 0.0476,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent\n工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue 分类、测试补\n齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设\n计竞赛二等奖，英语 CET-6；曾负责跨专业五人团队的迭代排期和技术评审。"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "speech_agent",
+      "expectation_id": "project_focus",
+      "query": "这位语音 Agent 开发实习生候选人的核心项目解决了什么业务或技术问题？",
+      "expected_text": "核心项目：构建支持实时打断和上下文续接的语音助手",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "speech_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4706,
+          "relevant_similarity": 0.1429,
+          "preview": "郑清｜语音 Agent 开发实习生｜speech_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边界。\n\n郑清\n\n语音 A"
+        },
+        {
+          "uid": "speech_agent_page_1_2",
+          "page_no": 1,
+          "score": 0.4573,
+          "relevant_similarity": 0.6786,
+          "preview": "模拟云智实验室｜语音 Agent 开发实习生｜2026.03-2026.08。构建支持实时打断和上下文续\n接的语音助手。实现可打断的流式语音状态机；将工具输入输出改为强类型合同，为外部动作增\n加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和\n异常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错误"
+        },
+        {
+          "uid": "speech_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4441,
+          "relevant_similarity": 1.0,
+          "preview": "核心项目：构建支持实时打断和上下文续接的语音助手。首字延迟由 1.8 秒降低至 760\n毫秒；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补\nQuery，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示"
+        },
+        {
+          "uid": "speech_agent_page_1_3",
+          "page_no": 1,
+          "score": 0.4045,
+          "relevant_similarity": 0.1429,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent\n工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue 分类、测试补\n齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设\n计竞赛二等奖，英语 CET-6；曾负责跨专业五人团队的迭代排期和技术评审。"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "speech_agent",
+      "expectation_id": "retrieval_evaluation",
+      "query": "候选人如何评估检索质量和事实可靠性？",
+      "expected_text": "使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 1,
+      "recall_at_1": true,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 1.0,
+      "top_chunks": [
+        {
+          "uid": "speech_agent_page_1_2",
+          "page_no": 1,
+          "score": 0.3323,
+          "relevant_similarity": 1.0,
+          "preview": "模拟云智实验室｜语音 Agent 开发实习生｜2026.03-2026.08。构建支持实时打断和上下文续\n接的语音助手。实现可打断的流式语音状态机；将工具输入输出改为强类型合同，为外部动作增\n加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和\n异常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错误"
+        },
+        {
+          "uid": "speech_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.2872,
+          "relevant_similarity": 0.2597,
+          "preview": "核心项目：构建支持实时打断和上下文续接的语音助手。首字延迟由 1.8 秒降低至 760\n毫秒；系统记录 Query、候选\nChunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补\nQuery，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示"
+        },
+        {
+          "uid": "speech_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.2759,
+          "relevant_similarity": 0.6753,
+          "preview": "郑清｜语音 Agent 开发实习生｜speech_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent\n工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边界。\n\n郑清\n\n语音 A"
+        },
+        {
+          "uid": "speech_agent_page_1_3",
+          "page_no": 1,
+          "score": 0.2646,
+          "relevant_similarity": 0.1299,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent\n工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue 分类、测试补\n齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设\n计竞赛二等奖，英语 CET-6；曾负责跨专业五人团队的迭代排期和技术评审。"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "data_agent",
+      "expectation_id": "distinctive_implementation",
+      "query": "这位数据分析 Agent 实习生候选人在核心系统中完成了什么有辨识度的工程实现？",
+      "expected_text": "实现 SQL 静态检查与只读执行网关",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 2,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.5,
+      "top_chunks": [
+        {
+          "uid": "data_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4499,
+          "relevant_similarity": 0.2,
+          "preview": "方可\n\n方可｜数据分析 Agent 实习生｜data_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强生成、\n工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事\n实边界。\n\n教育背景"
+        },
+        {
+          "uid": "data_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.438,
+          "relevant_similarity": 1.0,
+          "preview": "模拟云智实验室｜数据分析 Agent 实习生｜2026.03-2026.08。让 Agent 在数仓语义层生成可审计分析结果。实现 SQL 静态检查与只读执行网关；将\n工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停\n固化为回归样例。针对限流、连接中断和服务端错误实现有界指数"
+        },
+        {
+          "uid": "data_agent_page_2_0",
+          "page_no": 2,
+          "score": 0.4083,
+          "relevant_similarity": 0.15,
+          "preview": "方可 | 经历续页\n\n科研经历\n\n围绕“让 Agent 在数仓语义层生成可审计分析结果”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。"
+        },
+        {
+          "uid": "data_agent_page_2_1",
+          "page_no": 2,
+          "score": 0.3965,
+          "relevant_similarity": 0.16,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "data_agent",
+      "expectation_id": "quantified_outcome",
+      "query": "这位数据分析 Agent 实习生候选人最重要的量化成果是什么？",
+      "expected_text": "复杂查询执行正确率达到 88.2%",
+      "expected_page_no": 2,
+      "best_extracted_page_no": 2,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "data_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4483,
+          "relevant_similarity": 0.15,
+          "preview": "模拟云智实验室｜数据分析 Agent 实习生｜2026.03-2026.08。让 Agent 在数仓语义层生成可审计分析结果。实现 SQL 静态检查与只读执行网关；将\n工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停\n固化为回归样例。针对限流、连接中断和服务端错误实现有界指数"
+        },
+        {
+          "uid": "data_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4397,
+          "relevant_similarity": 0.15,
+          "preview": "方可\n\n方可｜数据分析 Agent 实习生｜data_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强生成、\n工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事\n实边界。\n\n教育背景"
+        },
+        {
+          "uid": "data_agent_page_2_0",
+          "page_no": 2,
+          "score": 0.4056,
+          "relevant_similarity": 1.0,
+          "preview": "方可 | 经历续页\n\n科研经历\n\n围绕“让 Agent 在数仓语义层生成可审计分析结果”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。"
+        },
+        {
+          "uid": "data_agent_page_2_1",
+          "page_no": 2,
+          "score": 0.3885,
+          "relevant_similarity": 0.24,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "data_agent",
+      "expectation_id": "project_focus",
+      "query": "这位数据分析 Agent 实习生候选人的核心项目解决了什么业务或技术问题？",
+      "expected_text": "核心项目：让 Agent 在数仓语义层生成可审计分析结果",
+      "expected_page_no": 2,
+      "best_extracted_page_no": 2,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "data_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4538,
+          "relevant_similarity": 0.2295,
+          "preview": "方可\n\n方可｜数据分析 Agent 实习生｜data_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强生成、\n工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事\n实边界。\n\n教育背景"
+        },
+        {
+          "uid": "data_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4406,
+          "relevant_similarity": 0.6885,
+          "preview": "模拟云智实验室｜数据分析 Agent 实习生｜2026.03-2026.08。让 Agent 在数仓语义层生成可审计分析结果。实现 SQL 静态检查与只读执行网关；将\n工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停\n固化为回归样例。针对限流、连接中断和服务端错误实现有界指数"
+        },
+        {
+          "uid": "data_agent_page_2_0",
+          "page_no": 2,
+          "score": 0.4406,
+          "relevant_similarity": 1.0,
+          "preview": "方可 | 经历续页\n\n科研经历\n\n围绕“让 Agent 在数仓语义层生成可审计分析结果”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。"
+        },
+        {
+          "uid": "data_agent_page_2_1",
+          "page_no": 2,
+          "score": 0.4076,
+          "relevant_similarity": 0.1639,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "data_agent",
+      "expectation_id": "retrieval_evaluation",
+      "query": "候选人如何评估检索质量和事实可靠性？",
+      "expected_text": "使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估",
+      "expected_page_no": 2,
+      "best_extracted_page_no": 2,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 1,
+      "recall_at_1": true,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 1.0,
+      "top_chunks": [
+        {
+          "uid": "data_agent_page_2_0",
+          "page_no": 2,
+          "score": 0.3745,
+          "relevant_similarity": 1.0,
+          "preview": "方可 | 经历续页\n\n科研经历\n\n围绕“让 Agent 在数仓语义层生成可审计分析结果”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。"
+        },
+        {
+          "uid": "data_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.3067,
+          "relevant_similarity": 0.6753,
+          "preview": "方可\n\n方可｜数据分析 Agent 实习生｜data_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强生成、\n工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事\n实边界。\n\n教育背景"
+        },
+        {
+          "uid": "data_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.3067,
+          "relevant_similarity": 0.1299,
+          "preview": "模拟云智实验室｜数据分析 Agent 实习生｜2026.03-2026.08。让 Agent 在数仓语义层生成可审计分析结果。实现 SQL 静态检查与只读执行网关；将\n工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停\n固化为回归样例。针对限流、连接中断和服务端错误实现有界指数"
+        },
+        {
+          "uid": "data_agent_page_2_1",
+          "page_no": 2,
+          "score": 0.2954,
+          "relevant_similarity": 0.1299,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "nlp_research",
+      "expectation_id": "distinctive_implementation",
+      "query": "这位NLP 与 Agent 研究实习生候选人在核心系统中完成了什么有辨识度的工程实现？",
+      "expected_text": "提出证据覆盖约束的检索训练目标",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 2,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.5,
+      "top_chunks": [
+        {
+          "uid": "nlp_research_page_1_0",
+          "page_no": 1,
+          "score": 0.4506,
+          "relevant_similarity": 0.2105,
+          "preview": "黄昭\n\n黄昭｜NLP 与 Agent 研究实习生｜nlp_research@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强生\n成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯\n的事实边界。\n"
+        },
+        {
+          "uid": "nlp_research_page_1_1",
+          "page_no": 1,
+          "score": 0.4383,
+          "relevant_similarity": 1.0,
+          "preview": "模拟云智实验室｜NLP 与 Agent 研究实习生｜2026.03-2026.08。研究长上下文 Agent 的检索和引用一致性。提出证据覆盖约束的检索训练目标；将\n工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停\n固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退"
+        },
+        {
+          "uid": "nlp_research_page_2_0",
+          "page_no": 2,
+          "score": 0.3953,
+          "relevant_similarity": 0.2105,
+          "preview": "黄昭 | 经历续页\n\n科研经历\n\n围绕“研究长上下文 Agent 的检索和引用一致性”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。进"
+        },
+        {
+          "uid": "nlp_research_page_2_1",
+          "page_no": 2,
+          "score": 0.3769,
+          "relevant_similarity": 0.1579,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "nlp_research",
+      "expectation_id": "quantified_outcome",
+      "query": "这位NLP 与 Agent 研究实习生候选人最重要的量化成果是什么？",
+      "expected_text": "在中文长文问答集上 nDCG@10 提升 6.3%",
+      "expected_page_no": 2,
+      "best_extracted_page_no": 2,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "nlp_research_page_1_1",
+          "page_no": 1,
+          "score": 0.4539,
+          "relevant_similarity": 0.2308,
+          "preview": "模拟云智实验室｜NLP 与 Agent 研究实习生｜2026.03-2026.08。研究长上下文 Agent 的检索和引用一致性。提出证据覆盖约束的检索训练目标；将\n工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停\n固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退"
+        },
+        {
+          "uid": "nlp_research_page_1_0",
+          "page_no": 1,
+          "score": 0.4449,
+          "relevant_similarity": 0.1538,
+          "preview": "黄昭\n\n黄昭｜NLP 与 Agent 研究实习生｜nlp_research@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强生\n成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯\n的事实边界。\n"
+        },
+        {
+          "uid": "nlp_research_page_2_0",
+          "page_no": 2,
+          "score": 0.3911,
+          "relevant_similarity": 1.0,
+          "preview": "黄昭 | 经历续页\n\n科研经历\n\n围绕“研究长上下文 Agent 的检索和引用一致性”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。进"
+        },
+        {
+          "uid": "nlp_research_page_2_1",
+          "page_no": 2,
+          "score": 0.3641,
+          "relevant_similarity": 0.0769,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "nlp_research",
+      "expectation_id": "project_focus",
+      "query": "这位NLP 与 Agent 研究实习生候选人的核心项目解决了什么业务或技术问题？",
+      "expected_text": "核心项目：研究长上下文 Agent 的检索和引用一致性",
+      "expected_page_no": 2,
+      "best_extracted_page_no": 2,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "nlp_research_page_1_0",
+          "page_no": 1,
+          "score": 0.4482,
+          "relevant_similarity": 0.2759,
+          "preview": "黄昭\n\n黄昭｜NLP 与 Agent 研究实习生｜nlp_research@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强生\n成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯\n的事实边界。\n"
+        },
+        {
+          "uid": "nlp_research_page_1_1",
+          "page_no": 1,
+          "score": 0.4344,
+          "relevant_similarity": 0.6897,
+          "preview": "模拟云智实验室｜NLP 与 Agent 研究实习生｜2026.03-2026.08。研究长上下文 Agent 的检索和引用一致性。提出证据覆盖约束的检索训练目标；将\n工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停\n固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退"
+        },
+        {
+          "uid": "nlp_research_page_2_0",
+          "page_no": 2,
+          "score": 0.4207,
+          "relevant_similarity": 1.0,
+          "preview": "黄昭 | 经历续页\n\n科研经历\n\n围绕“研究长上下文 Agent 的检索和引用一致性”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。进"
+        },
+        {
+          "uid": "nlp_research_page_2_1",
+          "page_no": 2,
+          "score": 0.3795,
+          "relevant_similarity": 0.2414,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "nlp_research",
+      "expectation_id": "retrieval_evaluation",
+      "query": "候选人如何评估检索质量和事实可靠性？",
+      "expected_text": "使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估",
+      "expected_page_no": 2,
+      "best_extracted_page_no": 2,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 1,
+      "recall_at_1": true,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 1.0,
+      "top_chunks": [
+        {
+          "uid": "nlp_research_page_2_0",
+          "page_no": 2,
+          "score": 0.3779,
+          "relevant_similarity": 1.0,
+          "preview": "黄昭 | 经历续页\n\n科研经历\n\n围绕“研究长上下文 Agent 的检索和引用一致性”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。进"
+        },
+        {
+          "uid": "nlp_research_page_1_1",
+          "page_no": 1,
+          "score": 0.3214,
+          "relevant_similarity": 0.1299,
+          "preview": "模拟云智实验室｜NLP 与 Agent 研究实习生｜2026.03-2026.08。研究长上下文 Agent 的检索和引用一致性。提出证据覆盖约束的检索训练目标；将\n工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停\n固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退"
+        },
+        {
+          "uid": "nlp_research_page_1_0",
+          "page_no": 1,
+          "score": 0.3101,
+          "relevant_similarity": 0.6753,
+          "preview": "黄昭\n\n黄昭｜NLP 与 Agent 研究实习生｜nlp_research@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强生\n成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯\n的事实边界。\n"
+        },
+        {
+          "uid": "nlp_research_page_2_1",
+          "page_no": 2,
+          "score": 0.2988,
+          "relevant_similarity": 0.1299,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "coding_agent",
+      "expectation_id": "distinctive_implementation",
+      "query": "这位Coding Agent 开发实习生候选人在核心系统中完成了什么有辨识度的工程实现？",
+      "expected_text": "实现仓库级符号索引和增量上下文",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 2,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.5,
+      "top_chunks": [
+        {
+          "uid": "coding_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4576,
+          "relevant_similarity": 0.1053,
+          "preview": "陆鸣\n\n陆鸣｜Coding Agent 开发实习生｜coding_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强生\n成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯\n的事实边界。"
+        },
+        {
+          "uid": "coding_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4451,
+          "relevant_similarity": 1.0,
+          "preview": "模拟云智实验室｜Coding Agent 开发实习生｜2026.03-2026.08。构建可执行测试并回放工具轨迹的代码 Agent。实现仓库级符号索引和增量上下文\n；将工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常\n早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指"
+        },
+        {
+          "uid": "coding_agent_page_2_0",
+          "page_no": 2,
+          "score": 0.4014,
+          "relevant_similarity": 0.1579,
+          "preview": "陆鸣 | 经历续页\n\n科研经历\n\n围绕“构建可执行测试并回放工具轨迹的代码 Agent”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。"
+        },
+        {
+          "uid": "coding_agent_page_2_1",
+          "page_no": 2,
+          "score": 0.3889,
+          "relevant_similarity": 0.1053,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "coding_agent",
+      "expectation_id": "quantified_outcome",
+      "query": "这位Coding Agent 开发实习生候选人最重要的量化成果是什么？",
+      "expected_text": "修复任务一次通过率由 42% 提升至 68%",
+      "expected_page_no": 2,
+      "best_extracted_page_no": 2,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "coding_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.46,
+          "relevant_similarity": 0.1304,
+          "preview": "模拟云智实验室｜Coding Agent 开发实习生｜2026.03-2026.08。构建可执行测试并回放工具轨迹的代码 Agent。实现仓库级符号索引和增量上下文\n；将工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常\n早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指"
+        },
+        {
+          "uid": "coding_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4508,
+          "relevant_similarity": 0.1304,
+          "preview": "陆鸣\n\n陆鸣｜Coding Agent 开发实习生｜coding_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强生\n成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯\n的事实边界。"
+        },
+        {
+          "uid": "coding_agent_page_2_0",
+          "page_no": 2,
+          "score": 0.3955,
+          "relevant_similarity": 1.0,
+          "preview": "陆鸣 | 经历续页\n\n科研经历\n\n围绕“构建可执行测试并回放工具轨迹的代码 Agent”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。"
+        },
+        {
+          "uid": "coding_agent_page_2_1",
+          "page_no": 2,
+          "score": 0.3771,
+          "relevant_similarity": 0.0667,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "coding_agent",
+      "expectation_id": "project_focus",
+      "query": "这位Coding Agent 开发实习生候选人的核心项目解决了什么业务或技术问题？",
+      "expected_text": "核心项目：构建可执行测试并回放工具轨迹的代码 Agent",
+      "expected_page_no": 2,
+      "best_extracted_page_no": 2,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "coding_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.454,
+          "relevant_similarity": 0.2222,
+          "preview": "陆鸣\n\n陆鸣｜Coding Agent 开发实习生｜coding_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强生\n成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯\n的事实边界。"
+        },
+        {
+          "uid": "coding_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.44,
+          "relevant_similarity": 0.6984,
+          "preview": "模拟云智实验室｜Coding Agent 开发实习生｜2026.03-2026.08。构建可执行测试并回放工具轨迹的代码 Agent。实现仓库级符号索引和增量上下文\n；将工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常\n早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指"
+        },
+        {
+          "uid": "coding_agent_page_2_0",
+          "page_no": 2,
+          "score": 0.426,
+          "relevant_similarity": 1.0,
+          "preview": "陆鸣 | 经历续页\n\n科研经历\n\n围绕“构建可执行测试并回放工具轨迹的代码 Agent”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。"
+        },
+        {
+          "uid": "coding_agent_page_2_1",
+          "page_no": 2,
+          "score": 0.391,
+          "relevant_similarity": 0.2,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "coding_agent",
+      "expectation_id": "retrieval_evaluation",
+      "query": "候选人如何评估检索质量和事实可靠性？",
+      "expected_text": "使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估",
+      "expected_page_no": 2,
+      "best_extracted_page_no": 2,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 1,
+      "recall_at_1": true,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 1.0,
+      "top_chunks": [
+        {
+          "uid": "coding_agent_page_2_0",
+          "page_no": 2,
+          "score": 0.3561,
+          "relevant_similarity": 1.0,
+          "preview": "陆鸣 | 经历续页\n\n科研经历\n\n围绕“构建可执行测试并回放工具轨迹的代码 Agent”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。"
+        },
+        {
+          "uid": "coding_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.2884,
+          "relevant_similarity": 0.6753,
+          "preview": "陆鸣\n\n陆鸣｜Coding Agent 开发实习生｜coding_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强生\n成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯\n的事实边界。"
+        },
+        {
+          "uid": "coding_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.2884,
+          "relevant_similarity": 0.1299,
+          "preview": "模拟云智实验室｜Coding Agent 开发实习生｜2026.03-2026.08。构建可执行测试并回放工具轨迹的代码 Agent。实现仓库级符号索引和增量上下文\n；将工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常\n早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指"
+        },
+        {
+          "uid": "coding_agent_page_2_1",
+          "page_no": 2,
+          "score": 0.2771,
+          "relevant_similarity": 0.1299,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "service_agent",
+      "expectation_id": "distinctive_implementation",
+      "query": "这位智能客服 Agent 后端实习生候选人在核心系统中完成了什么有辨识度的工程实现？",
+      "expected_text": "实现会话摘要与坐席接管协议",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 2,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.5,
+      "top_chunks": [
+        {
+          "uid": "service_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4459,
+          "relevant_similarity": 0.1765,
+          "preview": "宋雨\n\n宋雨｜智能客服 Agent 后端实习生｜service_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强\n生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回\n溯的事实边界。\n"
+        },
+        {
+          "uid": "service_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4348,
+          "relevant_similarity": 1.0,
+          "preview": "模拟云智实验室｜智能客服 Agent 后端实习生｜2026.03-2026.08。建设客服知识检索、工具调用和人工接管链路。实现会话摘要与坐席接管协议；将\n工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停\n固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数"
+        },
+        {
+          "uid": "service_agent_page_2_0",
+          "page_no": 2,
+          "score": 0.3737,
+          "relevant_similarity": 0.125,
+          "preview": "宋雨 | 经历续页\n\n科研经历\n\n围绕“建设客服知识检索、工具调用和人工接管链路”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。进一步"
+        },
+        {
+          "uid": "service_agent_page_2_1",
+          "page_no": 2,
+          "score": 0.3681,
+          "relevant_similarity": 0.0588,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "service_agent",
+      "expectation_id": "quantified_outcome",
+      "query": "这位智能客服 Agent 后端实习生候选人最重要的量化成果是什么？",
+      "expected_text": "峰值吞吐达到每秒 860 个事件",
+      "expected_page_no": 2,
+      "best_extracted_page_no": 2,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "service_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4464,
+          "relevant_similarity": 0.1111,
+          "preview": "模拟云智实验室｜智能客服 Agent 后端实习生｜2026.03-2026.08。建设客服知识检索、工具调用和人工接管链路。实现会话摘要与坐席接管协议；将\n工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停\n固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数"
+        },
+        {
+          "uid": "service_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4386,
+          "relevant_similarity": 0.1667,
+          "preview": "宋雨\n\n宋雨｜智能客服 Agent 后端实习生｜service_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强\n生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回\n溯的事实边界。\n"
+        },
+        {
+          "uid": "service_agent_page_2_0",
+          "page_no": 2,
+          "score": 0.3608,
+          "relevant_similarity": 1.0,
+          "preview": "宋雨 | 经历续页\n\n科研经历\n\n围绕“建设客服知识检索、工具调用和人工接管链路”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。进一步"
+        },
+        {
+          "uid": "service_agent_page_2_1",
+          "page_no": 2,
+          "score": 0.3531,
+          "relevant_similarity": 0.0556,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "service_agent",
+      "expectation_id": "project_focus",
+      "query": "这位智能客服 Agent 后端实习生候选人的核心项目解决了什么业务或技术问题？",
+      "expected_text": "核心项目：建设客服知识检索、工具调用和人工接管链路",
+      "expected_page_no": 2,
+      "best_extracted_page_no": 2,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "service_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4471,
+          "relevant_similarity": 0.2414,
+          "preview": "宋雨\n\n宋雨｜智能客服 Agent 后端实习生｜service_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强\n生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回\n溯的事实边界。\n"
+        },
+        {
+          "uid": "service_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4348,
+          "relevant_similarity": 0.6897,
+          "preview": "模拟云智实验室｜智能客服 Agent 后端实习生｜2026.03-2026.08。建设客服知识检索、工具调用和人工接管链路。实现会话摘要与坐席接管协议；将\n工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停\n固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数"
+        },
+        {
+          "uid": "service_agent_page_2_0",
+          "page_no": 2,
+          "score": 0.398,
+          "relevant_similarity": 1.0,
+          "preview": "宋雨 | 经历续页\n\n科研经历\n\n围绕“建设客服知识检索、工具调用和人工接管链路”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。进一步"
+        },
+        {
+          "uid": "service_agent_page_2_1",
+          "page_no": 2,
+          "score": 0.3734,
+          "relevant_similarity": 0.1379,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "service_agent",
+      "expectation_id": "retrieval_evaluation",
+      "query": "候选人如何评估检索质量和事实可靠性？",
+      "expected_text": "使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估",
+      "expected_page_no": 2,
+      "best_extracted_page_no": 2,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 1,
+      "recall_at_1": true,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 1.0,
+      "top_chunks": [
+        {
+          "uid": "service_agent_page_2_0",
+          "page_no": 2,
+          "score": 0.3697,
+          "relevant_similarity": 1.0,
+          "preview": "宋雨 | 经历续页\n\n科研经历\n\n围绕“建设客服知识检索、工具调用和人工接管链路”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。进一步"
+        },
+        {
+          "uid": "service_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.3132,
+          "relevant_similarity": 0.1299,
+          "preview": "模拟云智实验室｜智能客服 Agent 后端实习生｜2026.03-2026.08。建设客服知识检索、工具调用和人工接管链路。实现会话摘要与坐席接管协议；将\n工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停\n固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数"
+        },
+        {
+          "uid": "service_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.3019,
+          "relevant_similarity": 0.6753,
+          "preview": "宋雨\n\n宋雨｜智能客服 Agent 后端实习生｜service_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强\n生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回\n溯的事实边界。\n"
+        },
+        {
+          "uid": "service_agent_page_2_1",
+          "page_no": 2,
+          "score": 0.2907,
+          "relevant_similarity": 0.1299,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "mobile_agent",
+      "expectation_id": "distinctive_implementation",
+      "query": "这位端侧 Agent 工程实习生候选人在核心系统中完成了什么有辨识度的工程实现？",
+      "expected_text": "完成端侧意图模型 INT8 量化",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 2,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.5,
+      "top_chunks": [
+        {
+          "uid": "mobile_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4158,
+          "relevant_similarity": 0.2222,
+          "preview": "顾晨\n\n顾晨｜端侧 Agent 工程实习生｜mobile_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强生成\n、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的\n事实边界。\n\n教育"
+        },
+        {
+          "uid": "mobile_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4095,
+          "relevant_similarity": 1.0,
+          "preview": "模拟云智实验室｜端侧 Agent 工程实习生｜2026.03-2026.08。研究移动端 Agent 的离线推理与隐私保护。完成端侧意图模型 INT8 量化；将工具输入\n输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回\n归样例。针对限流、连接中断和服务端错误实现有界指数退避，"
+        },
+        {
+          "uid": "mobile_agent_page_2_0",
+          "page_no": 2,
+          "score": 0.3658,
+          "relevant_similarity": 0.1667,
+          "preview": "顾晨 | 经历续页\n\n科研经历\n\n围绕“研究移动端 Agent 的离线推理与隐私保护”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。进"
+        },
+        {
+          "uid": "mobile_agent_page_2_1",
+          "page_no": 2,
+          "score": 0.3533,
+          "relevant_similarity": 0.1111,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "mobile_agent",
+      "expectation_id": "quantified_outcome",
+      "query": "这位端侧 Agent 工程实习生候选人最重要的量化成果是什么？",
+      "expected_text": "模型包体积减少 61%",
+      "expected_page_no": 2,
+      "best_extracted_page_no": 2,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "mobile_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4292,
+          "relevant_similarity": 0.1429,
+          "preview": "模拟云智实验室｜端侧 Agent 工程实习生｜2026.03-2026.08。研究移动端 Agent 的离线推理与隐私保护。完成端侧意图模型 INT8 量化；将工具输入\n输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回\n归样例。针对限流、连接中断和服务端错误实现有界指数退避，"
+        },
+        {
+          "uid": "mobile_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4207,
+          "relevant_similarity": 0.1429,
+          "preview": "顾晨\n\n顾晨｜端侧 Agent 工程实习生｜mobile_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强生成\n、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的\n事实边界。\n\n教育"
+        },
+        {
+          "uid": "mobile_agent_page_2_0",
+          "page_no": 2,
+          "score": 0.3609,
+          "relevant_similarity": 1.0,
+          "preview": "顾晨 | 经历续页\n\n科研经历\n\n围绕“研究移动端 Agent 的离线推理与隐私保护”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。进"
+        },
+        {
+          "uid": "mobile_agent_page_2_1",
+          "page_no": 2,
+          "score": 0.3524,
+          "relevant_similarity": 0.1429,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "mobile_agent",
+      "expectation_id": "project_focus",
+      "query": "这位端侧 Agent 工程实习生候选人的核心项目解决了什么业务或技术问题？",
+      "expected_text": "核心项目：研究移动端 Agent 的离线推理与隐私保护",
+      "expected_page_no": 2,
+      "best_extracted_page_no": 2,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "mobile_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4186,
+          "relevant_similarity": 0.2069,
+          "preview": "顾晨\n\n顾晨｜端侧 Agent 工程实习生｜mobile_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强生成\n、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的\n事实边界。\n\n教育"
+        },
+        {
+          "uid": "mobile_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4054,
+          "relevant_similarity": 0.6897,
+          "preview": "模拟云智实验室｜端侧 Agent 工程实习生｜2026.03-2026.08。研究移动端 Agent 的离线推理与隐私保护。完成端侧意图模型 INT8 量化；将工具输入\n输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回\n归样例。针对限流、连接中断和服务端错误实现有界指数退避，"
+        },
+        {
+          "uid": "mobile_agent_page_2_0",
+          "page_no": 2,
+          "score": 0.3922,
+          "relevant_similarity": 1.0,
+          "preview": "顾晨 | 经历续页\n\n科研经历\n\n围绕“研究移动端 Agent 的离线推理与隐私保护”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。进"
+        },
+        {
+          "uid": "mobile_agent_page_2_1",
+          "page_no": 2,
+          "score": 0.3658,
+          "relevant_similarity": 0.2069,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "mobile_agent",
+      "expectation_id": "retrieval_evaluation",
+      "query": "候选人如何评估检索质量和事实可靠性？",
+      "expected_text": "使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估",
+      "expected_page_no": 2,
+      "best_extracted_page_no": 2,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 1,
+      "recall_at_1": true,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 1.0,
+      "top_chunks": [
+        {
+          "uid": "mobile_agent_page_2_0",
+          "page_no": 2,
+          "score": 0.3585,
+          "relevant_similarity": 1.0,
+          "preview": "顾晨 | 经历续页\n\n科研经历\n\n围绕“研究移动端 Agent 的离线推理与隐私保护”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。进"
+        },
+        {
+          "uid": "mobile_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.2908,
+          "relevant_similarity": 0.6753,
+          "preview": "顾晨\n\n顾晨｜端侧 Agent 工程实习生｜mobile_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强生成\n、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的\n事实边界。\n\n教育"
+        },
+        {
+          "uid": "mobile_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.2908,
+          "relevant_similarity": 0.1299,
+          "preview": "模拟云智实验室｜端侧 Agent 工程实习生｜2026.03-2026.08。研究移动端 Agent 的离线推理与隐私保护。完成端侧意图模型 INT8 量化；将工具输入\n输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回\n归样例。针对限流、连接中断和服务端错误实现有界指数退避，"
+        },
+        {
+          "uid": "mobile_agent_page_2_1",
+          "page_no": 2,
+          "score": 0.2795,
+          "relevant_similarity": 0.1299,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "compliance_agent",
+      "expectation_id": "distinctive_implementation",
+      "query": "这位金融合规 Agent 研究实习生候选人在核心系统中完成了什么有辨识度的工程实现？",
+      "expected_text": "构建法规条款时效性追踪图谱",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 2,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.5,
+      "top_chunks": [
+        {
+          "uid": "compliance_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4488,
+          "relevant_similarity": 0.1176,
+          "preview": "唐琪\n\n唐琪｜金融合规 Agent 研究实习生｜compliance_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索\n增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持\n可回溯的事实边"
+        },
+        {
+          "uid": "compliance_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4377,
+          "relevant_similarity": 1.0,
+          "preview": "模拟云智实验室｜金融合规 Agent 研究实习生｜2026.03-2026.08。研究证据约束生成在金融合规审查中的应用。构建法规条款时效性追踪图谱；将工\n具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固\n化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错"
+        },
+        {
+          "uid": "compliance_agent_page_2_0",
+          "page_no": 2,
+          "score": 0.4044,
+          "relevant_similarity": 0.1176,
+          "preview": "唐琪 | 经历续页\n\n科研经历\n\n围绕“研究证据约束生成在金融合规审查中的应用”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。进一步对"
+        },
+        {
+          "uid": "compliance_agent_page_2_1",
+          "page_no": 2,
+          "score": 0.3655,
+          "relevant_similarity": 0.0,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "compliance_agent",
+      "expectation_id": "quantified_outcome",
+      "query": "这位金融合规 Agent 研究实习生候选人最重要的量化成果是什么？",
+      "expected_text": "引用可追溯率达到 99.1%",
+      "expected_page_no": 2,
+      "best_extracted_page_no": 2,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "compliance_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4442,
+          "relevant_similarity": 0.1176,
+          "preview": "模拟云智实验室｜金融合规 Agent 研究实习生｜2026.03-2026.08。研究证据约束生成在金融合规审查中的应用。构建法规条款时效性追踪图谱；将工\n具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固\n化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错"
+        },
+        {
+          "uid": "compliance_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4364,
+          "relevant_similarity": 0.1176,
+          "preview": "唐琪\n\n唐琪｜金融合规 Agent 研究实习生｜compliance_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索\n增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持\n可回溯的事实边"
+        },
+        {
+          "uid": "compliance_agent_page_2_0",
+          "page_no": 2,
+          "score": 0.3975,
+          "relevant_similarity": 1.0,
+          "preview": "唐琪 | 经历续页\n\n科研经历\n\n围绕“研究证据约束生成在金融合规审查中的应用”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。进一步对"
+        },
+        {
+          "uid": "compliance_agent_page_2_1",
+          "page_no": 2,
+          "score": 0.343,
+          "relevant_similarity": 0.0833,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "compliance_agent",
+      "expectation_id": "project_focus",
+      "query": "这位金融合规 Agent 研究实习生候选人的核心项目解决了什么业务或技术问题？",
+      "expected_text": "核心项目：研究证据约束生成在金融合规审查中的应用",
+      "expected_page_no": 2,
+      "best_extracted_page_no": 2,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 3,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.3333,
+      "top_chunks": [
+        {
+          "uid": "compliance_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.4433,
+          "relevant_similarity": 0.1786,
+          "preview": "唐琪\n\n唐琪｜金融合规 Agent 研究实习生｜compliance_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索\n增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持\n可回溯的事实边"
+        },
+        {
+          "uid": "compliance_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.4311,
+          "relevant_similarity": 0.6786,
+          "preview": "模拟云智实验室｜金融合规 Agent 研究实习生｜2026.03-2026.08。研究证据约束生成在金融合规审查中的应用。构建法规条款时效性追踪图谱；将工\n具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固\n化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错"
+        },
+        {
+          "uid": "compliance_agent_page_2_0",
+          "page_no": 2,
+          "score": 0.4249,
+          "relevant_similarity": 1.0,
+          "preview": "唐琪 | 经历续页\n\n科研经历\n\n围绕“研究证据约束生成在金融合规审查中的应用”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。进一步对"
+        },
+        {
+          "uid": "compliance_agent_page_2_1",
+          "page_no": 2,
+          "score": 0.3635,
+          "relevant_similarity": 0.1429,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "compliance_agent",
+      "expectation_id": "retrieval_evaluation",
+      "query": "候选人如何评估检索质量和事实可靠性？",
+      "expected_text": "使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估",
+      "expected_page_no": 2,
+      "best_extracted_page_no": 2,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 1,
+      "recall_at_1": true,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 1.0,
+      "top_chunks": [
+        {
+          "uid": "compliance_agent_page_2_0",
+          "page_no": 2,
+          "score": 0.3802,
+          "relevant_similarity": 1.0,
+          "preview": "唐琪 | 经历续页\n\n科研经历\n\n围绕“研究证据约束生成在金融合规审查中的应用”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引用正确率与 P95\n延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。进一步对"
+        },
+        {
+          "uid": "compliance_agent_page_1_0",
+          "page_no": 1,
+          "score": 0.3125,
+          "relevant_similarity": 0.6753,
+          "preview": "唐琪\n\n唐琪｜金融合规 Agent 研究实习生｜compliance_agent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索\n增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持\n可回溯的事实边"
+        },
+        {
+          "uid": "compliance_agent_page_1_1",
+          "page_no": 1,
+          "score": 0.3125,
+          "relevant_similarity": 0.1299,
+          "preview": "模拟云智实验室｜金融合规 Agent 研究实习生｜2026.03-2026.08。研究证据约束生成在金融合规审查中的应用。构建法规条款时效性追踪图谱；将工\n具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固\n化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错"
+        },
+        {
+          "uid": "compliance_agent_page_2_1",
+          "page_no": 2,
+          "score": 0.3012,
+          "relevant_similarity": 0.1299,
+          "preview": "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG\n评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue\n分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专\n业五人团队的迭代排期和技术评审。还"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "robotics_agent_scan",
+      "expectation_id": "distinctive_implementation",
+      "query": "这位机器人 Agent 算法实习生候选人在核心系统中完成了什么有辨识度的工程实现？",
+      "expected_text": "实现行为树与语言规划器的双向校验",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 2,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.5,
+      "top_chunks": [
+        {
+          "uid": "robotics_agent_scan_page_1_0",
+          "page_no": 1,
+          "score": 0.4341,
+          "relevant_similarity": 0.15,
+          "preview": "吴桐\n机器人Agent算法实习生\n吴桐|机器人Agent算法实习生|robotics_agent_scan@example.com|北京/上海/深圳/远程|可连续实习6个月。关注可验证的Agent\n教育背景\n浙江大学软件工程硕士2025.09-2028.06，GPA3.88/4.00，研究方向为大模型应用工程与智\n能系统，参与可信生成与检索评测课题组。西安电"
+        },
+        {
+          "uid": "robotics_agent_scan_page_1_1",
+          "page_no": 1,
+          "score": 0.4226,
+          "relevant_similarity": 1.0,
+          "preview": "放控制台：从持久化Checkpoint重建最小状态，展示计划、工具调用、产物、异常和恢\n复位置；外发动作只允许在审批后执行一次。增加stalerun\n扫描、心跳、业务产物幂等对账和历史checkpoint\n回溯，处理“业务写入成功但图状态尚未保存”的崩溃窗口。\n评测工具箱：覆盖中文、英文和混合语言样例，加入长文档、相似术语、无证据声明、Prompt\nInje"
+        },
+        {
+          "uid": "robotics_agent_scan_page_1_2",
+          "page_no": 1,
+          "score": 0.3882,
+          "relevant_similarity": 0.2,
+          "preview": "复页眉和跨页断句分别建立诊断信息，不让解析失败静默污\n染下游。\n科研经历\n围绕“构建可恢复的移动机器人任务规划Agent”开展小规模研究，比较单\nQuery、Multi-query和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引I用正确率与P95延迟评估，不以回答流畅度代替检索质量。设计\n困难负例，区分课程学习、计划尝试与真实交付"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "robotics_agent_scan",
+      "expectation_id": "quantified_outcome",
+      "query": "这位机器人 Agent 算法实习生候选人最重要的量化成果是什么？",
+      "expected_text": "仿真任务成功率达到 84.6%",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 1,
+      "recall_at_1": true,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 1.0,
+      "top_chunks": [
+        {
+          "uid": "robotics_agent_scan_page_1_0",
+          "page_no": 1,
+          "score": 0.4479,
+          "relevant_similarity": 1.0,
+          "preview": "吴桐\n机器人Agent算法实习生\n吴桐|机器人Agent算法实习生|robotics_agent_scan@example.com|北京/上海/深圳/远程|可连续实习6个月。关注可验证的Agent\n教育背景\n浙江大学软件工程硕士2025.09-2028.06，GPA3.88/4.00，研究方向为大模型应用工程与智\n能系统，参与可信生成与检索评测课题组。西安电"
+        },
+        {
+          "uid": "robotics_agent_scan_page_1_1",
+          "page_no": 1,
+          "score": 0.4479,
+          "relevant_similarity": 0.1667,
+          "preview": "放控制台：从持久化Checkpoint重建最小状态，展示计划、工具调用、产物、异常和恢\n复位置；外发动作只允许在审批后执行一次。增加stalerun\n扫描、心跳、业务产物幂等对账和历史checkpoint\n回溯，处理“业务写入成功但图状态尚未保存”的崩溃窗口。\n评测工具箱：覆盖中文、英文和混合语言样例，加入长文档、相似术语、无证据声明、Prompt\nInje"
+        },
+        {
+          "uid": "robotics_agent_scan_page_1_2",
+          "page_no": 1,
+          "score": 0.399,
+          "relevant_similarity": 0.1111,
+          "preview": "复页眉和跨页断句分别建立诊断信息，不让解析失败静默污\n染下游。\n科研经历\n围绕“构建可恢复的移动机器人任务规划Agent”开展小规模研究，比较单\nQuery、Multi-query和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引I用正确率与P95延迟评估，不以回答流畅度代替检索质量。设计\n困难负例，区分课程学习、计划尝试与真实交付"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "robotics_agent_scan",
+      "expectation_id": "project_focus",
+      "query": "这位机器人 Agent 算法实习生候选人的核心项目解决了什么业务或技术问题？",
+      "expected_text": "核心项目：构建可恢复的移动机器人任务规划 Agent",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 1,
+      "recall_at_1": true,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 1.0,
+      "top_chunks": [
+        {
+          "uid": "robotics_agent_scan_page_1_0",
+          "page_no": 1,
+          "score": 0.4765,
+          "relevant_similarity": 1.0,
+          "preview": "吴桐\n机器人Agent算法实习生\n吴桐|机器人Agent算法实习生|robotics_agent_scan@example.com|北京/上海/深圳/远程|可连续实习6个月。关注可验证的Agent\n教育背景\n浙江大学软件工程硕士2025.09-2028.06，GPA3.88/4.00，研究方向为大模型应用工程与智\n能系统，参与可信生成与检索评测课题组。西安电"
+        },
+        {
+          "uid": "robotics_agent_scan_page_1_1",
+          "page_no": 1,
+          "score": 0.4383,
+          "relevant_similarity": 0.6897,
+          "preview": "放控制台：从持久化Checkpoint重建最小状态，展示计划、工具调用、产物、异常和恢\n复位置；外发动作只允许在审批后执行一次。增加stalerun\n扫描、心跳、业务产物幂等对账和历史checkpoint\n回溯，处理“业务写入成功但图状态尚未保存”的崩溃窗口。\n评测工具箱：覆盖中文、英文和混合语言样例，加入长文档、相似术语、无证据声明、Prompt\nInje"
+        },
+        {
+          "uid": "robotics_agent_scan_page_1_2",
+          "page_no": 1,
+          "score": 0.4001,
+          "relevant_similarity": 0.6897,
+          "preview": "复页眉和跨页断句分别建立诊断信息，不让解析失败静默污\n染下游。\n科研经历\n围绕“构建可恢复的移动机器人任务规划Agent”开展小规模研究，比较单\nQuery、Multi-query和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引I用正确率与P95延迟评估，不以回答流畅度代替检索质量。设计\n困难负例，区分课程学习、计划尝试与真实交付"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "robotics_agent_scan",
+      "expectation_id": "retrieval_evaluation",
+      "query": "候选人如何评估检索质量和事实可靠性？",
+      "expected_text": "使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 0.8571,
+      "rank": 1,
+      "recall_at_1": true,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 1.0,
+      "top_chunks": [
+        {
+          "uid": "robotics_agent_scan_page_1_1",
+          "page_no": 1,
+          "score": 0.3246,
+          "relevant_similarity": 0.8571,
+          "preview": "放控制台：从持久化Checkpoint重建最小状态，展示计划、工具调用、产物、异常和恢\n复位置；外发动作只允许在审批后执行一次。增加stalerun\n扫描、心跳、业务产物幂等对账和历史checkpoint\n回溯，处理“业务写入成功但图状态尚未保存”的崩溃窗口。\n评测工具箱：覆盖中文、英文和混合语言样例，加入长文档、相似术语、无证据声明、Prompt\nInje"
+        },
+        {
+          "uid": "robotics_agent_scan_page_1_2",
+          "page_no": 1,
+          "score": 0.3133,
+          "relevant_similarity": 0.8571,
+          "preview": "复页眉和跨页断句分别建立诊断信息，不让解析失败静默污\n染下游。\n科研经历\n围绕“构建可恢复的移动机器人任务规划Agent”开展小规模研究，比较单\nQuery、Multi-query和查询改写在相同候选池中的差异；使用\nRecall@K、MRR、nDCG、引I用正确率与P95延迟评估，不以回答流畅度代替检索质量。设计\n困难负例，区分课程学习、计划尝试与真实交付"
+        },
+        {
+          "uid": "robotics_agent_scan_page_1_0",
+          "page_no": 1,
+          "score": 0.2795,
+          "relevant_similarity": 0.6753,
+          "preview": "吴桐\n机器人Agent算法实习生\n吴桐|机器人Agent算法实习生|robotics_agent_scan@example.com|北京/上海/深圳/远程|可连续实习6个月。关注可验证的Agent\n教育背景\n浙江大学软件工程硕士2025.09-2028.06，GPA3.88/4.00，研究方向为大模型应用工程与智\n能系统，参与可信生成与检索评测课题组。西安电"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "bilingual_agent_mixed",
+      "expectation_id": "distinctive_implementation",
+      "query": "这位Bilingual Agent Platform Intern候选人在核心系统中完成了什么有辨识度的工程实现？",
+      "expected_text": "Built a bilingual tool-result grounding pipeline",
+      "expected_page_no": 1,
+      "best_extracted_page_no": 1,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 1,
+      "recall_at_1": true,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 1.0,
+      "top_chunks": [
+        {
+          "uid": "bilingual_agent_mixed_page_1_2",
+          "page_no": 1,
+          "score": 0.4228,
+          "relevant_similarity": 1.0,
+          "preview": "AI Platform Intern, Mock Cloud Lab, 2026.03-2026.08. Delivered a Chinese-English research assistant with citation verification. Built a\nbilingual tool-result grounding pipeline. Ad"
+        },
+        {
+          "uid": "bilingual_agent_mixed_page_2_1",
+          "page_no": 2,
+          "score": 0.5183,
+          "relevant_similarity": 0.396,
+          "preview": "-rankfusionandrecordswhichqueryretrievedeachpassage.\nAgentReplayConsole:reconstructedstatetransitionsandtoolreceiptsfromcheckpoints,whileseparatingbusinessartifactsfrom\nconversatio"
+        },
+        {
+          "uid": "bilingual_agent_mixed_page_1_0",
+          "page_no": 1,
+          "score": 0.2106,
+          "relevant_similarity": 0.4356,
+          "preview": "Emma Zhou\n\nBilingual Agent Platform Intern\n\nEmma Zhou | Bilingual Agent Platform Intern | emma.zhou.eval@example.com | Shanghai / Remote | Available for 6 months. Focused on ground"
+        },
+        {
+          "uid": "bilingual_agent_mixed_page_2_0",
+          "page_no": 2,
+          "score": 0.4256,
+          "relevant_similarity": 0.396,
+          "preview": "EmmaZhou|经历续页\nBilingual AgentPlatformIntern\nRESEARCH\nStudied queryrewritingformixed Chinese-Englishterminology.Compared single-query,multi-queryandHyDE-styleretrieval underthe\nsame"
+        },
+        {
+          "uid": "bilingual_agent_mixed_page_1_4",
+          "page_no": 1,
+          "score": 0.4936,
+          "relevant_similarity": 0.1212,
+          "preview": "CareerAgent 合成评测简历 | 第 1 页 / 2"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "bilingual_agent_mixed",
+      "expectation_id": "quantified_outcome",
+      "query": "这位Bilingual Agent Platform Intern候选人最重要的量化成果是什么？",
+      "expected_text": "Reduced unsupported claims from 11.8% to 2.1%",
+      "expected_page_no": 2,
+      "best_extracted_page_no": 2,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 4,
+      "recall_at_1": false,
+      "recall_at_3": false,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.25,
+      "top_chunks": [
+        {
+          "uid": "bilingual_agent_mixed_page_1_2",
+          "page_no": 1,
+          "score": 0.3911,
+          "relevant_similarity": 0.5055,
+          "preview": "AI Platform Intern, Mock Cloud Lab, 2026.03-2026.08. Delivered a Chinese-English research assistant with citation verification. Built a\nbilingual tool-result grounding pipeline. Ad"
+        },
+        {
+          "uid": "bilingual_agent_mixed_page_1_0",
+          "page_no": 1,
+          "score": 0.2301,
+          "relevant_similarity": 0.3077,
+          "preview": "Emma Zhou\n\nBilingual Agent Platform Intern\n\nEmma Zhou | Bilingual Agent Platform Intern | emma.zhou.eval@example.com | Shanghai / Remote | Available for 6 months. Focused on ground"
+        },
+        {
+          "uid": "bilingual_agent_mixed_page_2_1",
+          "page_no": 2,
+          "score": 0.4797,
+          "relevant_similarity": 0.3516,
+          "preview": "-rankfusionandrecordswhichqueryretrievedeachpassage.\nAgentReplayConsole:reconstructedstatetransitionsandtoolreceiptsfromcheckpoints,whileseparatingbusinessartifactsfrom\nconversatio"
+        },
+        {
+          "uid": "bilingual_agent_mixed_page_2_0",
+          "page_no": 2,
+          "score": 0.4455,
+          "relevant_similarity": 1.0,
+          "preview": "EmmaZhou|经历续页\nBilingual AgentPlatformIntern\nRESEARCH\nStudied queryrewritingformixed Chinese-Englishterminology.Compared single-query,multi-queryandHyDE-styleretrieval underthe\nsame"
+        },
+        {
+          "uid": "bilingual_agent_mixed_page_1_4",
+          "page_no": 1,
+          "score": 0.5156,
+          "relevant_similarity": 0.2258,
+          "preview": "CareerAgent 合成评测简历 | 第 1 页 / 2"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "bilingual_agent_mixed",
+      "expectation_id": "project_focus",
+      "query": "这位Bilingual Agent Platform Intern候选人的核心项目解决了什么业务或技术问题？",
+      "expected_text": "Bilingual Research Assistant: Reduced unsupported claims from 11.8% to 2.1%. The system preserves source spans",
+      "expected_page_no": 2,
+      "best_extracted_page_no": 2,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 5,
+      "recall_at_1": false,
+      "recall_at_3": false,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.2,
+      "top_chunks": [
+        {
+          "uid": "bilingual_agent_mixed_page_1_2",
+          "page_no": 1,
+          "score": 0.3787,
+          "relevant_similarity": 0.4121,
+          "preview": "AI Platform Intern, Mock Cloud Lab, 2026.03-2026.08. Delivered a Chinese-English research assistant with citation verification. Built a\nbilingual tool-result grounding pipeline. Ad"
+        },
+        {
+          "uid": "bilingual_agent_mixed_page_1_0",
+          "page_no": 1,
+          "score": 0.222,
+          "relevant_similarity": 0.3111,
+          "preview": "Emma Zhou\n\nBilingual Agent Platform Intern\n\nEmma Zhou | Bilingual Agent Platform Intern | emma.zhou.eval@example.com | Shanghai / Remote | Available for 6 months. Focused on ground"
+        },
+        {
+          "uid": "bilingual_agent_mixed_page_2_2",
+          "page_no": 2,
+          "score": 0.5209,
+          "relevant_similarity": 0.2844,
+          "preview": "evaluation.Received a university innovation\nscholarshipandaregionalsoftwaredesignaward.EnglishCET-6;comfortablepresentingtechnicaldesignreviewsinChineseandEnglish\nandwritingbilingu"
+        },
+        {
+          "uid": "bilingual_agent_mixed_page_2_1",
+          "page_no": 2,
+          "score": 0.4354,
+          "relevant_similarity": 0.2872,
+          "preview": "-rankfusionandrecordswhichqueryretrievedeachpassage.\nAgentReplayConsole:reconstructedstatetransitionsandtoolreceiptsfromcheckpoints,whileseparatingbusinessartifactsfrom\nconversatio"
+        },
+        {
+          "uid": "bilingual_agent_mixed_page_2_0",
+          "page_no": 2,
+          "score": 0.4252,
+          "relevant_similarity": 1.0,
+          "preview": "EmmaZhou|经历续页\nBilingual AgentPlatformIntern\nRESEARCH\nStudied queryrewritingformixed Chinese-Englishterminology.Compared single-query,multi-queryandHyDE-styleretrieval underthe\nsame"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    },
+    {
+      "case_id": "bilingual_agent_mixed",
+      "expectation_id": "retrieval_evaluation",
+      "query": "候选人如何评估检索质量和事实可靠性？",
+      "expected_text": "reported Recall@5, MRR, nDCG and latency",
+      "expected_page_no": 2,
+      "best_extracted_page_no": 2,
+      "page_provenance_correct": true,
+      "extraction_similarity": 1.0,
+      "rank": 2,
+      "recall_at_1": false,
+      "recall_at_3": true,
+      "recall_at_5": true,
+      "reciprocal_rank": 0.5,
+      "top_chunks": [
+        {
+          "uid": "bilingual_agent_mixed_page_1_3",
+          "page_no": 1,
+          "score": 0.3787,
+          "relevant_similarity": 0.439,
+          "preview": "ixed text-scan PDFs, preserving\npage provenance through extraction and chunking. Built a review queue for unsupported claims and helped annotate hard negatives that\nshare technical"
+        },
+        {
+          "uid": "bilingual_agent_mixed_cross_page_1_2",
+          "page_no": 2,
+          "score": 0.3754,
+          "relevant_similarity": 1.0,
+          "preview": "mixed text-scan PDFs, preserving\npage provenance through extraction and chunking. Built a review queue for unsupported claims and helped annotate hard negatives that\nshare technica"
+        },
+        {
+          "uid": "bilingual_agent_mixed_page_1_4",
+          "page_no": 1,
+          "score": 0.3631,
+          "relevant_similarity": 0.2414,
+          "preview": "CareerAgent 合成评测简历 | 第 1 页 / 2"
+        },
+        {
+          "uid": "bilingual_agent_mixed_page_2_2",
+          "page_no": 2,
+          "score": 0.316,
+          "relevant_similarity": 0.3415,
+          "preview": "evaluation.Received a university innovation\nscholarshipandaregionalsoftwaredesignaward.EnglishCET-6;comfortablepresentingtechnicaldesignreviewsinChineseandEnglish\nandwritingbilingu"
+        },
+        {
+          "uid": "bilingual_agent_mixed_page_1_1",
+          "page_no": 1,
+          "score": 0.2727,
+          "relevant_similarity": 0.5366,
+          "preview": "Languages: Python, TypeScript and SQL. Agent: LangGraph state graphs, tool contracts, checkpoint recovery, bounded retries, human\napproval and completion gates. Retrieval: RAG, mul"
+        }
+      ],
+      "embedding": {
+        "provider": "sentence_transformers",
+        "model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
+        "dimensions": 384
+      }
+    }
+  ]
+}

@@ -90,12 +90,18 @@ class ResumeTextSplitter:
 
     def split_pdf_pages(self, pages: list[PDFPageText], *, prefix: str = "pdf") -> list[TextChunk]:
         chunks: list[TextChunk] = []
+        retrieval_context = self._pdf_retrieval_context(pages)
         for page in pages:
             page_chunks = self.split_raw_text(
                 page.text,
                 prefix=f"{prefix}_page_{page.page_no}",
                 source="profile.pdf_page_text",
-                metadata={"page_no": page.page_no, "source_format": "pdf"},
+                metadata={
+                    "page_no": page.page_no,
+                    "source_format": "pdf",
+                    "retrieval_context": retrieval_context,
+                    "retrieval_context_version": "pdf_header_v1",
+                },
             )
             chunks.extend(page_chunks)
         for previous, current in zip(pages, pages[1:], strict=False):
@@ -120,10 +126,20 @@ class ResumeTextSplitter:
                         "page_end": current.page_no,
                         "source_format": "pdf",
                         "strategy": "cross_page_semantic_bridge",
+                        "retrieval_context": retrieval_context,
+                        "retrieval_context_version": "pdf_header_v1",
                     },
                 )
             )
         return chunks
+
+    @staticmethod
+    def _pdf_retrieval_context(pages: list[PDFPageText]) -> str:
+        if not pages:
+            return ""
+        paragraphs = [item.strip() for item in re.split(r"\n\s*\n", pages[0].text) if item.strip()]
+        context = " | ".join(paragraphs[:4])
+        return " ".join(context.split())[:320]
 
     @staticmethod
     def _needs_cross_page_bridge(previous_text: str, current_text: str) -> bool:

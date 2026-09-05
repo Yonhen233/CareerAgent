@@ -141,6 +141,21 @@ def test_multipage_pdf_removes_repeated_margins_and_builds_cross_page_bridge():
     assert bridge.metadata["page_end"] == 2
 
 
+def test_text_layer_preserves_layout_blocks_as_paragraph_boundaries():
+    payload = _text_pdf(
+        [[
+            (72, 780, "Education"),
+            (72, 730, "Zhejiang University Software Engineering"),
+            (72, 650, "Projects"),
+            (72, 600, "CareerAgent checkpoint recovery and retrieval evaluation"),
+        ]]
+    )
+
+    result = PDFExtractionService().extract(filename="sectioned.pdf", file_bytes=payload)
+    assert "Education\n\nZhejiang University" in result.pages[0].text
+    assert "Projects\n\nCareerAgent" in result.pages[0].text
+
+
 def test_mixed_text_and_scanned_pdf_uses_page_level_ocr():
     result = PDFExtractionService().extract(filename="mixed.pdf", file_bytes=_mixed_pdf())
 
@@ -166,6 +181,16 @@ def test_blank_page_is_reported_without_inflating_text_coverage():
     assert result.blank_page_count == 1
     assert diagnostics["usable_text_page_count"] == 1
     assert diagnostics["text_page_coverage"] == 0.5
+
+
+def test_explicit_technical_skills_complete_llm_parser_output_without_static_fallback():
+    service = ResumeParserService()
+    skills = service._merge_explicit_section_skills(
+        "TECHNICAL SKILLS\n\nPython, RAG, Evaluation\n\nPROJECTS\n\nPlanned to learn Rust",
+        ["Python"],
+    )
+
+    assert set(skills) == {"Python", "RAG", "Evaluation"}
 
 
 def test_ocr_two_column_rows_are_not_interleaved():

@@ -223,7 +223,10 @@ class PDFExtractionService:
         is_two_column = len(left) >= 2 and len(right) >= 2
         if not is_two_column:
             ordered = sorted(blocks, key=lambda block: (round(float(block[1]), 1), float(block[0])))
-            return "\n".join(str(block[4]).strip() for block in ordered), "block_order"
+            # PyMuPDF blocks are layout-level units. Preserve that boundary so the
+            # downstream paragraph splitter does not degrade a whole page into one
+            # large sliding window.
+            return "\n\n".join(str(block[4]).strip() for block in ordered), "block_order"
 
         full_width = [block for block in blocks if float(block[0]) < width * 0.25 and float(block[2]) > width * 0.75]
         full_ids = {id(block) for block in full_width}
@@ -232,7 +235,7 @@ class PDFExtractionService:
         ordered = sorted(full_width, key=lambda block: float(block[1]))
         ordered.extend(sorted(left_column, key=lambda block: (float(block[1]), float(block[0]))))
         ordered.extend(sorted(right_column, key=lambda block: (float(block[1]), float(block[0]))))
-        return "\n".join(str(block[4]).strip() for block in ordered), "two_column_blocks"
+        return "\n\n".join(str(block[4]).strip() for block in ordered), "two_column_blocks"
 
     def _ocr_page(self, page: Any) -> tuple[str, float | None, str]:
         global _OCR_ENGINE

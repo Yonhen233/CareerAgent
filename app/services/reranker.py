@@ -36,7 +36,7 @@ class RerankerService:
         if not self.enabled or len(candidates) <= 1:
             return candidates[:top_k]
 
-        texts = [str(getattr(candidate, "text", "") or "") for candidate in candidates]
+        texts = [self._candidate_text(candidate) for candidate in candidates]
         chunk_types = [str(getattr(candidate, "chunk_type", "") or "") for candidate in candidates]
         raw_scores, info = self._score_pairs(query, texts, chunk_types)
         normalized = self._normalize_scores(raw_scores)
@@ -71,7 +71,7 @@ class RerankerService:
         if not self.enabled or len(candidates) <= 1:
             return candidates[:top_k]
 
-        texts = [str(candidate.get("text") or "") for candidate in candidates]
+        texts = [self._candidate_text(candidate) for candidate in candidates]
         chunk_types = [str(candidate.get("chunk_type") or "") for candidate in candidates]
         raw_scores, info = self._score_pairs(query, texts, chunk_types)
         return self._rerank_dicts_with_scores(candidates, raw_scores, info=info, top_k=top_k)
@@ -180,6 +180,19 @@ class RerankerService:
         if info.get("language_route") == "cjk_lexical":
             return self._anchored_sort(reranked)[:top_k]
         return self._anchored_sort(reranked)[:top_k]
+
+    @staticmethod
+    def _candidate_text(candidate: Any) -> str:
+        if isinstance(candidate, dict):
+            text = str(candidate.get("text") or "")
+            metadata = dict(candidate.get("metadata") or {})
+        else:
+            text = str(getattr(candidate, "text", "") or "")
+            metadata = dict(getattr(candidate, "metadata", None) or {})
+        context = str(metadata.get("retrieval_context") or "").strip()
+        if not context or context in text:
+            return text
+        return f"[简历上下文] {context}\n[当前证据] {text}"
 
     def _score_pairs(
         self,

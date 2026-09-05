@@ -1,0 +1,1145 @@
+{
+  "evaluation_type": "complex_resume_structured_parser",
+  "generated_at": "2026-09-05T03:11:37.295072+00:00",
+  "summary": {
+    "case_count": 16,
+    "completed_count": 16,
+    "parser_success_rate": 1.0,
+    "name_accuracy": 1.0,
+    "target_role_recovery": 1.0,
+    "mean_skill_recall": 1.0,
+    "critical_fact_grounding": 1.0,
+    "quality_gate_pass_rate": 1.0,
+    "total_llm_calls": 16,
+    "total_tokens": 52481
+  },
+  "cases": [
+    {
+      "case_id": "runtime_agent",
+      "status": "completed",
+      "name_correct": true,
+      "target_role_recovered": true,
+      "skill_recall": 1.0,
+      "skills_missing": [],
+      "experience_count": 2,
+      "project_count": 4,
+      "research_present": true,
+      "campus_or_leadership_present": true,
+      "critical_fact_grounding": 1.0,
+      "quality_gate_passed": true,
+      "parser_provenance": {
+        "mode": "section_batch_python_schema_merge",
+        "chunk_count": 1,
+        "field_sources": {
+          "name": [
+            "section-1"
+          ],
+          "email": [
+            "section-1"
+          ],
+          "location": [
+            "section-1"
+          ],
+          "availability": [
+            "section-1"
+          ],
+          "headline": [
+            "section-1"
+          ],
+          "self_summary": [
+            "section-1"
+          ],
+          "enabled_sections": [
+            "section-1"
+          ],
+          "target_roles": [
+            "section-1"
+          ],
+          "education": [
+            "section-1"
+          ],
+          "skills": [
+            "section-1"
+          ],
+          "projects": [
+            "section-1"
+          ],
+          "work_experience": [
+            "section-1"
+          ],
+          "campus_experience": [
+            "section-1"
+          ],
+          "awards": [
+            "section-1"
+          ]
+        },
+        "conflicts": [],
+        "llm_conflict_resolution": false
+      },
+      "llm_calls": 1,
+      "prompt_tokens": 1806,
+      "completion_tokens": 1512,
+      "total_tokens": 3318
+    },
+    {
+      "case_id": "rag_engineer",
+      "status": "completed",
+      "name_correct": true,
+      "target_role_recovered": true,
+      "skill_recall": 1.0,
+      "skills_missing": [],
+      "experience_count": 2,
+      "project_count": 4,
+      "research_present": true,
+      "campus_or_leadership_present": true,
+      "critical_fact_grounding": 1.0,
+      "quality_gate_passed": true,
+      "parser_provenance": {
+        "mode": "section_batch_python_schema_merge",
+        "chunk_count": 1,
+        "field_sources": {
+          "name": [
+            "section-1"
+          ],
+          "email": [
+            "section-1"
+          ],
+          "location": [
+            "section-1"
+          ],
+          "availability": [
+            "section-1"
+          ],
+          "headline": [
+            "section-1"
+          ],
+          "self_summary": [
+            "section-1"
+          ],
+          "enabled_sections": [
+            "section-1"
+          ],
+          "target_roles": [
+            "section-1"
+          ],
+          "education": [
+            "section-1"
+          ],
+          "skills": [
+            "section-1"
+          ],
+          "projects": [
+            "section-1"
+          ],
+          "work_experience": [
+            "section-1"
+          ],
+          "campus_experience": [
+            "section-1"
+          ],
+          "certifications": [
+            "section-1"
+          ],
+          "awards": [
+            "section-1"
+          ],
+          "languages": [
+            "section-1"
+          ]
+        },
+        "conflicts": [],
+        "llm_conflict_resolution": false
+      },
+      "llm_calls": 1,
+      "prompt_tokens": 1821,
+      "completion_tokens": 1715,
+      "total_tokens": 3536
+    },
+    {
+      "case_id": "llm_safety",
+      "status": "completed",
+      "name_correct": true,
+      "target_role_recovered": true,
+      "skill_recall": 1.0,
+      "skills_missing": [],
+      "experience_count": 2,
+      "project_count": 4,
+      "research_present": true,
+      "campus_or_leadership_present": true,
+      "critical_fact_grounding": 1.0,
+      "quality_gate_passed": true,
+      "parser_provenance": {
+        "mode": "section_batch_python_schema_merge",
+        "chunk_count": 1,
+        "field_sources": {
+          "name": [
+            "section-1"
+          ],
+          "email": [
+            "section-1"
+          ],
+          "location": [
+            "section-1"
+          ],
+          "availability": [
+            "section-1"
+          ],
+          "headline": [
+            "section-1"
+          ],
+          "self_summary": [
+            "section-1"
+          ],
+          "enabled_sections": [
+            "section-1"
+          ],
+          "target_roles": [
+            "section-1"
+          ],
+          "education": [
+            "section-1"
+          ],
+          "skills": [
+            "section-1"
+          ],
+          "projects": [
+            "section-1"
+          ],
+          "work_experience": [
+            "section-1"
+          ],
+          "campus_experience": [
+            "section-1"
+          ],
+          "awards": [
+            "section-1"
+          ],
+          "languages": [
+            "section-1"
+          ]
+        },
+        "conflicts": [],
+        "llm_conflict_resolution": false
+      },
+      "llm_calls": 1,
+      "prompt_tokens": 1812,
+      "completion_tokens": 1477,
+      "total_tokens": 3289
+    },
+    {
+      "case_id": "enterprise_agent",
+      "status": "completed",
+      "name_correct": true,
+      "target_role_recovered": true,
+      "skill_recall": 1.0,
+      "skills_missing": [],
+      "experience_count": 2,
+      "project_count": 4,
+      "research_present": true,
+      "campus_or_leadership_present": true,
+      "critical_fact_grounding": 1.0,
+      "quality_gate_passed": true,
+      "parser_provenance": {
+        "mode": "section_batch_python_schema_merge",
+        "chunk_count": 1,
+        "field_sources": {
+          "name": [
+            "section-1"
+          ],
+          "email": [
+            "section-1"
+          ],
+          "location": [
+            "section-1"
+          ],
+          "availability": [
+            "section-1"
+          ],
+          "headline": [
+            "section-1"
+          ],
+          "self_summary": [
+            "section-1"
+          ],
+          "enabled_sections": [
+            "section-1"
+          ],
+          "target_roles": [
+            "section-1"
+          ],
+          "education": [
+            "section-1"
+          ],
+          "skills": [
+            "section-1"
+          ],
+          "projects": [
+            "section-1"
+          ],
+          "work_experience": [
+            "section-1"
+          ],
+          "campus_experience": [
+            "section-1"
+          ],
+          "awards": [
+            "section-1"
+          ]
+        },
+        "conflicts": [],
+        "llm_conflict_resolution": false
+      },
+      "llm_calls": 1,
+      "prompt_tokens": 1808,
+      "completion_tokens": 1507,
+      "total_tokens": 3315
+    },
+    {
+      "case_id": "agent_infra",
+      "status": "completed",
+      "name_correct": true,
+      "target_role_recovered": true,
+      "skill_recall": 1.0,
+      "skills_missing": [],
+      "experience_count": 2,
+      "project_count": 4,
+      "research_present": true,
+      "campus_or_leadership_present": true,
+      "critical_fact_grounding": 1.0,
+      "quality_gate_passed": true,
+      "parser_provenance": {
+        "mode": "section_batch_python_schema_merge",
+        "chunk_count": 1,
+        "field_sources": {
+          "name": [
+            "section-1"
+          ],
+          "email": [
+            "section-1"
+          ],
+          "location": [
+            "section-1"
+          ],
+          "availability": [
+            "section-1"
+          ],
+          "headline": [
+            "section-1"
+          ],
+          "self_summary": [
+            "section-1"
+          ],
+          "enabled_sections": [
+            "section-1"
+          ],
+          "target_roles": [
+            "section-1"
+          ],
+          "education": [
+            "section-1"
+          ],
+          "skills": [
+            "section-1"
+          ],
+          "projects": [
+            "section-1"
+          ],
+          "work_experience": [
+            "section-1"
+          ],
+          "campus_experience": [
+            "section-1"
+          ],
+          "awards": [
+            "section-1"
+          ],
+          "languages": [
+            "section-1"
+          ]
+        },
+        "conflicts": [],
+        "llm_conflict_resolution": false
+      },
+      "llm_calls": 1,
+      "prompt_tokens": 1840,
+      "completion_tokens": 1449,
+      "total_tokens": 3289
+    },
+    {
+      "case_id": "ai_product",
+      "status": "completed",
+      "name_correct": true,
+      "target_role_recovered": true,
+      "skill_recall": 1.0,
+      "skills_missing": [],
+      "experience_count": 2,
+      "project_count": 4,
+      "research_present": true,
+      "campus_or_leadership_present": true,
+      "critical_fact_grounding": 1.0,
+      "quality_gate_passed": true,
+      "parser_provenance": {
+        "mode": "section_batch_python_schema_merge",
+        "chunk_count": 1,
+        "field_sources": {
+          "name": [
+            "section-1"
+          ],
+          "email": [
+            "section-1"
+          ],
+          "location": [
+            "section-1"
+          ],
+          "availability": [
+            "section-1"
+          ],
+          "headline": [
+            "section-1"
+          ],
+          "self_summary": [
+            "section-1"
+          ],
+          "enabled_sections": [
+            "section-1"
+          ],
+          "target_roles": [
+            "section-1"
+          ],
+          "education": [
+            "section-1"
+          ],
+          "skills": [
+            "section-1"
+          ],
+          "projects": [
+            "section-1"
+          ],
+          "work_experience": [
+            "section-1"
+          ],
+          "campus_experience": [
+            "section-1"
+          ],
+          "awards": [
+            "section-1"
+          ],
+          "languages": [
+            "section-1"
+          ]
+        },
+        "conflicts": [],
+        "llm_conflict_resolution": false
+      },
+      "llm_calls": 1,
+      "prompt_tokens": 1839,
+      "completion_tokens": 1495,
+      "total_tokens": 3334
+    },
+    {
+      "case_id": "multimodal_agent",
+      "status": "completed",
+      "name_correct": true,
+      "target_role_recovered": true,
+      "skill_recall": 1.0,
+      "skills_missing": [],
+      "experience_count": 2,
+      "project_count": 4,
+      "research_present": true,
+      "campus_or_leadership_present": true,
+      "critical_fact_grounding": 1.0,
+      "quality_gate_passed": true,
+      "parser_provenance": {
+        "mode": "section_batch_python_schema_merge",
+        "chunk_count": 1,
+        "field_sources": {
+          "name": [
+            "section-1"
+          ],
+          "email": [
+            "section-1"
+          ],
+          "location": [
+            "section-1"
+          ],
+          "availability": [
+            "section-1"
+          ],
+          "headline": [
+            "section-1"
+          ],
+          "self_summary": [
+            "section-1"
+          ],
+          "enabled_sections": [
+            "section-1"
+          ],
+          "target_roles": [
+            "section-1"
+          ],
+          "education": [
+            "section-1"
+          ],
+          "skills": [
+            "section-1"
+          ],
+          "projects": [
+            "section-1"
+          ],
+          "work_experience": [
+            "section-1"
+          ],
+          "campus_experience": [
+            "section-1"
+          ],
+          "awards": [
+            "section-1"
+          ],
+          "languages": [
+            "section-1"
+          ]
+        },
+        "conflicts": [],
+        "llm_conflict_resolution": false
+      },
+      "llm_calls": 1,
+      "prompt_tokens": 1831,
+      "completion_tokens": 1614,
+      "total_tokens": 3445
+    },
+    {
+      "case_id": "speech_agent",
+      "status": "completed",
+      "name_correct": true,
+      "target_role_recovered": true,
+      "skill_recall": 1.0,
+      "skills_missing": [],
+      "experience_count": 2,
+      "project_count": 4,
+      "research_present": true,
+      "campus_or_leadership_present": true,
+      "critical_fact_grounding": 1.0,
+      "quality_gate_passed": true,
+      "parser_provenance": {
+        "mode": "section_batch_python_schema_merge",
+        "chunk_count": 1,
+        "field_sources": {
+          "name": [
+            "section-1"
+          ],
+          "email": [
+            "section-1"
+          ],
+          "location": [
+            "section-1"
+          ],
+          "availability": [
+            "section-1"
+          ],
+          "headline": [
+            "section-1"
+          ],
+          "self_summary": [
+            "section-1"
+          ],
+          "enabled_sections": [
+            "section-1"
+          ],
+          "target_roles": [
+            "section-1"
+          ],
+          "education": [
+            "section-1"
+          ],
+          "skills": [
+            "section-1"
+          ],
+          "projects": [
+            "section-1"
+          ],
+          "work_experience": [
+            "section-1"
+          ],
+          "campus_experience": [
+            "section-1"
+          ],
+          "awards": [
+            "section-1"
+          ],
+          "languages": [
+            "section-1"
+          ]
+        },
+        "conflicts": [],
+        "llm_conflict_resolution": false
+      },
+      "llm_calls": 1,
+      "prompt_tokens": 1848,
+      "completion_tokens": 1477,
+      "total_tokens": 3325
+    },
+    {
+      "case_id": "data_agent",
+      "status": "completed",
+      "name_correct": true,
+      "target_role_recovered": true,
+      "skill_recall": 1.0,
+      "skills_missing": [],
+      "experience_count": 2,
+      "project_count": 4,
+      "research_present": true,
+      "campus_or_leadership_present": true,
+      "critical_fact_grounding": 1.0,
+      "quality_gate_passed": true,
+      "parser_provenance": {
+        "mode": "section_batch_python_schema_merge",
+        "chunk_count": 1,
+        "field_sources": {
+          "name": [
+            "section-1"
+          ],
+          "email": [
+            "section-1"
+          ],
+          "location": [
+            "section-1"
+          ],
+          "availability": [
+            "section-1"
+          ],
+          "headline": [
+            "section-1"
+          ],
+          "self_summary": [
+            "section-1"
+          ],
+          "enabled_sections": [
+            "section-1"
+          ],
+          "target_roles": [
+            "section-1"
+          ],
+          "education": [
+            "section-1"
+          ],
+          "skills": [
+            "section-1"
+          ],
+          "projects": [
+            "section-1"
+          ],
+          "work_experience": [
+            "section-1"
+          ],
+          "campus_experience": [
+            "section-1"
+          ],
+          "awards": [
+            "section-1"
+          ],
+          "languages": [
+            "section-1"
+          ]
+        },
+        "conflicts": [],
+        "llm_conflict_resolution": false
+      },
+      "llm_calls": 1,
+      "prompt_tokens": 1806,
+      "completion_tokens": 1510,
+      "total_tokens": 3316
+    },
+    {
+      "case_id": "nlp_research",
+      "status": "completed",
+      "name_correct": true,
+      "target_role_recovered": true,
+      "skill_recall": 1.0,
+      "skills_missing": [],
+      "experience_count": 2,
+      "project_count": 4,
+      "research_present": true,
+      "campus_or_leadership_present": true,
+      "critical_fact_grounding": 1.0,
+      "quality_gate_passed": true,
+      "parser_provenance": {
+        "mode": "section_batch_python_schema_merge",
+        "chunk_count": 1,
+        "field_sources": {
+          "name": [
+            "section-1"
+          ],
+          "email": [
+            "section-1"
+          ],
+          "location": [
+            "section-1"
+          ],
+          "availability": [
+            "section-1"
+          ],
+          "headline": [
+            "section-1"
+          ],
+          "self_summary": [
+            "section-1"
+          ],
+          "enabled_sections": [
+            "section-1"
+          ],
+          "target_roles": [
+            "section-1"
+          ],
+          "education": [
+            "section-1"
+          ],
+          "skills": [
+            "section-1"
+          ],
+          "projects": [
+            "section-1"
+          ],
+          "work_experience": [
+            "section-1"
+          ],
+          "campus_experience": [
+            "section-1"
+          ],
+          "awards": [
+            "section-1"
+          ],
+          "languages": [
+            "section-1"
+          ]
+        },
+        "conflicts": [],
+        "llm_conflict_resolution": false
+      },
+      "llm_calls": 1,
+      "prompt_tokens": 1817,
+      "completion_tokens": 1534,
+      "total_tokens": 3351
+    },
+    {
+      "case_id": "coding_agent",
+      "status": "completed",
+      "name_correct": true,
+      "target_role_recovered": true,
+      "skill_recall": 1.0,
+      "skills_missing": [],
+      "experience_count": 2,
+      "project_count": 4,
+      "research_present": true,
+      "campus_or_leadership_present": true,
+      "critical_fact_grounding": 1.0,
+      "quality_gate_passed": true,
+      "parser_provenance": {
+        "mode": "section_batch_python_schema_merge",
+        "chunk_count": 1,
+        "field_sources": {
+          "name": [
+            "section-1"
+          ],
+          "email": [
+            "section-1"
+          ],
+          "location": [
+            "section-1"
+          ],
+          "availability": [
+            "section-1"
+          ],
+          "headline": [
+            "section-1"
+          ],
+          "self_summary": [
+            "section-1"
+          ],
+          "enabled_sections": [
+            "section-1"
+          ],
+          "target_roles": [
+            "section-1"
+          ],
+          "education": [
+            "section-1"
+          ],
+          "skills": [
+            "section-1"
+          ],
+          "projects": [
+            "section-1"
+          ],
+          "work_experience": [
+            "section-1"
+          ],
+          "campus_experience": [
+            "section-1"
+          ],
+          "awards": [
+            "section-1"
+          ],
+          "languages": [
+            "section-1"
+          ]
+        },
+        "conflicts": [],
+        "llm_conflict_resolution": false
+      },
+      "llm_calls": 1,
+      "prompt_tokens": 1814,
+      "completion_tokens": 1482,
+      "total_tokens": 3296
+    },
+    {
+      "case_id": "service_agent",
+      "status": "completed",
+      "name_correct": true,
+      "target_role_recovered": true,
+      "skill_recall": 1.0,
+      "skills_missing": [],
+      "experience_count": 2,
+      "project_count": 4,
+      "research_present": true,
+      "campus_or_leadership_present": true,
+      "critical_fact_grounding": 1.0,
+      "quality_gate_passed": true,
+      "parser_provenance": {
+        "mode": "section_batch_python_schema_merge",
+        "chunk_count": 1,
+        "field_sources": {
+          "name": [
+            "section-1"
+          ],
+          "email": [
+            "section-1"
+          ],
+          "location": [
+            "section-1"
+          ],
+          "availability": [
+            "section-1"
+          ],
+          "headline": [
+            "section-1"
+          ],
+          "self_summary": [
+            "section-1"
+          ],
+          "enabled_sections": [
+            "section-1"
+          ],
+          "target_roles": [
+            "section-1"
+          ],
+          "education": [
+            "section-1"
+          ],
+          "skills": [
+            "section-1"
+          ],
+          "projects": [
+            "section-1"
+          ],
+          "work_experience": [
+            "section-1"
+          ],
+          "campus_experience": [
+            "section-1"
+          ],
+          "awards": [
+            "section-1"
+          ],
+          "languages": [
+            "section-1"
+          ]
+        },
+        "conflicts": [],
+        "llm_conflict_resolution": false
+      },
+      "llm_calls": 1,
+      "prompt_tokens": 1804,
+      "completion_tokens": 1529,
+      "total_tokens": 3333
+    },
+    {
+      "case_id": "mobile_agent",
+      "status": "completed",
+      "name_correct": true,
+      "target_role_recovered": true,
+      "skill_recall": 1.0,
+      "skills_missing": [],
+      "experience_count": 2,
+      "project_count": 4,
+      "research_present": true,
+      "campus_or_leadership_present": true,
+      "critical_fact_grounding": 1.0,
+      "quality_gate_passed": true,
+      "parser_provenance": {
+        "mode": "section_batch_python_schema_merge",
+        "chunk_count": 1,
+        "field_sources": {
+          "name": [
+            "section-1"
+          ],
+          "email": [
+            "section-1"
+          ],
+          "location": [
+            "section-1"
+          ],
+          "availability": [
+            "section-1"
+          ],
+          "headline": [
+            "section-1"
+          ],
+          "self_summary": [
+            "section-1"
+          ],
+          "enabled_sections": [
+            "section-1"
+          ],
+          "target_roles": [
+            "section-1"
+          ],
+          "education": [
+            "section-1"
+          ],
+          "skills": [
+            "section-1"
+          ],
+          "projects": [
+            "section-1"
+          ],
+          "work_experience": [
+            "section-1"
+          ],
+          "campus_experience": [
+            "section-1"
+          ],
+          "awards": [
+            "section-1"
+          ],
+          "languages": [
+            "section-1"
+          ]
+        },
+        "conflicts": [],
+        "llm_conflict_resolution": false
+      },
+      "llm_calls": 1,
+      "prompt_tokens": 1803,
+      "completion_tokens": 1493,
+      "total_tokens": 3296
+    },
+    {
+      "case_id": "compliance_agent",
+      "status": "completed",
+      "name_correct": true,
+      "target_role_recovered": true,
+      "skill_recall": 1.0,
+      "skills_missing": [],
+      "experience_count": 2,
+      "project_count": 4,
+      "research_present": true,
+      "campus_or_leadership_present": true,
+      "critical_fact_grounding": 1.0,
+      "quality_gate_passed": true,
+      "parser_provenance": {
+        "mode": "section_batch_python_schema_merge",
+        "chunk_count": 1,
+        "field_sources": {
+          "name": [
+            "section-1"
+          ],
+          "email": [
+            "section-1"
+          ],
+          "location": [
+            "section-1"
+          ],
+          "availability": [
+            "section-1"
+          ],
+          "headline": [
+            "section-1"
+          ],
+          "self_summary": [
+            "section-1"
+          ],
+          "enabled_sections": [
+            "section-1"
+          ],
+          "target_roles": [
+            "section-1"
+          ],
+          "education": [
+            "section-1"
+          ],
+          "skills": [
+            "section-1"
+          ],
+          "projects": [
+            "section-1"
+          ],
+          "work_experience": [
+            "section-1"
+          ],
+          "campus_experience": [
+            "section-1"
+          ],
+          "awards": [
+            "section-1"
+          ],
+          "languages": [
+            "section-1"
+          ]
+        },
+        "conflicts": [],
+        "llm_conflict_resolution": false
+      },
+      "llm_calls": 1,
+      "prompt_tokens": 1797,
+      "completion_tokens": 1531,
+      "total_tokens": 3328
+    },
+    {
+      "case_id": "robotics_agent_scan",
+      "status": "completed",
+      "name_correct": true,
+      "target_role_recovered": true,
+      "skill_recall": 1.0,
+      "skills_missing": [],
+      "experience_count": 2,
+      "project_count": 4,
+      "research_present": true,
+      "campus_or_leadership_present": true,
+      "critical_fact_grounding": 1.0,
+      "quality_gate_passed": true,
+      "parser_provenance": {
+        "mode": "section_batch_python_schema_merge",
+        "chunk_count": 1,
+        "field_sources": {
+          "name": [
+            "section-1"
+          ],
+          "email": [
+            "section-1"
+          ],
+          "location": [
+            "section-1"
+          ],
+          "availability": [
+            "section-1"
+          ],
+          "headline": [
+            "section-1"
+          ],
+          "enabled_sections": [
+            "section-1"
+          ],
+          "target_roles": [
+            "section-1"
+          ],
+          "education": [
+            "section-1"
+          ],
+          "skills": [
+            "section-1"
+          ],
+          "projects": [
+            "section-1"
+          ],
+          "work_experience": [
+            "section-1"
+          ],
+          "campus_experience": [
+            "section-1"
+          ],
+          "awards": [
+            "section-1"
+          ],
+          "languages": [
+            "section-1"
+          ]
+        },
+        "conflicts": [],
+        "llm_conflict_resolution": false
+      },
+      "llm_calls": 1,
+      "prompt_tokens": 1758,
+      "completion_tokens": 1422,
+      "total_tokens": 3180
+    },
+    {
+      "case_id": "bilingual_agent_mixed",
+      "status": "completed",
+      "name_correct": true,
+      "target_role_recovered": true,
+      "skill_recall": 1.0,
+      "skills_missing": [],
+      "experience_count": 2,
+      "project_count": 3,
+      "research_present": true,
+      "campus_or_leadership_present": true,
+      "critical_fact_grounding": 1.0,
+      "quality_gate_passed": true,
+      "parser_provenance": {
+        "mode": "section_batch_python_schema_merge",
+        "chunk_count": 1,
+        "field_sources": {
+          "name": [
+            "section-1"
+          ],
+          "email": [
+            "section-1"
+          ],
+          "location": [
+            "section-1"
+          ],
+          "availability": [
+            "section-1"
+          ],
+          "headline": [
+            "section-1"
+          ],
+          "self_summary": [
+            "section-1"
+          ],
+          "enabled_sections": [
+            "section-1"
+          ],
+          "target_roles": [
+            "section-1"
+          ],
+          "education": [
+            "section-1"
+          ],
+          "skills": [
+            "section-1"
+          ],
+          "projects": [
+            "section-1"
+          ],
+          "work_experience": [
+            "section-1"
+          ],
+          "awards": [
+            "section-1"
+          ],
+          "languages": [
+            "section-1"
+          ]
+        },
+        "conflicts": [],
+        "llm_conflict_resolution": false
+      },
+      "llm_calls": 1,
+      "prompt_tokens": 1511,
+      "completion_tokens": 1019,
+      "total_tokens": 2530
+    }
+  ]
+}
