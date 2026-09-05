@@ -717,6 +717,7 @@ function resumeReviewDimensionLabel(key) {
     required_skill_coverage: "必备技能覆盖",
     preferred_skill_coverage: "加分技能覆盖",
     semantic_similarity: "语义相关度",
+    semantic_fit_judgement: "语义匹配判断",
     evidence_relevance: "经历证据",
     internship_fit: "实习条件",
     negative_evidence_penalty: "风险扣分",
@@ -819,12 +820,8 @@ function renderJobDiscovery(body) {
 
   renderItems("#jobs-list", results, (result) => {
     const row = result.job;
-    const structured = row.structured_jd_json || {};
-    const reasons = result.reason?.relevance_reasons || [];
-    const matched = result.reason?.matched_skills || [];
-    const missing = result.reason?.missing_skills || [];
-    const scoreLabel = result.match_score !== null && result.match_score !== undefined
-      ? `简历匹配 ${Math.round(result.match_score)}`
+    const scoreLabel = session?.profile_id
+      ? `综合相关 ${Math.round(result.final_score ?? result.retrieval_score ?? 0)}`
       : result.retrieval_score !== null && result.retrieval_score !== undefined
         ? `需求相关 ${Math.round(result.retrieval_score)}`
         : "岗位库";
@@ -842,14 +839,7 @@ function renderJobDiscovery(body) {
             <span>${escapeHtml(row.job_type || "类型未注明")}</span>
             <span>${escapeHtml(jobSourceLabel(row.source))}</span>
           </div>
-          ${tags(structured.required_skills || structured.keywords || [])}
-          ${reasons.length ? `<p class="job-result-reason"><strong>为什么出现：</strong>${escapeHtml(reasons.slice(0, 3).join("；"))}</p>` : ""}
-          ${matched.length || missing.length ? `
-            <div class="job-match-preview">
-              <span><strong>已匹配</strong> ${escapeHtml(matched.slice(0, 5).join("、") || "等待详细分析")}</span>
-              <span><strong>需补充</strong> ${escapeHtml(missing.slice(0, 4).join("、") || "暂无明显缺口")}</span>
-            </div>
-          ` : ""}
+          <p class="job-result-reason">根据求职需求与完整 JD 的语义相关性排序。能力匹配与差距需进入详情后结合简历证据分析。</p>
           <div class="flow-result-actions">
             <a class="button primary" href="${jobDetailUrl(row.id, session?.id, session?.profile_id)}"><i data-lucide="panel-right-open"></i> 查看岗位详情</a>
             ${isPublicApplyUrl(row.apply_url) ? `<a class="button ghost" href="${escapeHtml(row.apply_url)}" target="_blank" rel="noopener"><i data-lucide="external-link"></i> 官方投递页</a>` : ""}
@@ -1022,12 +1012,10 @@ function renderJobDetail(job) {
   const source = $("#job-detail-source");
   if (source) source.textContent = `${job.source || "manual"} · ${new Date(job.discovered_at).toLocaleDateString("zh-CN")}`;
   const tagSlot = $("#job-detail-tags");
-  if (tagSlot) tagSlot.innerHTML = tags(structured.required_skills || structured.keywords || []);
+  if (tagSlot) tagSlot.innerHTML = "";
   const sectionLabels = [
     ["responsibilities", "岗位职责"],
     ["qualifications", "任职要求"],
-    ["required_skills", "必备技能"],
-    ["preferred_skills", "加分项"],
   ];
   const structuredSlot = $("#job-detail-structured");
   const structuredItemCount = sectionLabels.reduce(
@@ -1035,11 +1023,13 @@ function renderJobDetail(job) {
     0,
   );
   if (structuredSlot) {
-    structuredSlot.innerHTML = sectionLabels.map(([key, label]) => {
+    const standardSections = sectionLabels.map(([key, label]) => {
       const items = structured[key] || [];
       if (!items.length) return "";
       return `<section class="jd-section"><h2>${label}</h2><ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul></section>`;
-    }).join("") || `<section class="jd-section"><p class="meta">该岗位暂时没有结构化字段，请查看下方原始 JD。</p></section>`;
+    }).join("");
+    structuredSlot.innerHTML = standardSections
+      || `<section class="jd-section"><p class="meta">该岗位暂时没有结构化字段，请查看下方原始 JD。</p></section>`;
   }
   const raw = $("#job-detail-raw-jd");
   const rawText = String(job.raw_jd_text || "").trim();
@@ -1131,6 +1121,9 @@ function activateJobDetailTab(name) {
 function renderJobMatch(match) {
   const dimensions = match.dimension_scores_json || {};
   const evidence = match.relevant_evidence_json || [];
+  const semantic = match.retrieval_quality_json?.semantic_match || {};
+  const matchedEvidence = semantic.matched_evidence || [];
+  const gapEvidence = semantic.gap_evidence || [];
   return `
     <section class="job-match-analysis">
       <div class="job-match-score">
@@ -1157,6 +1150,13 @@ function renderJobMatch(match) {
         </section>
       </div>
       ${match.suggestions_json?.length ? `<section class="job-match-suggestions"><h3>针对性建议</h3><ol>${match.suggestions_json.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ol></section>` : ""}
+      ${matchedEvidence.length || gapEvidence.length ? `
+        <details class="review-evidence" open>
+          <summary>查看判断依据（${matchedEvidence.length + gapEvidence.length} 条）</summary>
+          ${matchedEvidence.map((item) => `<article><strong>${escapeHtml(item.requirement)}</strong><p>岗位：${escapeHtml(item.jd_quote)}</p><p>简历：${escapeHtml(item.resume_quote)}</p>${item.reason ? `<p class="meta">${escapeHtml(item.reason)}</p>` : ""}</article>`).join("")}
+          ${gapEvidence.map((item) => `<article><strong>${escapeHtml(item.requirement)}</strong><p>岗位：${escapeHtml(item.jd_quote)}</p>${item.reason ? `<p class="meta">${escapeHtml(item.reason)}</p>` : ""}</article>`).join("")}
+        </details>
+      ` : ""}
       ${evidence.length ? `
         <details class="review-evidence">
           <summary>查看简历证据（${evidence.length} 条）</summary>
@@ -1173,12 +1173,23 @@ async function runJobDetailMatch() {
   if (!profileId) throw new Error("请先选择简历档案。");
   activateJobDetailTab("match");
   const slot = $("#job-match-result");
-  if (slot) slot.innerHTML = `<article class="item meta">正在从简历经历库检索与 JD 最相关的证据...</article>`;
+  const status = $("#job-detail-action-status");
+  if (status) {
+    status.textContent = "正在理解完整 JD，并从简历中检索可引用的相关经历，通常需要几秒钟。";
+    status.className = "field-hint pending";
+  }
+  if (slot) slot.innerHTML = `<article class="item job-action-pending"><i data-lucide="loader-circle"></i><div><strong>正在分析匹配与差距</strong><p class="meta">Agent 正在进行语义匹配并核对 JD 与简历原文证据。</p></div></article>`;
+  if (window.lucide) window.lucide.createIcons();
   const match = await api("/matches", {
     method: "POST",
     body: JSON.stringify({ profile_id: profileId, job_id: jobId }),
   });
   if (slot) slot.innerHTML = renderJobMatch(match);
+  if (status) {
+    const analysisWarning = match.retrieval_quality_json?.semantic_match?.warning;
+    status.textContent = analysisWarning || "语义匹配已完成，可在左侧查看结论及其原文依据。";
+    status.className = analysisWarning ? "field-hint risk" : "field-hint ok";
+  }
   if (window.lucide) window.lucide.createIcons();
   return match;
 }
@@ -4654,14 +4665,26 @@ function bindForms() {
   });
   $("#run-job-match")?.addEventListener("click", async (event) => {
     const button = event.currentTarget;
+    const originalHtml = button.innerHTML;
     button.disabled = true;
+    button.innerHTML = `<i data-lucide="loader-circle"></i> 正在分析`;
+    if (window.lucide) window.lucide.createIcons();
     try {
       await runJobDetailMatch();
       toast("岗位匹配与差距分析已完成");
     } catch (error) {
+      const slot = $("#job-match-result");
+      const status = $("#job-detail-action-status");
+      if (slot) slot.innerHTML = `<article class="validation-risk"><strong>匹配分析未完成</strong><p>${escapeHtml(error.message)}</p><p class="meta">你可以直接重试；已选择的简历不会丢失。</p></article>`;
+      if (status) {
+        status.textContent = `匹配失败：${error.message}`;
+        status.className = "field-hint risk";
+      }
       toast(error.message);
     } finally {
       button.disabled = false;
+      button.innerHTML = originalHtml;
+      if (window.lucide) window.lucide.createIcons();
     }
   });
   $("#run-job-tailor")?.addEventListener("click", async (event) => {

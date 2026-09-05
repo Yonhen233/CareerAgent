@@ -175,6 +175,8 @@ class JDStructured(BaseModel):
     location: str | None = None
     job_type: str | None = None
     required_skills: list[str] = Field(default_factory=list)
+    responsibility_skills: list[str] = Field(default_factory=list)
+    alternative_skill_groups: list[dict[str, Any]] = Field(default_factory=list)
     preferred_skills: list[str] = Field(default_factory=list)
     responsibilities: list[str] = Field(default_factory=list)
     qualifications: list[str] = Field(default_factory=list)
@@ -185,6 +187,7 @@ class JDStructured(BaseModel):
 
     _normalize_lists = field_validator(
         "required_skills",
+        "responsibility_skills",
         "preferred_skills",
         "responsibilities",
         "qualifications",

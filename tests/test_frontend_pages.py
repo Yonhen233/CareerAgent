@@ -357,6 +357,7 @@ def test_job_detail_page_exposes_optional_profile_match_and_tailor_flow():
     assert 'class="raw-jd-details" open' in response.text
     assert "完整原始 JD" in response.text
     assert "job-detail-coverage" in response.text
+    assert "job-detail-action-status" in response.text
     assert "loadJobDetail" in main_js
     assert "runJobDetailMatch" in main_js
     assert "runJobDetailTailor" in main_js
@@ -368,6 +369,8 @@ def test_job_detail_page_exposes_optional_profile_match_and_tailor_flow():
     assert 'semantic_similarity: "语义相关度"' in main_js
     assert "applyLink.hidden = !isPublicApplyUrl(job.apply_url)" in main_js
     assert "structuredItemCount" in main_js
+    assert "根据求职需求与完整 JD 的语义相关性排序" in main_js
+    assert "语义匹配并核对 JD 与简历原文证据" in main_js
     assert "原文 ${rawText.length} 字" in main_js
     assert '["example.com", "localhost", "127.0.0.1"]' in main_js
     assert ".job-detail-grid" in style_css
@@ -465,7 +468,7 @@ def test_agent_runs_page_exposes_langgraph_event_timeline():
     assert "data-rewind-run" in main_js
     assert "data-withdraw-run" in main_js
     assert "/withdrawal-preview" in main_js
-    assert "20260809-run-recovery-3" in response.text
+    assert "20260905-semantic-match-2" in response.text
     assert "20260722-ops-console-1" not in response.text
     assert "event-timeline" in style_css
     assert "event-row" in style_css

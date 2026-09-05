@@ -13,6 +13,9 @@ from app.services.document_schema_batcher import DocumentSchemaBatcher
 from app.services.resume_parser import KNOWN_SKILLS
 
 
+SKILL_SEMANTICS_VERSION = "requirement_strength_and_alternatives_v3"
+
+
 JD_SKILL_ALIASES: dict[str, list[str]] = {
     "Agent": [r"\bai agents?\b", r"\bagentic\b", "智能体"],
     "RAG": [r"\bretrieval[- ]augmented generation\b", r"\brag\b", "检索增强", "知识库问答"],
@@ -123,6 +126,10 @@ class JDParserService:
                     location=location,
                 ),
             )
+            heuristic["parser_provenance"] = {
+                "mode": "heuristic_fallback",
+                "skill_semantics": SKILL_SEMANTICS_VERSION,
+            }
             return heuristic
 
         system_prompt = "You parse job descriptions. Return strict JSON only."
@@ -134,6 +141,8 @@ Parse this job description into JSON:
   "location": string|null,
   "job_type": string|null,
   "required_skills": [string],
+  "responsibility_skills": [string],
+  "alternative_skill_groups": [{{"label": string, "skills": [string], "min_required": 1}}],
   "preferred_skills": [string],
   "responsibilities": [string],
   "qualifications": [string],
@@ -149,6 +158,16 @@ Known title/company/location if provided:
 JD:
 {safe_text or raw_text}
 """
+        user_prompt += (
+            "\nClassification rules:\n"
+            "- required_skills: only skills explicitly requested in qualification/requirement sections.\n"
+            "- responsibility_skills: technologies or capabilities mentioned in duties/work content; "
+            "do not treat them as candidate requirements unless the requirement section also says so.\n"
+            "- alternative_skill_groups: when the JD says one/any/at least one of several skills or frameworks, "
+            "put those options in one group and do not repeat each option in required_skills.\n"
+            "- preferred_skills: only optional, bonus, plus, preferred or nice-to-have skills.\n"
+            "- Preserve unfamiliar product, framework and infrastructure names exactly as written.\n"
+        )
         try:
             document_text = safe_text or raw_text
             chunks = (
@@ -181,6 +200,8 @@ JD:
                 parsed_rows,
                 list_fields={
                     "required_skills",
+                    "responsibility_skills",
+                    "alternative_skill_groups",
                     "preferred_skills",
                     "responsibilities",
                     "qualifications",
@@ -208,7 +229,11 @@ JD:
             )
             quality_gate["rejected_optional_keywords"] = rejected_optional_keywords
             normalized["quality_gate"] = quality_gate
-            normalized["parser_provenance"] = parser_provenance
+            normalized["parser_provenance"] = {
+                **parser_provenance,
+                "mode": "llm_grounded",
+                "skill_semantics": SKILL_SEMANTICS_VERSION,
+            }
             if not quality_gate["passed"]:
                 raise LLMResponseError(
                     "JD parser quality gate rejected unsupported structured fields: "
@@ -231,6 +256,10 @@ JD:
                     location=location,
                 ),
             )
+            heuristic["parser_provenance"] = {
+                "mode": "heuristic_fallback",
+                "skill_semantics": SKILL_SEMANTICS_VERSION,
+            }
             return heuristic
 
     def parse_jd_for_search(
@@ -261,7 +290,12 @@ JD:
                 location=location,
             ),
         )
-        return JDStructured.model_validate(parsed).model_dump()
+        normalized = JDStructured.model_validate(parsed).model_dump()
+        normalized["parser_provenance"] = {
+            "mode": "heuristic_fast",
+            "skill_semantics": SKILL_SEMANTICS_VERSION,
+        }
+        return normalized
 
     def _grounding_allowed_values(
         self,
@@ -273,7 +307,7 @@ JD:
         location: str | None,
     ) -> list[str | None]:
         values: list[str | None] = [title, company, location]
-        for field in ("required_skills", "preferred_skills", "keywords"):
+        for field in ("required_skills", "responsibility_skills", "preferred_skills", "keywords"):
             for value in parsed.get(field) or []:
                 skill = str(value or "").strip()
                 if skill and self._skill_mentioned(raw_text, skill):
@@ -387,8 +421,19 @@ JD:
 
     def _merge_llm_parse(self, heuristic: dict, parsed: dict, *, raw_text: str | None = None) -> dict:
         merged = {**heuristic, **parsed}
-        for field in ["required_skills", "preferred_skills", "responsibilities", "qualifications", "keywords"]:
+        for field in [
+            "required_skills",
+            "responsibility_skills",
+            "preferred_skills",
+            "responsibilities",
+            "qualifications",
+            "keywords",
+        ]:
             merged[field] = self._merge_ordered_lists(parsed.get(field), heuristic.get(field))
+        merged["alternative_skill_groups"] = self._merge_alternative_groups(
+            parsed.get("alternative_skill_groups"),
+            heuristic.get("alternative_skill_groups"),
+        )
         for field in ["title", "company", "location", "job_type", "seniority"]:
             merged[field] = parsed.get(field) or heuristic.get(field)
         normalized = self._normalize_requirement_strength(merged, heuristic=heuristic, raw_text=raw_text)
@@ -413,10 +458,35 @@ JD:
             return canonical
 
         required = canonicalize_skills(output.get("required_skills"))
+        responsibility = canonicalize_skills(output.get("responsibility_skills"))
         preferred = canonicalize_skills(output.get("preferred_skills"))
+        alternative_groups = []
+        alternative_keys: set[str] = set()
+        for group in output.get("alternative_skill_groups") or []:
+            if not isinstance(group, dict):
+                continue
+            skills = canonicalize_skills(group.get("skills"))
+            if len(skills) < 2:
+                continue
+            alternative_keys.update(item.lower() for item in skills)
+            alternative_groups.append(
+                {
+                    "label": str(group.get("label") or "满足其中一项").strip(),
+                    "skills": skills,
+                    "min_required": max(1, int(group.get("min_required") or 1)),
+                }
+            )
+        required = [item for item in required if item.lower() not in alternative_keys]
         required_keys = {item.lower() for item in required}
+        preferred_keys = {item.lower() for item in preferred}
         output["required_skills"] = required
+        output["alternative_skill_groups"] = alternative_groups
         output["preferred_skills"] = [item for item in preferred if item.lower() not in required_keys]
+        output["responsibility_skills"] = [
+            item
+            for item in responsibility
+            if item.lower() not in required_keys and item.lower() not in preferred_keys
+        ]
         raw_job_type = str(output.get("job_type") or "").strip()
         output["job_type"] = JD_JOB_TYPE_CANONICAL.get(raw_job_type.lower(), raw_job_type or None)
         if output["job_type"] == "internship" and not output.get("seniority"):
@@ -483,6 +553,21 @@ JD:
                 if value and key not in seen:
                     seen.add(key)
                     merged.append(value)
+        return merged
+
+    def _merge_alternative_groups(self, primary: object, secondary: object) -> list[dict]:
+        merged: list[dict] = []
+        seen: set[tuple[str, ...]] = set()
+        for source in (primary, secondary):
+            for group in source if isinstance(source, list) else []:
+                if not isinstance(group, dict):
+                    continue
+                skills = [str(item).strip() for item in group.get("skills") or [] if str(item).strip()]
+                key = tuple(sorted(item.lower() for item in skills))
+                if len(skills) < 2 or key in seen:
+                    continue
+                seen.add(key)
+                merged.append({**group, "skills": skills})
         return merged
 
     def _skill_key(self, skill: object) -> str:
@@ -578,7 +663,11 @@ JD:
         lines = [
             segment.strip(" -•\t")
             for line in raw_text.splitlines()
-            for segment in re.split(r"(?<=[。；;])\s*", line)
+            for segment in re.split(
+                r"(?<=[。；;])\s*|(?<=\.)\s+(?=(?:Responsibilities?|Requirements?|Qualifications?|Preferred|Optional)\s*:?)",
+                line,
+                flags=re.IGNORECASE,
+            )
             if segment.strip(" -•\t")
         ]
         guessed_title = title or self._guess_title(lines)
@@ -593,21 +682,42 @@ JD:
             for item in responsibilities
             if re.sub(r"\s+", " ", item.strip()).lower() not in metadata_values
         ]
-        skill_text = "\n".join(responsibilities + qualifications) or raw_text
-        skills = self._extract_skills(skill_text)
+        required_skills = self._extract_skills("\n".join(qualifications))
+        alternative_skill_groups = self._extract_alternative_skill_groups(qualifications)
+        alternative_keys = {
+            skill.lower()
+            for group in alternative_skill_groups
+            for skill in group.get("skills", [])
+        }
+        required_skills = [skill for skill in required_skills if skill.lower() not in alternative_keys]
+        responsibility_skills = self._extract_skills("\n".join(responsibilities))
         preferred_skills = [
             skill
             for skill in self._extract_skills("\n".join(preferred_lines), ignore_negation=True)
-            if skill not in set(skills)
+            if skill not in set(required_skills)
         ]
-        keywords = sorted(set(skills + preferred_skills + self._keyword_phrases(raw_text)))[:40]
+        soft_required = [
+            skill for skill in required_skills if self._skill_is_soft_requirement_only(skill, raw_text)
+        ]
+        required_skills = [skill for skill in required_skills if skill not in set(soft_required)]
+        preferred_skills = self._merge_ordered_lists(preferred_skills, soft_required)
+        required_keys = set(required_skills)
+        preferred_keys = set(preferred_skills)
+        responsibility_skills = [
+            skill for skill in responsibility_skills if skill not in required_keys and skill not in preferred_keys
+        ]
+        keywords = sorted(
+            set(required_skills + responsibility_skills + preferred_skills + self._keyword_phrases(raw_text))
+        )[:40]
         job_type = self._guess_job_type(raw_text, guessed_title, location)
         return JDStructured(
             title=guessed_title,
             company=company,
             location=location,
             job_type=job_type,
-            required_skills=skills[:24],
+            required_skills=required_skills[:24],
+            responsibility_skills=responsibility_skills[:24],
+            alternative_skill_groups=alternative_skill_groups[:8],
             preferred_skills=preferred_skills[:12],
             responsibilities=responsibilities[:24],
             qualifications=qualifications[:24],
@@ -638,6 +748,78 @@ JD:
             if any(self._pattern_found(text, pattern, ignore_negation=ignore_negation) for pattern in patterns):
                 add(canonical)
         return found
+
+    def _extract_alternative_skill_groups(self, qualifications: list[str]) -> list[dict[str, object]]:
+        groups: list[dict[str, object]] = []
+        seen: set[tuple[str, ...]] = set()
+
+        def add_group(skills: list[str]) -> None:
+            normalized = self._merge_ordered_lists(skills, [])
+            normalized = [skill for skill in normalized if skill not in {"Agent"}]
+            key = tuple(sorted(skill.lower() for skill in normalized))
+            if len(normalized) < 2 or key in seen:
+                return
+            seen.add(key)
+            groups.append(
+                {
+                    "label": "至少掌握一项：" + " / ".join(normalized),
+                    "skills": normalized,
+                    "min_required": 1,
+                }
+            )
+
+        alternative_cue = re.compile(
+            r"(?:(?:熟悉|掌握|了解|使用|精通)?至少(?:熟悉|掌握|了解|使用|精通)?(?:一种|一项|一个|一门)|"
+            r"任选(?:一种|一项)|任[一意](?:一种|一项)?|"
+            r"其中(?:一种|一项)|(?:one|any)\s+of|at\s+least\s+one)",
+            flags=re.IGNORECASE,
+        )
+        for line in qualifications:
+            cue_match = alternative_cue.search(line)
+            if cue_match:
+                scoped_text = re.split(r"[,，;；。]", line[cue_match.start() :], maxsplit=1)[0]
+                add_group(
+                    self._extract_skills(scoped_text, ignore_negation=True)
+                    + self._technical_options(scoped_text)
+                )
+
+            for match in re.finditer(
+                r"(?<![A-Za-z0-9])([A-Za-z][A-Za-z0-9.+#-]{1,30})\s*(?:或|\bor\b)\s*"
+                r"([A-Za-z][A-Za-z0-9.+#-]{1,30})(?![A-Za-z0-9])",
+                line,
+                flags=re.IGNORECASE,
+            ):
+                add_group([match.group(1), match.group(2)])
+
+            for match in re.finditer(r"（([^）]{2,100})）\s*或[^（，。；]{0,40}（([^）]{2,100})）", line):
+                scoped_text = f"{match.group(1)} / {match.group(2)}"
+                add_group(
+                    self._extract_skills(scoped_text, ignore_negation=True)
+                    + self._technical_options(scoped_text)
+                )
+
+            if not self._has_soft_requirement_cue(line.lower()):
+                for match in re.finditer(r"[（(]\s*(?:如|例如|e\.g\.)\s*([^）)]{2,120})[）)]", line, re.IGNORECASE):
+                    scoped_text = match.group(1)
+                    add_group(
+                        self._extract_skills(scoped_text, ignore_negation=True)
+                        + self._technical_options(scoped_text)
+                    )
+                for match in re.finditer(r"[,，]\s*(?:如|例如|e\.g\.)\s*([^；;。]{2,120})", line, re.IGNORECASE):
+                    scoped_text = match.group(1)
+                    add_group(
+                        self._extract_skills(scoped_text, ignore_negation=True)
+                        + self._technical_options(scoped_text)
+                    )
+        return groups
+
+    def _technical_options(self, text: str) -> list[str]:
+        stopwords = {
+            "agent", "ai", "llm", "api", "sdk", "skills", "ops", "os", "ci",
+            "one", "any", "at", "least", "and", "or", "with", "experience",
+        }
+        candidates = re.findall(r"(?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9.+#-]{1,30}(?![A-Za-z0-9])", text)
+        return [item for item in candidates if item.lower() not in stopwords]
 
     def _skill_pattern(self, skill: str) -> str:
         escaped = re.escape(skill)

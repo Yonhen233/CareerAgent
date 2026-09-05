@@ -10,6 +10,7 @@ from app.services.embedding_service import EmbeddingService, cosine_similarity, 
 from app.services.evidence_classifier import EvidenceClassifier
 from app.services.vector_index import SQLiteVectorIndex
 from app.services.retrieval_quality import RetrievalQualityService
+from app.services.jd_parser import SKILL_SEMANTICS_VERSION
 
 
 NEGATIVE_EVIDENCE_CUES = [
@@ -134,16 +135,22 @@ class MatcherService:
             or job_data.get("source_granularity")
             or "job_detail"
         )
-        requirements_complete = source_granularity == "job_detail"
+        qualifications = [str(x).strip() for x in job_data.get("qualifications", []) if str(x).strip()]
+        uses_explicit_skill_semantics = (
+            "responsibility_skills" in job_data
+            or (job_data.get("parser_provenance") or {}).get("skill_semantics")
+            == SKILL_SEMANTICS_VERSION
+        )
+        requirements_complete = source_granularity == "job_detail" and (
+            bool(qualifications) or not uses_explicit_skill_semantics
+        )
 
         required = [str(x).strip() for x in job_data.get("required_skills", []) if str(x).strip()]
         preferred = [str(x).strip() for x in job_data.get("preferred_skills", []) if str(x).strip()]
-        if requirements_complete:
-            all_required = required or [
-                str(x).strip() for x in job_data.get("keywords", [])[:12] if str(x).strip()
-            ]
-        else:
-            all_required = []
+        alternative_groups = [
+            group for group in job_data.get("alternative_skill_groups", []) if isinstance(group, dict)
+        ]
+        all_required = required if requirements_complete else []
         resume_text = self._support_text(profile, profile_data).lower()
         resume_tokens = set(tokenize(resume_text))
 
@@ -154,7 +161,26 @@ class MatcherService:
             and self._skill_has_positive_or_neutral_support(skill, resume_text)
         ]
         missing = [skill for skill in all_required if skill not in matched]
-        required_score = len(matched) / max(len(all_required), 1) if requirements_complete else 0.0
+        group_matched: list[str] = []
+        group_missing: list[str] = []
+        for group in alternative_groups if requirements_complete else []:
+            options = [str(item).strip() for item in group.get("skills") or [] if str(item).strip()]
+            hits = [
+                skill
+                for skill in options
+                if fuzzy_contains(skill, resume_tokens, resume_text)
+                and self._skill_has_positive_or_neutral_support(skill, resume_text)
+            ]
+            label = str(group.get("label") or ("至少掌握一项：" + " / ".join(options)))
+            if len(hits) >= max(1, int(group.get("min_required") or 1)):
+                group_matched.append(f"{label}（已具备：{'、'.join(hits)}）")
+            else:
+                group_missing.append(label)
+        matched.extend(group_matched)
+        missing.extend(group_missing)
+        requirement_count = len(all_required) + len(alternative_groups)
+        matched_count = len([item for item in matched if item not in group_missing])
+        required_score = matched_count / max(requirement_count, 1) if requirements_complete else 0.0
 
         semantic_score = self._semantic_similarity(resume_text, job.raw_jd_text)
         evidence, retrieval_quality = self.retrieve_evidence_with_quality(db, profile.id, job, top_k=8)
@@ -164,9 +190,9 @@ class MatcherService:
         negative_penalty = self._negative_evidence_penalty(resume_text, all_required)
 
         overall = (
-            required_score * 0.38
-            + semantic_score * 0.24
-            + project_score * 0.22
+            required_score * 0.12
+            + semantic_score * 0.42
+            + project_score * 0.30
             + internship_score * 0.08
             + preference_score * 0.08
             - negative_penalty
@@ -183,10 +209,17 @@ class MatcherService:
         suggestions = self._suggestions(missing, dimension_scores)
         analysis_limitations: list[str] = []
         if not requirements_complete:
-            analysis_limitations.append(
-                "官网当前只提供职位卡片或岗位类别，未公开完整任职要求；"
-                "系统不会据此生成缺失技能结论，请打开官方入口确认完整 JD。"
-            )
+            if source_granularity != "job_detail":
+                limitation = (
+                    "官网当前只提供职位卡片或岗位类别，未公开完整任职要求；"
+                    "系统不会据此生成缺失技能结论，请打开官方入口确认完整 JD。"
+                )
+            else:
+                limitation = (
+                    "该 JD 没有可确认的任职要求章节；职责中提到的技术只作为工作内容参考，"
+                    "不会直接判定为你的能力缺口。"
+                )
+            analysis_limitations.append(limitation)
             suggestions.insert(0, analysis_limitations[0])
         return {
             "overall_score": round(overall * 100, 2),
@@ -208,12 +241,13 @@ class MatcherService:
         job: Job,
         *,
         idempotency_key: str | None = None,
+        payload: dict[str, Any] | None = None,
     ) -> MatchResult:
         if idempotency_key:
             existing = db.query(MatchResult).filter(MatchResult.idempotency_key == idempotency_key).first()
             if existing is not None:
                 return existing
-        payload = self.build_match_payload(db, profile, job)
+        payload = payload or self.build_match_payload(db, profile, job)
         result = MatchResult(
             profile_id=profile.id,
             job_id=job.id,

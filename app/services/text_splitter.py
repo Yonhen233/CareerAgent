@@ -150,6 +150,7 @@ class ResumeTextSplitter:
 
         field_map = {
             "required_skills": "jd.required_skills",
+            "responsibility_skills": "jd.responsibility_skills",
             "preferred_skills": "jd.preferred_skills",
             "responsibilities": "jd.responsibilities",
             "qualifications": "jd.qualifications",
@@ -167,6 +168,23 @@ class ResumeTextSplitter:
                     chunk_type=field,
                     source=source,
                     metadata={"field": field, "strategy": "structured_jd_field"},
+                )
+            )
+
+        alternative_groups = structured_jd.get("alternative_skill_groups") or []
+        alternative_text = "\n".join(
+            str(group.get("label") or " / ".join(group.get("skills") or [])).strip()
+            for group in alternative_groups
+            if isinstance(group, dict)
+        ).strip()
+        if alternative_text:
+            chunks.append(
+                TextChunk(
+                    uid=f"{prefix}_alternative_skill_groups",
+                    text=alternative_text,
+                    chunk_type="alternative_skill_groups",
+                    source="jd.alternative_skill_groups",
+                    metadata={"field": "alternative_skill_groups", "strategy": "structured_jd_field"},
                 )
             )
 

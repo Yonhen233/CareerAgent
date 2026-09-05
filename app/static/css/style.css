@@ -1555,6 +1555,30 @@ a {
   margin-top: 14px;
 }
 
+.job-action-pending {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-color: #9bbcf0;
+  background: #f3f7fd;
+}
+
+.job-action-pending svg,
+#run-job-match:disabled svg[data-lucide="loader-circle"] {
+  flex: 0 0 auto;
+  animation: spin 0.9s linear infinite;
+}
+
+.job-action-pending p {
+  margin: 4px 0 0;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .empty-state {
   display: grid;
   justify-items: start;

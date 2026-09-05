@@ -213,11 +213,20 @@ class EvidenceGroundingService:
     ) -> dict[str, Any]:
         allowed = {self.normalize(value) for value in allowed_values if str(value or "").strip()}
         unsupported_skills: list[dict[str, str]] = []
-        for field in ("required_skills", "preferred_skills"):
+        for field in ("required_skills", "responsibility_skills", "preferred_skills"):
             for value in parsed.get(field) or []:
                 clean = str(value or "").strip()
                 if clean and self.normalize(clean) not in allowed and not self.value_supported(clean, raw_text):
                     unsupported_skills.append({"field": field, "value": clean})
+        for group_index, group in enumerate(parsed.get("alternative_skill_groups") or []):
+            if not isinstance(group, dict):
+                continue
+            for value in group.get("skills") or []:
+                clean = str(value or "").strip()
+                if clean and self.normalize(clean) not in allowed and not self.value_supported(clean, raw_text):
+                    unsupported_skills.append(
+                        {"field": f"alternative_skill_groups[{group_index}]", "value": clean}
+                    )
 
         unsupported_keywords = []
         for value in parsed.get("keywords") or []:

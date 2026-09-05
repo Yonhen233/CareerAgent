@@ -136,9 +136,21 @@ def preview_job_html(job_id: int, db: Session = Depends(get_db), auth: AuthConte
     sections = [
         ("职责", structured.get("responsibilities") or []),
         ("要求", structured.get("qualifications") or []),
-        ("必备技能", structured.get("required_skills") or []),
+        ("任职要求中的技能", structured.get("required_skills") or []),
+        ("工作内容涉及的技能", structured.get("responsibility_skills") or []),
         ("加分技能", structured.get("preferred_skills") or []),
     ]
+    alternative_groups = structured.get("alternative_skill_groups") or []
+    sections.append(
+        (
+            "满足其一的技能要求",
+            [
+                group.get("label") or " / ".join(group.get("skills") or [])
+                for group in alternative_groups
+                if isinstance(group, dict)
+            ],
+        )
+    )
     section_html = "\n".join(
         f"<section><h2>{escape(title)}</h2><ul>{''.join(f'<li>{escape(str(item))}</li>' for item in items)}</ul></section>"
         for title, items in sections

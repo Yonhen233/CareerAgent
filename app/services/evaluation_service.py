@@ -2269,15 +2269,28 @@ class EvaluationService:
             return result
 
         parsed_required = [str(item) for item in parsed.get("required_skills", []) if str(item).strip()]
+        parsed_responsibility = [
+            str(item) for item in parsed.get("responsibility_skills", []) if str(item).strip()
+        ]
+        parsed_alternatives = [
+            str(skill)
+            for group in parsed.get("alternative_skill_groups", [])
+            if isinstance(group, dict)
+            for skill in group.get("skills", [])
+            if str(skill).strip()
+        ]
+        parsed_relevant = list(
+            dict.fromkeys(parsed_required + parsed_responsibility + parsed_alternatives)
+        )
         parsed_preferred = [str(item) for item in parsed.get("preferred_skills", []) if str(item).strip()]
         parsed_text = json.dumps(parsed, ensure_ascii=False)
-        required_hits = self._normalized_hits(parsed_required, expected_required)
+        required_hits = self._normalized_hits(parsed_relevant, expected_required)
         required_skill_recall = self._recall(
-            {self._normalize_eval_term(item) for item in parsed_required},
+            {self._normalize_eval_term(item) for item in parsed_relevant},
             {self._normalize_eval_term(item) for item in expected_required},
         )
         required_skill_precision = self._precision(
-            {self._normalize_eval_term(item) for item in parsed_required},
+            {self._normalize_eval_term(item) for item in parsed_relevant},
             {self._normalize_eval_term(item) for item in expected_required},
         )
         required_skill_f1 = self._f1(required_skill_precision, required_skill_recall)
@@ -2326,6 +2339,8 @@ class EvaluationService:
                 "parsed_job_type": parsed.get("job_type"),
                 "job_type_passed": job_type_passed,
                 "parsed_required_skills": parsed_required,
+                "parsed_responsibility_skills": parsed_responsibility,
+                "parsed_alternative_skills": parsed_alternatives,
                 "parsed_preferred_skills": parsed_preferred,
                 "parsed_keywords_preview": (parsed.get("keywords") or [])[:16],
                 "required_skill_recall": required_skill_recall,
@@ -3248,23 +3263,44 @@ class EvaluationService:
         )
         jd_skills = self._infer_real_ingest_probe_skills(posting.raw_jd_text or "", skip_preferred_lines=True)
         expected_skills = list(dict.fromkeys(query_skills + jd_skills))
+        expected_required_skills = self._infer_real_ingest_probe_skills(
+            self._real_ingest_requirement_text(posting.raw_jd_text or ""),
+            skip_preferred_lines=True,
+        )
         required_skills = [str(item) for item in structured.get("required_skills", []) if str(item).strip()]
+        responsibility_skills = [
+            str(item) for item in structured.get("responsibility_skills", []) if str(item).strip()
+        ]
+        alternative_skills = [
+            str(skill)
+            for group in structured.get("alternative_skill_groups", [])
+            if isinstance(group, dict)
+            for skill in group.get("skills", [])
+            if str(skill).strip()
+        ]
         structured_skills = list(
             dict.fromkeys(
                 required_skills
+                + responsibility_skills
+                + alternative_skills
                 + [str(item) for item in structured.get("preferred_skills", []) if str(item).strip()]
                 + [str(item) for item in structured.get("keywords", []) if str(item).strip()]
             )
         )
         expected_terms = {self._normalize_eval_term(item) for item in expected_skills}
+        expected_required_terms = {
+            self._normalize_eval_term(item) for item in expected_required_skills
+        }
         required_terms = {self._normalize_eval_term(item) for item in required_skills}
         structured_terms = {self._normalize_eval_term(item) for item in structured_skills}
         query_terms = {self._normalize_eval_term(item) for item in query_skills}
-        required_recall = self._recall(required_terms, expected_terms)
+        required_recall = self._recall(required_terms, expected_required_terms)
         structured_recall = self._recall(structured_terms, expected_terms)
         query_coverage = self._recall(structured_terms, query_terms)
         missing_required = [
-            skill for skill in expected_skills if self._normalize_eval_term(skill) not in required_terms
+            skill
+            for skill in expected_required_skills
+            if self._normalize_eval_term(skill) not in required_terms
         ]
         missing_structured = [
             skill for skill in expected_skills if self._normalize_eval_term(skill) not in structured_terms
@@ -3279,6 +3315,7 @@ class EvaluationService:
             "parser_quality_evaluable": evaluable,
             "parser_quality_probe_passed": passed,
             "parser_quality_expected_skills": expected_skills[:16],
+            "parser_quality_expected_required_skills": expected_required_skills[:12],
             "parser_quality_query_skills": query_skills[:8],
             "parser_quality_required_recall": required_recall,
             "parser_quality_structured_recall": structured_recall,
@@ -3301,6 +3338,40 @@ class EvaluationService:
                     seen.add(skill.lower())
                     found.append(skill)
         return found
+
+    def _real_ingest_requirement_text(self, raw_text: str) -> str:
+        mode: str | None = None
+        requirements: list[str] = []
+        for raw_line in raw_text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if re.match(
+                r"^(?:requirements?|qualifications?|任职要求|任职资格|岗位要求|职位要求|基本要求)\s*[:：]?",
+                line,
+                flags=re.IGNORECASE,
+            ):
+                mode = "required"
+                content = re.sub(
+                    r"^(?:requirements?|qualifications?|任职要求|任职资格|岗位要求|职位要求|基本要求)\s*[:：]?\s*",
+                    "",
+                    line,
+                    count=1,
+                    flags=re.IGNORECASE,
+                )
+                if content:
+                    requirements.append(content)
+                continue
+            if re.match(
+                r"^(?:responsibilities?|岗位职责|工作职责|工作内容|preferred|optional|加分项|优先)\s*[:：]?",
+                line,
+                flags=re.IGNORECASE,
+            ):
+                mode = None
+                continue
+            if mode == "required":
+                requirements.append(line)
+        return "\n".join(requirements)
 
     def _real_ingest_pattern_hit(self, line: str, pattern: str) -> bool:
         for match in re.finditer(pattern, line, re.IGNORECASE):

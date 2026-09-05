@@ -52,7 +52,10 @@ class JobDiscoveryService:
         self.job_search = job_search or JobSearchService()
         self.matcher = matcher or MatcherService()
         self.vector_index = vector_index or SQLiteVectorIndex()
-        self.reranker = reranker or RerankerService()
+        self.reranker = reranker or RerankerService(
+            score_weight=max(self.settings.reranker_score_weight, 0.55),
+            anchor_top_n=0,
+        )
         self.retrieval_quality = RetrievalQualityService(self.settings)
 
     async def discover(
@@ -178,28 +181,53 @@ class JobDiscoveryService:
             quality = self.retrieval_quality.assess(query, [], min_evidence_chunks=1)
             return [], quality
 
-        lightweight_candidates: list[tuple[Job, Any]] = [
+        all_scored_jobs: list[tuple[Job, Any]] = [
             (job, score_job_posting(job, query)) for job in jobs
         ]
-        lightweight_candidates.sort(
+        all_scored_jobs.sort(
             key=lambda item: (item[1].score, item[0].updated_at),
             reverse=True,
         )
-        candidate_pool_size = max(12, min(80, limit * 4))
-        lightweight_candidates = lightweight_candidates[:candidate_pool_size]
-        job_ids = {job.id for job, _ in lightweight_candidates}
+        candidate_pool_size = max(24, min(160, limit * 8))
+        lexical_pool_size = max(12, min(candidate_pool_size // 2, limit * 3))
+        lexical_candidates = all_scored_jobs[:lexical_pool_size]
         chunks = self.vector_index.query_job_corpus(
             db,
             query,
-            job_ids=job_ids,
-            top_k=max(40, limit * 4),
+            job_ids={job.id for job in jobs},
+            top_k=candidate_pool_size,
             rerank=False,
         )
         semantic_by_job: dict[int, float] = {}
         for chunk in chunks:
             job_id = int((chunk.metadata or {}).get("job_id") or 0)
             if job_id:
-                semantic_by_job[job_id] = max(semantic_by_job.get(job_id, 0.0), float(chunk.score))
+                vector_score = float(
+                    ((chunk.metadata or {}).get("retrieval") or {}).get("vector_score")
+                    or 0.0
+                )
+                semantic_by_job[job_id] = max(semantic_by_job.get(job_id, 0.0), vector_score)
+
+        semantic_job_ids = {
+            int((chunk.metadata or {}).get("job_id") or 0)
+            for chunk in chunks
+            if int((chunk.metadata or {}).get("job_id") or 0)
+        }
+        candidate_job_ids = semantic_job_ids | {job.id for job, _ in lexical_candidates}
+        lightweight_candidates = [
+            (job, relevance)
+            for job, relevance in all_scored_jobs
+            if job.id in candidate_job_ids
+        ][:candidate_pool_size]
+        semantic_values = [semantic_by_job.get(job.id, 0.0) for job, _ in lightweight_candidates]
+        semantic_min = min(semantic_values, default=0.0)
+        semantic_max = max(semantic_values, default=0.0)
+
+        def normalized_semantic(job_id: int) -> float:
+            raw = semantic_by_job.get(job_id, 0.0)
+            if semantic_max - semantic_min < 1e-6:
+                return 0.5 if semantic_values else 0.0
+            return self._clamp((raw - semantic_min) / (semantic_max - semantic_min))
 
         raw_candidates: list[dict[str, Any]] = []
         for job, relevance in lightweight_candidates:
@@ -208,7 +236,8 @@ class JobDiscoveryService:
             # materially different jobs at 1.0 and erased the lexical signal.
             rule_norm = self._clamp((relevance.score + 8.0) / 44.0)
             semantic = self._clamp(semantic_by_job.get(job.id, 0.0))
-            retrieval_score = round(semantic * 0.58 + rule_norm * 0.42, 6)
+            semantic_norm = normalized_semantic(job.id)
+            retrieval_score = round(semantic_norm * 0.72 + rule_norm * 0.28, 6)
             raw_candidates.append(
                 {
                     "job": job,
@@ -219,12 +248,14 @@ class JobDiscoveryService:
                         "rule_score": relevance.score,
                         "rule_score_normalized": rule_norm,
                         "semantic_score": semantic,
+                        "semantic_score_normalized": semantic_norm,
                         "reasons": relevance.reasons,
                         "retrieval": {
                             "vector_score": semantic,
+                            "vector_score_normalized": semantic_norm,
                             "lexical_score": rule_norm,
                             "first_stage_score": retrieval_score,
-                            "retrieval_route": "job_metadata_hybrid",
+                            "retrieval_route": "semantic_corpus_union_lexical",
                         },
                     },
                 }
@@ -243,8 +274,10 @@ class JobDiscoveryService:
         ]
         quality = self.retrieval_quality.assess(query, reranked, min_evidence_chunks=1)
         quality["query_strategy"] = {
-            "name": "metadata_filter_then_hybrid_retrieval_and_rerank",
+            "name": "metadata_filter_then_semantic_union_and_rerank",
             "candidate_pool_size": len(raw_candidates),
+            "semantic_weight": 0.72,
+            "lexical_weight": 0.28,
             "candidate_score_floor": round(candidate_score_floor, 6),
             "weak_candidate_count": unfiltered_count - len(reranked),
         }

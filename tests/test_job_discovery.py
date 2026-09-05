@@ -104,13 +104,13 @@ def test_preference_only_search_does_not_require_profile(db_session):
     assert session.status == "completed"
     assert session.input_mode == "preference_only"
     assert session.profile_id is None
-    assert session.result_count == 2
+    assert session.result_count == 1
     assert session.results[0].job_id == agent_job.id
     assert session.results[0].match_score is None
     assert session.retrieval_quality_json["passed"] is True
     assert session.retrieval_quality_json["top_vector_score"] > 0
     assert db_session.query(JobSearchSession).count() == 1
-    assert db_session.query(JobSearchResult).count() == 2
+    assert db_session.query(JobSearchResult).count() == 1
 
 
 def test_user_discovery_excludes_evaluation_jobs_and_deduplicates_postings(db_session):
@@ -394,7 +394,7 @@ def test_discovery_limits_expensive_vector_stage_to_bounded_job_pool(db_session,
 
     def fake_query_job_corpus(_db, _query, *, job_ids, top_k, rerank):
         captured_job_ids.update(job_ids)
-        assert top_k == 40
+        assert top_k == 80
         assert rerank is False
         return []
 
@@ -415,7 +415,7 @@ def test_discovery_limits_expensive_vector_stage_to_bounded_job_pool(db_session,
     )
 
     assert results
-    assert len(captured_job_ids) == 40
+    assert len(captured_job_ids) == 180
 
 
 def test_rule_score_normalization_preserves_relevance_differences(db_session, monkeypatch):

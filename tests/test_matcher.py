@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from fastapi import HTTPException
 
@@ -147,6 +149,42 @@ def test_matcher_does_not_match_agent_inside_project_name_agenttrace():
     assert fuzzy_contains("Agent", {"agent", "workflow"}, "implemented an agent workflow") is True
 
 
+def test_matcher_accepts_one_hit_in_alternative_skill_group(db_session):
+    profile = Profile(
+        name="Candidate",
+        source_type="guided",
+        raw_resume_text="使用 Dify 构建并交付 Agent 工作流。",
+        structured_profile_json={"skills": ["Dify"], "projects": [{"description": "使用 Dify 构建 Agent"}]},
+    )
+    job = Job(
+        source="official",
+        external_id="alternative-frameworks",
+        title="Agent 平台实习生",
+        raw_jd_text="任职要求：至少熟悉一种框架 LangGraph、LangChain、Dify 或 AutoGen。",
+        structured_jd_json={
+            "required_skills": [],
+            "responsibility_skills": ["Agent"],
+            "qualifications": ["至少熟悉一种框架 LangGraph、LangChain、Dify 或 AutoGen"],
+            "alternative_skill_groups": [
+                {
+                    "label": "至少掌握一项：LangGraph / LangChain / Dify / AutoGen",
+                    "skills": ["LangGraph", "LangChain", "Dify", "AutoGen"],
+                    "min_required": 1,
+                }
+            ],
+        },
+        source_payload_json={"granularity": "job_detail"},
+    )
+    db_session.add_all([profile, job])
+    db_session.commit()
+
+    payload = MatcherService().build_match_payload(db_session, profile, job)
+
+    assert payload["missing_skills"] == []
+    assert any("已具备：Dify" in item for item in payload["matched_skills"])
+    assert payload["dimension_scores"]["required_skill_coverage"] == 100
+
+
 def test_matcher_recognizes_vector_search_and_evaluation_delivery_aliases():
     text = (
         "Built Chinese-English hybrid retrieval with BM25, multilingual embeddings and RRF. "
@@ -179,13 +217,16 @@ def test_matches_api_returns_structured_error_for_matching_failure(db_session, m
     db_session.refresh(job)
 
     class BrokenMatcher:
-        def create_match_result(self, db, profile, job):  # noqa: ANN001
+        def build_match_payload(self, db, profile, job):  # noqa: ANN001
+            return {}
+
+        def create_match_result(self, db, profile, job, *, payload=None):  # noqa: ANN001
             raise ValueError("Unsupported reranker provider: keyword")
 
     monkeypatch.setattr("app.api.matches.MatcherService", BrokenMatcher)
 
     with pytest.raises(HTTPException) as exc_info:
-        create_match(MatchCreateRequest(profile_id=profile.id, job_id=job.id), db_session)
+        asyncio.run(create_match(MatchCreateRequest(profile_id=profile.id, job_id=job.id), db_session))
 
     assert exc_info.value.status_code == 500
     assert "Match generation failed" in exc_info.value.detail

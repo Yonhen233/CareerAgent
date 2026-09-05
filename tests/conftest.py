@@ -3,6 +3,8 @@ import os
 os.environ["EMBEDDING_PROVIDER"] = "hash"
 os.environ["RERANKER_ENABLED"] = "false"
 os.environ["LLM_FALLBACK_ENABLED"] = "true"
+os.environ["LLM_API_KEY"] = ""
+os.environ["OPENAI_API_KEY"] = ""
 os.environ["LANGGRAPH_CHECKPOINT_FILE"] = ".tmp_test/pytest_langgraph_checkpoints.sqlite"
 
 import pytest

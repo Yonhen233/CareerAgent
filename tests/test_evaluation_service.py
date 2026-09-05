@@ -388,8 +388,9 @@ def test_jd_parser_aliases_preferred_and_negative_context():
 
     parsed = JDParserService().heuristic_parse(jd, title="RAG Evaluation Intern")
 
-    assert {"RAG", "Vector Database", "Guardrail", "Prompt Regression", "LLM", "Tool Calling", "A/B Testing"} <= set(
-        parsed["required_skills"]
+    assert {"RAG", "Tool Calling", "A/B Testing"} <= set(parsed["required_skills"])
+    assert {"Vector Database", "Guardrail", "Prompt Regression", "LLM"} <= set(
+        parsed["responsibility_skills"]
     )
     assert "Kubernetes" not in parsed["required_skills"]
     assert "MLflow" not in parsed["required_skills"]
@@ -400,8 +401,8 @@ def test_jd_parser_promotes_general_evaluation_experience_to_required_skill():
     from app.services.jd_parser import JDParserService
 
     parsed = JDParserService().heuristic_parse(
-        "Agent 应用开发实习生\n负责 Agent 工具调用、RAG 引用和 trace 平台。"
-        "要求 Python、FastAPI、RAG 和评测经验。",
+        "Agent 应用开发实习生\n负责 Agent 工具调用、RAG 引用和 trace 平台。\n"
+        "任职要求：Python、FastAPI、RAG 和评测经验。",
         title="Agent 应用开发实习生",
     )
 
@@ -485,8 +486,29 @@ def test_jd_parser_llm_merge_preserves_heuristic_skills():
 
     merged = service._merge_llm_parse(heuristic, sparse_llm)
 
-    assert {"Agent", "Python", "FastAPI", "RAG", "SQL", "Evaluation"} <= set(merged["required_skills"])
+    assert {"Python", "SQL", "Evaluation"} <= set(merged["required_skills"])
+    assert {"Agent", "FastAPI", "RAG"} <= set(merged["responsibility_skills"])
     assert merged["required_skills"].count("Python") == 1
+
+
+def test_jd_parser_models_framework_choices_as_one_requirement_group():
+    from app.services.jd_parser import JDParserService
+
+    parsed = JDParserService().heuristic_parse(
+        "Agent 平台实习生\n"
+        "岗位职责：基于 LangGraph 开发工作流。\n"
+        "任职要求：熟悉至少一种 Agent 框架（LangGraph/LangChain/Dify/AutoGen）。",
+        title="Agent 平台实习生",
+    )
+
+    assert "LangGraph" not in parsed["required_skills"]
+    assert parsed["alternative_skill_groups"] == [
+        {
+            "label": "至少掌握一项：LangChain / LangGraph / Dify / AutoGen",
+            "skills": ["LangChain", "LangGraph", "Dify", "AutoGen"],
+            "min_required": 1,
+        }
+    ]
 
 
 def test_jd_parser_canonicalizes_chinese_aliases_and_job_type():
@@ -951,7 +973,8 @@ def test_real_job_ingest_smoke_reports_parser_quality_failures(db_session):
     job_result = run.case_results_json[0]["job_results"][0]
     assert job_result["status"] == "completed"
     assert job_result["parser_quality_probe_passed"] is False
-    assert {"Agent", "RAG", "LLM"} <= set(job_result["parser_quality_missing_required_skills"])
+    assert {"RAG", "LLM"} <= set(job_result["parser_quality_missing_required_skills"])
+    assert "Agent" in job_result["parser_quality_missing_structured_skills"]
 
 
 def test_real_job_ingest_smoke_records_parse_errors(db_session):
