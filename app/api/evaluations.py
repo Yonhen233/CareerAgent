@@ -1,3 +1,5 @@
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
@@ -45,8 +47,15 @@ async def run_follow_up_directive_bad_case_evaluation(db: Session = Depends(get_
 
 
 @router.post("/rag-strategies", response_model=EvaluationRunResponse, status_code=status.HTTP_201_CREATED)
-def run_rag_strategy_evaluation(db: Session = Depends(get_db)) -> EvaluationRunResponse:
-    run = EvaluationService().run_rag_strategy_evaluation(db)
+def run_rag_strategy_evaluation(
+    tier: Literal["strong_noise", "core"] = Query(default="strong_noise"),
+    db: Session = Depends(get_db),
+) -> EvaluationRunResponse:
+    service = EvaluationService()
+    dataset_path = service.settings.base_path / "evals" / (
+        "rag_core_cases.json" if tier == "core" else "rag_cases.json"
+    )
+    run = service.run_rag_strategy_evaluation(db, dataset_path=dataset_path)
     return EvaluationRunResponse.model_validate(run)
 
 

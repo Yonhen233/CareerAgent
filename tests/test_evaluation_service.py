@@ -55,6 +55,8 @@ def test_fit_output_contract_separates_delivery_from_coursework():
             "matched_required_skill_count": 3,
             "has_related_delivery_evidence": True,
             "has_coursework_or_planned_only_evidence": False,
+            "semantic_similarity": 0.82,
+            "evidence_relevance": 0.68,
         },
     )
     coursework_errors = service._fit_output_contract_errors(
@@ -66,7 +68,7 @@ def test_fit_output_contract_separates_delivery_from_coursework():
         },
     )
 
-    assert any("不应判为 weak_fit" in item for item in delivery_errors)
+    assert any("语义和证据相关性" in item for item in delivery_errors)
     assert any("coursework" in item for item in coursework_errors)
 
 
@@ -82,6 +84,38 @@ def test_fit_output_contract_rejects_strong_fit_with_low_required_skill_coverage
     )
 
     assert any("0.67" in item for item in errors)
+
+
+def test_fit_output_contract_blocks_strong_fit_when_complete_jd_has_missing_requirement():
+    errors = EvaluationService()._fit_output_contract_errors(
+        {"fit_label": "strong_fit", "fit_score": 90},
+        {
+            "requirements_complete": True,
+            "matched_required_skill_count": 4,
+            "missing_required_skill_count": 1,
+            "has_related_delivery_evidence": True,
+            "has_coursework_or_planned_only_evidence": False,
+            "required_skill_coverage": 0.8,
+        },
+    )
+
+    assert any("未满足的必需技能" in item for item in errors)
+
+
+def test_fit_output_contract_uses_role_signals_when_jd_has_no_qualification_section():
+    errors = EvaluationService()._fit_output_contract_errors(
+        {"fit_label": "weak_fit", "fit_score": 50},
+        {
+            "requirements_complete": False,
+            "role_capability_evidence_available": True,
+            "semantic_similarity": 0.86,
+            "evidence_relevance": 0.61,
+            "matched_required_skill_count": 0,
+            "missing_required_skill_count": 0,
+        },
+    )
+
+    assert any("直接交付证据" in item for item in errors)
 
 
 def test_evaluation_dataset_rejects_single_object_root():
@@ -150,6 +184,42 @@ def test_rag_strategy_evaluation_selects_strategy(db_session):
     assert "selected_metrics.actual_reranker_providers" in gate_checks
     assert isinstance(run.summary_json["release_gate"]["passed"], bool)
     assert "理论上限" in run.summary_json["release_gate_basis"]
+
+
+def test_rag_annotation_audit_rejects_support_label_conflict():
+    cases = [
+        {
+            "name": "conflict",
+            "retrieval_objective": "rank positive evidence that can support target-role capability claims",
+            "expected_chunk_ids": ["chunk-1"],
+            "evidence_chunks": [
+                {
+                    "chunk_id": "chunk-1",
+                    "expected": True,
+                    "support_label": "future_intent",
+                    "topical_relevance_grade": 1,
+                }
+            ],
+        }
+    ]
+
+    with pytest.raises(ValueError, match="conflicts with support_label"):
+        EvaluationService._audit_rag_annotations(cases)
+
+
+def test_rag_core_dataset_keeps_normal_noise_separate_from_stress_suite():
+    service = EvaluationService()
+    cases = service._load_case_dataset(service.settings.base_path / "evals" / "rag_core_cases.json")
+
+    assert len(cases) == 180
+    assert all(case["benchmark_tier"] == "normal_noise" for case in cases)
+    assert all(len(case["evidence_chunks"]) == 8 for case in cases)
+    assert {
+        profile
+        for case in cases
+        for profile in case["noise_profiles"]
+    } == {"adjacent_domain", "coursework", "far_domain", "planned_learning"}
+    assert service._audit_rag_annotations(cases)["passed"] is True
 
 
 def test_agent_full_flow_evaluation_covers_orchestrator_components(db_session):
@@ -629,6 +699,39 @@ def test_jd_parser_llm_merge_demotes_soft_requirement_skills():
     assert "MLflow" not in merged["required_skills"]
     assert "Kubernetes" not in merged["required_skills"]
     assert {"MLflow", "Kubernetes"} <= set(merged["preferred_skills"])
+
+
+def test_jd_parser_semantic_review_splits_compound_skill_and_preserves_role_signal():
+    from app.services.jd_parser import JDParserService
+
+    class ReviewLLM:
+        async def generate_text(self, **kwargs):
+            assert kwargs["trace_name"] == "jd_parser.skill_semantics_review"
+            return json.dumps(
+                {
+                    "required_skills": ["Prompt Injection", "Guardrail", "Evaluation"],
+                    "responsibility_skills": ["failure case analysis"],
+                    "preferred_skills": [],
+                    "dropped": [],
+                },
+                ensure_ascii=False,
+            )
+
+    service = JDParserService()
+    service.llm = ReviewLLM()
+    parsed, review = asyncio.run(
+        service._review_ambiguous_skill_semantics(
+            {
+                "required_skills": ["Prompt Injection analysis", "Guardrail and Evaluation"],
+                "responsibility_skills": ["failure case analysis"],
+                "preferred_skills": [],
+            },
+            raw_text="Requirements: Prompt Injection, Guardrail and Evaluation. Duties: analyze failures.",
+        )
+    )
+
+    assert parsed["required_skills"] == ["Prompt Injection", "Guardrail", "Evaluation"]
+    assert review["applied"] is True
 
 
 def test_jd_parser_retries_transient_empty_llm_response():

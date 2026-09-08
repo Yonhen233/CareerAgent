@@ -1,3 +1,10 @@
+"""CareerAgent 主任务图编排器。
+
+该模块把自然语言任务转换为有状态的 Plan-Execute 图，统一调度工具、Skill
+职责模块、Checkpoint、证据门禁和 Completion Gate。节点可以生成候选结果，
+但不能绕过任务合同、审批边界或最终完成校验自行宣布成功。
+"""
+
 import copy
 import inspect
 import time
@@ -12,10 +19,13 @@ from langgraph.types import Command, interrupt
 from sqlalchemy.orm import Session
 
 from app.agents.tools import AgentPlanner, bind_agent_tool
+from app.agents.task_graph import TaskGraphRuntime
+from app.agents.task_router import TaskRouter
 from app.core.config import get_settings
 from app.core.llm import llm_trace_context
 from app.core.redis_client import RedisUnavailableError, get_redis_client, redis_key
-from app.models.entities import AgentArtifact, AgentRun, AgentStep
+from app.models.entities import AgentArtifact, AgentEvent, AgentRun, AgentStep
+from app.models.agent_plan_schemas import TaskPlan
 from app.models.entities import Application, Job, MatchResult, Profile, ResumeVersion
 from app.models.schemas import AgentRunRequest, TaskState
 from app.services.approval_service import ApprovalService
@@ -52,6 +62,17 @@ class CareerAgentGraphState(TypedDict, total=False):
     run_id: int
     task_type: TaskType
     execution_plan: dict[str, Any]
+    intent_envelope: dict[str, Any]
+    task_plan: dict[str, Any]
+    task_graph_status: dict[str, Any]
+    ready_nodes: list[str]
+    running_nodes: list[str]
+    completed_nodes: list[str]
+    failed_nodes: list[str]
+    local_loop_states: dict[str, dict[str, Any]]
+    replan_count: int
+    clarification_required: bool
+    completion_criteria: list[dict[str, Any]]
     task_contract: dict[str, Any]
     context_refs: dict[str, Any]
     task_state: dict[str, Any]
@@ -117,6 +138,18 @@ class LangGraphAgentOrchestrator:
         self.settings = get_settings()
         self._runtime_dbs: dict[int, Session] = {}
         self._runtime_plans: dict[int, dict[str, Any]] = {}
+        self.task_router = TaskRouter({
+            action: (lambda state, _action=action: self._execute_task_node_impl(_action, state))
+            for action in {
+                "search_jobs",
+                "select_jobs",
+                "match_job",
+                "tailor_resume",
+                "prepare_interview",
+                "quick_apply",
+                "clarify",
+            }
+        })
         self._checkpoint_lifecycle = LangGraphCheckpointerLifecycle(settings=self.settings)
         self.checkpointer = None
         self._graph = None
@@ -612,7 +645,11 @@ class LangGraphAgentOrchestrator:
                 checkpoint_id = str(config.get("checkpoint_id") or "")
                 if not checkpoint_id:
                     continue
-                next_nodes = [str(item) for item in snapshot.next or ()]
+                next_nodes = self._logical_checkpoint_next_nodes(
+                    run,
+                    values,
+                    [str(item) for item in snapshot.next or ()],
+                )
                 interrupts = list(getattr(snapshot, "interrupts", ()) or ())
                 history.append(
                     {
@@ -629,6 +666,36 @@ class LangGraphAgentOrchestrator:
             return history
         finally:
             await self._close_checkpoint()
+
+    def _logical_checkpoint_next_nodes(
+        self,
+        run: AgentRun,
+        values: dict[str, Any],
+        next_nodes: list[str],
+    ) -> list[str]:
+        """Expose stable business labels even when a macro DAG owns the node.
+
+        ``execute_task_graph`` is an implementation boundary, not a useful
+        user-facing history label.  For the single-job tailoring flow the next
+        meaningful action is still the resume-tailoring stage, so checkpoint
+        rewind can be selected using the familiar label while retaining the
+        real checkpoint id underneath.
+        """
+        if next_nodes != ["execute_task_graph"]:
+            return next_nodes
+        if run.task_type == "tailor_resume_for_job":
+            return ["tailor_resume"]
+        if run.task_type == "prepare_interview_for_job":
+            return ["generate_interview_prep"]
+        if run.task_type == "quick_apply":
+            return ["create_application_packet"]
+        raw_status = (values.get("task_graph_status") or {}).get("status") or {}
+        task_status = raw_status if isinstance(raw_status, dict) else {}
+        plan = values.get("task_plan") or {}
+        for node in plan.get("nodes") or []:
+            if task_status.get(node.get("node_id")) in {"pending", "ready", "running"}:
+                return [str(node.get("action") or "execute_task_graph")]
+        return ["execute_task_graph"]
 
     async def rewind_from_checkpoint(
         self,
@@ -987,6 +1054,11 @@ class LangGraphAgentOrchestrator:
     def _build_graph(self):
         graph = StateGraph(CareerAgentGraphState)
         graph.add_node("plan_task", self._node_plan_task)
+        # The task graph is the single macro scheduler.  The legacy-looking
+        # domain nodes below remain registered because they are the auditable
+        # execution units called by the scheduler and are useful for replay and
+        # trace inspection; they are no longer the primary control-flow router.
+        graph.add_node("execute_task_graph", self._node_execute_task_graph)
         graph.add_node("load_profile", self._node_load_profile)
         graph.add_node("search_jobs", self._node_search_jobs)
         graph.add_node("match_jobs", self._node_match_jobs)
@@ -1012,6 +1084,7 @@ class LangGraphAgentOrchestrator:
             "plan_task",
             self._route_after_plan,
             {
+                "dynamic_task_graph": "execute_task_graph",
                 "find_jobs_for_profile": "load_profile",
                 "tailor_resume_for_job": "load_profile",
                 "quick_apply": "load_profile",
@@ -1019,6 +1092,7 @@ class LangGraphAgentOrchestrator:
                 "full_career_flow": "load_profile",
             },
         )
+        graph.add_edge("execute_task_graph", "completion_gate")
         graph.add_conditional_edges(
             "load_profile",
             self._route_after_profile,
@@ -1119,6 +1193,16 @@ class LangGraphAgentOrchestrator:
                 ),
             ),
         )
+        graph_runtime = None
+        if plan.get("task_plan"):
+            graph_runtime = TaskGraphRuntime(
+                TaskPlan.model_validate(plan["task_plan"])
+            )
+            graph_runtime.ready_nodes(context={
+                "profile_id": state.get("profile_id"),
+                "job_id": state.get("job_id"),
+                "search_results_available": False,
+            })
         run = db.query(AgentRun).filter(AgentRun.id == state["run_id"]).one()
         memory_context = CareerMemoryService().compact_context(
             db,
@@ -1135,6 +1219,23 @@ class LangGraphAgentOrchestrator:
         plan["execution_provenance"] = provenance
         self._runtime_plans[state["run_id"]] = plan
         self.trace.add_artifact(db, run_id=state["run_id"], artifact_type="execution_plan", payload=plan)
+        self.trace.add_event(
+            db,
+            run_id=state["run_id"],
+            event_type="plan_created",
+            node_name="plan_task",
+            payload={"plan_id": (plan.get("task_plan") or {}).get("plan_id")},
+        )
+        self.trace.add_event(
+            db,
+            run_id=state["run_id"],
+            event_type="plan_validated",
+            node_name="plan_task",
+            payload={
+                "node_count": len((plan.get("task_plan") or {}).get("nodes") or []),
+                "forbidden_actions": (plan.get("task_plan") or {}).get("forbidden_actions") or [],
+            },
+        )
         self.trace.add_artifact(
             db,
             run_id=state["run_id"],
@@ -1156,9 +1257,316 @@ class LangGraphAgentOrchestrator:
         )
         return {
             "execution_plan": plan,
+            "intent_envelope": plan.get("intent_envelope") or {},
+            "task_plan": plan.get("task_plan") or {},
+            "task_graph_status": {
+                "status": "planned",
+                **(graph_runtime.as_dict() if graph_runtime else {}),
+                "ready_batches": graph_runtime.ready_batches(context={
+                    "profile_id": state.get("profile_id"),
+                    "job_id": state.get("job_id"),
+                    "search_results_available": False,
+                }) if graph_runtime else [],
+            },
+            "ready_nodes": graph_runtime.as_dict().get("ready_nodes", []) if graph_runtime else [],
+            "running_nodes": [],
+            "completed_nodes": [],
+            "failed_nodes": [],
+            "local_loop_states": {},
+            "replan_count": 0,
+            "clarification_required": False,
             "task_contract": task_contract,
             "memory_context": memory_context,
         }
+
+    async def _node_execute_task_graph(self, state: CareerAgentGraphState) -> dict[str, Any]:
+        """Run the validated macro DAG inside the durable LangGraph node.
+
+        LangGraph owns checkpointing and human interrupts.  TaskGraphRuntime
+        owns dependency scheduling, retry boundaries, and the serializable
+        ledger.  Domain methods remain separate so every tool call still gets
+        its normal trace, artifact, idempotency, and guardrail behavior.
+        """
+        plan_payload = state.get("task_plan") or {}
+        if not plan_payload:
+            raise ValueError("Task graph execution requires a validated task_plan.")
+        plan = TaskPlan.model_validate(plan_payload)
+        runtime = TaskGraphRuntime(plan, state=state.get("task_graph_status") or {})
+        working: dict[str, Any] = dict(state)
+        db = self._db_from_state(state)
+        self._hydrate_task_graph_from_persistence(db, state["run_id"], runtime, working)
+
+        # Profile loading is a shared read boundary, not a user-visible goal.
+        # It is executed once before the first macro node that needs profile
+        # evidence, while remaining visible as the canonical load_profile step.
+        if state.get("profile_id"):
+            working.update(await self._node_load_profile(working))
+
+        max_replans = int(plan.budget.max_replans)
+        attempts: dict[str, int] = {}
+        while not runtime.is_complete():
+            context = self._task_graph_context(working)
+            batches = runtime.ready_batches(context=context)
+            if not batches:
+                if runtime.has_failed():
+                    raise ValueError(f"Task graph failed: {runtime.as_dict().get('errors')}")
+                raise ValueError(
+                    "Task graph is blocked: no ready node satisfies its dependencies or preconditions."
+                )
+            for batch in batches:
+                for node_id in batch:
+                    node = next(item for item in plan.nodes if item.node_id == node_id)
+                    runtime.start(node_id)
+                    self.trace.add_event(
+                        db,
+                        run_id=state["run_id"],
+                        event_type="task_node_started",
+                        node_name=node.action,
+                        payload={
+                            "node_id": node.node_id,
+                            "goal_id": node.goal_id,
+                            "action": node.action,
+                            "attempt": runtime.attempts.get(node_id, 1),
+                        },
+                    )
+                    try:
+                        result = await self._execute_task_node(node.action, working)
+                        if result:
+                            working.update(result)
+                        runtime.complete(node_id, outputs=result if isinstance(result, dict) else None)
+                        self.trace.add_event(
+                            db,
+                            run_id=state["run_id"],
+                            event_type="task_node_completed",
+                            node_name=node.action,
+                            payload={
+                                "node_id": node.node_id,
+                                "action": node.action,
+                                "required_outputs": node.required_outputs,
+                            },
+                        )
+                    except GraphInterrupt:
+                        # Preserve the running state in memory for observability;
+                        # LangGraph will checkpoint the interrupt and resume this
+                        # macro node with the durable pre-action state.
+                        raise
+                    except Exception as exc:  # noqa: BLE001
+                        attempts[node_id] = attempts.get(node_id, 0) + 1
+                        runtime.fail(node_id, str(exc))
+                        policy = node.failure_policy
+                        if policy in {"retry", "retry_or_partial"} and attempts[node_id] <= 1:
+                            runtime.retry(node_id, reason=f"retryable task-node failure: {exc}")
+                            self.trace.add_event(
+                                db,
+                                run_id=state["run_id"],
+                                event_type="task_node_retry_scheduled",
+                                node_name=node.action,
+                                payload={"node_id": node.node_id, "reason": str(exc)},
+                            )
+                            continue
+                        if policy == "replan" and runtime.replan_history.__len__() < max_replans:
+                            replanned = self._replan_remaining_task_graph(plan, runtime, node_id, str(exc))
+                            runtime.replan(replanned, reason=f"node {node_id} failed: {exc}")
+                            plan = replanned
+                            self.trace.add_event(
+                                db,
+                                run_id=state["run_id"],
+                                event_type="task_graph_replanned",
+                                node_name=node.action,
+                                payload=runtime.replan_history[-1],
+                            )
+                            break
+                        raise
+                else:
+                    continue
+                break
+
+        working.update({
+            "task_graph_status": {"status": "completed", **runtime.as_dict()},
+            "ready_nodes": runtime.as_dict()["ready_nodes"],
+            "running_nodes": runtime.as_dict()["running_nodes"],
+            "completed_nodes": runtime.as_dict()["completed_nodes"],
+            "failed_nodes": runtime.as_dict()["failed_nodes"],
+            "replan_count": len(runtime.replan_history),
+        })
+        finalizer = {
+            "find_jobs_for_profile": self._node_finalize_find_jobs,
+            "tailor_resume_for_job": self._node_finalize_tailor,
+            "quick_apply": self._node_finalize_quick_apply,
+            "prepare_interview_for_job": self._node_finalize_interview,
+            "full_career_flow": self._node_finalize_full_flow,
+        }[state["task_type"]]
+        working.update(await finalizer(working))
+        return {
+            key: value
+            for key, value in working.items()
+            if key not in {"request", "run_id", "task_type", "task_plan", "intent_envelope"}
+        }
+
+    def _hydrate_task_graph_from_persistence(
+        self,
+        db: Session,
+        run_id: int,
+        runtime: TaskGraphRuntime,
+        working: dict[str, Any],
+    ) -> None:
+        """Recover macro progress that occurred before a LangGraph interrupt.
+
+        A node that raises ``interrupt`` cannot return its partial state.  The
+        trace and artifacts are therefore the write-ahead record for the macro
+        scheduler.  This is what makes a browser refresh or a resumed approval
+        continue from the last completed business action instead of replaying
+        the entire workflow.
+        """
+        events = (
+            db.query(AgentEvent)
+            .filter(AgentEvent.run_id == run_id)
+            .order_by(AgentEvent.id.asc())
+            .all()
+        )
+        completed: set[str] = set()
+        started: set[str] = set()
+        for event in events:
+            payload = event.event_json or {}
+            node_id = str(payload.get("node_id") or "")
+            if not node_id or node_id not in runtime.status:
+                continue
+            if event.event_type == "task_node_started":
+                started.add(node_id)
+            elif event.event_type == "task_node_completed":
+                completed.add(node_id)
+        for node_id in completed:
+            runtime.status[node_id] = "completed"
+        for node_id in started - completed:
+            if runtime.status.get(node_id) in {"pending", "ready", "running"}:
+                runtime.status[node_id] = "ready"
+
+        artifacts = (
+            db.query(AgentArtifact)
+            .filter(AgentArtifact.run_id == run_id)
+            .order_by(AgentArtifact.id.asc())
+            .all()
+        )
+        for artifact in artifacts:
+            payload = dict(artifact.artifact_json or {})
+            if artifact.artifact_type == "ranked_jobs":
+                matches = list(payload.get("matches") or [])
+                if matches:
+                    working.setdefault("matches", matches)
+                    working.setdefault("job_ids", [int(item["job_id"]) for item in matches if item.get("job_id")])
+                    working.setdefault("query", payload.get("query"))
+                    working.setdefault("source_errors", payload.get("source_errors") or {})
+            elif artifact.artifact_type == "selected_job":
+                selected = dict(payload.get("selected_job") or {})
+                if selected:
+                    working.setdefault("selected_job", selected)
+                    working.setdefault("selected_job_id", selected.get("job_id"))
+                    working.setdefault("job_id", selected.get("job_id"))
+                    working.setdefault("match_result_id", selected.get("match_result_id"))
+            elif artifact.artifact_type == "resume_evidence_retrieval":
+                working.setdefault("evidence_chunks", payload.get("evidence_chunks") or payload.get("chunks") or [])
+                working.setdefault("retrieval_quality", payload.get("retrieval_quality") or {})
+            elif artifact.artifact_type == "tailored_resume":
+                working.setdefault("tailor", payload)
+                working.setdefault("resume_version_id", payload.get("resume_version_id"))
+                working.setdefault("verification", payload.get("verification") or {})
+            elif artifact.artifact_type == "resume_verification":
+                working.setdefault("verification", payload)
+            elif artifact.artifact_type == "fit_gate":
+                working.setdefault("fit_gate", payload)
+            elif artifact.artifact_type == "application_packet":
+                working.setdefault("application", payload)
+            elif artifact.artifact_type == "interview_prep":
+                working.setdefault("interview_prep", payload)
+
+        if working.get("profile_id") and working.get("job_id") and not working.get("match_result_id"):
+            match = (
+                db.query(MatchResult)
+                .filter(
+                    MatchResult.profile_id == int(working["profile_id"]),
+                    MatchResult.job_id == int(working["job_id"]),
+                )
+                .order_by(MatchResult.id.desc())
+                .first()
+            )
+            if match is not None:
+                working["match_result_id"] = match.id
+
+    async def _execute_task_node(self, action: str, state: dict[str, Any]) -> dict[str, Any]:
+        return await self.task_router.dispatch(action, state=state)
+
+    async def _execute_task_node_impl(self, action: str, state: dict[str, Any]) -> dict[str, Any]:
+        if action == "search_jobs":
+            result = await self._node_search_jobs(state)
+            if state.get("profile_id"):
+                result.update(await self._node_match_jobs({**state, **result}))
+            return result
+        if action == "select_jobs":
+            result = {}
+            if not state.get("matches"):
+                result.update(await self._node_match_jobs(state))
+            result.update(await self._node_select_job({**state, **result}))
+            # Selection is a human boundary.  Once the user picks a job, run
+            # the canonical single-job load/match nodes so downstream tailoring
+            # and the completion contract receive a verified target match.
+            result.update(await self._node_load_job({**state, **result}))
+            result.update(await self._node_match_job({**state, **result}))
+            return result
+        if action == "match_job":
+            if state.get("task_type") == "find_jobs_for_profile" and state.get("matches"):
+                return {"matches": list(state.get("matches") or [])}
+            if not state.get("job_id") and state.get("job_ids"):
+                return await self._node_match_jobs(state)
+            if not state.get("job_id"):
+                return {"matches": []}
+            result = await self._node_load_job(state)
+            result.update(await self._node_match_job({**state, **result}))
+            return result
+        if action == "tailor_resume":
+            result = await self._node_retrieve_resume_evidence(state)
+            result.update(await self._node_tailor_resume({**state, **result}))
+            result.update(await self._node_verify_resume({**state, **result}))
+            return result
+        if action == "prepare_interview":
+            return await self._node_generate_interview_prep(state)
+        if action == "quick_apply":
+            result = await self._node_fit_gate(state)
+            result.update(await self._node_ensure_resume_version({**state, **result}))
+            result.update(await self._node_create_application_packet({**state, **result}))
+            return result
+        if action == "clarify":
+            return {"clarification_required": True}
+        raise ValueError(f"Unsupported task graph action: {action}")
+
+    def _task_graph_context(self, state: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "profile_available": bool(state.get("profile_id")),
+            "job_available": bool(state.get("job_id") or state.get("selected_job_id")),
+            "job_id": state.get("job_id") or state.get("selected_job_id"),
+            "search_results_available": bool(state.get("job_ids") or state.get("matches")),
+            "search_attempted": "job_ids" in state or "matches" in state,
+        }
+
+    def _replan_remaining_task_graph(
+        self,
+        plan: TaskPlan,
+        runtime: TaskGraphRuntime,
+        failed_node_id: str,
+        error: str,
+    ) -> TaskPlan:
+        """Create a conservative recovery plan without inventing new work."""
+        nodes = []
+        for node in plan.nodes:
+            if node.node_id == failed_node_id and node.failure_policy == "replan":
+                nodes.append(node.model_copy(update={"failure_policy": "fail"}))
+            else:
+                nodes.append(node)
+        return plan.model_copy(
+            update={
+                "plan_id": f"{plan.plan_id}-replan-{len(runtime.replan_history) + 1}",
+                "nodes": nodes,
+            }
+        )
 
     async def _node_load_profile(self, state: CareerAgentGraphState) -> dict[str, Any]:
         db = self._db_from_state(state)
@@ -1177,6 +1585,26 @@ class LangGraphAgentOrchestrator:
 
     async def _node_search_jobs(self, state: CareerAgentGraphState) -> dict[str, Any]:
         db = self._db_from_state(state)
+        # A human interrupt may replay the enclosing scheduler node.  Search is
+        # read-heavy but can still hit live sources and create duplicate trace
+        # calls, so the ranked artifact is its write-ahead/idempotency record.
+        cached = (
+            db.query(AgentArtifact)
+            .filter(
+                AgentArtifact.run_id == state["run_id"],
+                AgentArtifact.artifact_type == "ranked_jobs",
+            )
+            .order_by(AgentArtifact.id.desc())
+            .first()
+        )
+        cached_payload = dict(cached.artifact_json or {}) if cached is not None else {}
+        cached_matches = list(cached_payload.get("matches") or [])
+        if cached_matches:
+            return {
+                "job_ids": [int(item["job_id"]) for item in cached_matches if item.get("job_id")],
+                "matches": cached_matches,
+                "source_errors": cached_payload.get("source_errors") or {},
+            }
         jobs, source_errors = await self.trace.step(
             db,
             run_id=state["run_id"],
@@ -1687,7 +2115,7 @@ class LangGraphAgentOrchestrator:
         }
 
     def _route_after_plan(self, state: CareerAgentGraphState) -> str:
-        return str(state["task_type"])
+        return "dynamic_task_graph"
 
     def _route_after_profile(self, state: CareerAgentGraphState) -> str:
         if state["task_type"] == "find_jobs_for_profile":

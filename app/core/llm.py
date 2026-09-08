@@ -1,3 +1,10 @@
+"""统一的 LLM 客户端和调用控制面。
+
+该模块负责 OpenAI 兼容接口调用、结构化 JSON 提取、模型路由、重试预算、
+Provider usage 和成本 Trace。上层服务不应自行拼接 HTTP 请求，否则会绕过
+全局 Token 限额、脱敏和调用审计。
+"""
+
 import asyncio
 import hashlib
 import json

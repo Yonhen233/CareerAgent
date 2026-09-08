@@ -1,3 +1,9 @@
+"""面向目标 JD 生成定制简历的服务。
+
+LLM 只负责基于已检索证据重写表达，Guardrail 负责检查新增事实、数字和技能；
+失败时最多进行受限修复并重新验证，未通过的版本不能成为可投递产物。
+"""
+
 import difflib
 import json
 import re

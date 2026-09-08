@@ -34,6 +34,10 @@
       "minimum_experience_entries": 2,
       "minimum_project_entries": 4,
       "has_research": true,
+      "has_publications": false,
+      "has_patents": false,
+      "publications": [],
+      "patents": [],
       "has_campus_or_leadership": true
     },
     "retrieval_expectations": [
@@ -63,7 +67,7 @@
       }
     ],
     "pdf_path": "evals/complex_resume_corpus/pdfs/runtime_agent.pdf",
-    "sha256": "ff17213b426602027057731f3b102de22b693b49abfe5ba7fe67d5aa787922b3"
+    "sha256": "063bcb2f6740ea02e0594f688baa3aec2fb4bab1037de875cd5984153fa81ccb"
   },
   {
     "id": "rag_engineer",
@@ -100,6 +104,10 @@
       "minimum_experience_entries": 2,
       "minimum_project_entries": 4,
       "has_research": true,
+      "has_publications": false,
+      "has_patents": false,
+      "publications": [],
+      "patents": [],
       "has_campus_or_leadership": true
     },
     "retrieval_expectations": [
@@ -129,7 +137,7 @@
       }
     ],
     "pdf_path": "evals/complex_resume_corpus/pdfs/rag_engineer.pdf",
-    "sha256": "b6fa6baf2406b753a6c19b53aa98613223921c70a4762ac8d1d89e22663399a2"
+    "sha256": "407390bb6ba1ceafdb4b85d2e1478f354d0ccbd501bbf8334e5c3c0b10d45b84"
   },
   {
     "id": "llm_safety",
@@ -166,6 +174,10 @@
       "minimum_experience_entries": 2,
       "minimum_project_entries": 4,
       "has_research": true,
+      "has_publications": false,
+      "has_patents": false,
+      "publications": [],
+      "patents": [],
       "has_campus_or_leadership": true
     },
     "retrieval_expectations": [
@@ -195,7 +207,7 @@
       }
     ],
     "pdf_path": "evals/complex_resume_corpus/pdfs/llm_safety.pdf",
-    "sha256": "eb2344ff0bf17fc9d53ce06a551232c26eb9d706ecd3e889286ad03942250869"
+    "sha256": "237e84270946c27a272204ac6f892ae7120ccd32c0fd9ec0950ade9f15de231a"
   },
   {
     "id": "enterprise_agent",
@@ -232,6 +244,10 @@
       "minimum_experience_entries": 2,
       "minimum_project_entries": 4,
       "has_research": true,
+      "has_publications": false,
+      "has_patents": false,
+      "publications": [],
+      "patents": [],
       "has_campus_or_leadership": true
     },
     "retrieval_expectations": [
@@ -261,7 +277,7 @@
       }
     ],
     "pdf_path": "evals/complex_resume_corpus/pdfs/enterprise_agent.pdf",
-    "sha256": "ed8f086e94b295bae5bcd1f07a28d7dee7de18613fd4e60e525a1094881e4283"
+    "sha256": "5b69bb919de3315e04615198b39250ea5cd59570cef71d9ab8032f481c4d718f"
   },
   {
     "id": "agent_infra",
@@ -298,6 +314,10 @@
       "minimum_experience_entries": 2,
       "minimum_project_entries": 4,
       "has_research": true,
+      "has_publications": false,
+      "has_patents": false,
+      "publications": [],
+      "patents": [],
       "has_campus_or_leadership": true
     },
     "retrieval_expectations": [
@@ -327,7 +347,7 @@
       }
     ],
     "pdf_path": "evals/complex_resume_corpus/pdfs/agent_infra.pdf",
-    "sha256": "8d7941d5bff60e21db090fc9bed1069dbdf86b4bfb5eb1185a47ca3fbdcd8425"
+    "sha256": "b8566ea3fec9f17b9dc40b730fbd7c52bdd2e53fa68f36fde1dda8792eb8862e"
   },
   {
     "id": "ai_product",
@@ -364,6 +384,10 @@
       "minimum_experience_entries": 2,
       "minimum_project_entries": 4,
       "has_research": true,
+      "has_publications": false,
+      "has_patents": false,
+      "publications": [],
+      "patents": [],
       "has_campus_or_leadership": true
     },
     "retrieval_expectations": [
@@ -393,7 +417,7 @@
       }
     ],
     "pdf_path": "evals/complex_resume_corpus/pdfs/ai_product.pdf",
-    "sha256": "c8acc2bc2d4ec5cd57c83fa9a56dfaf67d59264f8976a5d94230b30191bd2745"
+    "sha256": "65bc3547b39f9d60d75c5e0603ff166d2d82f4753f6f1a58927a8af37ed50eba"
   },
   {
     "id": "multimodal_agent",
@@ -430,6 +454,10 @@
       "minimum_experience_entries": 2,
       "minimum_project_entries": 4,
       "has_research": true,
+      "has_publications": false,
+      "has_patents": false,
+      "publications": [],
+      "patents": [],
       "has_campus_or_leadership": true
     },
     "retrieval_expectations": [
@@ -459,7 +487,7 @@
       }
     ],
     "pdf_path": "evals/complex_resume_corpus/pdfs/multimodal_agent.pdf",
-    "sha256": "3156d33c39dbe4a34df29457a25f69de7c7706736d490d1cc0fa2a83ef3e8d08"
+    "sha256": "12c628b91b1a0f7c409757c9a6d44088d5b774975b51280e71bceb5b86ee88f2"
   },
   {
     "id": "speech_agent",
@@ -496,6 +524,10 @@
       "minimum_experience_entries": 2,
       "minimum_project_entries": 4,
       "has_research": true,
+      "has_publications": false,
+      "has_patents": false,
+      "publications": [],
+      "patents": [],
       "has_campus_or_leadership": true
     },
     "retrieval_expectations": [
@@ -525,7 +557,7 @@
       }
     ],
     "pdf_path": "evals/complex_resume_corpus/pdfs/speech_agent.pdf",
-    "sha256": "d5d0a2ada5b78c2840a7d2be2d634fe3958b23efc8172487a7e95b68dcf93776"
+    "sha256": "dc81ad179bcbb20a84b5aec06afbcf9f71567da92c60a3c460639107331eda14"
   },
   {
     "id": "data_agent",
@@ -562,6 +594,10 @@
       "minimum_experience_entries": 2,
       "minimum_project_entries": 4,
       "has_research": true,
+      "has_publications": false,
+      "has_patents": false,
+      "publications": [],
+      "patents": [],
       "has_campus_or_leadership": true
     },
     "retrieval_expectations": [
@@ -591,7 +627,7 @@
       }
     ],
     "pdf_path": "evals/complex_resume_corpus/pdfs/data_agent.pdf",
-    "sha256": "77404aeb9da75d0d67900a26e0b4aa063c18c9afee35943ffd28906fd16ffd59"
+    "sha256": "8d4dd2f18e86e1ccd6dccc33853e0d787b27a9c3441eaabdf7ce7e50ee2f1951"
   },
   {
     "id": "nlp_research",
@@ -628,6 +664,10 @@
       "minimum_experience_entries": 2,
       "minimum_project_entries": 4,
       "has_research": true,
+      "has_publications": false,
+      "has_patents": false,
+      "publications": [],
+      "patents": [],
       "has_campus_or_leadership": true
     },
     "retrieval_expectations": [
@@ -657,7 +697,7 @@
       }
     ],
     "pdf_path": "evals/complex_resume_corpus/pdfs/nlp_research.pdf",
-    "sha256": "fbb51367fba5923d53f86c141d35791348c1653f58e4993c20d22c44e28092a4"
+    "sha256": "3f4bc092f0a291c5b081be73cf6dde3fbb5663d691320999cd1797a1c730dc99"
   },
   {
     "id": "coding_agent",
@@ -694,6 +734,10 @@
       "minimum_experience_entries": 2,
       "minimum_project_entries": 4,
       "has_research": true,
+      "has_publications": false,
+      "has_patents": false,
+      "publications": [],
+      "patents": [],
       "has_campus_or_leadership": true
     },
     "retrieval_expectations": [
@@ -723,7 +767,7 @@
       }
     ],
     "pdf_path": "evals/complex_resume_corpus/pdfs/coding_agent.pdf",
-    "sha256": "fd045ee66ce385fc035471dee03adab83f6dfd7f6b930c79a1cbcfd694c62d37"
+    "sha256": "9a8c4a4c8b8560b8affaa8e0e887d4fdfae23c9a700d1265e137ed249c9f4616"
   },
   {
     "id": "service_agent",
@@ -760,6 +804,10 @@
       "minimum_experience_entries": 2,
       "minimum_project_entries": 4,
       "has_research": true,
+      "has_publications": false,
+      "has_patents": false,
+      "publications": [],
+      "patents": [],
       "has_campus_or_leadership": true
     },
     "retrieval_expectations": [
@@ -789,7 +837,7 @@
       }
     ],
     "pdf_path": "evals/complex_resume_corpus/pdfs/service_agent.pdf",
-    "sha256": "8e2ec4d5ae9ecfcc5a61e3238fecb00cd2acb4a402f2a7512d76e06a0e16e08b"
+    "sha256": "8ea07c82371af33022b75656fda41258ba5a255a74fa8af494149cc1175fde79"
   },
   {
     "id": "mobile_agent",
@@ -826,6 +874,10 @@
       "minimum_experience_entries": 2,
       "minimum_project_entries": 4,
       "has_research": true,
+      "has_publications": false,
+      "has_patents": false,
+      "publications": [],
+      "patents": [],
       "has_campus_or_leadership": true
     },
     "retrieval_expectations": [
@@ -855,7 +907,7 @@
       }
     ],
     "pdf_path": "evals/complex_resume_corpus/pdfs/mobile_agent.pdf",
-    "sha256": "d5ddf5e9783fd763ba4a5a81ec9ebf0c16845f9d196ec1fe0dc70ad4601618a5"
+    "sha256": "6326adfb826713bca742f00ccf9bdc4cf7f07caa62ecb1c04357f607ed2b370e"
   },
   {
     "id": "compliance_agent",
@@ -892,6 +944,10 @@
       "minimum_experience_entries": 2,
       "minimum_project_entries": 4,
       "has_research": true,
+      "has_publications": false,
+      "has_patents": false,
+      "publications": [],
+      "patents": [],
       "has_campus_or_leadership": true
     },
     "retrieval_expectations": [
@@ -921,7 +977,7 @@
       }
     ],
     "pdf_path": "evals/complex_resume_corpus/pdfs/compliance_agent.pdf",
-    "sha256": "59e58baac15eb63a324e3abf4bfeebebbc3d5d88d521af1bfa5ff5eb9799eb79"
+    "sha256": "00d6f7ba6846d61e0521e1792ab22a67c1cd3fdd9966b60fafe213a56a7399be"
   },
   {
     "id": "robotics_agent_scan",
@@ -958,6 +1014,10 @@
       "minimum_experience_entries": 2,
       "minimum_project_entries": 4,
       "has_research": true,
+      "has_publications": false,
+      "has_patents": false,
+      "publications": [],
+      "patents": [],
       "has_campus_or_leadership": true
     },
     "retrieval_expectations": [
@@ -987,7 +1047,7 @@
       }
     ],
     "pdf_path": "evals/complex_resume_corpus/pdfs/robotics_agent_scan.pdf",
-    "sha256": "78c810e3dad6560dbd9649f9c383869cc15cbe8e4a2ce94d9625df33d8f763e7"
+    "sha256": "059ba3e674972f6bc74751a14058edd25427125e5ccb29155320edb2707afbb9"
   },
   {
     "id": "bilingual_agent_mixed",
@@ -1024,6 +1084,10 @@
       "minimum_experience_entries": 2,
       "minimum_project_entries": 4,
       "has_research": true,
+      "has_publications": false,
+      "has_patents": false,
+      "publications": [],
+      "patents": [],
       "has_campus_or_leadership": true
     },
     "retrieval_expectations": [
@@ -1053,6 +1117,458 @@
       }
     ],
     "pdf_path": "evals/complex_resume_corpus/pdfs/bilingual_agent_mixed.pdf",
-    "sha256": "4393a80473552071feaea12185fc75c2ecdd1afe4990367cde20aca2cc5cab13"
+    "sha256": "c86f318a39d43fb70dc155ee5cc0ac87f4cddc69c1a4f3b2c4239ef13319c3c8"
+  },
+  {
+    "id": "graph_rag_research",
+    "synthetic": true,
+    "candidate_name": "许安",
+    "target_role": "Graph RAG 与 Agent 研究实习生",
+    "layout": "research_two_page",
+    "expected_page_count": 2,
+    "canonical_text": "个人概况\n许安｜Graph RAG 与 Agent 研究实习生｜graph_rag_research@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边界。\n\n教育背景\n浙江大学 软件工程硕士 2025.09-2028.06，GPA 3.88/4.00，研究方向为大模型应用工程与智能系统，参与可信生成与检索评测课题组。西安电子科技大学 计算机科学与技术学士 2021.09-2025.06，GPA 3.82/4.00，获优秀毕业设计。核心课程包括数据库系统、分布式系统、机器学习、自然语言处理、软件测试、计算机网络和人机交互；课程设计完成高并发任务队列与全文检索服务。\n\n专业技能\n技术栈：Python、PyTorch、LangGraph、Neo4j、Elasticsearch。掌握 Agent 状态编排、Tool Calling、结构化输出、Checkpoint、人工审批和运行级 Trace；熟悉向量检索、BM25、Exact Match、Multi-query、RRF、Reranker 与引用校验；具备 FastAPI 接口开发、数据库建模、并发控制、故障注入、单元测试和离线评测经验。能够区分传输重试、结构修复和业务补偿，为工具定义输入输出合同、权限、超时、幂等策略与熔断边界；使用 Recall@K、MRR、nDCG、任务完成率、事实支持率、P95 延迟和 Token 成本评价系统。\n\n实习经历\n模拟云智实验室｜Graph RAG 与 Agent 研究实习生｜2026.03-2026.08。研究长文档 Agent 的多跳检索和可验证引用。实现图结构证据扩展与查询级重排；将工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错误和引用门控失败直接停止，避免多层重试放大调用量。建设运行看板，按模型路由、节点、成功状态统计延迟和 Token。\n模拟知识工程中心｜研发实习生｜2025.07-2025.12。负责文档接入、字段清洗、向量索引和质量看板，处理表格、双栏论文、扫描页和中英文混排材料；为每个结论保留来源页码与原文片段。发现先按关键词筛选再做向量召回会漏掉同义表达，改为语义候选与词法候选取并集，再统一重排。对无文字层、乱码文字层、重复页眉和跨页断句分别建立诊断信息，不让解析失败静默污染下游。\n\n科研经历\n围绕“研究长文档 Agent 的多跳检索和可验证引用”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。进一步对 Chunk 长度、段落合并、跨页桥接和 Reranker 输入做消融，记录每次实验的数据版本、模型版本和阈值来源；当结果下降时逐例检查是抽取缺字、Query 偏移、召回遗漏还是重排反转。\n\n项目经历\n核心项目：研究长文档 Agent 的多跳检索和可验证引用。中文技术问答 Recall@5 提升 12.4 个百分点；系统记录 Query、候选 Chunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补 Query，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计划、工具调用、产物、异常和恢复位置；外发动作只允许在审批后执行一次。增加 stale run 扫描、心跳、业务产物幂等对账和历史 checkpoint 回溯，处理“业务写入成功但图状态尚未保存”的崩溃窗口。\n评测工具箱：覆盖中文、英文和混合语言样例，加入长文档、相似术语、无证据声明、Prompt Injection、循环调用与跨用户上下文污染等 Bad Case。分别报告 PDF 抽取、Chunk 召回、工具轨迹、任务终态、事实引用、延迟和成本，不用单一平均分掩盖关键失败。\n证据审查器：把模型给出的匹配项映射到 JD 和简历原文，要求关键结论具有双向引用；同一要求不能同时出现在匹配和缺口中，替代条件满足后不再把其余选项误报为短板。\n\n校园与开源\n担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG 评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue 分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专业五人团队的迭代排期和技术评审。还负责整理需求变更、数据许可和模型版本，发布前逐项核对隐私脱敏、回滚预案与监控告警，并把线上反馈转化为可重复执行的验收场景。\n\n论文与科研产出\n研究经历：参与可信检索实验室，研究图增强检索如何把实体、关系和来源页组合成可验证上下文；完成三组查询改写、图扩展深度和重排策略的消融实验。\n论文：An Evidence-Centered Graph RAG Pipeline for Long-Context Agents，第一作者，中文技术问答数据集，已投稿至 NLPCC。\n论文：Query Decomposition for Multilingual Retrieval，第二作者，研究中英文混写 Query 的召回偏差，已录用为校内学术会议长文。\n\n专利与知识产权\n专利：一种基于来源约束的多跳检索结果校验方法，申请号 CN2026XXXXXX，负责候选证据合并和引用一致性校验。",
+    "canonical_character_count": 2382,
+    "expected_sections": [
+      "教育背景",
+      "专业技能",
+      "实习经历",
+      "科研经历",
+      "项目经历",
+      "校园与开源",
+      "论文与科研产出",
+      "专利与知识产权"
+    ],
+    "critical_facts": [
+      "实现图结构证据扩展与查询级重排",
+      "中文技术问答 Recall@5 提升 12.4 个百分点",
+      "研究长文档 Agent 的多跳检索和可验证引用"
+    ],
+    "expected_profile": {
+      "name": "许安",
+      "target_role": "Graph RAG 与 Agent 研究实习生",
+      "skills": [
+        "Python",
+        "PyTorch",
+        "LangGraph",
+        "Neo4j",
+        "Elasticsearch"
+      ],
+      "minimum_experience_entries": 2,
+      "minimum_project_entries": 4,
+      "has_research": true,
+      "has_publications": true,
+      "has_patents": true,
+      "publications": [
+        "论文：An Evidence-Centered Graph RAG Pipeline for Long-Context Agents，第一作者，中文技术问答数据集，已投稿至 NLPCC。",
+        "论文：Query Decomposition for Multilingual Retrieval，第二作者，研究中英文混写 Query 的召回偏差，已录用为校内学术会议长文。"
+      ],
+      "patents": [
+        "专利：一种基于来源约束的多跳检索结果校验方法，申请号 CN2026XXXXXX，负责候选证据合并和引用一致性校验。"
+      ],
+      "has_campus_or_leadership": true
+    },
+    "retrieval_expectations": [
+      {
+        "id": "distinctive_implementation",
+        "query": "这位Graph RAG 与 Agent 研究实习生候选人在核心系统中完成了什么有辨识度的工程实现？",
+        "expected_text": "实现图结构证据扩展与查询级重排",
+        "expected_page_no": 1
+      },
+      {
+        "id": "quantified_outcome",
+        "query": "这位Graph RAG 与 Agent 研究实习生候选人最重要的量化成果是什么？",
+        "expected_text": "中文技术问答 Recall@5 提升 12.4 个百分点",
+        "expected_page_no": 2
+      },
+      {
+        "id": "project_focus",
+        "query": "这位Graph RAG 与 Agent 研究实习生候选人的核心项目解决了什么业务或技术问题？",
+        "expected_text": "核心项目：研究长文档 Agent 的多跳检索和可验证引用",
+        "expected_page_no": 2
+      },
+      {
+        "id": "retrieval_evaluation",
+        "query": "候选人如何评估检索质量和事实可靠性？",
+        "expected_text": "使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估",
+        "expected_page_no": 2
+      }
+    ],
+    "pdf_path": "evals/complex_resume_corpus/pdfs/graph_rag_research.pdf",
+    "sha256": "70ee69366ef371ec3a006a74d8fa6a22692dd0af53827ca7f0a54ad3311a7238"
+  },
+  {
+    "id": "agent_safety_research",
+    "synthetic": true,
+    "candidate_name": "沈妍",
+    "target_role": "Agent 安全评测研究实习生",
+    "layout": "research_two_page",
+    "expected_page_count": 2,
+    "canonical_text": "个人概况\n沈妍｜Agent 安全评测研究实习生｜agent_safety_research@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边界。\n\n教育背景\n浙江大学 软件工程硕士 2025.09-2028.06，GPA 3.88/4.00，研究方向为大模型应用工程与智能系统，参与可信生成与检索评测课题组。西安电子科技大学 计算机科学与技术学士 2021.09-2025.06，GPA 3.82/4.00，获优秀毕业设计。核心课程包括数据库系统、分布式系统、机器学习、自然语言处理、软件测试、计算机网络和人机交互；课程设计完成高并发任务队列与全文检索服务。\n\n专业技能\n技术栈：Python、Prompt Injection、Guardrails、LLM Judge、pytest。掌握 Agent 状态编排、Tool Calling、结构化输出、Checkpoint、人工审批和运行级 Trace；熟悉向量检索、BM25、Exact Match、Multi-query、RRF、Reranker 与引用校验；具备 FastAPI 接口开发、数据库建模、并发控制、故障注入、单元测试和离线评测经验。能够区分传输重试、结构修复和业务补偿，为工具定义输入输出合同、权限、超时、幂等策略与熔断边界；使用 Recall@K、MRR、nDCG、任务完成率、事实支持率、P95 延迟和 Token 成本评价系统。\n\n实习经历\n模拟云智实验室｜Agent 安全评测研究实习生｜2026.03-2026.08。研究工具调用轨迹中的风险识别与人工审批。构建工具越权和间接注入红队集；将工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错误和引用门控失败直接停止，避免多层重试放大调用量。建设运行看板，按模型路由、节点、成功状态统计延迟和 Token。\n模拟知识工程中心｜研发实习生｜2025.07-2025.12。负责文档接入、字段清洗、向量索引和质量看板，处理表格、双栏论文、扫描页和中英文混排材料；为每个结论保留来源页码与原文片段。发现先按关键词筛选再做向量召回会漏掉同义表达，改为语义候选与词法候选取并集，再统一重排。对无文字层、乱码文字层、重复页眉和跨页断句分别建立诊断信息，不让解析失败静默污染下游。\n\n科研经历\n围绕“研究工具调用轨迹中的风险识别与人工审批”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。进一步对 Chunk 长度、段落合并、跨页桥接和 Reranker 输入做消融，记录每次实验的数据版本、模型版本和阈值来源；当结果下降时逐例检查是抽取缺字、Query 偏移、召回遗漏还是重排反转。\n\n项目经历\n核心项目：研究工具调用轨迹中的风险识别与人工审批。高风险动作拦截率达到 97.8%；系统记录 Query、候选 Chunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补 Query，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计划、工具调用、产物、异常和恢复位置；外发动作只允许在审批后执行一次。增加 stale run 扫描、心跳、业务产物幂等对账和历史 checkpoint 回溯，处理“业务写入成功但图状态尚未保存”的崩溃窗口。\n评测工具箱：覆盖中文、英文和混合语言样例，加入长文档、相似术语、无证据声明、Prompt Injection、循环调用与跨用户上下文污染等 Bad Case。分别报告 PDF 抽取、Chunk 召回、工具轨迹、任务终态、事实引用、延迟和成本，不用单一平均分掩盖关键失败。\n证据审查器：把模型给出的匹配项映射到 JD 和简历原文，要求关键结论具有双向引用；同一要求不能同时出现在匹配和缺口中，替代条件满足后不再把其余选项误报为短板。\n\n校园与开源\n担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG 评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue 分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专业五人团队的迭代排期和技术评审。还负责整理需求变更、数据许可和模型版本，发布前逐项核对隐私脱敏、回滚预案与监控告警，并把线上反馈转化为可重复执行的验收场景。\n\n论文与科研产出\n研究经历：在可信 Agent 小组负责风险轨迹建模，设计直接提示注入、间接网页注入、工具参数越权和审批绕过四类实验协议；每条样例保留攻击目标、工具边界和预期终态。\n论文：Evaluating Tool-Use Safety in Long-Running Language Agents，第一作者，提出基于轨迹的风险分层和发布门禁，已投稿至 COLING Workshop。\n论文：Separating Semantic Repair from Side-Effect Replay，第三作者，讨论结构修复、重试和幂等执行的边界，已完成预印本。\n\n专利与知识产权\n专利：一种面向 Agent 工具调用的分级审批与审计方法，申请号 CN2026YYYYYY，负责风险等级和回放证据设计。",
+    "canonical_character_count": 2384,
+    "expected_sections": [
+      "教育背景",
+      "专业技能",
+      "实习经历",
+      "科研经历",
+      "项目经历",
+      "校园与开源",
+      "论文与科研产出",
+      "专利与知识产权"
+    ],
+    "critical_facts": [
+      "构建工具越权和间接注入红队集",
+      "高风险动作拦截率达到 97.8%",
+      "研究工具调用轨迹中的风险识别与人工审批"
+    ],
+    "expected_profile": {
+      "name": "沈妍",
+      "target_role": "Agent 安全评测研究实习生",
+      "skills": [
+        "Python",
+        "Prompt Injection",
+        "Guardrails",
+        "LLM Judge",
+        "pytest"
+      ],
+      "minimum_experience_entries": 2,
+      "minimum_project_entries": 4,
+      "has_research": true,
+      "has_publications": true,
+      "has_patents": true,
+      "publications": [
+        "论文：Evaluating Tool-Use Safety in Long-Running Language Agents，第一作者，提出基于轨迹的风险分层和发布门禁，已投稿至 COLING Workshop。",
+        "论文：Separating Semantic Repair from Side-Effect Replay，第三作者，讨论结构修复、重试和幂等执行的边界，已完成预印本。"
+      ],
+      "patents": [
+        "专利：一种面向 Agent 工具调用的分级审批与审计方法，申请号 CN2026YYYYYY，负责风险等级和回放证据设计。"
+      ],
+      "has_campus_or_leadership": true
+    },
+    "retrieval_expectations": [
+      {
+        "id": "distinctive_implementation",
+        "query": "这位Agent 安全评测研究实习生候选人在核心系统中完成了什么有辨识度的工程实现？",
+        "expected_text": "构建工具越权和间接注入红队集",
+        "expected_page_no": 1
+      },
+      {
+        "id": "quantified_outcome",
+        "query": "这位Agent 安全评测研究实习生候选人最重要的量化成果是什么？",
+        "expected_text": "高风险动作拦截率达到 97.8%",
+        "expected_page_no": 2
+      },
+      {
+        "id": "project_focus",
+        "query": "这位Agent 安全评测研究实习生候选人的核心项目解决了什么业务或技术问题？",
+        "expected_text": "核心项目：研究工具调用轨迹中的风险识别与人工审批",
+        "expected_page_no": 2
+      },
+      {
+        "id": "retrieval_evaluation",
+        "query": "候选人如何评估检索质量和事实可靠性？",
+        "expected_text": "使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估",
+        "expected_page_no": 2
+      }
+    ],
+    "pdf_path": "evals/complex_resume_corpus/pdfs/agent_safety_research.pdf",
+    "sha256": "66e06a8f7e3cecd5c1422174265f190be98c563d393b4c397a95a9cd2fc1158b"
+  },
+  {
+    "id": "multimodal_paper_intern",
+    "synthetic": true,
+    "candidate_name": "郭子涵",
+    "target_role": "多模态文档 Agent 研究实习生",
+    "layout": "research_two_page",
+    "expected_page_count": 2,
+    "canonical_text": "个人概况\n郭子涵｜多模态文档 Agent 研究实习生｜multimodal_paper_intern@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边界。\n\n教育背景\n浙江大学 软件工程硕士 2025.09-2028.06，GPA 3.88/4.00，研究方向为大模型应用工程与智能系统，参与可信生成与检索评测课题组。西安电子科技大学 计算机科学与技术学士 2021.09-2025.06，GPA 3.82/4.00，获优秀毕业设计。核心课程包括数据库系统、分布式系统、机器学习、自然语言处理、软件测试、计算机网络和人机交互；课程设计完成高并发任务队列与全文检索服务。\n\n专业技能\n技术栈：Python、PyTorch、OCR、LayoutLM、RAG。掌握 Agent 状态编排、Tool Calling、结构化输出、Checkpoint、人工审批和运行级 Trace；熟悉向量检索、BM25、Exact Match、Multi-query、RRF、Reranker 与引用校验；具备 FastAPI 接口开发、数据库建模、并发控制、故障注入、单元测试和离线评测经验。能够区分传输重试、结构修复和业务补偿，为工具定义输入输出合同、权限、超时、幂等策略与熔断边界；使用 Recall@K、MRR、nDCG、任务完成率、事实支持率、P95 延迟和 Token 成本评价系统。\n\n实习经历\n模拟云智实验室｜多模态文档 Agent 研究实习生｜2026.03-2026.08。构建面向扫描文档的视觉检索与问答系统。完成表格单元格到答案证据的对齐；将工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错误和引用门控失败直接停止，避免多层重试放大调用量。建设运行看板，按模型路由、节点、成功状态统计延迟和 Token。\n模拟知识工程中心｜研发实习生｜2025.07-2025.12。负责文档接入、字段清洗、向量索引和质量看板，处理表格、双栏论文、扫描页和中英文混排材料；为每个结论保留来源页码与原文片段。发现先按关键词筛选再做向量召回会漏掉同义表达，改为语义候选与词法候选取并集，再统一重排。对无文字层、乱码文字层、重复页眉和跨页断句分别建立诊断信息，不让解析失败静默污染下游。\n\n科研经历\n围绕“构建面向扫描文档的视觉检索与问答系统”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。进一步对 Chunk 长度、段落合并、跨页桥接和 Reranker 输入做消融，记录每次实验的数据版本、模型版本和阈值来源；当结果下降时逐例检查是抽取缺字、Query 偏移、召回遗漏还是重排反转。\n\n项目经历\n核心项目：构建面向扫描文档的视觉检索与问答系统。复杂票据字段 F1 达到 91.6%；系统记录 Query、候选 Chunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补 Query，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计划、工具调用、产物、异常和恢复位置；外发动作只允许在审批后执行一次。增加 stale run 扫描、心跳、业务产物幂等对账和历史 checkpoint 回溯，处理“业务写入成功但图状态尚未保存”的崩溃窗口。\n评测工具箱：覆盖中文、英文和混合语言样例，加入长文档、相似术语、无证据声明、Prompt Injection、循环调用与跨用户上下文污染等 Bad Case。分别报告 PDF 抽取、Chunk 召回、工具轨迹、任务终态、事实引用、延迟和成本，不用单一平均分掩盖关键失败。\n证据审查器：把模型给出的匹配项映射到 JD 和简历原文，要求关键结论具有双向引用；同一要求不能同时出现在匹配和缺口中，替代条件满足后不再把其余选项误报为短板。\n\n校园与开源\n担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG 评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue 分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专业五人团队的迭代排期和技术评审。还负责整理需求变更、数据许可和模型版本，发布前逐项核对隐私脱敏、回滚预案与监控告警，并把线上反馈转化为可重复执行的验收场景。\n\n论文与科研产出\n研究经历：参与文档智能实验室，研究扫描件、文本框和复杂表格中的阅读顺序恢复；将页面区域、OCR 置信度和表格单元格坐标写入统一证据对象。\n论文：Layout-Aware Evidence Retrieval for Scanned Documents，第一作者，比较 OCR 行排序、区域分块和页面级上下文对检索质量的影响，已投稿至 CCL。\n论文：Cell-Level Grounding for Multimodal Question Answering，第二作者，提出表格单元格到答案 span 的双向校验方法，已完成实验。\n\n专利与知识产权\n专利：一种复杂版式文档的表格单元格证据定位方法，申请号 CN2026ZZZZZZ，负责坐标归一化和跨页表格关联。",
+    "canonical_character_count": 2359,
+    "expected_sections": [
+      "教育背景",
+      "专业技能",
+      "实习经历",
+      "科研经历",
+      "项目经历",
+      "校园与开源",
+      "论文与科研产出",
+      "专利与知识产权"
+    ],
+    "critical_facts": [
+      "完成表格单元格到答案证据的对齐",
+      "复杂票据字段 F1 达到 91.6%",
+      "构建面向扫描文档的视觉检索与问答系统"
+    ],
+    "expected_profile": {
+      "name": "郭子涵",
+      "target_role": "多模态文档 Agent 研究实习生",
+      "skills": [
+        "Python",
+        "PyTorch",
+        "OCR",
+        "LayoutLM",
+        "RAG"
+      ],
+      "minimum_experience_entries": 2,
+      "minimum_project_entries": 4,
+      "has_research": true,
+      "has_publications": true,
+      "has_patents": true,
+      "publications": [
+        "论文：Layout-Aware Evidence Retrieval for Scanned Documents，第一作者，比较 OCR 行排序、区域分块和页面级上下文对检索质量的影响，已投稿至 CCL。",
+        "论文：Cell-Level Grounding for Multimodal Question Answering，第二作者，提出表格单元格到答案 span 的双向校验方法，已完成实验。"
+      ],
+      "patents": [
+        "专利：一种复杂版式文档的表格单元格证据定位方法，申请号 CN2026ZZZZZZ，负责坐标归一化和跨页表格关联。"
+      ],
+      "has_campus_or_leadership": true
+    },
+    "retrieval_expectations": [
+      {
+        "id": "distinctive_implementation",
+        "query": "这位多模态文档 Agent 研究实习生候选人在核心系统中完成了什么有辨识度的工程实现？",
+        "expected_text": "完成表格单元格到答案证据的对齐",
+        "expected_page_no": 1
+      },
+      {
+        "id": "quantified_outcome",
+        "query": "这位多模态文档 Agent 研究实习生候选人最重要的量化成果是什么？",
+        "expected_text": "复杂票据字段 F1 达到 91.6%",
+        "expected_page_no": 2
+      },
+      {
+        "id": "project_focus",
+        "query": "这位多模态文档 Agent 研究实习生候选人的核心项目解决了什么业务或技术问题？",
+        "expected_text": "核心项目：构建面向扫描文档的视觉检索与问答系统",
+        "expected_page_no": 2
+      },
+      {
+        "id": "retrieval_evaluation",
+        "query": "候选人如何评估检索质量和事实可靠性？",
+        "expected_text": "使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估",
+        "expected_page_no": 2
+      }
+    ],
+    "pdf_path": "evals/complex_resume_corpus/pdfs/multimodal_paper_intern.pdf",
+    "sha256": "799f5088766ee661cfcda781e9a0655dd73cf75faa28bed45f76a1355fbb4295"
+  },
+  {
+    "id": "agent_systems_patent",
+    "synthetic": true,
+    "candidate_name": "韩子墨",
+    "target_role": "Agent 系统工程实习生",
+    "layout": "research_two_page",
+    "expected_page_count": 2,
+    "canonical_text": "个人概况\n韩子墨｜Agent 系统工程实习生｜agent_systems_patent@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边界。\n\n教育背景\n浙江大学 软件工程硕士 2025.09-2028.06，GPA 3.88/4.00，研究方向为大模型应用工程与智能系统，参与可信生成与检索评测课题组。西安电子科技大学 计算机科学与技术学士 2021.09-2025.06，GPA 3.82/4.00，获优秀毕业设计。核心课程包括数据库系统、分布式系统、机器学习、自然语言处理、软件测试、计算机网络和人机交互；课程设计完成高并发任务队列与全文检索服务。\n\n专业技能\n技术栈：Python、FastAPI、Redis、PostgreSQL、OpenTelemetry。掌握 Agent 状态编排、Tool Calling、结构化输出、Checkpoint、人工审批和运行级 Trace；熟悉向量检索、BM25、Exact Match、Multi-query、RRF、Reranker 与引用校验；具备 FastAPI 接口开发、数据库建模、并发控制、故障注入、单元测试和离线评测经验。能够区分传输重试、结构修复和业务补偿，为工具定义输入输出合同、权限、超时、幂等策略与熔断边界；使用 Recall@K、MRR、nDCG、任务完成率、事实支持率、P95 延迟和 Token 成本评价系统。\n\n实习经历\n模拟云智实验室｜Agent 系统工程实习生｜2026.03-2026.08。建设可恢复的多工具 Agent 执行平台。实现工具回执与 checkpoint 的一致性对账；将工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错误和引用门控失败直接停止，避免多层重试放大调用量。建设运行看板，按模型路由、节点、成功状态统计延迟和 Token。\n模拟知识工程中心｜研发实习生｜2025.07-2025.12。负责文档接入、字段清洗、向量索引和质量看板，处理表格、双栏论文、扫描页和中英文混排材料；为每个结论保留来源页码与原文片段。发现先按关键词筛选再做向量召回会漏掉同义表达，改为语义候选与词法候选取并集，再统一重排。对无文字层、乱码文字层、重复页眉和跨页断句分别建立诊断信息，不让解析失败静默污染下游。\n\n科研经历\n围绕“建设可恢复的多工具 Agent 执行平台”开展小规模研究，比较单 Query、Multi-query 和查询改写在相同候选池中的差异；使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估，不以回答流畅度代替检索质量。设计困难负例，区分课程学习、计划尝试与真实交付，避免把未完成能力写成项目成果。进一步对 Chunk 长度、段落合并、跨页桥接和 Reranker 输入做消融，记录每次实验的数据版本、模型版本和阈值来源；当结果下降时逐例检查是抽取缺字、Query 偏移、召回遗漏还是重排反转。\n\n项目经历\n核心项目：建设可恢复的多工具 Agent 执行平台。故障恢复场景重复副作用下降 83%；系统记录 Query、候选 Chunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补 Query，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计划、工具调用、产物、异常和恢复位置；外发动作只允许在审批后执行一次。增加 stale run 扫描、心跳、业务产物幂等对账和历史 checkpoint 回溯，处理“业务写入成功但图状态尚未保存”的崩溃窗口。\n评测工具箱：覆盖中文、英文和混合语言样例，加入长文档、相似术语、无证据声明、Prompt Injection、循环调用与跨用户上下文污染等 Bad Case。分别报告 PDF 抽取、Chunk 召回、工具轨迹、任务终态、事实引用、延迟和成本，不用单一平均分掩盖关键失败。\n证据审查器：把模型给出的匹配项映射到 JD 和简历原文，要求关键结论具有双向引用；同一要求不能同时出现在匹配和缺口中，替代条件满足后不再把其余选项误报为短板。\n\n校园与开源\n担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG 评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue 分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专业五人团队的迭代排期和技术评审。还负责整理需求变更、数据许可和模型版本，发布前逐项核对隐私脱敏、回滚预案与监控告警，并把线上反馈转化为可重复执行的验收场景。\n\n论文与科研产出\n研究经历：围绕长任务 Agent 的可靠执行开展研究，复盘工具调用成功但状态保存失败、Worker 崩溃和恢复重复执行等窗口，设计 checkpoint、幂等键与业务对账的联合实验。\n论文：Durable Execution Patterns for Tool-Using Agents，第二作者，比较内存状态、SQLite WAL 和 Redis 队列在故障恢复中的一致性边界，已投稿至软件工程实践会议。\n论文：Observability Signals for Agent Completion Gates，第三作者，分析 no-progress cycle、早停和循环调用的运行信号，已完成内部技术报告。\n\n专利与知识产权\n专利：一种基于工具回执和状态快照的 Agent 任务恢复方法，申请号 CN2026AAAAAA，负责不确定外部响应的幂等对账流程。\n专利：一种面向长任务智能体的运行轨迹采集与异常定位方法，申请号 CN2026BBBBBB，负责 trace schema 和恢复位置标记。",
+    "canonical_character_count": 2481,
+    "expected_sections": [
+      "教育背景",
+      "专业技能",
+      "实习经历",
+      "科研经历",
+      "项目经历",
+      "校园与开源",
+      "论文与科研产出",
+      "专利与知识产权"
+    ],
+    "critical_facts": [
+      "实现工具回执与 checkpoint 的一致性对账",
+      "故障恢复场景重复副作用下降 83%",
+      "建设可恢复的多工具 Agent 执行平台"
+    ],
+    "expected_profile": {
+      "name": "韩子墨",
+      "target_role": "Agent 系统工程实习生",
+      "skills": [
+        "Python",
+        "FastAPI",
+        "Redis",
+        "PostgreSQL",
+        "OpenTelemetry"
+      ],
+      "minimum_experience_entries": 2,
+      "minimum_project_entries": 4,
+      "has_research": true,
+      "has_publications": true,
+      "has_patents": true,
+      "publications": [
+        "论文：Durable Execution Patterns for Tool-Using Agents，第二作者，比较内存状态、SQLite WAL 和 Redis 队列在故障恢复中的一致性边界，已投稿至软件工程实践会议。",
+        "论文：Observability Signals for Agent Completion Gates，第三作者，分析 no-progress cycle、早停和循环调用的运行信号，已完成内部技术报告。"
+      ],
+      "patents": [
+        "专利：一种基于工具回执和状态快照的 Agent 任务恢复方法，申请号 CN2026AAAAAA，负责不确定外部响应的幂等对账流程。",
+        "专利：一种面向长任务智能体的运行轨迹采集与异常定位方法，申请号 CN2026BBBBBB，负责 trace schema 和恢复位置标记。"
+      ],
+      "has_campus_or_leadership": true
+    },
+    "retrieval_expectations": [
+      {
+        "id": "distinctive_implementation",
+        "query": "这位Agent 系统工程实习生候选人在核心系统中完成了什么有辨识度的工程实现？",
+        "expected_text": "实现工具回执与 checkpoint 的一致性对账",
+        "expected_page_no": 1
+      },
+      {
+        "id": "quantified_outcome",
+        "query": "这位Agent 系统工程实习生候选人最重要的量化成果是什么？",
+        "expected_text": "故障恢复场景重复副作用下降 83%",
+        "expected_page_no": 2
+      },
+      {
+        "id": "project_focus",
+        "query": "这位Agent 系统工程实习生候选人的核心项目解决了什么业务或技术问题？",
+        "expected_text": "核心项目：建设可恢复的多工具 Agent 执行平台",
+        "expected_page_no": 2
+      },
+      {
+        "id": "retrieval_evaluation",
+        "query": "候选人如何评估检索质量和事实可靠性？",
+        "expected_text": "使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估",
+        "expected_page_no": 2
+      }
+    ],
+    "pdf_path": "evals/complex_resume_corpus/pdfs/agent_systems_patent.pdf",
+    "sha256": "c07d0509ce55b2076abff48a70db0597ab3ba3359bbc4e92ef3693a53589a1df"
+  },
+  {
+    "id": "natural_cross_page",
+    "synthetic": true,
+    "candidate_name": "叶知行",
+    "target_role": "长上下文 Agent 研究实习生",
+    "layout": "natural_cross_page",
+    "expected_page_count": 2,
+    "canonical_text": "个人概况\n叶知行｜长上下文 Agent 研究实习生｜natural_cross_page@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边界。\n\n教育背景\n浙江大学 软件工程硕士 2025.09-2028.06，GPA 3.88/4.00，研究方向为大模型应用工程与智能系统，参与可信生成与检索评测课题组。西安电子科技大学 计算机科学与技术学士 2021.09-2025.06，GPA 3.82/4.00，获优秀毕业设计。核心课程包括数据库系统、分布式系统、机器学习、自然语言处理、软件测试、计算机网络和人机交互；课程设计完成高并发任务队列与全文检索服务。\n\n专业技能\n技术栈：Python、PyTorch、RAG、LangGraph、评测。掌握 Agent 状态编排、Tool Calling、结构化输出、Checkpoint、人工审批和运行级 Trace；熟悉向量检索、BM25、Exact Match、Multi-query、RRF、Reranker 与引用校验；具备 FastAPI 接口开发、数据库建模、并发控制、故障注入、单元测试和离线评测经验。能够区分传输重试、结构修复和业务补偿，为工具定义输入输出合同、权限、超时、幂等策略与熔断边界；使用 Recall@K、MRR、nDCG、任务完成率、事实支持率、P95 延迟和 Token 成本评价系统。\n\n实习经历\n模拟云智实验室｜长上下文 Agent 研究实习生｜2026.03-2026.08。研究跨页语义连续性对 Agent 检索和引用的影响。完成跨页证据拼接与来源页码追踪；将工具输入输出改为强类型合同，为外部动作增加审批、幂等键和审计记录；与产品、测试共同复盘十二类失败轨迹，将重复调用、证据不足和异常早停固化为回归样例。针对限流、连接中断和服务端错误实现有界指数退避，对参数错误和引用门控失败直接停止，避免多层重试放大调用量。建设运行看板，按模型路由、节点、成功状态统计延迟和 Token。\n模拟知识工程中心｜研发实习生｜2025.07-2025.12。负责文档接入、字段清洗、向量索引和质量看板，处理表格、双栏论文、扫描页和中英文混排材料；为每个结论保留来源页码与原文片段。发现先按关键词筛选再做向量召回会漏掉同义表达，改为语义候选与词法候选取并集，再统一重排。对无文字层、乱码文字层、重复页眉和跨页断句分别建立诊断信息，不让解析失败静默污染下游。\n\n科研经历\n围绕跨页语义连续性开展实验：将自然段在分页处截断，比较只保留单页 Chunk 与加入有限跨页桥接的差异；在同一候选池中记录来源页码、证据完整率和引用正确率，不把分页符误当作新的语义段落。\n\n项目经历\n核心项目：研究跨页语义连续性对 Agent 检索和引用的影响。长文档问答 Recall@5 提升 9.8 个百分点；系统记录 Query、候选 Chunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补 Query，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计划、工具调用、产物、异常和恢复位置；外发动作只允许在审批后执行一次。增加 stale run 扫描、心跳、业务产物幂等对账和历史 checkpoint 回溯，处理“业务写入成功但图状态尚未保存”的崩溃窗口。\n评测工具箱：覆盖中文、英文和混合语言样例，加入长文档、相似术语、无证据声明、Prompt Injection、循环调用与跨用户上下文污染等 Bad Case。分别报告 PDF 抽取、Chunk 召回、工具轨迹、任务终态、事实引用、延迟和成本，不用单一平均分掩盖关键失败。\n证据审查器：把模型给出的匹配项映射到 JD 和简历原文，要求关键结论具有双向引用；同一要求不能同时出现在匹配和缺口中，替代条件满足后不再把其余选项误报为短板。\n\n校园与开源\n担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG 评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue 分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专业五人团队的迭代排期和技术评审。还负责整理需求变更、数据许可和模型版本，发布前逐项核对隐私脱敏、回滚预案与监控告警，并把线上反馈转化为可重复执行的验收场景。",
+    "canonical_character_count": 1898,
+    "expected_sections": [
+      "教育背景",
+      "专业技能",
+      "实习经历",
+      "科研经历",
+      "项目经历",
+      "校园与开源"
+    ],
+    "critical_facts": [
+      "完成跨页证据拼接与来源页码追踪",
+      "长文档问答 Recall@5 提升 9.8 个百分点",
+      "研究跨页语义连续性对 Agent 检索和引用的影响"
+    ],
+    "expected_profile": {
+      "name": "叶知行",
+      "target_role": "长上下文 Agent 研究实习生",
+      "skills": [
+        "Python",
+        "PyTorch",
+        "RAG",
+        "LangGraph",
+        "评测"
+      ],
+      "minimum_experience_entries": 2,
+      "minimum_project_entries": 4,
+      "has_research": true,
+      "has_publications": false,
+      "has_patents": false,
+      "publications": [],
+      "patents": [],
+      "has_campus_or_leadership": true
+    },
+    "retrieval_expectations": [
+      {
+        "id": "distinctive_implementation",
+        "query": "这位长上下文 Agent 研究实习生候选人在核心系统中完成了什么有辨识度的工程实现？",
+        "expected_text": "完成跨页证据拼接与来源页码追踪",
+        "expected_page_no": 1
+      },
+      {
+        "id": "quantified_outcome",
+        "query": "这位长上下文 Agent 研究实习生候选人最重要的量化成果是什么？",
+        "expected_text": "长文档问答 Recall@5 提升 9.8 个百分点",
+        "expected_page_no": 2
+      },
+      {
+        "id": "project_focus",
+        "query": "这位长上下文 Agent 研究实习生候选人的核心项目解决了什么业务或技术问题？",
+        "expected_text": "核心项目：研究跨页语义连续性对 Agent 检索和引用的影响",
+        "expected_page_no": 2
+      },
+      {
+        "id": "retrieval_evaluation",
+        "query": "候选人如何评估检索质量和事实可靠性？",
+        "expected_text": "使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估",
+        "expected_page_no": 2
+      },
+      {
+        "id": "natural_cross_page_continuation",
+        "query": "跨页的科研自然段如何保持语义连续并支持页码回溯？",
+        "expected_text": "同一候选池中记录来源页码、证据完整率和引用正确率",
+        "expected_page_no": 2
+      }
+    ],
+    "pdf_path": "evals/complex_resume_corpus/pdfs/natural_cross_page.pdf",
+    "sha256": "1139af4692ffebd40b72f6ef476ec567eb3c6f21c8b425a4739d53ec20a478b9"
+  },
+  {
+    "id": "agent_evaluation_table",
+    "synthetic": true,
+    "candidate_name": "周予安",
+    "target_role": "Agent 评测工程实习生",
+    "layout": "table_one_page",
+    "expected_page_count": 1,
+    "canonical_text": "个人概况\n周予安｜Agent 评测工程实习生｜agent_evaluation_table@example.com｜负责把岗位 Agent 的质量问题拆成可复现样例、证据和门禁。\n\n教育背景\n上海交通大学 软件工程硕士 2025.09-2028.06；研究方向为可靠 Agent 与信息检索。\n\n专业技能\nPython、SQLite、RAG、BM25、Embedding、Recall@K、MRR、nDCG、pytest、OpenTelemetry。\n\n项目经历\n评测看板：用可追溯证据定位检索与生成链路的失败；建立按阶段拆分的 Agent 质量看板。把 PDF 抽取、Chunk 召回、工具轨迹、完成门控和事实引用拆成独立阶段。\n\n评测结果\n对中文和英文样例做对照实验，关键事实支持率达到 96.4%；记录 Query、候选证据、模型版本、失败原因和回归链接。",
+    "canonical_character_count": 354,
+    "expected_sections": [
+      "教育背景",
+      "专业技能",
+      "项目经历",
+      "评测结果"
+    ],
+    "critical_facts": [
+      "建立按阶段拆分的 Agent 质量看板",
+      "关键事实支持率达到 96.4%",
+      "用可追溯证据定位检索与生成链路的失败"
+    ],
+    "expected_profile": {
+      "name": "周予安",
+      "target_role": "Agent 评测工程实习生",
+      "skills": [
+        "Python",
+        "RAG",
+        "评测",
+        "SQLite"
+      ],
+      "minimum_experience_entries": 2,
+      "minimum_project_entries": 4,
+      "has_research": false,
+      "has_publications": false,
+      "has_patents": false,
+      "publications": [],
+      "patents": [],
+      "has_campus_or_leadership": false
+    },
+    "retrieval_expectations": [
+      {
+        "id": "distinctive_implementation",
+        "query": "这位Agent 评测工程实习生候选人在核心系统中完成了什么有辨识度的工程实现？",
+        "expected_text": "建立按阶段拆分的 Agent 质量看板",
+        "expected_page_no": 1
+      },
+      {
+        "id": "quantified_outcome",
+        "query": "这位Agent 评测工程实习生候选人最重要的量化成果是什么？",
+        "expected_text": "关键事实支持率达到 96.4%",
+        "expected_page_no": 1
+      },
+      {
+        "id": "project_focus",
+        "query": "这位Agent 评测工程实习生候选人的核心项目解决了什么业务或技术问题？",
+        "expected_text": "核心项目：用可追溯证据定位检索与生成链路的失败",
+        "expected_page_no": 1
+      },
+      {
+        "id": "retrieval_evaluation",
+        "query": "候选人如何评估检索质量和事实可靠性？",
+        "expected_text": "使用 Recall@K、MRR、nDCG、引用正确率与 P95 延迟评估",
+        "expected_page_no": 1
+      }
+    ],
+    "pdf_path": "evals/complex_resume_corpus/pdfs/agent_evaluation_table.pdf",
+    "sha256": "b51d9a5cfc749ffbccb270e9cfc1dd7e5322afff2e01ec725dc1300dc6a410a5"
   }
 ]

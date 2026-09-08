@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models.entities import Job
 from app.services.jd_parser import JDParserService
-from app.services.job_relevance import is_internship_like_posting, rank_postings_for_query
+from app.services.job_relevance import is_internship_like_posting, score_job_posting
 from app.services.job_sources import JobPosting, JobSourceRegistry
 from app.services.text_splitter import ResumeTextSplitter
 from app.services.vector_index import SQLiteVectorIndex
@@ -25,6 +25,7 @@ class JobSearchService:
         db: Session,
         *,
         query: str,
+        query_variants: list[str] | None = None,
         location: str | None = None,
         internship_only: bool = True,
         limit: int = 20,
@@ -34,24 +35,41 @@ class JobSearchService:
         selected = self.registry.select(sources)
         source_errors: dict[str, str] = {}
 
-        async def _run_source(source):
-            try:
-                postings = await source.search(query=query, location=location, limit=limit)
-                return source.name, postings, None
-            except Exception as exc:  # noqa: BLE001
-                return source.name, [], str(exc)
+        source_queries = list(dict.fromkeys(
+            item.strip() for item in [query, *(query_variants or [])]
+            if item and item.strip()
+        ))[:3]
 
-        source_runs = await asyncio.gather(*[_run_source(source) for source in selected])
+        async def _run_source(source, source_query: str):
+            try:
+                postings = await source.search(query=source_query, location=location, limit=limit)
+                return source.name, source_query, postings, None
+            except Exception as exc:  # noqa: BLE001
+                return source.name, source_query, [], str(exc)
+
+        source_runs = await asyncio.gather(
+            *[_run_source(source, source_query) for source in selected for source_query in source_queries]
+        )
         postings: list[JobPosting] = []
-        for source_name, rows, error in source_runs:
+        source_failures: dict[str, list[str]] = {}
+        source_successes: set[str] = set()
+        for source_name, _source_query, rows, error in source_runs:
             if error:
-                source_errors[source_name] = error
+                source_failures.setdefault(source_name, []).append(error)
+            else:
+                source_successes.add(source_name)
             postings.extend(rows)
+
+        for source_name, errors in source_failures.items():
+            if source_name not in source_successes:
+                source_errors[source_name] = errors[-1]
 
         if internship_only:
             postings = [posting for posting in postings if self._is_internship_like(posting)]
 
-        postings = rank_postings_for_query(self._dedupe_postings(postings), query)[:limit]
+        postings = self._rank_postings_for_queries(
+            self._dedupe_postings(postings), source_queries
+        )[:limit]
         parsed_postings = await self._parse_postings_concurrently(postings)
 
         jobs: list[Job] = []
@@ -74,6 +92,17 @@ class JobSearchService:
                     )
                 )
         return jobs, source_errors
+
+    @staticmethod
+    def _rank_postings_for_queries(
+        postings: list[JobPosting], queries: list[str]
+    ) -> list[JobPosting]:
+        ranked = []
+        for index, posting in enumerate(postings):
+            scores = [score_job_posting(posting, item).score for item in queries]
+            ranked.append((index, posting, max(scores, default=0.0)))
+        ranked.sort(key=lambda item: (-item[2], item[0]))
+        return [posting for _, posting, _ in ranked]
 
     async def upsert_posting(self, db: Session, posting: JobPosting) -> Job:
         structured = await self.jd_parser.parse_jd(

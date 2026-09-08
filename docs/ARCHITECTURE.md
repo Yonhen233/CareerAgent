@@ -142,13 +142,13 @@ flowchart LR
 岗位发现是独立于长 Agent 工作流的用户业务域：
 
 1. `preference_text` 和 `profile_id` 均为可选；两者都为空时浏览 Agent 岗位库。
-2. 只提供简历时，从目标岗位、标题、技能和所在地构造查询；同时提供需求和简历时，用户显式需求位于查询首部且显式城市优先。
+2. 只提供简历时，从目标岗位、标题、技能和交付内容构造查询；同时提供需求和简历时，用户显式需求保持主方向，但简历中的实际项目、工作和校园交付内容始终作为补充 Query 参与召回；模糊的非空需求不会再屏蔽简历推断。
 3. `source_mode=hybrid/live` 时先并发刷新真实招聘源，来源异常写入 `source_errors_json`；`corpus` 模式只查询本地岗位库。列表阶段使用确定性 JD 结构化和 Prompt Injection 检测，不把逐岗位 LLM 延迟放在搜索按钮后。
-4. 先用元数据和词法相关性缩小岗位候选池，再对候选 `job_chunks` 做跨岗位真实向量召回，与岗位相关性规则融合，最后只在岗位级执行一次 reranker。
+4. 先用元数据和词法相关性缩小岗位候选池，再对用户 Query 与简历 Query 做跨岗位 `job_chunks` 语义召回，合并候选后与有限岗位相关性信号融合，最后只在岗位级执行一次 reranker。
 5. 有简历时才调用 `MatcherService` 检索简历经历并计算匹配与缺口；没有简历时只展示需求相关度，不能伪装成简历匹配分。
 6. `job_search_sessions` 和 `job_search_results` 持久化输入模式、查询、来源状态、排序、匹配和理由，前端通过 `session_id` 恢复搜索结果。
 7. 历史 hash 或旧维度向量首次命中时批量重算并把 provider/model/dimensions 写回 SQLite，后续查询复用迁移后的真实 embedding。
-8. 用户打开站内岗位详情后，再选择或上传简历，并按需触发匹配分析和定制简历。
+8. 用户打开站内岗位详情后，再选择或上传简历，并按需触发匹配分析和定制简历；结构化简历 Chunk 与原文 Chunk 通过事实 ID 建立一对多证据关系，同一事实只计一次，但详细原文视图会保留给匹配和引用。
 
 ### `full_career_flow`
 
@@ -218,6 +218,20 @@ flowchart LR
 当前已提供 `interview-source-smoke` 评测入口，由 `app/services/interview_sources.py` 对牛客网、OfferShow、小红书公开搜索页做非侵入式探测。它只记录可达性、空结果、面经信号、query relevance 和内容可抽取性，不写入核心面试包，也不绕过登录或反爬。
 
 ## 混合向量检索
+
+### Cross-Encoder 结果缓存
+
+`RerankerService` 在调用本地 Cross-Encoder 或中文多语语义重排前，先经过
+`RerankResultCacheService`。缓存分为进程内有界 LRU（L1）和 Redis 共享缓存（L2）：
+
+- Pair Cache 的键由规范化 Query、实际发送给模型的候选文本哈希、chunk/source 类型、数据作用域、实际语言路由、模型指纹和算法版本组成。键和值都不保存简历、JD 或其他原文。
+- Request Cache 只缓存一批候选的原始分数，候选集合指纹按无序集合计算，但最终排序仍使用当前的首阶段分数、归一化、权重、锚点和 promotion gap 重新计算。
+- 私有简历、用户档案和面试材料按 tenant/user/profile 隔离；仅有 `job_id` 的公开岗位证据不被误判为私有数据，允许相同公开内容跨结果集复用。
+- 单进程通过每个 Pair 的锁去重；多 worker 通过 Redis `SET NX PX` 分布式锁去重。拿不到锁时只等待并重新读取缓存，超时会报协调错误，不会使用不可信的旧分数。
+- Cross-Encoder 失败不会写入缓存，启用 `reranker_provider_fallback=error` 时继续向上抛出；Redis 不可用只关闭缓存旁路，实际模型调用照常进行，并以亚秒级连接超时和冷却重试避免拖慢业务。
+- `/ops/metrics` 暴露 Request/Pair 命中、Redis 错误、锁等待、缓存写入和无效条目计数，便于计算命中率、观察缓存击穿和回滚。
+
+缓存不是业务事实库，也不替代 SQLite 中的岗位、简历和运行记录。模型版本、Tokenizer、截断策略或重排融合算法发生变化时，应提升 `RERANKER_CACHE_ALGORITHM_VERSION` 或模型 revision，使旧分数自然失效。
 
 当前实现采用“SQLite 权威存储 + 可选 Chroma 镜像”的设计。
 
@@ -390,3 +404,33 @@ Checkpoint 只回答“下一节点是什么”，不能保证副作用没有发
 评测数据位于 `evals/`，运行后写入 `evaluation_runs`；真实 LLM 调用另外写入 `llm_call_logs`，并通过 `evaluation_run_id/case/stage` 关联。当前闭环覆盖 PDF chunk、真实 embedding + reranker RAG、JD parser、自然语言规划、LLM workflow、岗位排序、Agent 全流程、投递 Guardrail、Prompt Injection、面试包和外部 source smoke。
 
 每类评测都区分完成率、人工标注质量、证据 grounding 和发布阈值。只有 `release_gate.passed=true` 才能说明当前样本达到发布标准；HTTP 200、合法 JSON 或工作流完成不能单独作为“功能正常”的证据。真实模型全量成本高时使用分层抽样与失败 case 定向复测，并在文档中明确它不等于全量发布认证。
+
+## 任务图 Harness 与 Agentic RAG
+
+当前任务编排收敛为四层：`IntentEnvelope` 描述用户目标，`TaskPlan` 描述有依赖的有界 DAG，
+`TaskRouter` 用代码把合法 action 映射到领域工作流，领域工作流再使用质量门禁和局部循环。
+`AgentPlanner` 会把显式 `task_type` 编译成统一任务图，因此旧入口不再拥有另一套隐含编排语义。
+
+`IntentValidator` 和 `TaskGraphValidator` 在执行前检查合法 action、唯一 ID、依赖存在性、
+循环、禁止动作、节点预算和高风险自动重试。LLM 可以提出意图，但不能直接调用任意 Python
+函数，也不能修改审批边界。`TaskRouter` 是 closed-world 路由表，找不到注册路由就结构化失败。
+
+局部 ReAct 使用 `BoundedLocalReAct` 统一控制 `Observe → Decide → Act → Verify`。它记录观察、
+动作、理由码、验证结果和停止原因，不记录隐式思维链，并限制最大尝试次数、重复动作和无进展
+循环。简历定制和面试答案继续做局部 repair；岗位匹配在证据门禁失败时执行一次按项目/经历/技能
+类型的 Agentic RAG 补检，补检不改善置信度时停止，不降低质量阈值。
+
+岗位搜索现在也接入同一循环控制器：首次召回质量未通过时，局部 Agent 只能执行一次
+`rewrite_query`，由 LLM 在保留用户方向和简历证据的前提下重写互补 Query，再重新检索并执行
+质量门禁；无进展或仍未通过就停止，不降低阈值、不静态编造岗位。重写过程会写入
+`retrieval_quality.agentic_rag`，包括观察、动作、验证和停止原因。
+
+这里的 Runtime 不是一个额外的 Python 框架：LangGraph 是负责节点执行、checkpoint 和 interrupt
+的底层图 Runtime；本项目的 `TaskGraphRuntime` 是运行在 LangGraph 节点之上的业务调度层，负责
+验证后的 DAG、依赖、预算、重试和重规划。两者分工明确：LangGraph 保证过程可恢复，业务 Runtime
+保证 Agent 不越过计划和完成条件。每个宏节点仍调用原有领域节点，因此工具 trace、Artifact、
+幂等键和质量门禁不会被动态调度器绕过。
+
+所有新任务图和局部循环状态都作为 `execution_plan`、`task_plan`、`task_graph_status` 和
+retrieval quality trace 写入现有 AgentRun/Checkpoint。人工中断导致宏节点重放时，系统从
+`AgentEvent` 和已生成 Artifact 水合完成节点，避免重复搜索、重复 LLM 生成或重复副作用。

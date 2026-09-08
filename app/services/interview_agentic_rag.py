@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+"""面试准备的 Agentic RAG 子图。
+
+流程先为问题规划来源和查询，再执行 exact、BM25、向量和重排检索，最后由
+LLM Claim Verifier 判断语义蕴含；代码层同时校验来源权限、引用 ID、问题覆盖
+和回答状态，防止“事实正确但没有回答问题”或“引用越权”。
+"""
+
 import asyncio
 import json
 import math

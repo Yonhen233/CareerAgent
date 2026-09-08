@@ -1,0 +1,44 @@
+[
+  {
+    "case_id": "react_retrieval_recovers_once",
+    "kind": "local_react_recovery",
+    "failure": "首轮证据不足",
+    "expected": "局部检索修复后通过，不超过 2 次尝试"
+  },
+  {
+    "case_id": "react_blocks_unregistered_action",
+    "kind": "local_react_illegal_action",
+    "failure": "决策请求未注册动作",
+    "expected": "动作在执行前被拒绝且没有副作用"
+  },
+  {
+    "case_id": "react_stops_no_progress",
+    "kind": "local_react_no_progress",
+    "failure": "重复动作没有改变观察结果",
+    "expected": "触发 no_progress 终止，不继续空转"
+  },
+  {
+    "case_id": "react_stops_budget",
+    "kind": "local_react_budget",
+    "failure": "达到局部循环预算",
+    "expected": "停止并记录 budget_exhausted"
+  },
+  {
+    "case_id": "replan_retries_remaining_suffix",
+    "kind": "replan_recovery",
+    "failure": "匹配节点失败",
+    "expected": "保留已完成节点，只恢复剩余 DAG"
+  },
+  {
+    "case_id": "replan_blocks_completed_rewrite",
+    "kind": "replan_completed_node_rewrite",
+    "failure": "新计划试图改写已完成节点",
+    "expected": "计划校验失败，不重复执行已完成副作用"
+  },
+  {
+    "case_id": "policy_blocks_high_risk_tool",
+    "kind": "tool_policy_boundary",
+    "requested_action": "submit_application",
+    "expected": "未经过审批的高风险动作被阻断"
+  }
+]

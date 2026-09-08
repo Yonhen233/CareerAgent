@@ -9,7 +9,9 @@ from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw, ImageFont
 from pypdf import PdfReader, PdfWriter
 from reportlab.lib.utils import ImageReader
+from reportlab.lib import colors
 from reportlab.pdfgen import canvas
+from reportlab.platypus import Table, TableStyle
 
 from app.core.config import Settings
 from app.main import app
@@ -48,6 +50,30 @@ def _mixed_pdf() -> bytes:
     writer.showPage()
     scan = _scan_image(["项目经历", "CareerAgent 使用 LangGraph Redis RAG", "实现 checkpoint 与任务恢复"])
     writer.drawImage(ImageReader(BytesIO(scan)), 0, 0, width=1500, height=620)
+    writer.save()
+    return output.getvalue()
+
+
+def _layout_stress_pdf() -> bytes:
+    output = BytesIO()
+    writer = canvas.Canvas(output, pagesize=(600, 800))
+    writer.setFont("Helvetica", 11)
+    writer.drawString(42, 742, "Project evidence")
+    writer.drawString(42, 716, "This bordered text box keeps a multi-line implementation note together.")
+    writer.drawString(42, 700, "It should remain separate from the table when the page is indexed.")
+    table = Table(
+        [["Area", "Evidence"], ["Retrieval", "Recall@5 0.94"], ["Runtime", "checkpoint recovery"]],
+        colWidths=[110, 300],
+    )
+    table.setStyle(TableStyle([
+        ("GRID", (0, 0), (-1, -1), 0.8, colors.black),
+        ("BACKGROUND", (0, 0), (-1, 0), colors.lightgrey),
+        ("FONT", (0, 0), (-1, -1), "Helvetica", 10),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ]))
+    table.wrapOn(writer, 420, 120)
+    table.drawOn(writer, 42, 540)
+    writer.showPage()
     writer.save()
     return output.getvalue()
 
@@ -156,6 +182,18 @@ def test_text_layer_preserves_layout_blocks_as_paragraph_boundaries():
     assert "Projects\n\nCareerAgent" in result.pages[0].text
 
 
+def test_complex_table_and_text_box_are_preserved_as_layout_signals():
+    result = PDFExtractionService().extract(filename="layout-stress.pdf", file_bytes=_layout_stress_pdf())
+
+    diagnostic = result.page_diagnostics[0]
+    assert "Recall@5" in result.pages[0].text
+    assert "checkpoint recovery" in result.pages[0].text
+    assert diagnostic.table_count >= 1
+    assert diagnostic.text_box_count >= 1
+    assert "table" in diagnostic.layout_regions
+    assert "text_box" in diagnostic.layout_regions
+
+
 def test_mixed_text_and_scanned_pdf_uses_page_level_ocr():
     result = PDFExtractionService().extract(filename="mixed.pdf", file_bytes=_mixed_pdf())
 
@@ -191,6 +229,14 @@ def test_explicit_technical_skills_complete_llm_parser_output_without_static_fal
     )
 
     assert set(skills) == {"Python", "RAG", "Evaluation"}
+
+
+def test_resume_section_heading_recognizes_research_outputs():
+    service = ResumeParserService()
+
+    assert service._resume_section_heading("Research Experience") == "research"
+    assert service._resume_section_heading("Publications") == "publications"
+    assert service._resume_section_heading("专利与知识产权") == "patents"
 
 
 def test_ocr_two_column_rows_are_not_interleaved():

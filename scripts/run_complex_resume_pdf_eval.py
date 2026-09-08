@@ -152,6 +152,15 @@ def evaluate(manifest_path: Path, *, collapse_layout_blocks: bool = False) -> di
                 "minimum_fact_similarity": round(min(fact_scores), 4),
                 "character_retention_proxy": round(min(1.0, len(_compact(extraction.raw_text)) / max(case["canonical_character_count"], 1)), 4),
                 "chunk_count": len(chunks),
+                "cross_page_bridge_count": sum(
+                    chunk.metadata.get("strategy") == "cross_page_semantic_bridge" for chunk in chunks
+                ),
+                "table_diagnostic_pages": sum(
+                    int(page.table_count or 0) > 0 for page in extraction.page_diagnostics
+                ),
+                "text_box_diagnostic_pages": sum(
+                    int(page.text_box_count or 0) > 0 for page in extraction.page_diagnostics
+                ),
                 "page_metadata_coverage": round(sum(bool(chunk.metadata and chunk.metadata.get("page_no")) for chunk in chunks) / max(len(chunks), 1), 4),
                 "retrieval_failures": [row["expectation_id"] for row in page_fact_rows if not row["recall_at_3"]],
                 "diagnostics": extraction.as_dict(),
@@ -171,6 +180,14 @@ def evaluate(manifest_path: Path, *, collapse_layout_blocks: bool = False) -> di
         "retrieval_recall_at_3": round(mean(row["recall_at_3"] for row in retrieval_rows), 4),
         "retrieval_recall_at_5": round(mean(row["recall_at_5"] for row in retrieval_rows), 4),
         "retrieval_mrr": round(mean(row["reciprocal_rank"] for row in retrieval_rows), 4),
+        "cross_page_case_count": sum(row["layout"] == "natural_cross_page" for row in case_results),
+        "cross_page_bridge_count": sum(row["cross_page_bridge_count"] for row in case_results),
+        "cross_page_recall_at_3": round(
+            mean(row["recall_at_3"] for row in retrieval_rows if row["expectation_id"] == "natural_cross_page_continuation"),
+            4,
+        ) if any(row["expectation_id"] == "natural_cross_page_continuation" for row in retrieval_rows) else None,
+        "table_diagnostic_page_count": sum(row["table_diagnostic_pages"] for row in case_results),
+        "text_box_diagnostic_page_count": sum(row["text_box_diagnostic_pages"] for row in case_results),
         "failed_case_count": sum(bool(row["retrieval_failures"]) for row in case_results),
     }
     summary["layout_block_boundaries_preserved"] = not collapse_layout_blocks

@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+"""生成结果与原始材料之间的确定性回指校验。
+
+本模块使用标准化文本、别名、词项覆盖和局部相似度判断字段或引用是否能在
+原文中找到支持。它不负责理解完整业务语义，因此复杂蕴含由上层 LLM 或向量
+模型处理，但最终结果仍必须通过这里的可审计边界。
+"""
+
 import re
 from difflib import SequenceMatcher
 from typing import Any, Iterable
@@ -165,7 +172,10 @@ class EvidenceGroundingService:
             for field in ("school", "degree", "major", "duration"):
                 check(f"education[{index}].{field}", education.get(field))
             check_statement(f"education[{index}].details", education.get("details"))
-        for field in ("certifications", "awards", "languages", "portfolio_links"):
+        for field in (
+            "research_experience", "publications", "patents",
+            "certifications", "awards", "languages", "portfolio_links",
+        ):
             for index, value in enumerate(parsed.get(field) or []):
                 check(f"{field}[{index}]", value)
 

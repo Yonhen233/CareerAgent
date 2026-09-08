@@ -1,0 +1,72 @@
+{
+  "schema_version": "careeragent-agent-efficiency-v1",
+  "description": "效率与可靠性评测的场景清单。真实业务 case 复用 agent_full_flow_cases，故障 case 使用可控注入。",
+  "real_flow_cases": [
+    {
+      "case_id": "fullflow_agent_candidate",
+      "source_case": "agent_candidate_selects_agent_job_and_applies",
+      "task_types": ["find_jobs_for_profile", "tailor_resume_for_job", "quick_apply"],
+      "critical_outputs": ["top_job", "trace", "completion_artifact", "application_packet"]
+    },
+    {
+      "case_id": "fullflow_data_candidate",
+      "source_case": "data_candidate_selects_data_job",
+      "task_types": ["find_jobs_for_profile", "tailor_resume_for_job", "quick_apply"],
+      "critical_outputs": ["top_job", "fit_gate", "trace", "completion_artifact"]
+    },
+    {
+      "case_id": "fullflow_weak_fit_blocked",
+      "source_case": "beginner_agent_candidate_blocked_by_fit_gate",
+      "task_types": ["find_jobs_for_profile", "quick_apply"],
+      "critical_outputs": ["top_job", "fit_gate_block"]
+    },
+    {
+      "case_id": "fullflow_frontend_candidate",
+      "source_case": "frontend_candidate_selects_frontend_job",
+      "task_types": ["find_jobs_for_profile", "tailor_resume_for_job", "quick_apply"],
+      "critical_outputs": ["top_job", "trace", "completion_artifact", "application_packet"]
+    },
+    {
+      "case_id": "fullflow_weak_recommendation_blocked",
+      "source_case": "analytics_candidate_weak_recommendation_blocked",
+      "task_types": ["find_jobs_for_profile", "tailor_resume_for_job", "quick_apply"],
+      "critical_outputs": ["top_job", "fit_gate_block", "trace"]
+    },
+    {
+      "case_id": "fullflow_weak_ml_platform_blocked",
+      "source_case": "cv_candidate_weak_ml_platform_blocked",
+      "task_types": ["find_jobs_for_profile", "tailor_resume_for_job", "quick_apply"],
+      "critical_outputs": ["top_job", "fit_gate_block", "trace"]
+    },
+    {
+      "case_id": "fullflow_research_agent_candidate",
+      "source_case": "research_agent_candidate_selects_research_job",
+      "task_types": ["find_jobs_for_profile", "tailor_resume_for_job", "quick_apply"],
+      "critical_outputs": ["top_job", "research_evidence", "trace", "completion_artifact", "application_packet"]
+    },
+    {
+      "case_id": "fullflow_agent_platform_candidate",
+      "source_case": "agent_platform_candidate_selects_platform_job",
+      "task_types": ["find_jobs_for_profile", "tailor_resume_for_job", "quick_apply"],
+      "critical_outputs": ["top_job", "tool_contract_evidence", "trace", "completion_artifact", "application_packet"]
+    },
+    {
+      "case_id": "fullflow_graph_rag_candidate",
+      "source_case": "graph_rag_candidate_selects_multimodal_agent_job",
+      "task_types": ["find_jobs_for_profile", "tailor_resume_for_job", "quick_apply"],
+      "critical_outputs": ["top_job", "multimodal_evidence", "trace", "completion_artifact", "application_packet"]
+    },
+    {
+      "case_id": "fullflow_agent_safety_candidate",
+      "source_case": "agent_safety_candidate_selects_evaluation_job",
+      "task_types": ["find_jobs_for_profile", "tailor_resume_for_job", "quick_apply"],
+      "critical_outputs": ["top_job", "safety_evidence", "trace", "completion_artifact", "application_packet"]
+    }
+  ],
+  "metric_contract": {
+    "pass_at_1": "单次运行 case 通过比例",
+    "pass_power_k": "同一个 case 连续 K 次全部通过的比例",
+    "low_sample_rule": "延迟样本少于 10 时必须标记 low_sample，不得解释为稳定 SLO",
+    "high_risk_rule": "quick_apply 不允许自动重试，必须有用户审批和可追溯 artifact"
+  }
+}

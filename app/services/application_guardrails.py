@@ -230,9 +230,29 @@ class ApplicationPacketGuardrail:
                 (cosine_similarity(claim_vector, source_vector), source)
                 for source, source_vector in zip(source_snippets, source_vectors, strict=False)
             ]
-            best, best_source = max(scored_sources, default=(0.0, ""), key=lambda item: item[0])
-            polarity_consistent = self._is_negative_claim(claim) == self._is_negative_claim(best_source)
-            outcome_consistent = self._outcome_semantics_consistent(claim, best_source)
+            # A generated sentence can combine two adjacent source sentences.
+            # Pick the best semantically similar passage that preserves both
+            # polarity and outcome groups; the raw top-1 embedding hit may
+            # cover only the first half and silently discard the second fact.
+            consistent_sources = [
+                (score, source)
+                for score, source in scored_sources
+                if self._is_negative_claim(claim) == self._is_negative_claim(source)
+                and self._outcome_semantics_consistent(claim, source)
+            ]
+            best, best_source = max(
+                consistent_sources or scored_sources,
+                default=(0.0, ""),
+                # Use lexical grounding only as a tie-breaker. This prevents
+                # a generic structured field (for example ``['Python']``)
+                # from winning over the actual, polarity-bearing source when
+                # a small/mock encoder gives several passages the same score.
+                key=lambda item: (
+                    item[0],
+                    not self._is_generic_support_source(item[1]),
+                    grounding.support_score(claim, item[1]),
+                ),
+            )
             claim_terms = self._claim_terms(claim)
             taxonomy_corroborated = bool(claim_terms) and claim_terms.issubset(supported_terms)
             claim_outcome_groups = self._outcome_semantic_groups(claim)
@@ -242,9 +262,15 @@ class ApplicationPacketGuardrail:
                     grounding.support_score(best_source, fact),
                     grounding.support_score(fact, best_source),
                 )
-                >= 0.8
+                    >= 0.8
                 for fact in trusted_facts
             )
+            generic_source = self._is_generic_support_source(best_source)
+            polarity_consistent = (
+                self._is_negative_claim(claim) == self._is_negative_claim(best_source)
+                and (not generic_source or taxonomy_corroborated or trusted_fact_corroborated)
+            )
+            outcome_consistent = self._outcome_semantics_consistent(claim, best_source)
             embedding_matches[claim] = {
                 "score": round(best, 4),
                 "source_preview": best_source[:240],
@@ -256,7 +282,25 @@ class ApplicationPacketGuardrail:
                 "source_outcome_groups": sorted(source_outcome_groups),
                 "trusted_fact_corroborated": trusted_fact_corroborated,
             }
-            if best >= 0.70 and polarity_consistent and outcome_consistent:
+            # Similarity alone is not evidence: a short unrelated field such
+            # as ``Python`` can receive a high score from a small or mocked
+            # multilingual encoder. Require a second, auditable signal before
+            # allowing semantic recovery to override lexical grounding.
+            # A real resume passage may be a cross-language paraphrase without
+            # containing one of the closed taxonomy terms. In that case the
+            # passage itself is sufficient once polarity and outcome semantics
+            # agree. Structured list metadata still requires taxonomy or
+            # trusted-fact corroboration.
+            corroborated = (
+                taxonomy_corroborated
+                or trusted_fact_corroborated
+                or (
+                    not generic_source
+                    and polarity_consistent
+                    and outcome_consistent
+                )
+            )
+            if best >= 0.70 and polarity_consistent and outcome_consistent and corroborated:
                 recovered[claim] = {"score": round(best, 4), "method": "multilingual_embedding"}
             elif best >= 0.65 and polarity_consistent and outcome_consistent and taxonomy_corroborated:
                 recovered[claim] = {
@@ -311,6 +355,14 @@ class ApplicationPacketGuardrail:
             for term in CLAIM_TERMS
             if any(re.search(pattern, text or "", flags=re.IGNORECASE) for pattern in term.patterns)
         }
+
+    def _is_generic_support_source(self, source: str) -> bool:
+        """Keep list-only metadata from outranking an actual resume passage."""
+        value = str(source or "").strip()
+        return bool(
+            (value.startswith("[") and value.endswith("]"))
+            or len(re.findall(r"[A-Za-z0-9\u4e00-\u9fff]+", value)) <= 1
+        )
 
     def _is_negative_claim(self, text: str) -> bool:
         return self._contains_any_pattern(text, NEGATIVE_SUPPORT_PATTERNS)

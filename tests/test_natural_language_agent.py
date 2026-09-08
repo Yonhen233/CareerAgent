@@ -164,6 +164,11 @@ def test_natural_language_plan_contract_repairs_missing_update_fact(db_session):
     assert plan["contract_repairs"]
 
 
+def test_natural_language_plan_normalizes_update_profile_action():
+    service = NaturalLanguageAgentService()
+    assert service._canonical_action("update_profile") == "create_profile"
+
+
 def test_natural_language_profile_patch_merges_existing_lists():
     service = NaturalLanguageAgentService()
 

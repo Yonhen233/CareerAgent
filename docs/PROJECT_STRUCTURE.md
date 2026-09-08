@@ -2,6 +2,10 @@
 
 本文档描述当前仓库的真实文件结构、模块职责和依赖边界。目录树只列出源码、配置、评测和文档资产；数据库、日志、模型缓存等运行时文件不会提交到 Git。
 
+面向第一次阅读代码、排查请求链路或准备面试讲解的完整导航见
+[`CODE_REPOSITORY_GUIDE.md`](CODE_REPOSITORY_GUIDE.md)。本文档保留较紧凑的目录视图，
+新模块应同时在两份文档中登记。
+
 ## 当前架构
 
 ```text
@@ -54,6 +58,7 @@ CareerAgent/
 │   │   ├── embedding_service.py              # Embedding provider
 │   │   ├── vector_index.py                   # SQLite 权威向量索引与可选 Chroma 镜像
 │   │   ├── reranker.py                       # Top20 二阶段重排
+│   │   ├── rerank_result_cache.py             # 原始重排分数的 L1/L2 缓存与并发去重
 │   │   ├── evidence_classifier.py            # 交付/指标/课程/计划/缺口证据分类
 │   │   ├── context_compressor.py             # Profile/JD/证据/Prompt Packet 分级预算
 │   │   │
@@ -235,7 +240,7 @@ Evals/Tests -> API/Agents/Services
 | 增加或修改 Skill | `skills/<name>/SKILL.md` | `app/agents/skills.py` 的任务映射 |
 | 增加 Tool | `app/agents/tools.py` | 对应 service、Skill `allowed_tools`、审批和测试 |
 | 修改 PDF Chunk | `app/services/text_splitter.py` | `evals/pdf_chunk_cases.json`、`docs/PDF_CHUNKING.md` |
-| 修改 RAG | `vector_index.py`、`reranker.py` | RAG 评测、embedding 配置和 Trace |
+| 修改 RAG | `vector_index.py`、`reranker.py`、`rerank_result_cache.py` | RAG 评测、embedding 配置和 Trace |
 | 修改面试 Agentic RAG | `interview_agentic_rag.py` | `interview_prep.py`、面试评测、来源权限和前端 |
 | 修改简历定制 | `resume_tailor.py` | Guardrail、Skill、LLM workflow 评测 |
 | 增加高风险外发动作 | `high_risk_action_tools.py` | Tool Policy、approval、audit、RBAC、smoke |

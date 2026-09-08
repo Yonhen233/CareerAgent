@@ -159,6 +159,12 @@ evals/rag_cases.json
 - 一部分查询使用精确技术关键词，一部分使用同义表达，例如 `retrieval augmented generation` -> `RAG`。
 - 每个 case 包含 hard negative、planned learning、coursework、adjacent domain、generic tools、rejected prototype、long noise 等噪声 chunk。
 - 按 `easy`、`medium`、`hard`、`adversarial` 分桶统计。
+- 2026-09-07 复核后明确 qrel 目标为“检索能支持目标岗位能力声明的正向证据”，不再把“主题相关”和“能支持正向结论”混成一个二元标签。每个 chunk 同时标注 `support_label` 和 `topical_relevance_grade`；评测运行前会核对 `expected`、`expected_chunk_ids` 与 `support_label`，存在冲突时直接拒绝发布指标。
+- 最新标注审计覆盖 2160 个 chunk：supportive 720、contradictory/partial 360、future intent 180、weak context 360、unrelated 540，一致性错误为 0。
+
+常规业务噪声集独立保存在 `evals/rag_core_cases.json`。它同样包含 180 个 case 和 4 个正例，但每题只保留课程、计划学习、相邻领域与远领域 4 类常见干扰，共 1440 个 chunk；同词否定陷阱、通用关键词堆砌、失败原型和超长混合文本继续留在强噪声集，两个结果不得混用。
+
+2026-09-07 使用正式本地 Embedding 与 CrossEncoder 完整重跑常规集：Top1 `1.0000`、Recall@3 `0.7083`、Recall@5 `0.9583`、MRR `1.0000`、nDCG@5 `0.9575`，provider fallback 为 0，发布门禁通过。强噪声集同期 Recall@5 为 `0.8333`。
 
 ### JD Parser 评测数据
 
@@ -386,6 +392,7 @@ paragraph_page_900_overlap160
 - `real_embedding_55_vector_40_lexical_5_type`
 - `real_embedding_45_vector_50_lexical_5_type`
 - `real_embedding_top20_rerank`
+- `real_embedding_quality_aware_top20_rerank`
 
 真实模型：
 
@@ -406,17 +413,19 @@ paragraph_page_900_overlap160
 | real_embedding_55_vector_40_lexical_5_type | sentence-transformers | none | 1.0000 | 0.5958 | 0.7292 | 1.0000 | 0.7830 |
 | real_embedding_45_vector_50_lexical_5_type | sentence-transformers | none | 1.0000 | 0.6125 | 0.7292 | 1.0000 | 0.7862 |
 | real_embedding_top20_rerank | sentence-transformers | cross-encoder | 1.0000 | 0.6125 | 0.7292 | 1.0000 | 0.7862 |
+| real_embedding_quality_aware_top20_rerank | sentence-transformers | cross-encoder | 1.0000 | 0.6667 | 0.8333 | 1.0000 | 0.8732 |
 
 选择：
 
 ```text
-real_embedding_top20_rerank
+real_embedding_quality_aware_top20_rerank
 ```
 
 理由：
 
-- 强噪声评测后，真实 embedding 策略中 `vector=0.45 / lexical=0.50 / type=0.05` 达到最高 Top3 Recall。
-- `real_embedding_top20_rerank` 在 Top5 anchor 保护下与最佳一阶段真实 embedding 策略持平，同时保留 CrossEncoder 对 Top20 尾部证据的二阶段排序能力。
+- 强噪声评测后，`vector=0.45 / lexical=0.50 / type=0.05` 仍作为第一阶段召回；Top20 CrossEncoder 之后增加小幅证据质量先验，用于区分已交付事实与课程、计划学习、显式未实现内容。
+- 证据质量先验不是相关性分类器，也不会删除候选：`metric_evidence`、`shipped_project` 只小幅上调，`coursework`、`planned_learning`、`missing_skill_disclosure` 和混合缺口证据小幅下调，最终分值与原因写入 retrieval metadata 供审计。
+- 相比原策略，Top3 Recall 从 `0.6125` 提升到 `0.6667`，Top5 Recall 从 `0.7292` 提升到 `0.8333`，nDCG@5 从 `0.7862` 提升到 `0.8732`；Top1 与 MRR 均保持 `1.0000`。
 - hash baseline 的表现不再稳定：`hash_lexical_80_vector_15_type_5` Top3 Recall=0.5625，低于真实 embedding + rerank 的 0.6125。
 - 选择真实 embedding 主路径更贴近真实 JD 和简历语义表达，例如中英文混写、同义表达、职责描述不直接出现技术名的情况。
 
@@ -424,25 +433,25 @@ real_embedding_top20_rerank
 
 | 难度 | Top1 Acc | Top3 Recall | Top5 Recall | MRR | nDCG@5 |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| easy | 1.0000 | 0.5000 | 0.7500 | 1.0000 | 0.7650 |
-| medium | 1.0000 | 0.7500 | 0.7500 | 1.0000 | 0.8319 |
-| hard | 1.0000 | 0.5833 | 0.7500 | 1.0000 | 0.7968 |
-| adversarial | 1.0000 | 0.6167 | 0.6667 | 1.0000 | 0.7512 |
+| easy | 1.0000 | 0.6667 | 0.7500 | 1.0000 | 0.8229 |
+| medium | 1.0000 | 0.7500 | 0.9167 | 1.0000 | 0.9326 |
+| hard | 1.0000 | 0.5833 | 0.9167 | 1.0000 | 0.9145 |
+| adversarial | 1.0000 | 0.6667 | 0.7500 | 1.0000 | 0.8229 |
 
 发布门禁：
 
 - `Recall@3 >= 0.60`。每题人工标注 4 个相关 chunk，而 Top3 最多容纳 3 个，因此理论上限是 0.75；0.60 对应达到理论上限的 80%。
 - `Recall@5 >= 0.70`、`MRR >= 0.85`、`nDCG@5 >= 0.75`、`Top1 >= 0.80`。
 - 实际 provider 必须包含 `sentence_transformers` 和 `cross_encoder`，`fallback_reasons` 必须为空，不能用 hash/词法兜底结果冒充真实向量评测。
-- 2026-07-22 的 180-case 完整重跑满足上述所有条件，`release_gate.passed=true`；对抗桶 Recall@5=0.6667 仍单独列为改进项。
+- 2026-09-07 的 180-case 完整重跑满足上述所有条件，`release_gate.passed=true`；实际 provider 为 `sentence_transformers + cross_encoder`，无 fallback。
 
 调试发现：
 
 - 第一轮真实评测中，裸 CrossEncoder 权重过高，会把强关键词证据推出 Top3，Top3 Recall 从 0.9444 降到 0.8889。
 - 修复方式是采用保守融合：一阶段分数为主，rerank 分数为辅，并设置 Top5 recall anchor。
 - 依赖调试中发现 `transformers 5.x` 与当前 SentenceTransformers 加载不稳定，已在 `requirements.txt` 中约束 `transformers<5.0.0`、`huggingface-hub<1.0`。
-- 强噪声数据集把 Top3 Recall 从原来的 0.9444 拉低到 0.6125，这是有意为之：新数据更接近真实简历里的课程噪声、计划学习和相邻项目干扰。
-- 后续优化重点不再是继续调 embedding 权重。本轮已有证据类型分类与负向证据降权；下一步应补充真实人工脱敏 JD/简历 pair，并对对抗桶做错误分析，必要时再引入小模型 classifier 或抽样 LLM verifier，而不是继续在合成集上调权重。
+- 强噪声数据集曾把 Top3 Recall 从旧清洁集的 0.9444 拉低到 0.6125，错误主要来自课程、计划学习、显式未实现和相邻领域内容挤占前排；证据质量排序后提升到 0.6667。
+- 该 180-case 集由 12 类岗位模板重复构造，每类有多种噪声排列，适合回归但不等于 180 个完全独立的真实用户分布。不能继续针对模板刷分；下一步应使用人工脱敏的真实 JD/简历 pair 做独立盲测，再决定是否训练专用 evidence reranker。
 
 ## RAG 向量库选型
 

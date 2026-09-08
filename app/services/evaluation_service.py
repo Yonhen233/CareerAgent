@@ -1,3 +1,9 @@
+"""统一评测编排与发布门禁服务。
+
+本模块组合 Parser、RAG、生成、可靠性、性能和安全评测，保存指标来源与失败
+样例；评测通过只表示对应数据集和控制条件下达到发布标准，不替代真实流量观测。
+"""
+
 import asyncio
 import json
 import math
@@ -38,6 +44,7 @@ from app.services.job_sources import JobPosting, JobSourceRegistry
 from app.services.resume_tailor import ResumeTailorService
 from app.core.llm import LLMClient, LLMConfigurationError, LLMResponseError, format_exception, llm_trace_context
 from app.services.embedding_service import EmbeddingService
+from app.services.evidence_classifier import EvidenceClassifier
 from app.services.evidence_grounding import EvidenceGroundingService
 from app.services.matcher import MatcherService
 from app.services.reranker import RerankerService
@@ -146,6 +153,7 @@ class EvaluationService:
         self.reranker = RerankerService(settings=self.settings)
         self.context_compressor = ContextCompressor()
         self.grounding = EvidenceGroundingService()
+        self.evidence_classifier = EvidenceClassifier()
         self.application_guardrail = ApplicationPacketGuardrail()
         interview_llm = self.llm
         self.interview_evaluation_llm_mode = "real_llm"
@@ -321,6 +329,7 @@ class EvaluationService:
     def run_rag_strategy_evaluation(self, db: Session, *, dataset_path: Path | None = None) -> EvaluationRun:
         path = dataset_path or self.settings.base_path / "evals" / "rag_cases.json"
         cases = self._load_case_dataset(path)
+        annotation_audit = self._audit_rag_annotations(cases)
         strategies = {
             "hash_vector_only": {
                 "embedding_provider": "hash",
@@ -378,6 +387,16 @@ class EvaluationService:
                 "reranker": True,
                 "rerank_top_n": 20,
             },
+            "real_embedding_quality_aware_top20_rerank": {
+                "embedding_provider": "configured",
+                "vector_weight": 0.45,
+                "lexical_weight": 0.5,
+                "type_boost": True,
+                "query_expansion": True,
+                "reranker": True,
+                "rerank_top_n": 20,
+                "evidence_quality_prior": True,
+            },
         }
         strategy_results = []
         case_results = []
@@ -392,7 +411,11 @@ class EvaluationService:
                         text=item["text"],
                         chunk_type=item["chunk_type"],
                         source="eval.rag_cases",
-                        metadata={"expected": item["expected"]},
+                        metadata={
+                            "expected": item["expected"],
+                            "support_label": item.get("support_label"),
+                            "topical_relevance_grade": item.get("topical_relevance_grade"),
+                        },
                     )
                     for item in case["evidence_chunks"]
                 ]
@@ -405,6 +428,7 @@ class EvaluationService:
                     embedding_service=embedding_service,
                     reranker=reranker,
                     rerank_top_n=int(config.get("rerank_top_n", self.settings.reranker_top_n)),
+                    evidence_quality_prior=bool(config.get("evidence_quality_prior")),
                 )
                 expected_ids = set(case["expected_chunk_ids"])
                 top3 = ranked[:3]
@@ -422,6 +446,27 @@ class EvaluationService:
                         "ndcg_at_5": self._ndcg_at_k(ranked, expected_ids, 5),
                         "top1_expected": ranked[0]["uid"] in expected_ids if ranked else False,
                         "top3_ids": [item["uid"] for item in top3],
+                        "top5_ids": [item["uid"] for item in top5],
+                        "expected_ids": sorted(expected_ids),
+                        "missed_expected_at_5": sorted(expected_ids - {item["uid"] for item in top5}),
+                        "top5_diagnostics": [
+                            {
+                                "uid": item["uid"],
+                                "score": item["score"],
+                                "chunk_type": item["chunk_type"],
+                                "evidence_type": (
+                                    item.get("metadata", {})
+                                    .get("evidence_classification", {})
+                                    .get("evidence_type")
+                                ),
+                                "support_label": item.get("metadata", {}).get("support_label"),
+                                "topical_relevance_grade": item.get("metadata", {}).get(
+                                    "topical_relevance_grade"
+                                ),
+                                "evidence_quality_prior": item.get("scores", {}).get("evidence_quality_prior"),
+                            }
+                            for item in top5
+                        ],
                         "embedding_provider": embedding_info.get("provider"),
                         "embedding_model": embedding_info.get("model"),
                         "embedding_fallback_reason": embedding_info.get("fallback_reason"),
@@ -438,6 +483,7 @@ class EvaluationService:
                     "vector_weight": config["vector_weight"],
                     "lexical_weight": config["lexical_weight"],
                     "type_boost": bool(config["type_boost"]),
+                    "evidence_quality_prior": bool(config.get("evidence_quality_prior")),
                 }
             )
             strategy_results.append(summary)
@@ -449,6 +495,8 @@ class EvaluationService:
             "evaluation_type": "rag_strategy",
             "dataset": str(path.name),
             "case_count": len(cases),
+            "retrieval_objective": annotation_audit["retrieval_objective"],
+            "annotation_audit": annotation_audit,
             "selected_strategy": selected["strategy"],
             "selection_reason": selected["reason"],
             "selected_metrics": selected_metrics,
@@ -1499,7 +1547,7 @@ class EvaluationService:
                     db,
                     profile.structured_profile_json,
                     job,
-                    match_features=self._fit_decision_features(match),
+                    match_features=self._fit_decision_features(match, job=job),
                 )
             fit_context_compression = suitability.pop("_context_compression", None)
             predicted_label = str(suitability.get("fit_label") or "").strip()
@@ -2279,9 +2327,14 @@ class EvaluationService:
             for skill in group.get("skills", [])
             if str(skill).strip()
         ]
+        # Responsibility skills are role signals, not hard requirements. They
+        # contribute to recall because a technical duty can still describe the
+        # role's core capability, but they must not lower strict precision for
+        # the hard-requirement field.
         parsed_relevant = list(
             dict.fromkeys(parsed_required + parsed_responsibility + parsed_alternatives)
         )
+        parsed_strict_requirements = list(dict.fromkeys(parsed_required + parsed_alternatives))
         parsed_preferred = [str(item) for item in parsed.get("preferred_skills", []) if str(item).strip()]
         parsed_text = json.dumps(parsed, ensure_ascii=False)
         required_hits = self._normalized_hits(parsed_relevant, expected_required)
@@ -2290,7 +2343,7 @@ class EvaluationService:
             {self._normalize_eval_term(item) for item in expected_required},
         )
         required_skill_precision = self._precision(
-            {self._normalize_eval_term(item) for item in parsed_relevant},
+            {self._normalize_eval_term(item) for item in parsed_strict_requirements},
             {self._normalize_eval_term(item) for item in expected_required},
         )
         required_skill_f1 = self._f1(required_skill_precision, required_skill_recall)
@@ -4245,7 +4298,8 @@ class EvaluationService:
         system_prompt = (
             "You are a strict, evidence-grounded job-fit evaluator. Return JSON only. "
             "Use fit_label exactly one of: strong_fit, partial_fit, weak_fit. "
-            "Use only facts present in the candidate profile; never invent experience."
+            "Use only facts present in the candidate profile; never invent experience. "
+            "Judge the role's actual work and requirements, not a keyword count."
         )
         user_prompt = f"""
 Evaluate whether the candidate is suitable for the job.
@@ -4264,9 +4318,13 @@ Rules:
 - strong_fit: candidate has direct evidence for most core requirements and similar delivered project or internship work. Use 85-100.
 - partial_fit: candidate has meaningful overlap, but at least one core requirement is missing or only adjacent. Use 55-84.
 - weak_fit: role is mostly outside candidate evidence, or the profile mostly shows coursework, plans, reading notes or unrelated prototypes. Use 0-54.
-- Binding boundary: if has_related_delivery_evidence=true and matched_required_skill_count>=2, do not use weak_fit merely because several requirements are missing; use partial_fit unless most requirements have direct delivery evidence.
+- First identify the role's central work from the title and responsibility wording. A generic support skill (for example metrics, dashboards, A/B testing or SQL) does not cover a missing central capability such as ranking-model development, CTR modeling or feature engineering. If the central work is absent and the profile explicitly says it was not implemented, the correct label is weak_fit even when adjacent analysis skills are delivered.
+- Do not let the candidate's target-role title or a broad shared technology override the evidence for the role's central work.
+- Binding boundary: only when has_related_delivery_evidence=true, matched_required_skill_count>=2, semantic_similarity>=0.75 and evidence_relevance>=0.50 should weak_fit be avoided; this is a contradiction guard, not a skill-count rule. Adjacent evidence with low role relevance can remain weak_fit.
 - Binding boundary: coursework/planned-learning evidence alone is not related delivery evidence and remains weak_fit.
-- Binding boundary: strong_fit requires required_skill_coverage>=0.67; otherwise use partial_fit or weak_fit.
+- Binding boundary: when requirements_complete=true, strong_fit requires required_skill_coverage>=0.67 and no missing required skill; otherwise use partial_fit or weak_fit.
+- Binding boundary: when requirements_complete=false, the JD may have no separate qualification section. In that case, responsibility_skills and responsibilities are role signals rather than hard requirements. If the candidate has direct shipped evidence for the role's main work, do not treat an empty required_skills list as missing evidence. Use strong_fit only when that direct evidence covers the main work without a material stated gap; otherwise use partial_fit.
+- A stated absence such as "did not implement distributed tracing" is a material gap even when the candidate matches the surrounding observability work, so it should prevent strong_fit.
 - Treat "planned to learn", "read about", "coursework only", "no shipped project" and "did not build" as gaps, not evidence.
 - matched_evidence should cite concrete phrases from the candidate profile.
 - gaps should cite important missing job requirements.
@@ -4325,9 +4383,17 @@ weak_fit=0-54, partial_fit=55-84, strong_fit=85-100.
         result["_context_compression"] = compressed_context.get("context_compression")
         return result
 
-    def _fit_decision_features(self, match: Any) -> dict[str, Any]:
+    def _fit_decision_features(self, match: Any, *, job: Job | None = None) -> dict[str, Any]:
         evidence = list(match.relevant_evidence_json or [])
-        delivery_types = {"shipped_project", "metric_evidence", "adjacent_experience"}
+        delivery_types = {
+            "shipped_project",
+            "metric_evidence",
+            "adjacent_experience",
+            # A mixed chunk can contain a delivered fact and an explicit gap.
+            # It is still delivery evidence for the positive part, but never
+            # licenses the evaluator to ignore the negative part.
+            "mixed_delivery_disclosure",
+        }
         related_delivery = [
             item
             for item in evidence
@@ -4340,6 +4406,9 @@ weak_fit=0-54, partial_fit=55-84, strong_fit=85-100.
             for item in evidence
             if str(item.get("evidence_type") or "") in {"coursework", "planned_learning"}
         ]
+        job_data = (job.structured_jd_json or {}) if job is not None else {}
+        requirements_complete = bool(job_data.get("qualifications"))
+        dimension_scores = dict(match.dimension_scores_json or {})
         return {
             "matched_required_skills": list(match.matched_skills_json or []),
             "missing_required_skills": list(match.missing_skills_json or []),
@@ -4353,6 +4422,11 @@ weak_fit=0-54, partial_fit=55-84, strong_fit=85-100.
             "has_related_delivery_evidence": bool(related_delivery),
             "related_delivery_evidence": [str(item.get("text") or "")[:240] for item in related_delivery[:3]],
             "has_coursework_or_planned_only_evidence": bool(coursework) and not related_delivery,
+            "requirements_complete": requirements_complete,
+            "role_capability_evidence_available": bool(related_delivery),
+            "semantic_similarity": round(float(dimension_scores.get("semantic_similarity") or 0.0) / 100, 4),
+            "evidence_relevance": round(float(dimension_scores.get("evidence_relevance") or 0.0) / 100, 4),
+            "responsibility_signal_count": len(job_data.get("responsibility_skills") or []),
         }
 
     def _fit_output_contract_errors(
@@ -4374,14 +4448,35 @@ weak_fit=0-54, partial_fit=55-84, strong_fit=85-100.
         has_delivery = bool(decision_features.get("has_related_delivery_evidence"))
         coursework_only = bool(decision_features.get("has_coursework_or_planned_only_evidence"))
         required_coverage = float(decision_features.get("required_skill_coverage") or 0.0)
-        if has_delivery and matched_count >= 2 and label == "weak_fit":
-            errors.append("存在相关交付证据且至少匹配两项必需技能，不应判为 weak_fit")
+        requirements_complete = bool(decision_features.get("requirements_complete", True))
+        missing_count = int(decision_features.get("missing_required_skill_count") or 0)
+        role_signal_evidence = bool(decision_features.get("role_capability_evidence_available"))
+        semantic_similarity = float(decision_features.get("semantic_similarity") or 0.0)
+        evidence_relevance = float(decision_features.get("evidence_relevance") or 0.0)
+        if (
+            has_delivery
+            and matched_count >= 2
+            and semantic_similarity >= 0.75
+            and evidence_relevance >= 0.5
+            and label == "weak_fit"
+        ):
+            errors.append("语义和证据相关性均较高且存在多项交付匹配，不应判为 weak_fit")
         if coursework_only and label in {"partial_fit", "strong_fit"}:
             errors.append("只有 coursework/planned-learning 证据，不应判为 partial_fit 或 strong_fit")
-        if label == "strong_fit" and required_coverage < 0.67:
+        if label == "strong_fit" and requirements_complete and required_coverage < 0.67:
             errors.append(
                 f"必需技能覆盖率仅 {required_coverage:.2f}，低于 strong_fit 要求的 0.67"
             )
+        if label == "strong_fit" and requirements_complete and missing_count > 0:
+            errors.append("完整任职要求中仍有未满足的必需技能，不应判为 strong_fit")
+        if (
+            label == "weak_fit"
+            and not requirements_complete
+            and role_signal_evidence
+            and semantic_similarity >= 0.75
+            and evidence_relevance >= 0.5
+        ):
+            errors.append("该 JD 没有独立任职要求章节，但已有直接交付证据和较高语义/证据相关性，不应判为 weak_fit")
         return errors
 
     def _pdf_fixed_window_450(self, pages: list[PDFPageText], *, case_name: str) -> list[TextChunk]:
@@ -4477,6 +4572,7 @@ weak_fit=0-54, partial_fit=55-84, strong_fit=85-100.
         embedding_service: EmbeddingService | None = None,
         reranker: RerankerService | None = None,
         rerank_top_n: int = 20,
+        evidence_quality_prior: bool = False,
     ) -> list[dict[str, Any]]:
         embedder = embedding_service or self.hash_embedding_service
         embedding_batch = embedder.embed_texts([query] + [chunk.text for chunk in chunks])
@@ -4510,7 +4606,58 @@ weak_fit=0-54, partial_fit=55-84, strong_fit=85-100.
         if reranker and reranker.enabled:
             first_stage = ranked[: max(rerank_top_n, 1)]
             ranked = reranker.rerank_dicts(query, first_stage, top_k=len(first_stage)) + ranked[rerank_top_n:]
+        if evidence_quality_prior:
+            for item in ranked:
+                prior, classification = self.evidence_classifier.retrieval_prior(
+                    item["text"],
+                    chunk_type=item.get("chunk_type"),
+                    source=str(item.get("metadata", {}).get("source") or "eval.rag_cases"),
+                )
+                item["score"] = round(float(item["score"]) + prior, 6)
+                item.setdefault("scores", {})["evidence_quality_prior"] = round(prior, 6)
+                item.setdefault("metadata", {})["evidence_classification"] = classification.as_dict()
+            ranked.sort(key=lambda item: item["score"], reverse=True)
         return ranked
+
+    @staticmethod
+    def _audit_rag_annotations(cases: list[dict[str, Any]]) -> dict[str, Any]:
+        """Reject inconsistent qrels before a strategy can publish metrics."""
+        errors: list[str] = []
+        support_counts: dict[str, int] = {}
+        objectives = {str(case.get("retrieval_objective") or "").strip() for case in cases}
+        objectives.discard("")
+        for case in cases:
+            chunks = case.get("evidence_chunks") or []
+            expected_ids = set(case.get("expected_chunk_ids") or [])
+            expected_from_flags = {str(item.get("chunk_id")) for item in chunks if item.get("expected")}
+            if expected_ids != expected_from_flags:
+                errors.append(f"{case.get('name')}: expected_chunk_ids disagree with chunk flags")
+            for item in chunks:
+                label = str(item.get("support_label") or "missing")
+                support_counts[label] = support_counts.get(label, 0) + 1
+                is_supportive = label == "supportive"
+                if label == "missing":
+                    errors.append(f"{case.get('name')}:{item.get('chunk_id')}: support_label is missing")
+                elif bool(item.get("expected")) != is_supportive:
+                    errors.append(
+                        f"{case.get('name')}:{item.get('chunk_id')}: expected flag conflicts with support_label={label}"
+                    )
+                grade = item.get("topical_relevance_grade")
+                if not isinstance(grade, int) or grade < 0 or grade > 3:
+                    errors.append(
+                        f"{case.get('name')}:{item.get('chunk_id')}: topical_relevance_grade must be 0..3"
+                    )
+        if len(objectives) != 1:
+            errors.append(f"dataset must define one retrieval_objective, got {sorted(objectives)}")
+        if errors:
+            raise ValueError("Invalid RAG annotations: " + "; ".join(errors[:12]))
+        return {
+            "passed": True,
+            "case_count": len(cases),
+            "retrieval_objective": next(iter(objectives)),
+            "support_label_counts": support_counts,
+            "consistency_error_count": 0,
+        }
 
     def _summarize_pdf_strategy(self, strategy_name: str, per_query: list[dict[str, Any]]) -> dict[str, Any]:
         count = max(len(per_query), 1)

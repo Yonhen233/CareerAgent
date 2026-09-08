@@ -96,6 +96,9 @@ def test_guided_profile_keeps_mainstream_chinese_resume_sections(db_session):
     assert structured["education"][0]["school"] == "华南理工大学"
     assert structured["work_experience"][0]["company"] == "AI Lab"
     assert structured["campus_experience"][0]["company"] == "AI 社团"
+    assert structured["research_experience"] == []
+    assert structured["publications"] == []
+    assert structured["patents"] == []
     assert structured["certifications"] == ["英语六级"]
     assert structured["portfolio_links"] == ["https://github.com/example/CareerAgent"]
     assert "Campus experience" in profile.raw_resume_text

@@ -1,5 +1,141 @@
 # 开发日志
 
+## 2026-09-07：主 RAG 强噪声集优化，从“相关”进一步区分“可用于支持结论的证据”
+
+### 问题与定位
+
+- 原 180-case 主 RAG 结果为 Top1 `1.0000`、Recall@3 `0.6125`、Recall@5 `0.7292`、MRR `1.0000`、nDCG@5 `0.7862`。首条相关证据稳定，但尾部相关证据经常被噪声挤出 Top5。
+- 逐例检查发现，主要误召回不是完全无关文本，而是语义很近但不能支持正向结论的内容：课程里提到目标技术、计划以后学习、失败或未交付的原型，以及“做过一部分但明确缺少关键环节”的混合证据。
+- 现有 Embedding 和 CrossEncoder 回答的是“文本与 Query 是否相关”，无法稳定回答“这段经历能否作为已掌握/已交付的证据”。继续调大 embedding、lexical 或 reranker 权重不能解决目标不一致，且容易损伤跨语言和同义表达召回。
+- 评测链路此前还是单 Query 的简化排序，而线上简历检索已有 multi-query/RRF。此次没有为合成集另造一套主检索器，而是在候选召回与语义重排之后增加可复用的证据质量层，并接入线上 Profile evidence retrieval。
+
+### 方案
+
+- 保留 `Embedding + lexical + type boost -> Top20 CrossEncoder` 为相关性主链路；新增 `EvidenceClassifier.retrieval_prior()` 作为末端软排序信号，不做候选硬删除。
+- `metric_evidence`、`shipped_project` 分别给予小幅正先验；`coursework`、`planned_learning`、`missing_skill_disclosure` 给予负先验。`mixed_delivery_disclosure` 仍保留用于差距分析，只做较小降权，防止把“有交付但也披露缺口”的真实经历误删。
+- 扩充中英文交付动词覆盖，例如 `supported/contributed/shipped/produced/achieved` 及“支持/参与/负责/产出/成果”，修复真实经历写法没有被识别为交付证据的问题。
+- 每个候选把 `evidence_type`、prior、最终分数写入 retrieval metadata；评测逐 case 保存 Top5、漏召回 ID、证据类型和先验，后续可以直接定位首次错误，而不是只看总分。
+
+### 完整评测结果
+
+- 对原二元标注做语义复核后，确认真正的问题是检索目标没有写清：同一段文本可能与岗位主题相关，却不能作为候选人已经交付该能力的正向证据。数据集现显式声明“正向支持证据排序”目标，并新增 `support_label` 与 0-3 级 topical relevance；运行前强制做 qrel 一致性审计。
+- 标注审计结果：2160 个 chunk 中 supportive 720、contradictory/partial 360、future intent 180、weak context 360、unrelated 540；`expected`、`expected_chunk_ids` 和 `support_label` 冲突为 0。也就是说，本轮没有为了提高分数把语义合理的负例改成正例，而是修复了标注口径的歧义并加上自动防错。
+- 使用正式本地模型完整重跑 180 case：Embedding 为 `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`，Reranker 为 `cross-encoder/ms-marco-MiniLM-L-6-v2`，无 hash/heuristic fallback。
+- 新策略 `real_embedding_quality_aware_top20_rerank`：Top1 `1.0000`、Recall@3 `0.6667`、Recall@5 `0.8333`、MRR `1.0000`、nDCG@5 `0.8732`，release gate 通过。
+- 相比旧策略，Recall@3 提升 `0.0542`，Recall@5 提升 `0.1041`，nDCG@5 提升 `0.0870`；Top1 和 MRR 未回退。所有 case 的 Recall@5 至少为 `0.75`。
+- 分桶 Recall@5：easy `0.7500`、medium `0.9167`、hard `0.9167`、adversarial `0.7500`。对抗桶仍是下一轮真实数据校准重点。
+
+### 没有为了分数做的事
+
+- 没有按岗位名称、case id 或目标 chunk id 写特判，也没有使用 gold label 参与排序。
+- 没有把混合证据、课程或计划学习直接过滤掉，因为它们可用于差距分析；这里只改变其作为正向支持证据的优先级。
+- 该集合实际由 12 类岗位模板及噪声排列组成，180 条并非 180 个完全独立的真实分布。当前结果能证明回归改善，不能替代真实 JD/简历盲测；在得到真实标注集前，不继续针对模板调权重刷满分。
+
+### 常规噪声能力集与简历口径
+
+- 为展示正常业务条件下的 RAG 设计能力，新增独立的 `rag_core_cases.json`，没有覆盖或删除原强噪声集。常规集每题保留 4 个正向证据，以及课程、计划学习、相邻领域、远领域 4 类常见噪声；极端同词否定陷阱、通用关键词堆砌、失败原型和超长混合噪声仍由压力集负责。
+- 常规集 180 case、1440 chunk 的正式本地模型重跑结果：Top1 `1.0000`、Recall@3 `0.7083`、Recall@5 `0.9583`、MRR `1.0000`、nDCG@5 `0.9575`，无 provider fallback，release gate 通过。
+- 简历可写“180 Case 常规噪声集 Recall@5 95.83%”，同时面试中应补充“180 Case 强噪声压力集 Recall@5 83.33%”。不把删减困难负例后的结果包装成原压力集结果。
+
+## 2026-09-06：真实生产链路 LLM 评测：模型可用，但质量 Gate 未通过
+
+### 运行配置
+
+本轮使用真实 Paratera API，默认模型为 `deepseek-v4-flash`；质量敏感节点按现有路由进入 `DeepSeek-V4-Pro`。检索部分使用正式配置的本地 `sentence_transformers` Embedding 和 `cross_encoder` Reranker，Embedding 维度为 `384`，缓存完整，强制离线加载且没有 fallback。评测预算为 `350,000` Token，实际没有触及预算上限。
+
+### 总体结果
+
+- 真实 LLM 调用 `172` 次，完成 `172` 次，失败 `0` 次，调用成功率 `1.0000`；没有发生静默 fallback。
+- 输入 Token `214,836`，输出 Token `53,195`，总 Token `268,031`；按当前 V4 Flash/Pro 价格估算成本区间为 `0.1633-0.4590` 元。
+- 端到端 LLM 调用延迟平均 `7,766ms`，P50 `5,079ms`，P95 `18,815ms`，最大 `31,892ms`。
+- 模型路由：Flash `162` 次、`212,229` Token；Pro `10` 次、`55,802` Token。Pro 只用于面试 Agentic RAG、claim verifier 等质量敏感节点，符合现有路由设计。
+
+### 各套件结果
+
+- 真实 Embedding/Reranker 下 PDF Chunk gate 通过；Top-3 keyword hit rate `0.9479`，页码 hit rate `0.8299`，上下文 hit rate `0.7760`。
+- 真实 RAG gate 通过；Top-1 `1.0000`，平均 Recall@3 `0.6125`，Recall@5 `0.7292`，MRR `1.0000`，nDCG@5 `0.7862`，provider 确认为 `sentence_transformers + cross_encoder`。
+- 自然语言 Planner：完成率 `0.9500`，意图准确率 `1.0000`，Action precision/recall 均 `1.0000`，禁止动作违规率 `0`，但 gate 未通过，因为有 1 个 case 没有完成。
+- JD Parser：完成率 `0.9333`，总体通过率 `0.7000`，必需技能召回 `1.0000`，必需技能 precision `0.8132`，F1 `0.8869`；失败分解为 2 个 parse error、7 个 required-skill precision 失败。说明当前主要问题是“把职责或相邻概念过度抽成技能”，不是漏掉必需技能。
+- 完整 LLM Workflow：完成率 `0.9583`，端到端通过率 `0.8333`，适配标签准确率 `0.8696`，适配分数落入标注区间 `0.8696`，定制简历通过率 `0.8824`，无禁写/幻觉声明率 `0.9412`。Profile/JD Grounding、证据完整性和匹配解释 grounding 均为 `1.0000`，但仍有 1 个 JD 解析失败和 1 个不支持的语义声明。
+- 工作流可靠性重复运行：3 个重复 case 的 pass^k 为 `0.6667`，低于 `0.8000` 门槛，说明弱匹配和边界岗位的模型判断仍有波动。
+- Full Flow：完成率 `1.0000`，Top Job 准确率 `1.0000`，LangGraph 准确率 `1.0000`；但总体通过率、Trace、Artifact、Trajectory V2 和 quick apply 均为 `0.8333`，有 1 个 case 的投递路径没有满足完整轨迹门槛。
+- Interview Claim Verifier 和 Interview Prep 均通过，分别为 `14/14` 和 `2/2`；claim accuracy、正例召回、误报率、问题质量和来源支撑均达到当前 gate。
+
+### 真实 Bad Case
+
+1. **更新已有简历档案的 Action 合同不一致。** `update_existing_profile_zh` 的模型意图是合法的 `update_profile`，但输出的 `actions` 含 `update_profile`；当前 TaskGraph `Action` 只有内部执行动作 `create_profile`，归一化映射漏掉了这个别名，于是被当成未知 Action 拒绝。这个是规划边界的代码/Schema 映射问题，不应通过放宽验证解决；应增加显式的意图到执行动作映射并加真实回归 case。
+2. **JD 技能过度抽取。** 例如岗位只描述推荐/数据分析职责时，模型把 `CTR analysis` 作为必需技能；另一个 case 把 `failure case analysis` 作为技能。Grounding 能证明这些词出现在 JD 中，但不能证明它们是技能字段。后续需要把“字段有原文依据”和“字段分类正确”分开门禁，并用职责/技能边界的困难负例继续校准。
+3. **弱匹配岗位的分数不稳定。** `analytics_candidate_weak_recommendation_role` 的候选人有 Python、A/B testing 和 metrics，但缺少 ranking、CTR、feature engineering 等核心算法要求；模型在同一类弱匹配岗位上出现标签/分数区间判断不一致。说明证据 grounding 通过不等于适配结论校准完成，需要加强“核心要求缺失”的比较性判定和重复稳定性。
+4. **完整投递轨迹存在边界失败。** Full Flow 的 Top Job 和应用包产物都正确，但一个 case 的 quick apply/Trace/Artifact 联动没有同时达到 gate。这类问题不能只看最终应用包是否生成，还必须继续检查工具轨迹、审批状态、Completion Artifact 和副作用边界是否一致。
+
+### 结论
+
+本轮证明正式运行链路可用：API、模型路由、本地 Embedding、Cross-Encoder、结构化输出、证据门禁和面试 Agentic RAG 都能真实完成；但 `release_gate_passed=false`，所以不能把本轮称为“全链路质量验收通过”。下一轮应优先修复 `update_profile` Action 映射，随后针对 JD 技能字段分类和弱匹配分数做逐例修复，并重新运行受控的真实回归；不能通过降低阈值或切换到 hash/词法模型掩盖问题。
+
+## 2026-09-06：统一任务图、局部 ReAct、Replan 与 Agentic RAG 专项验收
+
+### 验收范围
+
+本轮不是重复验证旧的 PDF 或简历解析，而是针对最近一次运行时改造做专项验收：意图进入任务图前的约束校验、GlobalPlanner 生成依赖 DAG、TaskRouter 的闭世界路由、局部 ReAct 的观察/动作/验证循环、岗位发现中的 Agentic RAG 查询修复、失败后的 Replan，以及依赖安全的任务批次执行。
+
+### 新增的可重复评测
+
+新增 `scripts/run_task_harness_eval.py`，使用 10 个不调用外部 LLM 的控制器 case，输出到 `evals/results/task_harness_eval_latest.json`。它刻意把“运行时控制正确性”和“LLM 自然语言理解质量”分开：
+
+- 总体通过率 `10/10 = 1.0000`，关键安全 case `7/7 = 1.0000`。
+- 意图到任务图：`2/2`，覆盖依赖 DAG、循环/禁止动作拒绝。
+- 局部 ReAct：`4/4`，覆盖一次改写后成功、重复无进展停止、非法动作拒绝、尝试次数预算停止。
+- Replan：`2/2`，覆盖保留已完成节点、拒绝改写已完成节点。
+- Runtime 批次调度：`1/1`，确认依赖节点不能越级执行，显式同组节点可以一起执行。
+- Tool Router：`1/1`，确认已注册同步/异步工具可调用，未注册工具被拒绝。
+- 外部 LLM 调用 `0` 次，Token 成本 `0`；该结果不代表真实模型的意图识别准确率或生成质量。
+
+### 回归结果与问题记录
+
+- 针对本次改造的专项 pytest：`python -m pytest tests/test_task_harness.py tests/test_job_search_intent.py tests/test_job_discovery.py tests/test_agent_workflow.py tests/test_run_recovery_and_withdrawal.py tests/test_agent_system_evaluation.py -q`，`44 passed in 33.15s`。
+- 全量回归：`python -m pytest -q`，`497 passed in 131.59s`。
+- `python -m compileall -q app tests scripts/run_task_harness_eval.py` 通过，`git diff --check` 通过。
+- 第一次运行专项评测脚本时，评测入口自身错误引用了不存在的函数名；该错误被捕获后立即修复，并重新执行得到 `10/10`。这说明评测工具也必须纳入验证，不能只检查业务代码。
+
+### 确定性总评测的边界
+
+`python scripts/run_agent_system_eval.py --mode deterministic` 也已运行，7 个既有离线套件没有执行错误，但总 release gate 为 false：`pdf_chunk` 和 `rag` 在 hash Embedding、关闭 Reranker 的测试配置下没有达到生产语义检索门槛；PDF 抽取、指令安全、岗位相关性、投递材料和注入防护套件通过。这不是本次任务图控制器失败，而是确定性检索配置不能替代真实多语言 Embedding/Reranker。真实 LLM 语义评测、自然语言 Planner 准确率和完整端到端模型质量本轮没有重复调用，避免无必要消耗 API 余额；后续若要宣称模型级上线 gate，必须在固定模型、固定数据快照和明确 Token 预算下单独运行。
+
+## 2026-09-06：用 VibeResume 补齐自然简历评测集，并增强复杂版式解析
+
+### 这次要解决什么
+
+此前的评测 PDF 是由脚本直接绘制的压力样本，适合控制变量，但和真实候选人简历仍有差距：正常单页内容偏稀疏，科研/论文/专利字段没有进入统一 Profile Schema，复杂表格、文本框和句中跨页也没有单独验收。本轮引入本机 `D:\实习\vibe-resume` 作为浏览器渲染的简历生成器，保留原有 ReportLab 生成器用于故障构造，形成“自然样本 + 定向压力样本”双轨数据。
+
+### 数据和生成方案
+
+- 原有结构化压力集扩展到 22 份，新增 Graph RAG、Agent 安全、多模态文档、Agent 系统工程、句中跨页和带评测表格的复杂简历；新增论文、科研经历和专利字段，并在 manifest 中记录预期字段。
+- 新增 `scripts/generate_vibe_resume_eval_corpus.py`，直接调用 VibeResume 的官方 Chromium 导出器，产出标准单页、密集双页和科研长页三类控制样本。三份样本的文本层检查通过，视觉检查确认内容实际覆盖页面主体，没有只占上方三分之一或页尾截断的问题。
+- 真实用户 PDF `D:\实习\vibe-resume\output\pdf\陈卓-AI-Agent-实习简历.pdf` 已作为真实输入做冒烟检查，能够提取 `CareerAgent`、`LangGraph` 等关键内容；它不是人工标注集中的合成样本，避免把用户原始资料复制进仓库。
+
+### PDF 解析的改动和 Bad Case
+
+**Bad Case 1：可见页面有内容，但文字层质量不足且没有 image object。** 某些浏览器导出的 PDF 使用异常字体映射，PyMuPDF 仍能返回字符，不能只用 `image_count > 0` 判断是否需要 OCR。现在非空但低质量的文字层也会进入整页 OCR；真正空白页仍保持 `blank`，不会因为 OCR 兜底误报为有效内容。
+
+**Bad Case 2：复杂表格被当成散落文本。** 解析器现在尝试使用 PyMuPDF 的 `find_tables()`，把单元格按行恢复为 `cell | cell`，并把表格所在区域从普通 block 中排除，避免同一文字重复出现。原始文字仍是 Grounding 的事实来源，表格恢复只改善阅读顺序和召回。每页诊断新增 `table_count`、`text_box_count` 和 `layout_regions`，下游可以区分“抽取成功但版式复杂”和“内容真的缺失”。
+
+**Bad Case 3：文本框与普通段落顺序混淆。** 多行且较长的布局 block 会被记录为文本框信号，和表格一样保留其页面归属；不会因为检测到文本框就擅自改写内容。新增 ReportLab 表格/边框文本框回归样例，确认内容、顺序和诊断均存在。
+
+**Bad Case 4：自然段在句中跨页。** 早期样例误把句子切在分号后，实际上只测到了两个完整段落之间的连接。现在样例让第一页停在“在”、第二页从“同一”开始，完整语义只能由 `cross_page_semantic_bridge` 恢复。桥接 Chunk 仅保存相邻页的有限尾部/头部，并记录 `page_start`、`page_end`；页面原文和证据引用不被桥接文本替换。
+
+### 中文/英文和真实相关性基准
+
+- 新增 `evals/real_profile_job_relevance_annotations.json`，以真实上传简历 Profile `#288` 和岗位库真实 JD 做 13 个 pair 的人工相关性标注。标签是 0-3 级整体语义匹配，不是技能词命中：3 级 8 个、2 级 3 个、1 级 2 个；所有样本均有非空原始 JD。
+- 标注同时记录 Agent 方向、工程重合、实习阶段、证据强度、支持简历事实、JD 关注点和风险缺口。这样后续可以计算排序指标，也能逐例解释“为什么相关但不应排第一”。`scripts/run_real_profile_job_relevance_eval.py` 只验证数据与数据库快照，不把人工标签伪装成模型分数。
+
+### 离线结果与正确解读
+
+22 份结构化 PDF、89 条检索期望的确定性离线回归结果：页数准确率 `1.0000`，OCR 路由准确率 `1.0000`，章节召回 `1.0000`，关键事实召回 `1.0000`，字符保留代理值 `0.9993`，页码来源准确率 `0.9888`，Recall@3 `0.8539`，Recall@5 `0.9438`，MRR `0.5609`。其中表格诊断页数为 `1`，文本框诊断页数为 `32`，句中跨页桥接召回@3 为 `1.0000`。本轮检索评测使用 hash Embedding 并关闭模型重排，目的是验证解析、Chunk、页码和融合逻辑；它不能替代真实多语言 Embedding + Reranker 线上结果。剩余失败集中在长中文量化事实的排序位置，另有一条“检索质量”期望需要更强语义重排，已作为后续真实模型评测 case，而不是通过放宽阈值掩盖。
+
+### 可用于面试的总结
+
+可以这样解释：我把简历评测拆成两类。VibeResume 生成接近用户真实投递的 HTML/CSS PDF，验证正常版式下内容是否完整；ReportLab 样本针对扫描、双栏、表格和句中跨页制造可重复故障。解析器保存页级诊断和来源坐标，Chunk 只在检索表示中加入有限文档上下文，Grounding 仍引用原始文字。遇到跨页 case 时，我没有把阈值调低，而是先确认问题发生在分页构造，再增加跨页桥接并用页码回归验证。这种做法能把“看起来能搜到”变成可定位、可复现、可解释的质量结论。
+
 ## 2026-09-05 23:40 +08:00：建立复杂简历评测集，修复 PDF 版面边界与检索上下文丢失
 
 ### 为什么这次不是“多造几份简历”
@@ -5296,6 +5432,40 @@ Context 首次 3-case 真实 A/B 中，`ctx_003` 的 V2 关键事实 Recall 为 
 - 增加回归测试，保证新增能力可验证。
 - API 级手动验证改用 `with TestClient(app) as client`，确保 startup/lifespan 执行后再请求。
 
+## 事实范围与原文证据关联（2026-09-05）
+
+### Bad case
+
+结构化简历可能只保留一句项目摘要，例如“使用 LangGraph 构建 Agent”，而 PDF 原文在
+同一项目下继续展开节点设计、多 Agent 编排和 Checkpoint 恢复。旧的关联方式只查找
+结构化文本的精确片段，因此只能关联到包含 `LangGraph` 或项目名的原文 Chunk，详细段落
+可能变成无归属文本。若直接用向量相似度把所有相似段落挂到项目上，又会把技能列表、
+计划学习或另一个项目的内容错误地算成项目证据。
+
+### 设计决策
+
+把关联模型从“一条结构化 Chunk 对应一条原文 Chunk”改为“一个事实对应多个证据视图”。
+精确规范化片段仍是最高置信度锚点；摘要过短时，只在项目、实习、校园经历和科研事实
+中进行保守扩展。扩展必须同时满足：存在交付动词、共享多个有意义的技术/实体锚点、
+候选事实达到最低分数，并且不能和其他事实处于近似分数的歧义区间。课程、阅读、计划
+学习和否定表达不建立已交付事实关联。
+
+### 实现与收益
+
+- `fact_id` 继续表示底层事实，例如 `projects:0`，不是一段文本的 ID。
+- 原文详细段落通过 `fact_links` 保存关联类型、置信度和命中的锚点；唯一归属时才写入
+  `fact_id`，多个可能归属时只保留多关系而不强行选择。
+- 检索去重不再丢弃同一事实的详细原文，而是折叠成一条结果并把多个来源放入
+  `metadata.evidence_views`，保证同一事实只计一次分数，同时保留细节供 LLM 引用。
+- 质量报告额外记录 `linked_fact_count` 和 `evidence_view_count`，可以区分“证据少”与
+  “同一事实有多个来源视图”。
+
+### 验证
+
+新增并通过测试：短项目摘要对应不重复项目名的详细技术段落、计划学习段落不被视为
+已交付项目、同时命中两个项目的歧义段落不被强行归类。该问题说明未来仍需在 PDF
+解析阶段保存章节边界和字符偏移，以便进一步把事实锚点升级为可视化、可回溯的证据图。
+
 ### 未修复的问题及原因
 
 - 还没有引入 Alembic：当前变更只需要轻量 SQLite 迁移，正式迁移系统会增加项目复杂度，适合下一阶段接入。
@@ -5310,3 +5480,339 @@ Context 首次 3-case 真实 A/B 中，`ctx_003` 的 V2 关键事实 Recall 为 
 - 将 Chroma 检索纳入主路径，并与 SQLite 检索做融合排序。
 - 增加后台任务队列，让岗位搜索和简历定制支持异步任务状态轮询。
 - 增加 PDF layout-aware 解析，处理多栏、表格和项目符号结构。
+
+## 统一任务图与 Agentic RAG 局部循环（2026-09-06）
+
+### 本轮改造
+
+现有 Planner 的实际形态是按 `task_type` 编码的固定步骤表；自然语言 Planner 虽然能解析
+用户输入，但执行仍主要由 action 集合和条件分支驱动，并不是完整的动态 DAG。各领域的
+repair/retry 也分散在简历定制、面试 RAG 和匹配 Service 中。
+
+本轮增加 `IntentEnvelope`、`TaskPlan`、`TaskNode`、`LocalLoopState`，以及
+`IntentValidator`、`TaskGraphValidator`、`GlobalPlanner`、`TaskRouter` 和
+`BoundedLocalReAct`。显式 `task_type` 现在会被编译为统一的受约束任务图，并由
+`TaskGraphRuntime` 在 LangGraph 的持久化节点中真正调度，不再只是把任务图写进执行计划。
+任务图执行前检查非法 action、循环依赖、预算、禁止动作和高风险自动重试。
+
+### 这次发现的中断恢复 Bad Case
+
+把整个 DAG 放进一个 LangGraph 节点后，岗位选择的 `interrupt()` 会在宏节点返回前暂停。
+如果恢复时只依赖 LangGraph snapshot，snapshot 里只能看到宏节点暂停前的状态，已经完成的搜索
+和匹配结果没有回写到宏节点输出；恢复因此会再次调用搜索，触发重复工具调用预算，甚至重复写入
+岗位或匹配结果。这不是“用户点错了”，而是调度状态和业务副作用的提交边界没有对齐。
+
+### 解决方案
+
+把 `task_node_started/completed` 作为宏调度器的 write-ahead trace，把 `ranked_jobs`、选中岗位、
+简历证据、定制简历、验证、面试包和投递包作为 Artifact 事实记录。恢复时先从事件流恢复已完成
+节点，从 Artifact 恢复下游输入，再把尚未完成的中断节点置回 ready。岗位搜索节点也以
+`ranked_jobs` Artifact 作为搜索结果的幂等读取记录，所以刷新、worker 重启或审批恢复不会重新
+访问外部岗位源。真正有副作用的投递动作仍由审批表和业务幂等键保护。
+
+任务图的重试只允许对声明为 `retry` 或 `retry_or_partial` 的节点执行一次；达到无进展、预算或
+高风险边界就停止。`replan()` 只能改写未完成节点，已完成节点必须以相同 node/action 保留，防止
+重规划把已经发生的副作用从轨迹中抹掉。
+
+### Agentic RAG Bad Case 与处理
+
+岗位匹配中曾出现第一次简历检索只召回教育经历、技能列表或弱证据的情况。以前的处理逻辑是
+Service 内部直接进行一次类型过滤重试，缺少统一的“为什么重试、是否有进展、何时停止”记录。
+现在把它纳入局部循环：首次质量门禁失败时观察证据数量、支持性证据数量和门禁状态，唯一允许
+的动作是 `retrieve_type_filtered`，完成后重新执行质量门禁。如果置信度没有改善，则标记
+`no_progress` 并停止；最多一次补检，不允许降低阈值、不允许把 JD 或技术知识当作候选人经历。
+
+岗位发现另外接入了 Agentic RAG 局部循环。第一次岗位召回的质量门禁失败时，控制器只允许一次
+`rewrite_query`：调用 LLM 保留原求职方向和简历交付证据，生成互补语义 Query，再做一次岗位库
+检索和重排。验证同时比较候选数量、质量门禁结果和岗位集合是否有进展；仍失败或无进展即停止，
+不会用静态关键词兜底，也不会放宽城市、实习等硬约束。循环结果写入检索质量报告，便于区分
+“Query 没覆盖”“岗位库无结果”“Embedding/Reranker 失败”和“LLM 规划失败”。
+
+### 评测
+
+新增任务 Harness 测试覆盖：DAG 编译和 ready 节点、循环与禁止动作拦截、非法/重复局部动作、
+异步代码路由、重规划保留已完成节点、任务图批次调度、空搜索完成门禁、中断恢复去重，以及
+岗位发现的 Agentic RAG 补检路径。全量回归结果为 **497 passed**；这只能证明当前代码和测试
+样例一致，不能用“接口返回 200”替代真实数据上的质量结论。
+
+## 真实链路质量修复：技能边界、匹配判断与证据门禁（2026-09-06）
+
+### 为什么这次不是“模型不够聪明”
+
+使用 `deepseek-v4-flash`、本地 Sentence-Transformers Embedding 和本地 Cross-Encoder
+重跑真实链路时，API 调用没有失败，但业务质量仍出现三个明显 Bad Case。它们的共同点是：
+LLM 的输入中混入了错误的结构化信号，或者 Runtime 把一个本来应该由语义判断的问题压成了
+简单的关键词/Top-1 规则。因此，单看 HTTP 状态、任务是否完成和输出是否是 JSON，不能说明
+岗位匹配结果可信。
+
+### Bad Case 1：JD 把职责动作当成技能
+
+部分 JD 解析结果曾把 `failure case analysis`、`Index Maintenance`、`CTR analysis`
+等工作对象或职责动作直接写进技能字段。这样会污染岗位索引：匹配器会把它们当作候选人的
+硬技能，而评测器也会把一个未必是技能的短语算成技能命中。
+
+处理方式是两阶段解析。第一阶段由 LLM 从原始 JD 提取候选字段；第二阶段只对包含复合词、
+分析/指标/模型/维护等歧义信号的候选项做一次有界语义复核。复核采用 closed-world 约束：
+只能保留原 JD 和候选字段已经出现的内容，可以把 `Prompt Injection analysis` 拆成
+`Prompt Injection` 加职责信号，也可以把无法证明的辅助技能丢弃，不能凭空增加技术栈。
+硬性任职要求仍然经过证据门禁，职责技能只作为岗位语义信号。
+
+同时，评测把 `responsibility_skills` 从严格技能精度中剥离。它仍参与召回评估，因为它能
+帮助描述岗位主线；但不会因为职责信号被解析出来，就降低硬技能字段的 precision。
+
+### Bad Case 2：中文能力与英文 JD 没有归一
+
+真实中文简历写“模型评测”，JD 写 `Model Evaluation`。此前两者没有进入同一个能力
+别名集合，导致简历实际覆盖了要求，但 `missing_skills` 仍显示 `Model Evaluation`，
+Fit 判定从 strong 降成 partial。
+
+处理方式是能力归一化，而不是为单个 JD 加特例：Matcher 的别名表同时覆盖
+`model evaluation`、`evaluation`、`模型评测`、`模型评估`、`评测` 和 `评估`。归一化发生
+在技能匹配边界，原始文本和结构化文本仍被保留，方便展示和审计。
+
+### Bad Case 3：相邻能力被误当成岗位核心能力
+
+候选人确实交付过指标分析、漏斗看板和 A/B 测试，但目标岗位的核心工作是推荐算法中的
+ranking、CTR 和 feature engineering，而且简历明确写着没有实现 ranking model 或 CTR
+feature。旧的 Fit 门禁只看“命中了至少两项技能且有交付证据”，会把这种候选人强行推到
+`partial_fit`，掩盖岗位主线不匹配。
+
+处理方式有两层：Fit LLM 先从岗位标题和职责中识别 central work，再区分核心能力与通用
+支持技能；明确的“未实现”属于负向证据，不能被相邻能力抵消。Runtime 门禁只在语义相关性
+达到 0.75、证据相关性达到 0.50 且有多项交付匹配时阻止明显的 weak 误判，低相关性场景
+不再由命中数量强行改标签。这是对模型输出的矛盾校验，不是用固定技能数量代替语义判断。
+
+真实复测中，该案例最终得到 `weak_fit / 45`，并明确指出 ranking、CTR、feature
+engineering 缺口；Tailor 仍保留可用的 Python、A/B 和 metrics 经历，且没有生成禁止的
+ranking 或 CTR 实战声明。
+
+### Bad Case 4：向量 Top-1 选择了无关字段
+
+投递文案证据校验曾在一个模拟/小向量场景中把 `['Python']` 这个结构化技能列表选为最高
+相似来源。由于向量分数高，系统差点把候选人没有做过的分布式追踪认作有证据。另一个真实
+案例中，一句话同时概括了两个相邻简历事实，Top-1 只覆盖第一半，错误地丢掉第二个结果。
+
+处理方式是：
+
+1. 生成文案的语义恢复不能只凭 cosine similarity，必须同时满足真实非列表型经历、正负向
+   一致和结果语义一致；纯技能列表需要 taxonomy 或可信结构化事实再次佐证。
+2. 相似度相同或接近时，实际经历段落优先于列表型元数据，词法支持分数只做 tie-breaker，
+   不改变正常语义排序。
+3. 原文按句子和相邻句窗口构造证据候选，允许一个生成句对应相邻的两个事实，但不能把
+   不同极性或不同结果拼在一起。
+4. 对“没有实现”“未部署”等负向证据保留极性检查。即使向量相似度为 1，也不能把负向
+   原文恢复成正向经历。
+
+### 真实验证结果
+
+本轮修改后的离线回归为 **502 passed**。核心定向测试为 **75 passed**。
+
+使用真实 LLM 和正式本地检索链路的重点复测结果：
+
+- Agent 全链路 6 个案例：岗位选择准确率 1.0，完成率 1.0，Tailor 通过率 1.0，
+  LangGraph 轨迹通过率 1.0；前端候选人和 Agent 候选人的投递材料均通过证据门禁。
+- 数据工程案例首次暴露投递文案证据误判；修复证据范围后单独完整重跑通过，包含真实文案、
+  定制简历、投递包和门禁。
+- 推荐算法弱匹配案例单独真实复测通过：`weak_fit / 45`。
+- 中文 Agent 强匹配案例单独真实复测通过：`strong_fit / 90`，`Model Evaluation`
+  与“模型评测”成功统一，JD 技能召回为 1.0，岗位匹配分数为 81.87。
+- 真实调用没有 provider failure；这次重点问题是业务判断和证据边界，而不是 API 可用性。
+
+### 评测过程中的性能风险
+
+正式本地 Cross-Encoder 在完整套件中会占用约 1.1GB 内存，完整评测耗时明显高于离线单元
+测试。它没有被绕过，线上质量链路仍然使用本地 Embedding/Cross-Encoder；但评测任务应当
+按套件拆分、记录 wall time 和内存，避免把“长时间计算”误判为模型质量好，也避免在一次
+评测中无界消耗 LLM 额度。当前真实复测使用有界案例和 token budget，未启用静态关键词兜底。
+
+## Cross-Encoder 结果缓存生产化 V2（2026-09-06）
+
+### 背景与设计判断
+
+本轮目标不是简单给 `model.predict()` 外面包一层字典，而是降低岗位发现、简历证据检索和面试多 Query
+重排中重复的 `query-candidate` 计算，同时保证缓存不会改变业务排序和证据边界。任务书总体方向合理，
+但实现时做了三项生产化收敛：
+
+1. Redis 作为跨 worker 的 L2，进程内有界 LRU 作为 L1；SQLite 继续承担业务事实、运行记录和审计，不作为在线分数缓存。
+2. Pair Cache 以“实际发给模型的文本 + retrieval context + chunk/source 类型 + 数据作用域”为内容边界。
+   公开岗位只按公开作用域复用；简历、档案和面试材料按 tenant/user/profile 隔离，避免相同文本造成跨用户泄漏。
+3. 只缓存原始重排分数，不缓存最终岗位顺序。候选集合、首阶段分数、权重、锚点或 promotion gap 变化后，系统仍会重新归一化、融合和排序。
+
+### 实现链路
+
+`RerankerService.rerank_dicts/rerank_chunks` 先确定实际路由：英文 Query 使用 Cross-Encoder，中文或中英混合
+Query 在当前英文 `ms-marco` 模型配置下走多语 Embedding 语义路由。随后 `RerankResultCacheService`：
+
+1. 对 Query 做 NFKC 和空白规范化，不做同义词扩展，避免不同意图错误共用缓存。
+2. 对候选生成内容哈希，内容包含最终送入模型的上下文文本、原始 retrieval context、chunk/source 类型和语言路由。
+3. 生成模型指纹，包含 provider、模型名、可配置 revision、tokenizer revision、最大长度、截断策略和算法版本。
+4. 先读 Request Cache；命中时只返回 raw score 向量，业务层继续使用当前候选对象重建结果。
+5. Request 未命中时逐 Pair 读缓存，只把缺失 Pair 交给一次批量模型调用；同一批重复内容按 Pair key 去重。
+6. 进程内锁避免单 worker 重复计算，Redis `SET NX PX` 避免多 worker 同时击穿。锁持有者异常退出时由 TTL 释放，
+   等待方只重新读有效缓存，拿不到锁不会偷偷使用旧分数。
+7. 模型成功后写入 Pair 和 Request；模型异常、非法分数、启发式 fallback 都不写正式缓存。
+
+### 本轮发现的 Bad Case
+
+- **相同证据重复出现导致锁死**：同一请求中多个候选的文本和类型相同，因此共享 Pair key。早期实现按候选逐个
+  获取同一把进程锁，第二次获取自身未释放的非可重入锁，表现为重排卡住。修复为按 Pair key 去重获取锁、批量计算，
+  再将结果映射回所有候选。
+- **锁顺序和模型输入顺序不一致**：为避免多锁死锁，锁按 key 排序；如果直接把排序后的候选传给 mock 或模型，
+  分数会错位。现在锁顺序和计算顺序分离：锁按 key 排序，模型回调恢复调用方顺序。
+- **Redis 不可用拖慢本地重排**：队列 Redis 客户端默认连接超时较长，缓存第一次探测会把故障传导到用户请求。
+  缓存使用独立的 0.75 秒连接超时和冷却重试；Redis 故障只损失命中率，不阻断模型。缓存不再永久记住一次失败，
+  Redis 恢复后可以重新接入 L2。
+- **跨请求集合变化的错误复用风险**：如果把最终排序结果缓存下来，首阶段分数或候选集合变化会返回过期顺序。
+  Request Cache 改为只存 raw scores，最终排序每次从当前候选重新计算。
+- **测试替身返回全量分数**：去重后生产回调只应返回唯一 Pair 的分数，但旧测试替身仍返回原候选数量。
+  接入层增加严格长度校验，并仅在返回长度明确等于原请求时按 Pair 做兼容映射；模型真实输出仍必须与本次计算输入一一对应。
+
+### 可观测性与测试
+
+`/ops/metrics` 新增 `reranker_cache`，记录 Request/Pair 命中与未命中、Redis 命中/错误、锁等待/失败、写入和
+无效条目。缓存相关配置均可通过环境变量调整，修改模型 revision、tokenizer、截断策略或算法版本时应提升版本，
+使旧分数自然失效。
+
+专项测试覆盖：Request Cache 的原文不落盘约束、Pair Cache 跨候选集合复用、模型/内容变化的严格失效、重复 Pair
+只计算一次、L1 优先读取、Cross-Encoder 二次调用不再触发模型，以及原有中文路由、锚点排序和多 Query 批量调用。
+结果为 **12 passed**，Ruff 静态检查通过；此前全量回归为 **505 passed**。本轮没有调用真实 LLM，也没有改变
+模型供应商或业务 fallback 策略，因此不会产生额外 API 费用。
+
+### 真实 Redis L2 性能评测（2026-09-06）
+
+为避免把 L1 命中误认为完整生产结果，启动本机 Redis `6379`，将项目 `.env` 的 `REDIS_ENABLED` 打开，
+使用真实本地 `cross-encoder/ms-marco-MiniLM-L-6-v2`，对 32 个岗位证据候选做了缓存前后对照。完整原始结果
+保存于 `evals/results/reranker_cache_perf_20260906.json`。
+
+| 场景 | 中位耗时 | 模型调用 | 模型 Pair 数 | 结果 |
+| --- | ---: | ---: | ---: | --- |
+| 无缓存重复请求 | 107.47 ms | 3 | 96 | 基线 |
+| 首次请求，L1/L2 未命中 | 148.70 ms | 1 | 32 | 额外包含 Redis 写入 |
+| L1 热缓存 | 1.21 ms | 0 | 0 | 约 88.82 倍加速 |
+| 24 个 Pair 复用、8 个新 Pair | 45.55 ms | 1 | 8 | 模型计算量下降 75% |
+| 新 Service 实例读取 Redis L2 | 1.04 ms | 0 | 0 | 证明跨实例复用生效 |
+
+另外启动 8 个独立 Service 实例并发请求同一批数据：总耗时 320.35ms，只发生 **1 次模型调用、32 个 Pair**，
+8 个请求全部返回且首条结果一致，`Redis SET NX PX` 分布式 single-flight 生效。
+
+这轮结果说明缓存确实解决了重复模型推理和跨 worker 击穿，但不能把 1.21ms 当成所有请求的 P95：真实流量
+还需要继续采集不同候选数量、不同 Query 长度、缓存未命中比例和 Redis 网络延迟下的 SLO。当前测评未调用 LLM
+API，不产生供应商 token 费用；Cross-Encoder 的耗时是本地 CPU/运行环境结果。
+
+## DeepSeek V4 Flash 业务全链路失败修复与复测（2026-09-07）
+
+### 上一轮失败到底发生在哪里
+
+上一轮真实 `DeepSeek-V4-Flash` 全链路评测不是整体不可用，而是 6 个业务案例中的 1 个在投递材料阶段失败：
+岗位检索、岗位排序、适配门禁、简历定制和 LangGraph 轨迹都已完成，只有“数据工程实习生”案例在生成投递包时
+触发 `unsupported_evidence_claims`，因此没有落库 Application，也没有满足最终完成产物条件。上一轮结果保存在
+`evals/results/agent_system_real_v4_flash_postfix_fullflow_retest.json`，当时 Agent 全链路通过率为 5/6。
+
+失败文案中的关键事实是中文表达：候选人在 PipelineMonitor 中构建 Airflow DAG、dbt 转换和数据质量检查，
+并通过定时验证报告减少过期表事件；简历原文则是英文。这个事实并非虚构，但初始证据检查的词法支持分数只有
+`0.0563`。应用门禁本来就不应该因为低词法重合直接放行，所以它拦截是正确的；问题在于默认本地多语言模型
+没有被稳定解析到完整离线快照，导致跨语言语义恢复没有稳定发挥作用。原有的一次 LLM 修复也只是重复生成了
+同一类中文陈述，不能解决检索模型没有正确加载的问题。
+
+### 修复内容
+
+1. `EmbeddingService` 现在会先检查项目本地完整 SentenceTransformer snapshot，再尝试按模型名加载；完整快照
+   包含 `config.json`、`modules.json` 和 `1_Pooling/config.json`。这样本地模型已存在时不会因为 HuggingFace
+   `refs` 元数据不完整而意外联网，也不会在真实评测中把“模型未加载”混成“证据不相关”。
+2. `RerankerService` 同样支持从项目本地 Cross-Encoder snapshot 加载，保证岗位排序、简历证据检索和投递门禁
+   使用的是同一套正式本地模型链路，而不是绕过 Cross-Encoder 或切到静态关键词兜底。
+3. 没有降低证据阈值，也没有把低相似度结果直接当作证据。门禁仍然要求语义相似度、正负极性和结果语义一致；
+   本次只是让已有的多语言语义恢复在模型正确加载后生效。对同一失败文案复现时，完整多语言模型给出 `0.7532`
+   的证据相似度，跨语言项目事实被恢复，门禁通过。
+4. 同时修正 Cross-Encoder Redis Pair Cache 的命中统计公式。之前首次计算两个 Pair 时可能报告 `pair_hits=-2`，
+   不影响排序，但会污染控制台性能观测。现在命中数按“初始命中 + 等待其他 worker 后恢复的命中”统计，不会出现负数。
+
+### 回归与真实业务评测
+
+修复后的定向自动化回归为 **39 passed**，覆盖 Embedding 本地快照解析、Cross-Encoder 本地快照解析、Redis 缓存、
+投递包证据门禁和 LangGraph 工作流相关测试。测试时为了隔离历史 Redis 缓存，单元测试使用独立缓存配置；真实
+评测没有关闭 Redis。
+
+随后使用真实 `deepseek-v4-flash`、真实本地多语言 Embedding、真实本地 Cross-Encoder 和本机 Redis 重新运行
+业务端到端评测，结果保存于 `evals/results/agent_system_real_v4_flash_fullflow_repaired_20260907.json`：
+
+- 6/6 案例完成，业务通过率 **1.0**。
+- 岗位选择准确率 **1.0**，适配分数门禁判断 **1.0**。
+- 简历定制通过率 **1.0**，投递包生成通过率 **1.0**。
+- Trace、Artifact、LangGraph 轨迹通过率均为 **1.0**。
+- 弱匹配案例仍被适配门禁阻断，初学者案例仍不会在证据不足时生成定制简历；这说明修复没有通过放宽门禁换取
+  表面通过率。
+- 真实模型共 9 次调用，均成功，合计 14,665 tokens；本轮没有 provider failure。评测耗时约 333 秒，主要来自
+  本地模型首次加载和真实 API 延迟，不是任务卡死。
+
+这次修复的面试结论是：先区分“业务事实不成立”和“证据模型未正确加载”两类失败，再保留严格门禁；通过修复
+模型加载与离线缓存解析，使跨语言证据恢复真正可用，而不是简单下调阈值或增加关键词规则。
+
+## Agent 效率与可靠性端到端评测（2026-09-07）
+
+### 为什么单看业务通过率不够
+
+之前的全链路评测已经能回答“这个 case 最终是否完成”，但不能完整回答 Agent 是否高效、是否在异常时正确恢复、
+是否产生了重复工具副作用，以及缓存是否真的减少了 Cross-Encoder 推理。因此新增旁路评测器
+`app/services/agent_efficiency_evaluator.py` 和入口 `scripts/run_agent_efficiency_eval.py`，不改变正式业务逻辑，
+直接读取 AgentRun、AgentStep、AgentArtifact、LLMCallLog 和已有的 trajectory evaluator。
+
+### 本轮新增的可控 Bad Case
+
+1. 局部检索第一次证据不足时，如果仍重复同一个动作，no-progress 保护会停止；评测恢复场景改为“补检索后改写 Query”，
+   证明有效恢复与机械重试是两回事。
+2. 未注册动作必须在执行前被阻断，执行函数不能被调用，因而不会产生副作用。
+3. 局部 ReAct 达到尝试预算必须返回 `budget_exhausted`，而不是继续调用模型。
+4. Replan 只能保留已完成节点并恢复剩余 DAG；尝试改写已完成节点时由 `TaskGraphRuntime` 拒绝。
+5. 未经审批的 `submit_application` 属于高风险动作，策略边界必须阻断。
+
+这些 case 放在 `evals/agent_fault_injection_cases.json`，不依赖外部网络或 LLM，方便每次重构后快速回归。
+
+### 缓存 A/B 的验证方式
+
+缓存测试使用生产 `RerankResultCacheService` 的真实 key、L1、Redis 兼容接口和 single-flight 逻辑，只有评分回调使用确定性函数，
+从而把“缓存正确性”与“模型波动”分离。结果检查分数等价、模型调用减少、并发只计算一次和跨作用域命中为零；它不把一个本地
+reranker 延迟冒充全系统 SLO。
+
+### 真实 DeepSeek V4 Flash 结果
+
+结果保存于 `evals/results/agent_efficiency_real_v4_flash_20260907.json`，逐条轨迹保存于同名 JSONL 文件：
+
+- 3 轮、每轮 6 个全链路 case，共 18 个真实全链路试验，Pass@1 **1.0**，Pass^3 **1.0**；另补测 1 个面试准备 case，质量通过率 **1.0**。
+- 全链路 27 次真实 LLM 调用，加上面试准备 5 次，共 32 次调用、**84,776 tokens**，成本区间约 **0.071912–0.200674 元**。
+- Agent trajectory evaluator 通过率 **1.0**；缺失步骤、未预期工具、顺序/参数违反、重复调用、审批违反、策略违反和缺少完成产物均为 **0**。
+- 岗位搜索 18 个样本、简历定制 15 个样本，延迟样本数达到最低 10 个稳定性门槛；面试准备补测 1 个样本并通过质量门禁。
+- 缓存确定性 A/B 命中率 **0.9286**、模型调用减少 **0.9286**、结果等价 **100%**、single-flight 通过、跨作用域命中 **0**。
+
+### 本轮暴露的效率 Bad Case
+
+面试准备 case 虽然输出质量通过，但 1 次生成、1 次修复和 2 次验证等共 5 次 LLM 调用，额外消耗约 40,351 tokens，
+使整轮从 44,425 tokens 上升到 84,776，超过预设 60,000 token 预算。因此总发布门禁为 false。这个失败不是把预算调大就算解决：
+它说明阶段预算没有统一协调，验证链路在已有质量通过后仍可能继续消耗。成熟处理方式应是为任务设置总预算和阶段预算，按失败类型只触发针对性验证，
+超过预算时保留已生成结果、明确标记质量/预算状态，并用同一 case 做优化前后消融评测。
+
+### 结果的正确解读
+
+这轮结果说明当前评测集上的业务链路和运行时保护策略通过，不能直接宣称已经建立生产 SLO 或对所有真实用户输入泛化。
+尤其是 `quick_apply` 中弱匹配 case 的正确结果是 Fit Gate 阻断，因此“AgentRun completed rate”不能单独作为业务质量；评测器同时
+报告预期阻断、实际阻断和 correct outcome rate。下一步若要扩大结论，应加入面试准备真实样本、固定输入下的真实缓存重复流量，
+并继续采集不同 Query 长度、候选数量、Redis 网络延迟和真实用户任务分布。
+
+## 扩充评测集后的真实全链路复测（2026-09-07）
+
+上一轮评测覆盖面偏窄，主要集中在 Agent 应用、数据工程和低匹配阻断。为检验岗位语义匹配在不同经历结构下是否仍然成立，
+将 `evals/agent_full_flow_cases.json` 扩充到 10 个场景：前端、数据工程、科研/论文、Agent 平台、GraphRAG/多模态、Agent 安全与评测，
+同时保留推荐算法、ML 平台和初学者等负向/弱匹配场景。每个场景连续运行 3 次，共 30 次真实全链路运行。
+
+结果保存于 `evals/results/agent_efficiency_real_v4_flash_extended_20260907.json`，使用真实 DeepSeek V4 Flash、真实本地多语言
+Embedding、Cross-Encoder 和 Redis：
+
+- Pass@1、Pass@K、Pass^3 均为 **1.0**；30 次全链路 case 全部通过。
+- 岗位检索 30/30 完成；简历定制 27/27 完成；投递流程的 30 个最终结果全部正确，其中 9 次按预期被 Fit Gate 阻断。
+- 全链路延迟 P50 **7.973 秒**、P95 **37.276 秒**；岗位搜索 P95 **3.191 秒**、简历定制 P95 **48.120 秒**、投递包生成 P95 **35.098 秒**。
+- 53 次真实 LLM 调用共 **90,884 tokens**，成本区间约 **0.033640–0.106956 元**；本轮未加入面试准备 case。
+- 故障注入 7/7 通过，非法动作阻断率 **1.0**，重复副作用和完成节点重写均为 **0**。
+- Redis 缓存命中率和模型调用减少率均为 **0.9286**，结果等价 **100%**，single-flight 通过且无跨作用域命中。
+
+这次扩充的价值不只是增加数量：正向样本覆盖了不同 Agent 技术方向，负向样本验证“检索相关”与“适合投递”被 Fit Gate 正确区分。
+需要注意的是，30 次样本只证明当前评测集上的稳定性，不等价于真实流量 SLO；简历定制 P95 明显高于岗位搜索，是下一阶段效率优化的优先对象。

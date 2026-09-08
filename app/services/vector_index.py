@@ -13,6 +13,7 @@ from app.services.embedding_service import (
     expand_query_text,
     tokenize,
 )
+from app.services.evidence_classifier import EvidenceClassifier
 from app.services.reranker import RerankerService
 from app.services.text_splitter import TextChunk
 
@@ -44,6 +45,7 @@ class SQLiteVectorIndex:
         self.settings = get_settings()
         self.embedding_service = EmbeddingService(settings=self.settings)
         self.reranker = RerankerService(settings=self.settings)
+        self.evidence_classifier = EvidenceClassifier()
         self.vector_library = (
             ChromaVectorLibrary(self.settings.chroma_path) if self.settings.vector_backend != "sqlite" else None
         )
@@ -91,12 +93,16 @@ class SQLiteVectorIndex:
 
     def query_profile_chunks(self, db: Session, profile_id: int, query_text: str, top_k: int = 8) -> list[RetrievedChunk]:
         rows = db.query(ResumeChunk).filter(ResumeChunk.profile_id == profile_id).all()
-        return self._query_rows(
+        ranked = self._query_rows(
             db=db,
             rows=rows,
             query_text=query_text,
-            top_k=top_k,
+            top_k=max(top_k, self.settings.reranker_top_n),
             type_boost_chunks={"project", "experience", "skill"},
+        )
+        return self._deduplicate_fact_views(
+            self._apply_evidence_quality_prior(ranked),
+            top_k=top_k,
         )
 
     def query_profile_chunks_multi(
@@ -119,12 +125,16 @@ class SQLiteVectorIndex:
             rows_query = rows_query.filter(ResumeChunk.chunk_type.in_(allowed_chunk_types))
         rows = rows_query.all()
         if not self.settings.rag_multi_query_enabled or len(queries) == 1:
-            return self._query_rows(
+            ranked = self._query_rows(
                 db=db,
                 rows=rows,
                 query_text=queries[0],
-                top_k=top_k,
+                top_k=max(top_k, self.settings.reranker_top_n),
                 type_boost_chunks={"project", "experience", "skill"},
+            )
+            return self._deduplicate_fact_views(
+                self._apply_evidence_quality_prior(ranked),
+                top_k=top_k,
             )
         first_stage_limit = max(top_k, self.settings.reranker_top_n)
         ranked_lists = [
@@ -172,8 +182,94 @@ class SQLiteVectorIndex:
         candidates = fused[:first_stage_limit]
         if self.settings.reranker_enabled:
             rerank_query = self._multi_query_rerank_text(queries)
-            return self.reranker.rerank_chunks(rerank_query, candidates, top_k=top_k)
-        return candidates[:top_k]
+            ranked = self.reranker.rerank_chunks(rerank_query, candidates, top_k=first_stage_limit)
+            return self._deduplicate_fact_views(
+                self._apply_evidence_quality_prior(ranked),
+                top_k=top_k,
+            )
+        return self._deduplicate_fact_views(
+            self._apply_evidence_quality_prior(candidates),
+            top_k=top_k,
+        )
+
+    def _apply_evidence_quality_prior(self, candidates: list[RetrievedChunk]) -> list[RetrievedChunk]:
+        """Soft-rank resume evidence by whether it can support a grounded claim.
+
+        Semantic retrieval and reranking have already selected the candidates.
+        This final pass only adds the small classifier prior and records the
+        reason in metadata, so callers can audit why an explicit negative or a
+        planned-learning chunk moved down the list.
+        """
+        enriched: list[RetrievedChunk] = []
+        for candidate in candidates:
+            prior, classification = self.evidence_classifier.retrieval_prior(
+                candidate.text,
+                chunk_type=candidate.chunk_type,
+                source=candidate.source,
+            )
+            metadata = dict(candidate.metadata or {})
+            retrieval = dict(metadata.get("retrieval") or {})
+            retrieval["evidence_quality_prior"] = round(prior, 6)
+            retrieval["evidence_classification"] = classification.as_dict()
+            retrieval["evidence_quality_version"] = "soft_prior_v1"
+            metadata["retrieval"] = retrieval
+            enriched.append(replace(candidate, score=round(float(candidate.score) + prior, 6), metadata=metadata))
+        enriched.sort(key=lambda item: item.score, reverse=True)
+        return enriched
+
+    @staticmethod
+    def _deduplicate_fact_views(candidates: list[RetrievedChunk], *, top_k: int) -> list[RetrievedChunk]:
+        """Count one fact once while retaining its distinct source details."""
+        output: list[RetrievedChunk] = []
+        fact_positions: dict[str, int] = {}
+        for candidate in candidates:
+            metadata = candidate.metadata or {}
+            fact_id = str(metadata.get("fact_id") or "").strip()
+            if fact_id and fact_id in fact_positions:
+                position = fact_positions[fact_id]
+                output[position] = SQLiteVectorIndex._merge_fact_views(output[position], candidate)
+                continue
+            if len(output) >= top_k:
+                continue
+            if fact_id:
+                fact_positions[fact_id] = len(output)
+            output.append(candidate)
+        return output
+
+    @staticmethod
+    def _merge_fact_views(primary: RetrievedChunk, detail: RetrievedChunk) -> RetrievedChunk:
+        metadata = dict(primary.metadata or {})
+        views = list(metadata.get("evidence_views") or [])
+        known_uids = {str(item.get("chunk_uid") or "") for item in views if isinstance(item, dict)}
+        for item in (primary, detail):
+            if item.chunk_uid in known_uids:
+                continue
+            item_metadata = item.metadata or {}
+            views.append({
+                "chunk_uid": item.chunk_uid,
+                "source": item.source,
+                "chunk_type": item.chunk_type,
+                "text": item.text[:900],
+                "score": round(float(item.score), 6),
+                "evidence_scope": item_metadata.get("evidence_scope"),
+                "fact_links": item_metadata.get("fact_links") or [],
+            })
+            known_uids.add(item.chunk_uid)
+        metadata["evidence_views"] = views[:4]
+        metadata["evidence_view_count"] = len(views)
+
+        texts = list(dict.fromkeys(
+            item["text"].strip()
+            for item in views
+            if isinstance(item, dict) and str(item.get("text") or "").strip()
+        ))
+        combined_text = "\n\n[同一经历的原文细节]\n".join(texts)[:2400]
+        return replace(
+            primary,
+            text=combined_text or primary.text,
+            score=max(float(primary.score), float(detail.score)),
+            metadata=metadata,
+        )
 
     @staticmethod
     def _multi_query_rerank_text(queries: list[str]) -> str:

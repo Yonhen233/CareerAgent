@@ -69,6 +69,9 @@ class ProfileStructured(BaseModel):
     projects: list[ProjectItem] = Field(default_factory=list)
     work_experience: list[ExperienceItem] = Field(default_factory=list)
     campus_experience: list[ExperienceItem] = Field(default_factory=list)
+    research_experience: list[str] = Field(default_factory=list)
+    publications: list[str] = Field(default_factory=list)
+    patents: list[str] = Field(default_factory=list)
     certifications: list[str] = Field(default_factory=list)
     awards: list[str] = Field(default_factory=list)
     languages: list[str] = Field(default_factory=list)
@@ -90,6 +93,9 @@ class ProfileStructured(BaseModel):
         "projects",
         "work_experience",
         "campus_experience",
+        "research_experience",
+        "publications",
+        "patents",
         "certifications",
         "awards",
         "languages",
@@ -114,6 +120,9 @@ class GuidedProfileRequest(BaseModel):
     projects: list[ProjectItem] = Field(default_factory=list)
     work_experience: list[ExperienceItem] = Field(default_factory=list)
     campus_experience: list[ExperienceItem] = Field(default_factory=list)
+    research_experience: list[str] = Field(default_factory=list)
+    publications: list[str] = Field(default_factory=list)
+    patents: list[str] = Field(default_factory=list)
     certifications: list[str] = Field(default_factory=list)
     awards: list[str] = Field(default_factory=list)
     languages: list[str] = Field(default_factory=list)
@@ -127,6 +136,9 @@ class GuidedProfileRequest(BaseModel):
         "projects",
         "work_experience",
         "campus_experience",
+        "research_experience",
+        "publications",
+        "patents",
         "certifications",
         "awards",
         "languages",

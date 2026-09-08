@@ -53,8 +53,31 @@ class ApplicationService:
             checklist=checklist,
             automation_result=automation_result,
         )
+        repair_attempted = False
+        if self._should_repair_cover_letter(validation) and self.llm.available:
+            repaired_cover_letter = await self._repair_cover_letter(
+                db,
+                profile=profile,
+                job=job,
+                resume_version=resume_version,
+                previous_draft=cover_letter,
+                validation=validation,
+            )
+            if repaired_cover_letter:
+                cover_letter = repaired_cover_letter
+                repair_attempted = True
+                validation = self.guardrail.validate(
+                    profile=profile,
+                    job=job,
+                    resume_version=resume_version,
+                    cover_letter=cover_letter,
+                    outreach_message=outreach,
+                    checklist=checklist,
+                    automation_result=automation_result,
+                )
         automation_result["packet_validation"] = validation
         automation_result["validation_passed"] = validation["passed"]
+        automation_result["cover_letter_repair_attempted"] = repair_attempted
         if not validation["passed"]:
             issue_codes = ", ".join(issue["code"] for issue in validation["issues"])
             raise ValueError(f"Application packet guardrail failed: {issue_codes}")
@@ -102,6 +125,7 @@ class ApplicationService:
             "You write concise Chinese job application letters. Return plain text only. "
             "Every candidate experience or achievement sentence must be a close paraphrase of the supplied profile. "
             "Do not add causal outcomes such as ensuring reliability or improving performance unless the source says so. "
+            "Prefer copying the source wording for project and experience claims; if a claim cannot be supported by an exact source phrase, omit it. "
             "The first line must preserve the supplied company and job title exactly, without translation."
         )
         user_prompt = f"""
@@ -110,6 +134,7 @@ The first line must be exactly: 申请目标：{job.company or '未提供公司'
 Do not fabricate facts. Use the resume version if available.
 Do not mention planned learning, missing skills, or unsupported JD requirements.
 Every candidate claim must be a close paraphrase of the profile or resume version.
+For project and experience sentences, copy the source wording or keep the same language and facts. Do not translate an outcome into a stronger claim.
 
 Profile:
 {json.dumps(profile.structured_profile_json, ensure_ascii=False)}
@@ -142,6 +167,69 @@ Resume version:
             if not self.settings.llm_fallback_enabled:
                 raise
             return fallback
+
+    def _should_repair_cover_letter(self, validation: dict) -> bool:
+        issue_codes = {str(item.get("code") or "") for item in validation.get("issues") or []}
+        return "unsupported_evidence_claims" in issue_codes and "unsupported_claims" not in issue_codes
+
+    async def _repair_cover_letter(
+        self,
+        db: Session,
+        *,
+        profile: Profile,
+        job: Job,
+        resume_version: ResumeVersion | None,
+        previous_draft: str,
+        validation: dict,
+    ) -> str | None:
+        """Regenerate only evidence-weak prose, once, before packet rejection."""
+        system_prompt = (
+            "You repair a Chinese job application letter. Return plain text only. "
+            "Keep the exact first line target. Remove any sentence that is not directly supported by the profile. "
+            "Copy source phrases for project facts; never add metrics, outcomes, tools or experience."
+        )
+        issue_text = "\n".join(
+            str(item.get("message") or item.get("code") or "")
+            for item in validation.get("issues") or []
+        )
+        prompt = f"""
+Repair this draft so it passes evidence validation.
+Target first line (must be exact): 申请目标：{job.company or '未提供公司'} | {job.title}
+Validation issue:
+{issue_text}
+
+Previous draft:
+{previous_draft[:5000]}
+
+Profile facts:
+{json.dumps(profile.structured_profile_json or {}, ensure_ascii=False)[:9000]}
+
+Original resume text:
+{(profile.raw_resume_text or '')[:9000]}
+
+Tailored resume, if any:
+{(resume_version.tailored_resume_markdown if resume_version else '')[:9000]}
+
+Use only the supplied facts. Prefer short sentences copied from the source. Omit unsupported claims instead of guessing.
+"""
+        try:
+            with llm_trace_context(
+                workflow="application_packet",
+                stage="cover_letter_repair",
+                profile_id=profile.id,
+                job_id=job.id,
+            ):
+                generated = await self.llm.generate_text(
+                    system_prompt=system_prompt,
+                    user_prompt=prompt,
+                    temperature=0,
+                    max_tokens=900,
+                    db=db,
+                    trace_name="application.cover_letter.repair",
+                )
+            return self._ensure_job_target(generated, job)
+        except Exception:
+            return None
 
     async def _outreach_message(self, profile: Profile, job: Job) -> str:
         skills = self._profile_skills(profile)

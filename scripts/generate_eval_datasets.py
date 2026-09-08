@@ -405,6 +405,22 @@ def make_rag_cases() -> list[dict]:
                 "noise_profile": "long_noise",
             },
         ]
+        annotation_policy = {
+            "target": ("supportive", 3),
+            "target_metric": ("supportive", 3),
+            "hard_negative_same_language": ("contradictory_or_partial", 1),
+            "planned_learning": ("future_intent", 1),
+            "coursework": ("weak_context", 1),
+            "adjacent_domain": ("unrelated", 0),
+            "generic_tools": ("weak_context", 1),
+            "negative_outcome": ("contradictory_or_partial", 1),
+            "far_domain": ("unrelated", 0),
+            "long_noise": ("unrelated", 0),
+        }
+        for chunk in evidence_chunks:
+            support_label, topical_relevance_grade = annotation_policy[chunk["noise_profile"]]
+            chunk["support_label"] = support_label
+            chunk["topical_relevance_grade"] = topical_relevance_grade
         query_terms = [alias_or_skill(skill, use_alias=use_alias) for skill in domain["skills"][:5]]
         neg_hint = "not planned learning, not coursework, not abandoned prototype" if difficulty == "adversarial" else ""
         jd = (
@@ -417,6 +433,7 @@ def make_rag_cases() -> list[dict]:
                 "difficulty": difficulty,
                 "noise_profiles": sorted({item["noise_profile"] for item in evidence_chunks if not item["expected"]}),
                 "query": jd,
+                "retrieval_objective": "rank positive evidence that can support target-role capability claims",
                 "evidence_chunks": evidence_chunks,
                 "expected_chunk_ids": [
                     f"{idx}_target_project",
@@ -425,6 +442,35 @@ def make_rag_cases() -> list[dict]:
                     f"{idx}_target_metric",
                 ],
             }
+        )
+    return cases
+
+
+def make_rag_core_cases() -> list[dict]:
+    """Build a normal-noise benchmark without weakening the stress suite.
+
+    The core set keeps semantic adjacent-domain and far-domain negatives plus
+    coursework and planned-learning confusion. Extreme same-language traps,
+    generic keyword piles, rejected prototypes, and long mixed noise remain in
+    ``rag_cases.json`` as the separate strong-noise benchmark.
+    """
+    retained_profiles = {
+        "target",
+        "target_metric",
+        "coursework",
+        "planned_learning",
+        "adjacent_domain",
+        "far_domain",
+    }
+    cases = make_rag_cases()
+    for case in cases:
+        case["name"] = str(case["name"]).replace("rag_case_", "rag_core_case_", 1)
+        case["benchmark_tier"] = "normal_noise"
+        case["evidence_chunks"] = [
+            item for item in case["evidence_chunks"] if item["noise_profile"] in retained_profiles
+        ]
+        case["noise_profiles"] = sorted(
+            {item["noise_profile"] for item in case["evidence_chunks"] if not item["expected"]}
         )
     return cases
 
@@ -904,6 +950,7 @@ def main() -> None:
     EVAL_DIR.mkdir(parents=True, exist_ok=True)
     pdf_cases = make_pdf_chunk_cases()
     rag_cases = make_rag_cases()
+    rag_core_cases = make_rag_core_cases()
     llm_cases = make_llm_workflow_cases()
     (EVAL_DIR / "pdf_chunk_cases.json").write_text(
         json.dumps(pdf_cases, ensure_ascii=False, indent=2),
@@ -911,6 +958,10 @@ def main() -> None:
     )
     (EVAL_DIR / "rag_cases.json").write_text(
         json.dumps(rag_cases, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    (EVAL_DIR / "rag_core_cases.json").write_text(
+        json.dumps(rag_core_cases, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
     (EVAL_DIR / "llm_workflow_cases.json").write_text(

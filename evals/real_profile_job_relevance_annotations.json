@@ -1,0 +1,31 @@
+{
+  "annotation_version": "real-profile-job-relevance-v1",
+  "annotation_type": "manual_gpt_review",
+  "source_profile": {
+    "profile_id": 288,
+    "source_type": "user_uploaded_pdf",
+    "source_file": "D:/实习/vibe-resume/output/pdf/陈卓-AI-Agent-实习简历.pdf",
+    "review_basis": "按简历中可验证的 Agent 工作流、RAG、工具调用、后端工程与评测经历，与岗位原始 JD 的职责和任职要求进行整体语义判断；不因单个技能词命中直接判定相关。"
+  },
+  "label_scale": {
+    "0": "不推荐：方向或阶段明显不匹配",
+    "1": "弱相关：有相邻能力，但核心工作内容不同",
+    "2": "部分匹配：Agent/LLM 方向相关，但存在明显职责或证据缺口",
+    "3": "强匹配：核心工作、技术路线和候选人已交付经历高度一致"
+  },
+  "annotations": [
+    {"id":"p288-j395","job_id":395,"label":3,"decision":"strong_fit","fit_dimensions":{"agent_direction":3,"engineering_overlap":3,"internship_stage":3,"evidence_strength":3},"jd_evidence_focus":["Agent 算法/应用开发","工具调用与工作流","大模型应用落地"],"supporting_resume_facts":["CareerAgent 多阶段 Agent 工作流","LangGraph、Tool Calling、MCP 与 RAG","真实 LLM 流程、运行追踪和故障恢复"],"rationale":"岗位核心是 Agent 研发，职责与候选人的 CareerAgent 交付主线重合；候选人不只是列出技能，还具备工作流、工具、证据和评测的完整实现。","risk_or_gap":"需要确认岗位更偏算法研究还是应用工程，以及是否要求特定模型训练经验。"},
+    {"id":"p288-j393","job_id":393,"label":3,"decision":"strong_fit","fit_dimensions":{"agent_direction":3,"engineering_overlap":3,"internship_stage":3,"evidence_strength":3},"jd_evidence_focus":["Agent 算法实习","Agent System","检索增强和评测"],"supporting_resume_facts":["Agent runtime 与 checkpoint","Multi-query、RRF、reranker 和引用校验","Agent bad case 评测与门控"],"rationale":"岗位方向和候选人的 Agent 系统可靠性、RAG 与评测经历高度一致，属于应优先展示的岗位。","risk_or_gap":"若岗位重点是大模型训练或推荐场景，需进一步核对训练框架和数据经验。"},
+    {"id":"p288-j392","job_id":392,"label":3,"decision":"strong_fit","fit_dimensions":{"agent_direction":3,"engineering_overlap":3,"internship_stage":3,"evidence_strength":2},"jd_evidence_focus":["AI Agent App Infra","服务化和基础设施","Agent 应用工程"],"supporting_resume_facts":["FastAPI、Redis/SQLite、WAL 和异步任务","运行状态持久化、恢复、幂等和可观测性","岗位检索和简历 Agent 的端到端实现"],"rationale":"候选人的优势在 Agent 基础设施与长任务可靠执行，和 App Infra 的工程问题天然相邻，适合进入前排。","risk_or_gap":"公开简历对移动端或具体 App 基础设施的直接经验较少。"},
+    {"id":"p288-j399","job_id":399,"label":3,"decision":"strong_fit","fit_dimensions":{"agent_direction":3,"engineering_overlap":3,"internship_stage":3,"evidence_strength":3},"jd_evidence_focus":["AI Agent 开发","Agent 应用/工具链","大模型应用"],"supporting_resume_facts":["CareerAgent 支持岗位发现、匹配、定制和面试","结构化 Tool Contract、审批、Trace","真实 JD 与简历 RAG 匹配"],"rationale":"岗位与候选人的项目主线直接吻合，且候选人有从数据接入到用户流程的完整实现。","risk_or_gap":"需要根据阿里岗位具体业务线补充分布式服务和线上规模证据。"},
+    {"id":"p288-j405","job_id":405,"label":3,"decision":"strong_fit","fit_dimensions":{"agent_direction":3,"engineering_overlap":2,"internship_stage":3,"evidence_strength":2},"jd_evidence_focus":["AI Agent 应用开发","业务智能化","模型调用和效果优化"],"supporting_resume_facts":["LLM Parser、匹配分析和定制简历生成","Token 统计、模型路由和质量门控","用户审批后生成投递材料"],"rationale":"候选人已实现面向业务流程的 Agent 产品闭环，不是只有单点 RAG Demo，和 AI 应用开发岗位匹配。","risk_or_gap":"具体业务领域经验和高并发线上指标需要通过 JD 细节继续确认。"},
+    {"id":"p288-j397","job_id":397,"label":3,"decision":"strong_fit","fit_dimensions":{"agent_direction":3,"engineering_overlap":2,"internship_stage":3,"evidence_strength":3},"jd_evidence_focus":["Agent 研发","电商场景","大模型应用"],"supporting_resume_facts":["Agent 任务编排、RAG 和工具调用","岗位/JD 解析与推荐解释","可恢复任务和投递审批"],"rationale":"候选人的求职 Agent 本身具备场景化工作流、文档检索和任务治理能力，技术能力适合电商 Agent 研发。","risk_or_gap":"缺少明确电商交易、推荐或用户增长交付证据，不能把相邻经验包装成电商业务经验。"},
+    {"id":"p288-j396","job_id":396,"label":3,"decision":"strong_fit","fit_dimensions":{"agent_direction":3,"engineering_overlap":3,"internship_stage":3,"evidence_strength":3},"jd_evidence_focus":["企业应用 Agent","工作流自动化","LLM 应用开发"],"supporting_resume_facts":["Plan-and-Execute 与 ReAct 局部修复","企业岗位流程、审批和审计","状态、工具回执、恢复和引用证据"],"rationale":"企业应用 Agent 关注稳定工作流、工具治理与可追溯结果，正是候选人项目中反复实现和评测的部分。","risk_or_gap":"需要核对岗位是否要求企业微信、权限系统或具体业务系统接入。"},
+    {"id":"p288-j403","job_id":403,"label":2,"decision":"partial_fit","fit_dimensions":{"agent_direction":3,"engineering_overlap":2,"internship_stage":3,"evidence_strength":2},"jd_evidence_focus":["AI Agent 研发","研究/应用结合","模型能力探索"],"supporting_resume_facts":["Agent workflow 和 RAG 评测","多语言检索和证据门控","项目中有模型调用但非训练主线"],"rationale":"方向高度相关，但岗位若更强调基础模型研究、训练或论文，候选人当前证据偏应用工程和 Harness。","risk_or_gap":"简历需要补充模型训练、实验设计或论文证据，不能只依赖 Agent 关键词。"},
+    {"id":"p288-j398","job_id":398,"label":2,"decision":"partial_fit","fit_dimensions":{"agent_direction":2,"engineering_overlap":3,"internship_stage":3,"evidence_strength":3},"jd_evidence_focus":["LLM 应用开发","后端服务","模型效果评估"],"supporting_resume_facts":["FastAPI 后端和异步任务","RAG、reranker、引用校验","端到端评测和异常恢复"],"rationale":"后端与 LLM 应用工程匹配度高，但岗位名称和职责可能比 Agent 更宽，需根据完整 JD 判断是否以 Agent 为主。","risk_or_gap":"可能需要补充服务性能、部署和具体业务指标。"},
+    {"id":"p288-j389","job_id":389,"label":2,"decision":"partial_fit","fit_dimensions":{"agent_direction":2,"engineering_overlap":2,"internship_stage":3,"evidence_strength":2},"jd_evidence_focus":["Data Agent","数据处理和分析","Agent 应用"],"supporting_resume_facts":["结构化数据、文档解析和检索","Agent 工具调用与结果校验","SQLite/Redis 数据链路"],"rationale":"候选人有数据接入、检索和 Agent 工具链基础，但缺少明确数据分析、数据建模或数据产品交付。","risk_or_gap":"如果岗位核心是数据工程或数仓而非 Agent，应降低优先级。"},
+    {"id":"p288-j400","job_id":400,"label":1,"decision":"weak_fit","fit_dimensions":{"agent_direction":2,"engineering_overlap":1,"internship_stage":3,"evidence_strength":1},"jd_evidence_focus":["Miclaw-AI agent","端侧/产品化 Agent","具体应用方向"],"supporting_resume_facts":["通用 Agent 工作流和 RAG","后端服务与状态恢复"],"rationale":"名称相关但岗位可能更偏端侧产品、特定平台或应用集成；仅凭 AI agent 词面不能判为强匹配。","risk_or_gap":"缺少岗位所需端侧、客户端或该产品生态的直接交付证据。"},
+    {"id":"p288-j384","job_id":384,"label":1,"decision":"weak_fit","fit_dimensions":{"agent_direction":1,"engineering_overlap":1,"internship_stage":3,"evidence_strength":1},"jd_evidence_focus":["Multimodal Reinforcement Learning","Research Intern","模型训练/研究"],"supporting_resume_facts":["有 Agent 评测和部分研究性实验","具备 Python 和 RAG 基础"],"rationale":"候选人有研究和评测能力，但该岗位核心是多模态强化学习研究，当前简历没有相应训练、算法和科研证据。","risk_or_gap":"需要论文、RL 算法和多模态模型训练经历，否则不建议优先投递。"},
+    {"id":"p288-j404","job_id":404,"label":3,"decision":"strong_fit","fit_dimensions":{"agent_direction":3,"engineering_overlap":2,"internship_stage":3,"evidence_strength":2},"jd_evidence_focus":["AI Agent / AI App","Agent 产品开发","应用工程"],"supporting_resume_facts":["从岗位检索到面试准备的多步骤 Agent","LLM 解析、RAG 匹配、材料生成","用户确认、运行记录和恢复"],"rationale":"岗位与候选人对 AI Agent 产品化、应用开发和工作流治理的经历高度相关。","risk_or_gap":"需要按岗位具体要求补齐前端、服务部署或多模态输入等差距。"}
+  ]
+}

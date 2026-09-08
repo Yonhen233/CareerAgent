@@ -2,6 +2,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from app.services.embedding_service import tokenize
+
 
 @dataclass(frozen=True)
 class TextChunk:
@@ -307,6 +309,24 @@ class ResumeTextSplitter:
                     )
                 )
 
+        for field, chunk_type in {
+            "research_experience": "research",
+            "publications": "publication",
+            "patents": "patent",
+        }.items():
+            for idx, item in enumerate(profile.get(field, []) or []):
+                text = str(item).strip()
+                if text:
+                    chunks.append(
+                        TextChunk(
+                            f"{prefix}_{field}_{idx}",
+                            text,
+                            chunk_type,
+                            f"profile.{field}",
+                            {"field": field, "item_index": idx, "strategy": "structured_profile_field"},
+                        )
+                    )
+
         for idx, edu in enumerate(profile.get("education", []) or []):
             text = self._flatten_mapping(edu)
             if text:
@@ -340,12 +360,166 @@ class ResumeTextSplitter:
                         )
                     )
 
-        return chunks
+        # A stable fact id lets structured and source-text views refer to the
+        # same underlying experience.  It is provenance, not another piece of
+        # user-visible resume content.
+        linked: list[TextChunk] = []
+        for chunk in chunks:
+            metadata = dict(chunk.metadata or {})
+            field = str(metadata.get("field") or "").strip()
+            item_index = metadata.get("item_index")
+            metadata["fact_id"] = (
+                f"{field}:{item_index}" if field and item_index is not None else field or chunk.chunk_uid
+            )
+            linked.append(
+                TextChunk(chunk.uid, chunk.text, chunk.chunk_type, chunk.source, metadata)
+            )
+        return linked
 
     def build_resume_chunks(self, profile: dict) -> list[TextChunk]:
         chunks = self.split_structured_profile(profile)
         chunks.extend(self.split_raw_text(self._clean_profile_raw_text(profile)))
-        return chunks
+        return self.link_pdf_chunks_to_facts(chunks)
+
+    def link_pdf_chunks_to_facts(self, chunks: list[TextChunk]) -> list[TextChunk]:
+        """Attach raw PDF evidence to structured facts without inventing ownership.
+
+        Linking is deliberately two-stage.  An exact normalized span is the
+        strongest anchor.  If the structured summary is short, a detailed
+        paragraph may not repeat its title; in that case we use a conservative
+        anchor score inside the same candidate fact family.  A semantic-detail
+        link is only created when the raw chunk shares multiple meaningful
+        anchors (including at least one technical/entity anchor), contains an
+        implementation signal, and is not ambiguous with another fact.  This
+        models one fact -> many evidence chunks while leaving uncertain text
+        unlinked for recall and provenance.
+        """
+        structured = [
+            self._fact_record(chunk)
+            for chunk in chunks
+            if chunk.source.startswith("profile.") and (chunk.metadata or {}).get("fact_id")
+        ]
+        if not structured:
+            return chunks
+        output: list[TextChunk] = []
+        for chunk in chunks:
+            metadata = dict(chunk.metadata or {})
+            if chunk.source == "profile.pdf_page_text" or chunk.source == "profile.pdf_cross_page_context":
+                normalized_raw = self._normalize_for_link(chunk.text)
+                links = []
+                for record in structured:
+                    fact_id = record["fact_id"]
+                    fact_text = record["text"]
+                    fragments = [
+                        self._normalize_for_link(fragment)
+                        for fragment in re.split(r"\s*\|\s*|\n+", fact_text)
+                    ]
+                    matched = next((fragment for fragment in fragments if len(fragment) >= 12 and fragment in normalized_raw), None)
+                    if matched:
+                        links.append({"fact_id": fact_id, "match_type": "exact_normalized_span", "matched_span": matched[:160]})
+                if not links:
+                    links = self._infer_fact_links(chunk.text, structured)
+                if len(links) == 1:
+                    metadata["fact_id"] = links[0]["fact_id"]
+                if links:
+                    metadata["fact_links"] = links[:6]
+                    metadata["evidence_scope"] = (
+                        "fact_detail" if any(item.get("match_type") == "semantic_detail" for item in links)
+                        else "fact_exact_span"
+                    )
+            output.append(TextChunk(chunk.uid, chunk.text, chunk.chunk_type, chunk.source, metadata))
+        return output
+
+    @staticmethod
+    def _fact_record(chunk: TextChunk) -> dict[str, Any]:
+        metadata = dict(chunk.metadata or {})
+        fact_id = str(metadata.get("fact_id") or "")
+        field = str(metadata.get("field") or "")
+        return {
+            "fact_id": fact_id,
+            "text": chunk.text,
+            "field": field,
+            "chunk_type": chunk.chunk_type,
+            "anchors": ResumeTextSplitter._fact_anchors(chunk.text),
+        }
+
+    @classmethod
+    def _infer_fact_links(cls, raw_text: str, structured: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Infer detail links for summaries that omit the source paragraph wording."""
+        raw_lower = raw_text.lower()
+        raw_tokens = set(tokenize(raw_text))
+        implementation_cues = (
+            "构建", "实现", "开发", "设计", "部署", "交付", "负责", "搭建",
+            "built", "implemented", "developed", "designed", "deployed", "delivered",
+        )
+        has_delivery_signal = any(cue in raw_lower for cue in implementation_cues)
+        if not has_delivery_signal:
+            return []
+
+        scored: list[tuple[float, dict[str, Any], set[str], set[str]]] = []
+        for record in structured:
+            # Detail expansion is meaningful for an experience, project, or
+            # research fact. Standalone skills should not claim a whole paragraph.
+            if record["field"] not in {"projects", "work_experience", "campus_experience", "research_experience"}:
+                continue
+            anchors = set(record["anchors"])
+            if not anchors:
+                continue
+            hits = anchors & raw_tokens
+            strong_hits = {
+                token for token in hits
+                if re.search(r"[a-z0-9]", token) and len(token) >= 3
+            }
+            # Chinese tokenization yields overlapping 2/3-character fragments;
+            # require a meaningful English/entity anchor or two non-trivial hits.
+            if not strong_hits and len(hits) < 2:
+                continue
+            score = (len(strong_hits) * 0.45) + (min(len(hits), 5) * 0.16)
+            if any(token in raw_lower for token in cls._fact_title_anchors(record["text"])):
+                score += 0.18
+            scored.append((score, record, hits, strong_hits))
+
+        scored.sort(key=lambda item: item[0], reverse=True)
+        if not scored or scored[0][0] < 0.72:
+            return []
+        # Do not assign ambiguous paragraphs to whichever fact happens to win
+        # by a tiny margin. Multiple links are retained as relations instead.
+        best_score = scored[0][0]
+        selected = [item for item in scored if item[0] >= best_score - 0.12 and item[0] >= 0.72]
+        links = []
+        for score, record, hits, strong_hits in selected[:6]:
+            links.append({
+                "fact_id": record["fact_id"],
+                "match_type": "semantic_detail",
+                "confidence": round(min(score / 1.35, 0.99), 4),
+                "matched_anchors": sorted(hits)[:12],
+                "strong_anchors": sorted(strong_hits)[:8],
+            })
+        return links
+
+    @staticmethod
+    def _fact_anchors(text: str) -> list[str]:
+        stopwords = {
+            "使用", "采用", "基于", "实现", "负责", "参与", "项目", "系统", "相关",
+            "工作", "经验", "能力", "进行", "完成", "通过", "支持", "以及", "包括",
+            "with", "using", "built", "based", "project", "system", "experience",
+        }
+        return list(dict.fromkeys(
+            token for token in tokenize(text)
+            if len(token) >= 2 and token not in stopwords
+        ))
+
+    @staticmethod
+    def _fact_title_anchors(text: str) -> list[str]:
+        # Titles and product names are stronger than generic Chinese n-grams.
+        return [
+            item.lower()
+            for item in re.findall(r"[A-Za-z][A-Za-z0-9+#.-]{2,}", text or "")
+        ]
+
+    @staticmethod
+    def _normalize_for_link(value: str) -> str:
+        return re.sub(r"\s+", "", str(value or "")).lower()
 
     def _clean_profile_raw_text(self, profile: dict) -> str:
         raw_text = str(profile.get("raw_text") or "")

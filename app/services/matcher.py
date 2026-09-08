@@ -1,3 +1,9 @@
+"""候选人档案与岗位之间的检索和匹配服务。
+
+该模块负责批量检索、候选证据组织和基础匹配分；选中具体岗位后的复杂语义
+解释由 semantic_match_analysis 处理，避免在大批量岗位搜索时为每条结果都调用 LLM。
+"""
+
 from difflib import SequenceMatcher
 import re
 from typing import Any
@@ -11,6 +17,7 @@ from app.services.evidence_classifier import EvidenceClassifier
 from app.services.vector_index import SQLiteVectorIndex
 from app.services.retrieval_quality import RetrievalQualityService
 from app.services.jd_parser import SKILL_SEMANTICS_VERSION
+from app.agents.local_react import BoundedLocalReAct, LoopDecision
 
 
 NEGATIVE_EVIDENCE_CUES = [
@@ -67,10 +74,22 @@ SKILL_ALIASES = {
         "metrics",
         "metric",
         "model evaluation",
+        "模型评测",
+        "模型评估",
+        "评测",
+        "评估",
         "offline evaluation",
         "evaluated",
         "evaluation set",
         "recall@",
+    ],
+    "model evaluation": [
+        "evaluation",
+        "模型评测",
+        "模型评估",
+        "评测",
+        "评估",
+        "offline evaluation",
     ],
     "metrics": ["metric definitions", "experiment analysis", "dashboards"],
     "agent workflow": ["agent workflows", "agent system", "agent systems"],
@@ -332,31 +351,64 @@ class MatcherService:
             }
         ]
         if not quality["passed"]:
-            restricted_chunks = self.vector_index.query_profile_chunks_multi(
-                db,
-                profile_id,
-                queries,
-                top_k=top_k,
-                allowed_chunk_types=expected_types,
+            local_loop = BoundedLocalReAct(
+                owner_node="match_job",
+                allowed_actions={"retrieve_type_filtered", "stop"},
+                max_attempts=1,
+                max_no_progress=0,
             )
-            restricted_quality = self.retrieval_quality.assess(
-                query,
-                restricted_chunks,
-                expected_chunk_types=expected_types,
-                min_evidence_chunks=2,
-                expected_query_count=len(queries),
-                require_supportive_evidence=True,
+            recovery: dict[str, Any] = {}
+
+            def retrieve_type_filtered(_action: str, _observation: dict[str, Any]) -> dict[str, Any]:
+                restricted_chunks = self.vector_index.query_profile_chunks_multi(
+                    db,
+                    profile_id,
+                    queries,
+                    top_k=top_k,
+                    allowed_chunk_types=expected_types,
+                )
+                restricted_quality = self.retrieval_quality.assess(
+                    query,
+                    restricted_chunks,
+                    expected_chunk_types=expected_types,
+                    min_evidence_chunks=2,
+                    expected_query_count=len(queries),
+                    require_supportive_evidence=True,
+                )
+                recovery["chunks"] = restricted_chunks
+                recovery["quality"] = restricted_quality
+                return restricted_quality
+
+            loop_result = local_loop.step(
+                {
+                    "evidence_count": quality["evidence_count"],
+                    "supporting_evidence_count": quality["supporting_evidence_count"],
+                    "quality_gate_passed": quality["passed"],
+                },
+                lambda _observation: LoopDecision(
+                    "retrieve_type_filtered",
+                    "insufficient_supporting_evidence",
+                ),
+                retrieve_type_filtered,
+                lambda result: {
+                    "passed": bool(result.get("passed")),
+                    "no_progress": float(result.get("confidence") or 0.0) <= float(quality.get("confidence") or 0.0),
+                    "confidence": result.get("confidence"),
+                },
             )
+            restricted_quality = recovery.get("quality") or quality
             recovery_attempts.append(
                 {
-                    "strategy": "semantic_type_filtered_retry",
+                    "strategy": "agentic_rag.retrieve_type_filtered",
                     "passed": restricted_quality["passed"],
                     "confidence": restricted_quality["confidence"],
                     "evidence_count": restricted_quality["evidence_count"],
+                    "loop_status": loop_result["status"],
+                    "loop_reason": loop_result.get("reason"),
                 }
             )
             if restricted_quality["passed"] or restricted_quality["confidence"] > quality["confidence"]:
-                chunks = restricted_chunks
+                chunks = recovery.get("chunks") or chunks
                 quality = restricted_quality
         evidence = [
             self.evidence_classifier.classify_dict(chunk.as_dict())
@@ -367,6 +419,7 @@ class MatcherService:
             "recovered": len(recovery_attempts) > 1 and quality["passed"],
             "attempts": recovery_attempts,
             "max_attempts": 2,
+            "controller": "BoundedLocalReAct",
         }
         quality["query_strategy"] = {
             "name": "semantic_field_multi_query_rrf",

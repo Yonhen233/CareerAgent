@@ -93,7 +93,30 @@ LLM_MODEL=deepseek-v4-flash
 
 没有配置模型时，仍可浏览已有简历和岗位；PDF 智能解析、简历评分、定制简历和面试准备会明确提示不可用。
 
-### 3. 启动网页
+### 3. 一键启动（Windows）
+
+在项目目录直接双击：
+
+```text
+start_career_agent.bat
+```
+
+脚本会自动检查 `.env`，复用或启动本机 Redis，启动后台 Agent Worker 和网页服务，等待健康检查通过后打开浏览器。
+默认地址为 `http://127.0.0.1:8000/`；如果 8000 端口已被占用，会自动选择附近的可用端口。
+
+需要查看启动日志时，在 PowerShell 中执行：
+
+```powershell
+.\start_career_agent.ps1 -ShowLogs
+```
+
+停止本次启动的服务：
+
+```powershell
+.\stop_career_agent.ps1
+```
+
+### 4. 手动启动网页
 
 ```powershell
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
@@ -101,7 +124,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 打开 [http://127.0.0.1:8000](http://127.0.0.1:8000)，从“开始”页面进入完整流程。
 
-### 4. 启用后台任务
+### 5. 手动启用后台任务
 
 长时间运行的岗位搜索和材料生成建议通过 Redis Worker 执行：
 

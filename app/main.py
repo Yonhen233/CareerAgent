@@ -1,3 +1,10 @@
+"""CareerAgent 的 FastAPI 应用入口。
+
+本文件负责组装应用、注册 API 和页面路由，并在生命周期中初始化数据库、
+任务执行器等基础设施；业务决策应放在 agents 或 services 中，避免入口层
+直接修改 Agent 状态。
+"""
+
 from contextlib import asynccontextmanager
 import time
 

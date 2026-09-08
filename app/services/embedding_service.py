@@ -3,6 +3,7 @@ import math
 import os
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from app.core.config import Settings, get_settings
@@ -211,8 +212,14 @@ class EmbeddingService:
             from sentence_transformers import SentenceTransformer  # type: ignore
 
             self.settings.embedding_cache_path.mkdir(parents=True, exist_ok=True)
+            # HuggingFace's cache layout can contain a complete model snapshot
+            # while its ``refs`` metadata is incomplete (for example after a
+            # killed download). Resolve that snapshot first so a production
+            # request never turns a local model lookup into an unexpected
+            # network request.
+            local_model = self._resolve_local_model_path()
             model = SentenceTransformer(
-                self.model_name,
+                str(local_model) if local_model is not None else self.model_name,
                 cache_folder=str(self.settings.embedding_cache_path),
             )
             _MODEL_CACHE[cache_key] = model
@@ -220,6 +227,29 @@ class EmbeddingService:
         except Exception as exc:  # noqa: BLE001
             _MODEL_FAILURES[cache_key] = str(exc)
             raise
+
+    def _resolve_local_model_path(self) -> Path | None:
+        configured = Path(self.model_name).expanduser()
+        if configured.is_dir() and (configured / "config.json").exists():
+            return configured
+
+        # The legacy SentenceTransformer cache used by this project stores
+        # snapshots beside the newer HF cache. Accept both layouts, but only
+        # return a snapshot with the files needed to construct an encoder.
+        model_dir = self.settings.embedding_cache_path / (
+            "models--" + self.model_name.replace("/", "--")
+        )
+        snapshots = model_dir / "snapshots"
+        candidates = [
+            path
+            for path in snapshots.glob("*/")
+            if (path / "config.json").exists()
+            and (path / "modules.json").exists()
+            and (path / "1_Pooling" / "config.json").exists()
+        ]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda path: path.stat().st_mtime)
 
     def _ensure_local_model_cache_env(self) -> None:
         self.settings.embedding_cache_path.mkdir(parents=True, exist_ok=True)

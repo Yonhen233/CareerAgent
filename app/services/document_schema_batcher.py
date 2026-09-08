@@ -14,7 +14,7 @@ class DocumentSchemaBatcher:
         blocks = [
             block
             for block in re.split(
-                r"(?=\n(?:第?\d+页|教育经历|项目经历|实习经历|工作经历|任职要求|岗位职责|加分项)[:：]?)",
+                r"(?=\n(?:第?\d+页|教育经历|项目经历|实习经历|工作经历|科研经历|论文|专利|任职要求|岗位职责|加分项)[:：]?)",
                 text,
             )
             if block

@@ -5,6 +5,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from app.agents.local_react import BoundedLocalReAct, LoopDecision
 from app.core.config import get_settings
 from app.models.entities import Job, JobSearchResult, JobSearchSession, Profile
 from app.models.schemas import JobDiscoveryRequest
@@ -100,6 +101,7 @@ class JobDiscoveryService:
                 live_jobs, source_errors = await self.job_search.search(
                     db,
                     query=resolved_query,
+                    query_variants=intent.query_variants,
                     location=location,
                     internship_only=payload.internship_only,
                     limit=max(payload.limit, 20),
@@ -122,6 +124,87 @@ class JobDiscoveryService:
                 excluded_terms=intent.excluded_terms,
             )
             retrieval_quality["intent_plan"] = intent.as_dict()
+            if not retrieval_quality.get("passed"):
+                controller = BoundedLocalReAct(
+                    owner_node="job_discovery.agentic_rag",
+                    allowed_actions={"rewrite_query"},
+                    max_attempts=1,
+                    max_no_progress=0,
+                )
+                initial_signature = tuple(candidate.job.id for candidate in candidates)
+                observation = {
+                    "quality_passed": False,
+                    "candidate_count": len(candidates),
+                    "query_count": len(intent.query_variants),
+                    "quality_failure": retrieval_quality.get("reasons") or [],
+                    "source_errors": source_errors,
+                }
+
+                async def rewrite_and_retrieve(_action: str, _observation: dict[str, Any]) -> dict[str, Any]:
+                    rewritten = await self.intent_service.plan(
+                        db,
+                        preference=(
+                            f"{preference}\n"
+                            "检索反馈：上一轮岗位召回质量未通过。请保留原始求职方向，"
+                            "重新生成互补的语义检索 Query，避免只重复技能词。"
+                        ).strip(),
+                        profile=profile,
+                        explicit_location=payload.location,
+                    )
+                    retry_candidates, retry_quality = self._retrieve_candidates(
+                        db,
+                        query=rewritten.retrieval_query,
+                        location=" / ".join(rewritten.locations) or None,
+                        internship_only=payload.internship_only,
+                        tenant_id=tenant_id,
+                        limit=payload.limit,
+                        query_variants=rewritten.query_variants,
+                        excluded_terms=rewritten.excluded_terms,
+                    )
+                    retry_quality["intent_plan"] = rewritten.as_dict()
+                    return {
+                        "candidates": retry_candidates,
+                        "quality": retry_quality,
+                        "intent": rewritten,
+                    }
+
+                def verify_retrieval(result: dict[str, Any]) -> dict[str, Any]:
+                    retry_candidates = list(result.get("candidates") or [])
+                    retry_quality = dict(result.get("quality") or {})
+                    retry_signature = tuple(candidate.job.id for candidate in retry_candidates)
+                    return {
+                        "passed": bool(retry_quality.get("passed")),
+                        "candidate_count": len(retry_candidates),
+                        "no_progress": retry_signature == initial_signature,
+                        "quality_failure": retry_quality.get("reasons") or [],
+                    }
+
+                recovery = await controller.astep(
+                    observation,
+                    lambda _observation: LoopDecision(
+                        action="rewrite_query",
+                        reason_code="retrieval_quality_below_gate",
+                    ),
+                    rewrite_and_retrieve,
+                    verify_retrieval,
+                )
+                recovery_result = recovery.get("result") if isinstance(recovery, dict) else None
+                if isinstance(recovery_result, dict):
+                    candidates = list(recovery_result.get("candidates") or [])
+                    retrieval_quality = dict(recovery_result.get("quality") or retrieval_quality)
+                    rewritten_intent = recovery_result.get("intent")
+                    if rewritten_intent is not None:
+                        intent = rewritten_intent
+                        location = " / ".join(intent.locations) or None
+                retrieval_quality["agentic_rag"] = {
+                    "controller": "BoundedLocalReAct",
+                    "status": recovery.get("status") if isinstance(recovery, dict) else "stopped",
+                    "initial_observation": observation,
+                    "loop": controller.state(),
+                    "final_verification": recovery.get("verification") if isinstance(recovery, dict) else {},
+                }
+                session.resolved_query = intent.retrieval_query
+                session.location = location
             session.retrieval_quality_json = retrieval_quality
             if not retrieval_quality.get("passed"):
                 raise RetrievalQualityError(

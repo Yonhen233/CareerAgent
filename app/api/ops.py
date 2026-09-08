@@ -22,6 +22,7 @@ from app.services.approval_service import ApprovalService
 from app.services.high_risk_action_tools import ApprovalRequiredError, HighRiskActionToolService
 from app.services.llm_usage import LLMUsageService
 from app.services.outbound_tools import OutboundToolError
+from app.services.rerank_result_cache import cache_metrics_snapshot
 from app.services.slo_service import SLOService
 from app.services.stale_runs import StaleRunService
 from app.services.task_runner import RedisTaskRunner
@@ -32,8 +33,8 @@ router = APIRouter(prefix="/ops", tags=["ops"])
 def _count_by_status(db: Session, model) -> dict[str, int]:
     rows = db.query(model.status).all()
     counts: dict[str, int] = {}
-    for (status,) in rows:
-        key = str(status or "unknown")
+    for (row_status,) in rows:
+        key = str(row_status or "unknown")
         counts[key] = counts.get(key, 0) + 1
     return counts
 
@@ -69,6 +70,7 @@ def metrics(db: Session = Depends(get_db)) -> dict:
     latest_eval = db.query(EvaluationRun).order_by(EvaluationRun.created_at.desc()).first()
     return {
         "app": telemetry.snapshot(),
+        "reranker_cache": cache_metrics_snapshot(),
         "database": {
             "url_scheme": engine.url.get_backend_name(),
             "agent_runs_by_status": _count_by_status(db, AgentRun),
@@ -126,6 +128,10 @@ def config_summary(_: AuthContext = Depends(require_admin)) -> dict:
             "reranker_enabled": settings.reranker_enabled,
             "reranker_provider": settings.reranker_provider,
             "reranker_fallback": settings.reranker_provider_fallback,
+            "reranker_cache_enabled": settings.reranker_result_cache_enabled,
+            "reranker_cache_algorithm_version": settings.reranker_cache_algorithm_version,
+            "reranker_cache_ttl_seconds": settings.reranker_cache_ttl_seconds,
+            "reranker_cache_l1_ttl_seconds": settings.reranker_cache_l1_ttl_seconds,
         },
         "security": {
             "admin_token_configured": bool(settings.admin_api_key),

@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+"""RAG 检索质量门禁。
+
+服务只判断当前候选证据是否足以支持下游动作，综合去重后的证据数量、词法和
+向量信号、证据类型与正向支持状态；失败时返回可审计原因，调用方再决定补检
+或阻断生成。
+"""
+
 from typing import Any, Iterable
 
 from app.core.config import Settings, get_settings
@@ -34,10 +41,17 @@ class RetrievalQualityService:
         non_empty = [row for row in rows if str(self._value(row, "text") or "").strip()]
         unique_rows: list[Any] = []
         seen_texts: set[str] = set()
+        seen_facts: set[str] = set()
         for row in non_empty:
+            metadata = self._metadata(row)
+            fact_id = str(metadata.get("fact_id") or "").strip()
+            if fact_id and fact_id in seen_facts:
+                continue
             fingerprint = " ".join(str(self._value(row, "text") or "").lower().split())
             if fingerprint in seen_texts:
                 continue
+            if fact_id:
+                seen_facts.add(fact_id)
             seen_texts.add(fingerprint)
             unique_rows.append(row)
         query_tokens = set(tokenize(query))
@@ -54,6 +68,8 @@ class RetrievalQualityService:
         blocked_weak_evidence_count = 0
         relevant_evidence_count = 0
         embedding_providers: set[str] = set()
+        linked_fact_count = 0
+        evidence_view_count = 0
         for row in unique_rows:
             row_tokens = set(tokenize(str(self._value(row, "text") or "")))
             evidence_tokens.update(row_tokens)
@@ -61,6 +77,9 @@ class RetrievalQualityService:
             if chunk_type:
                 chunk_types.add(chunk_type)
             metadata = self._metadata(row)
+            if metadata.get("fact_id"):
+                linked_fact_count += 1
+            evidence_view_count += max(int(metadata.get("evidence_view_count") or 0), 1)
             retrieval = metadata.get("retrieval") or {}
             rerank = metadata.get("rerank") or {}
             first_stage_scores.append(
@@ -177,6 +196,8 @@ class RetrievalQualityService:
             "evidence_count": len(non_empty),
             "unique_evidence_count": len(unique_rows),
             "duplicate_evidence_count": len(non_empty) - len(unique_rows),
+            "linked_fact_count": linked_fact_count,
+            "evidence_view_count": evidence_view_count,
             "supporting_evidence_count": supporting_evidence_count,
             "blocked_weak_evidence_count": blocked_weak_evidence_count,
             "relevant_evidence_count": relevant_evidence_count,

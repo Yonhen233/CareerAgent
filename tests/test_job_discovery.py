@@ -1,6 +1,7 @@
 import asyncio
 
 from fastapi.testclient import TestClient
+import pytest
 
 from app.core.database import get_db
 from app.main import app
@@ -8,6 +9,7 @@ from app.api import job_discovery as job_discovery_api
 from app.models.entities import Job, JobChunk, JobSearchResult, JobSearchSession, MatchResult, Profile
 from app.models.schemas import JobDiscoveryRequest
 from app.services.job_discovery import DiscoveryCandidate, JobDiscoveryService
+from app.services.retrieval_quality import RetrievalQualityError
 from app.services.job_search import JobSearchService
 from app.services.job_search_intent import JobSearchIntentService
 from app.services.job_sources import JobPosting
@@ -336,6 +338,27 @@ def test_remote_job_is_not_silently_included_when_only_beijing_is_requested(db_s
     )
 
     assert [result.job_id for result in session.results] == [beijing.id]
+
+
+def test_failed_job_retrieval_runs_one_agentic_query_repair_and_records_gate(db_session):
+    with pytest.raises(RetrievalQualityError):
+        asyncio.run(
+            _service(job_search=NoLiveSearch()).discover(
+                db_session,
+                JobDiscoveryRequest(
+                    preference_text="Agent 开发实习",
+                    source_mode="corpus",
+                    limit=5,
+                ),
+            )
+        )
+
+    session = db_session.query(JobSearchSession).order_by(JobSearchSession.id.desc()).first()
+    assert session is not None
+    assert session.status == "failed"
+    agentic = session.retrieval_quality_json["agentic_rag"]
+    assert agentic["controller"] == "BoundedLocalReAct"
+    assert agentic["loop"]["executed_actions"] == ["rewrite_query"]
 
 
 def test_sparse_jd_match_score_cannot_override_stronger_query_relevance(db_session):

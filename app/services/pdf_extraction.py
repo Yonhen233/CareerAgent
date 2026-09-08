@@ -33,6 +33,9 @@ class PDFPageDiagnostic:
     alnum_ratio: float
     image_count: int
     layout_mode: str
+    table_count: int = 0
+    text_box_count: int = 0
+    layout_regions: list[str] = field(default_factory=list)
     ocr_confidence: float | None = None
     warnings: list[str] = field(default_factory=list)
 
@@ -106,7 +109,7 @@ class PDFExtractionService:
             diagnostics: list[PDFPageDiagnostic] = []
             for index in range(document.page_count):
                 page = document.load_page(index)
-                text, layout_mode = self._layout_text(page)
+                text, layout_mode, layout_features = self._layout_text(page)
                 image_count = len(page.get_images(full=True))
                 quality = self._text_quality(text)
                 extraction_method = "text_layer"
@@ -118,7 +121,13 @@ class PDFExtractionService:
                     or quality["alnum_ratio"] < self.settings.pdf_min_alnum_ratio
                     or quality["replacement_character_ratio"] > self.settings.pdf_max_replacement_ratio
                 )
-                if needs_ocr and image_count:
+                # A PDF can have a visible page rendered from a broken font map without
+                # containing an image object. Treat a non-empty but unreadable text layer
+                # as an OCR candidate too; otherwise these common browser-exported PDFs
+                # fail even though their pixels are perfectly recoverable.
+                if needs_ocr and (
+                    image_count or quality["character_count"] >= self.settings.pdf_min_text_chars_per_page
+                ):
                     if not self.settings.pdf_ocr_enabled:
                         raise PDFExtractionError(
                             "pdf_ocr_required",
@@ -163,6 +172,9 @@ class PDFExtractionService:
                         alnum_ratio=quality["alnum_ratio"],
                         image_count=image_count,
                         layout_mode=layout_mode,
+                        table_count=layout_features["table_count"],
+                        text_box_count=layout_features["text_box_count"],
+                        layout_regions=layout_features["layout_regions"],
                         ocr_confidence=confidence,
                         warnings=warnings,
                     )
@@ -208,14 +220,15 @@ class PDFExtractionService:
                 details={"size_bytes": len(file_bytes)},
             )
 
-    def _layout_text(self, page: Any) -> tuple[str, str]:
+    def _layout_text(self, page: Any) -> tuple[str, str, dict[str, Any]]:
         blocks = [
             block
             for block in page.get_text("blocks", sort=True)
             if len(block) >= 7 and int(block[6]) == 0 and str(block[4] or "").strip()
         ]
+        features = self._layout_features(page, blocks)
         if not blocks:
-            return "", "empty_text_layer"
+            return "", "empty_text_layer", features
         width = max(float(page.rect.width), 1.0)
         midpoint = width / 2
         left = [block for block in blocks if float(block[0]) < midpoint and float(block[2]) <= width * 0.62]
@@ -226,7 +239,7 @@ class PDFExtractionService:
             # PyMuPDF blocks are layout-level units. Preserve that boundary so the
             # downstream paragraph splitter does not degrade a whole page into one
             # large sliding window.
-            return "\n\n".join(str(block[4]).strip() for block in ordered), "block_order"
+            return self._join_layout_items(ordered, features), "block_order", features
 
         full_width = [block for block in blocks if float(block[0]) < width * 0.25 and float(block[2]) > width * 0.75]
         full_ids = {id(block) for block in full_width}
@@ -235,7 +248,84 @@ class PDFExtractionService:
         ordered = sorted(full_width, key=lambda block: float(block[1]))
         ordered.extend(sorted(left_column, key=lambda block: (float(block[1]), float(block[0]))))
         ordered.extend(sorted(right_column, key=lambda block: (float(block[1]), float(block[0]))))
-        return "\n\n".join(str(block[4]).strip() for block in ordered), "two_column_blocks"
+        return self._join_layout_items(ordered, features), "two_column_blocks", features
+
+    def _layout_features(self, page: Any, blocks: list[Any]) -> dict[str, Any]:
+        """Collect layout signals and recover table rows when PyMuPDF can see them.
+
+        A table is treated as a layout region, not as a new semantic source. Its
+        cell text is inserted in row order while the original PDF text remains
+        the source of truth for grounding and page provenance.
+        """
+        tables: list[Any] = []
+        try:
+            finder = page.find_tables()
+            tables = list(getattr(finder, "tables", []) or [])
+        except Exception:  # pragma: no cover - version-specific optional API
+            tables = []
+        table_regions: list[tuple[float, float, float, float, str]] = []
+        for table in tables:
+            try:
+                rows = table.extract() or []
+            except Exception:
+                rows = []
+            formatted_rows = []
+            for row in rows:
+                values = [" ".join(str(cell or "").split()) for cell in row]
+                if any(values):
+                    formatted_rows.append(" | ".join(values))
+            if formatted_rows:
+                try:
+                    x0, y0, x1, y1 = [float(value) for value in table.bbox]
+                except Exception:
+                    continue
+                table_regions.append((x0, y0, x1, y1, "\n".join(formatted_rows)))
+
+        text_box_count = sum(
+            1
+            for block in blocks
+            if len(block) >= 5 and "\n" in str(block[4]) and len(str(block[4]).strip()) > 40
+        )
+        regions = (["table"] * len(table_regions))
+        if text_box_count:
+            regions.append("text_box")
+        return {
+            "table_count": len(table_regions),
+            "text_box_count": text_box_count,
+            "layout_regions": list(dict.fromkeys(regions)),
+            "table_regions": table_regions,
+        }
+
+    @staticmethod
+    def _join_layout_items(blocks: list[Any], features: dict[str, Any]) -> str:
+        table_regions = features.get("table_regions") or []
+        # Preserve the order selected by the caller. In a two-column page that
+        # order is column-major; sorting every block by y here would interleave
+        # the columns again. Tables are inserted at the first block below their
+        # top edge, which keeps them in the same reading stream.
+        items: list[tuple[float, float, float, str]] = []
+        for block_index, block in enumerate(blocks):
+            x0, y0, x1, y1, text = block[:5]
+            if PDFExtractionService._inside_table(float(x0), float(y0), float(x1), float(y1), table_regions):
+                continue
+            items.append((float(block_index), float(y0), float(x0), str(text).strip()))
+        for x0, y0, x1, y1, text in table_regions:
+            insert_at = next(
+                (index for index, block in enumerate(blocks) if float(block[1]) >= y0),
+                len(blocks),
+            )
+            items.append((float(insert_at) - 0.1, y0, x0, "[表格]\n" + text))
+        items.sort(key=lambda item: (item[0], item[2]))
+        return "\n\n".join(text for _order, _y, _x, text in items if text)
+
+    @staticmethod
+    def _inside_table(x0: float, y0: float, x1: float, y1: float, regions: list[tuple[float, float, float, float, str]]) -> bool:
+        area = max((x1 - x0) * (y1 - y0), 1.0)
+        for tx0, ty0, tx1, ty1, _text in regions:
+            overlap = max(0.0, min(x1, tx1) - max(x0, tx0)) * max(0.0, min(y1, ty1) - max(y0, ty0))
+            if overlap / area >= 0.5:
+                return True
+        return False
 
     def _ocr_page(self, page: Any) -> tuple[str, float | None, str]:
         global _OCR_ENGINE

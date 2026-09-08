@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+"""上下文合同、预算和最小上下文构建器。
+
+该模块按照节点职责筛选 working、evidence、memory 和 artifact，保留引用与
+负向事实，并从 Checkpoint 重建可执行上下文。它不负责事实生成，也不把任意
+文本伪装成已验证证据。
+"""
+
 import hashlib
 import json
 import re

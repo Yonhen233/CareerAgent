@@ -193,6 +193,23 @@ class Settings(BaseSettings):
     reranker_promotion_gap: float = 0.02
     reranker_anchor_top_n: int = 5
     reranker_provider_fallback: str = "error"
+    # Reranker caches store only validated raw scores. Final ranking is always
+    # rebuilt from the current candidate set and post-processing settings.
+    reranker_result_cache_enabled: bool = True
+    reranker_cache_namespace: str = "careeragent:reranker"
+    reranker_cache_algorithm_version: str = "raw-score-v2"
+    reranker_model_revision: str = "configured"
+    reranker_tokenizer_revision: str = "configured"
+    reranker_max_sequence_length: int = Field(default=512, ge=64, le=8192)
+    reranker_truncation_policy: str = "library_default"
+    reranker_cache_l1_max_entries: int = Field(default=256, ge=16, le=10000)
+    reranker_cache_l1_max_bytes: int = Field(default=8_000_000, ge=1024, le=200_000_000)
+    reranker_cache_l1_ttl_seconds: int = Field(default=300, ge=1, le=86400)
+    reranker_cache_ttl_seconds: int = Field(default=86400, ge=60, le=604800)
+    reranker_cache_lock_ttl_seconds: int = Field(default=120, ge=5, le=3600)
+    reranker_cache_lock_wait_seconds: float = Field(default=30.0, ge=0.1, le=300.0)
+    reranker_cache_redis_timeout_seconds: float = Field(default=0.75, ge=0.1, le=10.0)
+    reranker_cache_redis_retry_seconds: float = Field(default=5.0, ge=1.0, le=300.0)
     rag_multi_query_enabled: bool = True
     rag_multi_query_rrf_k: int = Field(default=60, ge=1, le=200)
     rag_min_evidence_chunks: int = Field(default=1, ge=1, le=20)

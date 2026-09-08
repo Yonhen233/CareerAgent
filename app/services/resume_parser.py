@@ -1,3 +1,9 @@
+"""简历文本到候选人档案的解析服务。
+
+LLM 负责把 PDF 原文组织成结构化字段，确定性门禁负责检查字段能否回指原文、
+过滤无依据技能和经历，并记录解析来源。解析失败不得静默写入未经验证的档案。
+"""
+
 import asyncio
 import re
 from pathlib import Path
@@ -119,6 +125,9 @@ class ResumeParserService:
             projects=payload.projects,
             work_experience=payload.work_experience,
             campus_experience=payload.campus_experience,
+            research_experience=payload.research_experience,
+            publications=payload.publications,
+            patents=payload.patents,
             certifications=payload.certifications,
             awards=payload.awards,
             languages=payload.languages,
@@ -165,6 +174,9 @@ Parse the resume into this JSON schema:
   "projects": [{{"name": string, "description": string, "tech_stack": [string], "impact": string}}],
   "work_experience": [{{"company": string, "role": string, "duration": string, "details": string, "tech_stack": [string]}}],
   "campus_experience": [{{"company": string, "role": string, "duration": string, "details": string, "tech_stack": [string]}}],
+  "research_experience": [string],
+  "publications": [string],
+  "patents": [string],
   "certifications": [string],
   "awards": [string],
   "languages": [string],
@@ -219,6 +231,9 @@ Resume:
                     "projects",
                     "work_experience",
                     "campus_experience",
+                    "research_experience",
+                    "publications",
+                    "patents",
                     "certifications",
                     "awards",
                     "languages",
@@ -338,6 +353,7 @@ Resume:
         chunks = self.splitter.split_structured_profile(normalized)
         if pages:
             chunks.extend(self.splitter.split_pdf_pages(pages))
+            chunks = self.splitter.link_pdf_chunks_to_facts(chunks)
         else:
             chunks.extend(self.splitter.split_raw_text(str(normalized.get("raw_text") or "")))
         self.vector_index.upsert_profile_chunks(db, profile.id, chunks)
@@ -371,6 +387,9 @@ Resume:
             projects=self._parse_loose_items(sections.get("projects", []), "project"),
             work_experience=self._parse_loose_items(sections.get("experience", []), "experience"),
             campus_experience=self._parse_loose_items(sections.get("campus", []), "experience"),
+            research_experience=sections.get("research", [])[:12],
+            publications=sections.get("publications", [])[:12],
+            patents=sections.get("patents", [])[:12],
             certifications=sections.get("certifications", [])[:10],
             awards=sections.get("awards", [])[:8],
             languages=[x for x in ["Chinese", "English"] if x.lower() in raw_text.lower()],
@@ -384,7 +403,10 @@ Resume:
         for key in ["name", "email", "phone", "headline"]:
             if not merged.get(key) and heuristic.get(key):
                 merged[key] = heuristic[key]
-        for key in ["target_roles", "skills", "projects", "work_experience", "education"]:
+        for key in [
+            "target_roles", "skills", "projects", "work_experience", "education",
+            "research_experience", "publications", "patents",
+        ]:
             if not merged.get(key) and heuristic.get(key):
                 merged[key] = heuristic[key]
         return merged
@@ -506,6 +528,9 @@ Resume:
             "projects": [],
             "experience": [],
             "campus": [],
+            "research": [],
+            "publications": [],
+            "patents": [],
             "certifications": [],
             "awards": [],
         }
@@ -527,6 +552,9 @@ Resume:
             "projects": {"project", "projects", "projectexperience", "项目", "项目经历", "项目经验"},
             "experience": {"experience", "workexperience", "internshipexperience", "实习", "实习经历", "工作经历", "工作经验"},
             "campus": {"campus", "campusexperience", "校园经历", "社团经历", "学生会经历", "实践经历"},
+            "research": {"research", "researchexperience", "researchprojects", "科研", "科研经历", "研究经历", "研究项目"},
+            "publications": {"publication", "publications", "论文", "论文发表", "学术成果"},
+            "patents": {"patent", "patents", "专利", "发明专利", "知识产权", "专利与知识产权"},
             "certifications": {"certificate", "certificates", "certification", "certifications", "证书", "技能证书"},
             "awards": {"award", "awards", "honor", "honors", "获奖", "荣誉", "荣誉奖项"},
         }
@@ -642,6 +670,12 @@ Resume:
             parts.append(f"Experience: {exp.company} {exp.role}\n{exp.details}")
         for exp in payload.campus_experience:
             parts.append(f"Campus experience: {exp.company} {exp.role}\n{exp.details}")
+        if payload.research_experience:
+            parts.append("Research experience: " + "; ".join(payload.research_experience))
+        if payload.publications:
+            parts.append("Publications: " + "; ".join(payload.publications))
+        if payload.patents:
+            parts.append("Patents: " + "; ".join(payload.patents))
         for edu in payload.education:
             parts.append(f"Education: {edu.school} {edu.degree} {edu.major}\n{edu.details}")
         if payload.certifications:

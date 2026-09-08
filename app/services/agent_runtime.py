@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+"""Agent Runtime 的任务执行外观。
+
+Runtime 不是另一个 LLM Agent，而是连接任务队列、状态持久化、恢复和业务
+执行的控制层；它为 LangGraph 提供可恢复的运行环境，并保证异常不会把半成品
+误标记为完成。
+"""
+
 import asyncio
 import sqlite3
 from collections.abc import Callable

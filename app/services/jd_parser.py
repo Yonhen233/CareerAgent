@@ -1,3 +1,10 @@
+"""岗位 JD 的结构化解析服务。
+
+本模块把原始 JD 转换为职责、要求、技能、地点和替代条件等字段，并在入库前
+执行原文 grounding 和技能语义复核，避免把“例如”列表误当作硬要求。
+"""
+
+import json
 import re
 
 from app.core.config import get_settings
@@ -216,6 +223,15 @@ JD:
                 normalized,
                 raw_text=safe_text or raw_text,
             )
+            normalized, skill_review = await self._review_ambiguous_skill_semantics(
+                normalized,
+                raw_text=safe_text or raw_text,
+                db=db,
+            )
+            normalized, rejected_auxiliary_skills = self._filter_unsupported_auxiliary_skills(
+                normalized,
+                raw_text=safe_text or raw_text,
+            )
             quality_gate = self.grounding.evaluate_jd(
                 raw_text,
                 normalized,
@@ -228,11 +244,13 @@ JD:
                 ),
             )
             quality_gate["rejected_optional_keywords"] = rejected_optional_keywords
+            quality_gate["rejected_auxiliary_skills"] = rejected_auxiliary_skills
             normalized["quality_gate"] = quality_gate
             normalized["parser_provenance"] = {
                 **parser_provenance,
                 "mode": "llm_grounded",
                 "skill_semantics": SKILL_SEMANTICS_VERSION,
+                "skill_review": skill_review,
             }
             if not quality_gate["passed"]:
                 raise LLMResponseError(
@@ -451,6 +469,11 @@ JD:
                 normalized_value = re.sub(r"\s+", " ", value.lower())
                 mapped = JD_EXACT_SKILL_CANONICAL.get(value, value)
                 mapped = JD_EXACT_SKILL_CANONICAL.get(normalized_value, mapped)
+                if mapped == value:
+                    for canonical_name, patterns in JD_SKILL_ALIASES.items():
+                        if any(re.search(pattern, value, flags=re.IGNORECASE) for pattern in patterns):
+                            mapped = canonical_name
+                            break
                 key = mapped.lower()
                 if mapped and key not in seen:
                     seen.add(key)
@@ -512,6 +535,144 @@ JD:
                 rejected.append(value)
         output["keywords"] = supported
         return output, rejected
+
+    def _filter_unsupported_auxiliary_skills(
+        self,
+        parsed: dict,
+        *,
+        raw_text: str,
+    ) -> tuple[dict, list[str]]:
+        """Drop ungrounded duty-only labels instead of failing the whole JD.
+
+        Responsibility skills are auxiliary retrieval signals, not hard
+        requirements. A model may summarize a duty as ``failure case
+        analysis`` even when the JD only says ``analyze failures``. Keeping
+        that paraphrase as a skill makes the structured index noisy; failing
+        the entire parse is worse. Hard requirements remain governed by the
+        normal grounding gate below.
+        """
+        output = dict(parsed)
+        rejected: list[str] = []
+        for field in ("responsibility_skills", "preferred_skills"):
+            kept: list[str] = []
+            for item in output.get(field) or []:
+                value = str(item or "").strip()
+                if not value:
+                    continue
+                if self._skill_mentioned(raw_text, value) or self.grounding.value_supported(value, raw_text):
+                    kept.append(value)
+                else:
+                    rejected.append(value)
+            output[field] = kept
+        return output, list(dict.fromkeys(rejected))
+
+    async def _review_ambiguous_skill_semantics(
+        self,
+        parsed: dict,
+        *,
+        raw_text: str,
+        db=None,
+    ) -> tuple[dict, dict[str, object]]:
+        """Use one bounded LLM review for compound or role-output phrases.
+
+        The first parser extracts candidates; this pass only resolves the
+        ambiguous boundary between an atomic skill and a work outcome. It is
+        closed-world: the model may preserve, split to a canonical skill
+        explicitly present in the JD, demote to a duty signal, or drop a
+        candidate, but may not invent a new technology.
+        """
+        fields = ("required_skills", "responsibility_skills", "preferred_skills")
+        candidates = {
+            field: [str(item).strip() for item in parsed.get(field) or [] if str(item).strip()]
+            for field in fields
+        }
+        ambiguous = [
+            item
+            for field in fields
+            for item in candidates[field]
+            if self._skill_needs_semantic_review(item)
+        ]
+        if not ambiguous:
+            return parsed, {"applied": False, "reason": "no_ambiguous_skill_phrase"}
+
+        system_prompt = (
+            "You are a JD information extraction reviewer. Return strict JSON only. "
+            "Resolve whether extracted phrases are atomic skills or merely work outputs. "
+            "Do not invent technologies or requirements."
+        )
+        user_prompt = f"""
+Review the candidate skill fields against the original JD.
+An atomic skill is a language, framework, tool, platform, method or capability that a candidate can possess.
+A work output, metric, object, activity or compound phrase belongs in responsibility_skills or should be dropped.
+Split a compound such as 'Prompt Injection analysis' into the atomic canonical skill 'Prompt Injection' only when the JD explicitly supports it.
+Do not turn a duty into a hard requirement. Preserve already-correct atomic skills.
+Return only values grounded in the original JD; do not add values absent from the candidate lists or their explicit canonical skill form.
+
+Return JSON:
+{{
+  "required_skills": [string],
+  "responsibility_skills": [string],
+  "preferred_skills": [string],
+  "dropped": [string]
+}}
+
+Candidate fields:
+{json.dumps(candidates, ensure_ascii=False)}
+
+Original JD:
+{raw_text[:10000]}
+"""
+        try:
+            text = await self.llm.generate_text(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                temperature=0,
+                max_tokens=700,
+                response_format={"type": "json_object"},
+                db=db,
+                trace_name="jd_parser.skill_semantics_review",
+            )
+            reviewed = extract_json_object(text)
+        except Exception:
+            # The parser's primary result remains available to the normal
+            # grounding gate; a failed auxiliary review must not manufacture
+            # a fallback result or hide a hard-requirement error.
+            raise
+
+        output = dict(parsed)
+        for field in fields:
+            values = reviewed.get(field)
+            if not isinstance(values, list):
+                continue
+            preserved = [item for item in candidates[field] if item not in ambiguous]
+            output[field] = self._merge_ordered_lists(values, preserved)
+        output = self._canonicalize_structured_jd(output)
+        return output, {
+            "applied": True,
+            "candidate_count": sum(len(values) for values in candidates.values()),
+            "ambiguous_phrases": list(dict.fromkeys(ambiguous)),
+            "dropped": [str(item).strip() for item in reviewed.get("dropped") or [] if str(item).strip()][:20],
+            "trace_name": "jd_parser.skill_semantics_review",
+        }
+
+    def _skill_needs_semantic_review(self, value: str) -> bool:
+        normalized = re.sub(r"\s+", " ", str(value or "").strip().lower())
+        if not normalized:
+            return False
+        known = {
+            re.sub(r"\s+", " ", item.strip().lower())
+            for item in [*JD_SKILL_ALIASES.keys(), *JD_EXACT_SKILL_CANONICAL.keys(), *KNOWN_SKILLS]
+        }
+        if normalized in known:
+            return False
+        return bool(
+            re.search(
+                r"(?:\band\b|\bwith\b|\bor\b|/|、|以及|与|和|分析|概念|metrics?|models?|pipelines?|tests?|reports?|cases?|maintenance|analysis)",
+                normalized,
+                flags=re.IGNORECASE,
+            )
+            or len(normalized.split()) >= 3
+        )
 
     def _normalize_requirement_strength(
         self,

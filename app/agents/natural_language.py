@@ -13,10 +13,12 @@ from langgraph.graph import END, START, StateGraph
 from sqlalchemy.orm import Session
 
 from app.agents.orchestrator import AgentOrchestrator
+from app.agents.task_graph import GlobalPlanner, IntentValidator, TaskGraphValidationError
 from app.agents.tools import bind_agent_tool
 from app.core.config import get_settings
 from app.core.llm import LLMCallBudget, LLMClient, llm_call_budget, llm_trace_context
 from app.models.entities import AgentArtifact, AgentRun, Job, Profile
+from app.models.agent_plan_schemas import Goal, IntentEnvelope
 from app.models.schemas import (
     AgentRunRequest,
     GuidedProfileRequest,
@@ -1348,7 +1350,60 @@ query={request.query}
         )
         normalized["needs_profile"] = profile_dependent
         normalized["needs_job"] = job_dependent
+        normalized.update(self._compile_task_graph_plan(normalized, request))
         return normalized
+
+    def _compile_task_graph_plan(
+        self,
+        normalized: dict[str, Any],
+        request: NaturalLanguageAgentRequest,
+    ) -> dict[str, Any]:
+        """Turn the natural-language plan into the same validated DAG as explicit runs."""
+        action_map = {
+            "update_profile": "create_profile",
+            "interview_prep": "prepare_interview",
+        }
+        actions = [action_map.get(str(action), str(action)) for action in normalized.get("actions") or []]
+        primary = action_map.get(str(normalized.get("intent")), str(normalized.get("intent")))
+        if primary and primary in {"create_profile", "search_jobs", "tailor_resume", "quick_apply", "prepare_interview", "full_flow"}:
+            actions.insert(0, primary)
+        actions = list(dict.fromkeys(action for action in actions if action in {
+            "create_profile", "search_jobs", "tailor_resume", "quick_apply", "prepare_interview", "full_flow",
+        }))
+        if not actions:
+            return {"intent_envelope": {}, "task_plan": {}, "task_graph_errors": ["没有可执行的合法 Action"]}
+
+        goals: list[Goal] = []
+        previous: str | None = None
+        for index, action in enumerate(actions, start=1):
+            goal_id = f"g{index}"
+            depends_on = [previous] if previous and action in {"tailor_resume", "quick_apply", "prepare_interview"} else []
+            goals.append(Goal(
+                goal_id=goal_id,
+                action=action,
+                parameters={"query": normalized.get("query")} if action == "search_jobs" else {},
+                depends_on=depends_on,
+            ))
+            previous = goal_id
+        intent = IntentEnvelope(
+            goals=goals,
+            constraints=[str(normalized.get("reason") or "")],
+            forbidden_actions=["quick_apply"] if self._forbids_application(request.instruction) else [],
+            required_context=[item for item in ["profile" if normalized.get("needs_profile") else None, "job" if normalized.get("needs_job") else None] if item],
+            confidence=1.0,
+        )
+        try:
+            IntentValidator().validate(
+                intent,
+                available_context={
+                    "profile_id": request.profile_id or bool(request.profile_context or normalized.get("profile")),
+                    "job_id": request.job_id or bool(request.jd_text or normalized.get("job")),
+                },
+            )
+            task_plan = GlobalPlanner().compile(intent, plan_id=f"plan-{uuid4().hex}")
+            return {"intent_envelope": intent.model_dump(), "task_plan": task_plan.model_dump(), "task_graph_errors": []}
+        except TaskGraphValidationError as exc:
+            return {"intent_envelope": intent.model_dump(), "task_plan": {}, "task_graph_errors": list(exc.errors)}
 
     @staticmethod
     def _compact_planner_profile(profile: dict[str, Any]) -> dict[str, Any]:
@@ -1459,6 +1514,7 @@ query={request.query}
             "create_profile": "create_profile",
             "profile": "create_profile",
             "resume_profile": "create_profile",
+            "update_profile": "create_profile",
             "search_jobs": "search_jobs",
             "search_jobs_by_profile": "search_jobs",
             "find_jobs": "search_jobs",

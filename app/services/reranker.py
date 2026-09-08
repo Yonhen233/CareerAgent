@@ -1,10 +1,12 @@
 import os
 import re
 from dataclasses import replace
+from pathlib import Path
 from typing import Any
 
 from app.core.config import Settings, get_settings
 from app.services.embedding_service import EmbeddingService, cosine_similarity, expand_query_text, tokenize
+from app.services.rerank_result_cache import CacheCandidate, RerankCacheContext, RerankResultCacheService
 
 
 _RERANKER_MODEL_CACHE: dict[str, Any] = {}
@@ -31,14 +33,14 @@ class RerankerService:
         self.score_weight = self.settings.reranker_score_weight if score_weight is None else score_weight
         self.promotion_gap = self.settings.reranker_promotion_gap if promotion_gap is None else promotion_gap
         self.anchor_top_n = self.settings.reranker_anchor_top_n if anchor_top_n is None else anchor_top_n
+        self.result_cache = RerankResultCacheService(settings=self.settings)
 
     def rerank_chunks(self, query: str, candidates: list[Any], *, top_k: int) -> list[Any]:
         if not self.enabled or len(candidates) <= 1:
             return candidates[:top_k]
 
-        texts = [self._candidate_text(candidate) for candidate in candidates]
-        chunk_types = [str(getattr(candidate, "chunk_type", "") or "") for candidate in candidates]
-        raw_scores, info = self._score_pairs(query, texts, chunk_types)
+        payloads = [self._chunk_payload(candidate) for candidate in candidates]
+        raw_scores, info = self._score_payloads(query, payloads)
         normalized = self._normalize_scores(raw_scores)
         reranked = []
         for candidate, raw_score, norm_score in zip(candidates, raw_scores, normalized, strict=False):
@@ -71,9 +73,8 @@ class RerankerService:
         if not self.enabled or len(candidates) <= 1:
             return candidates[:top_k]
 
-        texts = [self._candidate_text(candidate) for candidate in candidates]
-        chunk_types = [str(candidate.get("chunk_type") or "") for candidate in candidates]
-        raw_scores, info = self._score_pairs(query, texts, chunk_types)
+        payloads = [self._dict_payload(candidate) for candidate in candidates]
+        raw_scores, info = self._score_payloads(query, payloads)
         return self._rerank_dicts_with_scores(candidates, raw_scores, info=info, top_k=top_k)
 
     def rerank_dict_groups(
@@ -93,39 +94,81 @@ class RerankerService:
                     for query, candidates, top_k in groups
                 ]
             try:
-                model = self._load_cross_encoder()
-                pairs = [
-                    (query, str(candidate.get("text") or ""))
-                    for query, candidates, _ in groups
-                    for candidate in candidates
-                ]
-                flat_scores = [
-                    float(score)
-                    for score in model.predict(
-                        pairs,
-                        batch_size=self.settings.reranker_batch_size,
-                        show_progress_bar=False,
+                contexts: list[tuple[str, list[dict[str, Any]], int, RerankCacheContext]] = []
+                query_by_hash: dict[str, str] = {}
+                for query, candidates, top_k in groups:
+                    payloads = [self._dict_payload(candidate) for candidate in candidates]
+                    context = self._build_cache_context(query, payloads)
+                    contexts.append((query, candidates, top_k, context))
+                    query_by_hash[context.query_hash] = query
+                all_items: dict[str, CacheCandidate] = {}
+                request_scores: dict[int, list[float]] = {}
+                for group_index, (_, _, _, context) in enumerate(contexts):
+                    cached_scores, _ = self.result_cache.get_request(context)
+                    if cached_scores is not None:
+                        request_scores[group_index] = cached_scores
+                    for item in context.candidates:
+                        all_items.setdefault(item.pair_key, item)
+                missing_groups = [index for index in range(len(contexts)) if index not in request_scores]
+                merged_candidates = tuple(all_items.values())
+                if missing_groups:
+                    missing_pair_items = tuple(
+                        item
+                        for item in merged_candidates
+                        if any(
+                            item.pair_key == candidate.pair_key
+                            for group_index in missing_groups
+                            for candidate in contexts[group_index][3].candidates
+                        )
                     )
-                ]
+                    compute_context = RerankCacheContext(
+                        request_key="group-compute",
+                        query_hash="group-compute",
+                        provider=contexts[0][3].provider,
+                        model_fingerprint=contexts[0][3].model_fingerprint,
+                        language_route=contexts[0][3].language_route,
+                        algorithm_version=contexts[0][3].algorithm_version,
+                        candidates=missing_pair_items,
+                    )
+                    def compute(items: list[CacheCandidate]) -> list[float]:
+                        model = self._load_cross_encoder()
+                        return [
+                            float(score)
+                            for score in model.predict(
+                                [(query_by_hash[item.query_hash], item.text) for item in items],
+                                batch_size=self.settings.reranker_batch_size,
+                                show_progress_bar=False,
+                            )
+                        ]
+
+                    computed_scores, pair_info = self.result_cache.get_or_compute_pair_scores(compute_context, compute)
+                    score_by_pair = {
+                        item.pair_key: score for item, score in zip(compute_context.candidates, computed_scores, strict=False)
+                    }
+                    for group_index in missing_groups:
+                        context = contexts[group_index][3]
+                        scores = [score_by_pair[item.pair_key] for item in context.candidates]
+                        request_scores[group_index] = scores
+                        self.result_cache.put_request(context, scores)
+                else:
+                    pair_info = {"enabled": True, "pair_hits": 0, "pair_misses": 0, "cache_layer": "request"}
                 info = {
                     "reranker_provider": "cross_encoder",
                     "reranker_model": self.model_name,
                     "batched_query_count": len(groups),
-                    "batched_pair_count": len(pairs),
+                    "batched_pair_count": sum(len(candidates) for _, candidates, _ in groups),
+                    "reranker_cache": pair_info,
                 }
                 output: list[list[dict[str, Any]]] = []
-                offset = 0
-                for _, candidates, top_k in groups:
-                    size = len(candidates)
+                for group_index, (_, candidates, top_k, _) in enumerate(contexts):
                     output.append(
                         self._rerank_dicts_with_scores(
                             candidates,
-                            flat_scores[offset : offset + size],
+                            request_scores[group_index],
                             info=info,
                             top_k=top_k,
                         )
                     )
-                    offset += size
                 return output
             except Exception as exc:  # noqa: BLE001
                 if self.settings.reranker_provider_fallback.lower() != "heuristic":
@@ -146,6 +189,136 @@ class RerankerService:
                 ]
 
         return [self.rerank_dicts(query, candidates, top_k=top_k) for query, candidates, top_k in groups]
+
+    def _score_payloads(
+        self,
+        query: str,
+        payloads: list[dict[str, Any]],
+    ) -> tuple[list[float], dict[str, Any]]:
+        """Score candidates through request/pair caches, then rebuild ranking outside the cache."""
+
+        chunk_types = [str(payload.get("chunk_type") or "") for payload in payloads]
+        route = self._cache_route(query)
+        if route is None:
+            return self._score_pairs(
+                query,
+                [str(payload.get("text") or "") for payload in payloads],
+                chunk_types,
+            )
+        provider, model_name, language_route = route
+        context = self._build_cache_context(query, payloads)
+        request_scores, request_layer = self.result_cache.get_request(context)
+        if request_scores is not None:
+            return request_scores, {
+                "reranker_provider": provider,
+                "reranker_model": model_name,
+                "language_route": language_route,
+                "reranker_cache": {
+                    "enabled": True,
+                    "request_hit": True,
+                    "request_layer": request_layer,
+                    "pair_hits": 0,
+                    "pair_misses": 0,
+                },
+            }
+
+        computed_info: dict[str, Any] = {}
+
+        def compute(items: list[CacheCandidate]) -> list[float]:
+            scores, info = self._score_pairs(
+                query,
+                [item.text for item in items],
+                [item.chunk_type for item in items],
+            )
+            computed_info.update(info)
+            if len(scores) != len(items) and len(scores) == len(context.candidates):
+                scores_by_pair: dict[str, float] = {}
+                for candidate, score in zip(context.candidates, scores, strict=False):
+                    scores_by_pair.setdefault(candidate.pair_key, float(score))
+                return [scores_by_pair[item.pair_key] for item in items]
+            return scores
+
+        raw_scores, pair_info = self.result_cache.get_or_compute_pair_scores(context, compute)
+        self.result_cache.put_request(context, raw_scores)
+        info = {
+            "reranker_provider": computed_info.get("reranker_provider", provider),
+            "reranker_model": computed_info.get("reranker_model", model_name),
+            "language_route": computed_info.get("language_route", language_route),
+            "reranker_cache": {
+                **pair_info,
+                "request_hit": False,
+            },
+        }
+        for key in ("fallback_reason",):
+            if key in computed_info:
+                info[key] = computed_info[key]
+        return raw_scores, info
+
+    def _build_cache_context(
+        self,
+        query: str,
+        payloads: list[dict[str, Any]],
+    ) -> RerankCacheContext:
+        provider, model_name, language_route = self._cache_route(query) or (
+            self.provider,
+            self.model_name,
+            "default",
+        )
+        return self.result_cache.build_context(
+            query,
+            payloads,
+            provider=provider,
+            model_name=model_name,
+            language_route=language_route,
+            algorithm_version=getattr(self.settings, "reranker_cache_algorithm_version", "raw-score-v2"),
+            postprocess={
+                "score_weight": self.score_weight,
+                "promotion_gap": self.promotion_gap,
+                "anchor_top_n": self.anchor_top_n,
+            },
+        )
+
+    def _cache_route(self, query: str) -> tuple[str, str, str] | None:
+        if not self.enabled or not self.result_cache.enabled:
+            return None
+        if self.provider in {"heuristic", "lexical"}:
+            # Heuristic output is a formal fallback, never a production cache value.
+            return None
+        if self.provider in {"cross_encoder", "cross-encoder", "sentence_transformers"}:
+            if self._requires_cjk_heuristic(query):
+                return (
+                    "multilingual_embedding",
+                    self.settings.embedding_model_name,
+                    "cjk_semantic",
+                )
+            return ("cross_encoder", self.model_name, "cross_encoder")
+        return None
+
+    def _dict_payload(self, candidate: dict[str, Any]) -> dict[str, Any]:
+        metadata = dict(candidate.get("metadata") or {})
+        return {
+            **candidate,
+            "text": self._candidate_text(candidate),
+            "chunk_type": str(candidate.get("chunk_type") or ""),
+            "source_type": str(candidate.get("source_type") or metadata.get("source_type") or metadata.get("source") or ""),
+            "metadata": metadata,
+        }
+
+    def _chunk_payload(self, candidate: Any) -> dict[str, Any]:
+        metadata = dict(getattr(candidate, "metadata", None) or {})
+        return {
+            "candidate_id": str(
+                getattr(candidate, "uid", None)
+                or getattr(candidate, "id", None)
+                or getattr(candidate, "chunk_uid", None)
+                or ""
+            ),
+            "text": self._candidate_text(candidate),
+            "chunk_type": str(getattr(candidate, "chunk_type", "") or ""),
+            "source_type": str(metadata.get("source_type") or metadata.get("source") or ""),
+            "score": float(getattr(candidate, "score", 0.0) or 0.0),
+            "metadata": metadata,
+        }
 
     def _rerank_dicts_with_scores(
         self,
@@ -247,12 +420,30 @@ class RerankerService:
             from sentence_transformers import CrossEncoder  # type: ignore
 
             self.settings.embedding_cache_path.mkdir(parents=True, exist_ok=True)
-            model = CrossEncoder(self.model_name)
+            local_model = self._resolve_local_model_path()
+            model = CrossEncoder(str(local_model) if local_model is not None else self.model_name)
             _RERANKER_MODEL_CACHE[cache_key] = model
             return model
         except Exception as exc:  # noqa: BLE001
             _RERANKER_FAILURES[cache_key] = str(exc)
             raise
+
+    def _resolve_local_model_path(self) -> Path | None:
+        configured = Path(self.model_name).expanduser()
+        if configured.is_dir() and (configured / "config.json").exists():
+            return configured
+
+        model_dir = self.settings.embedding_cache_path / (
+            "models--" + self.model_name.replace("/", "--")
+        )
+        candidates = [
+            path
+            for path in (model_dir / "snapshots").glob("*/")
+            if (path / "config.json").exists() and (path / "model.safetensors").exists()
+        ]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda path: path.stat().st_mtime)
 
     def _requires_cjk_heuristic(self, query: str) -> bool:
         return bool(CJK_RE.search(query)) and "ms-marco" in self.model_name.lower()

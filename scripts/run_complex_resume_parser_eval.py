@@ -73,6 +73,16 @@ async def evaluate(manifest_path: Path, output_path: Path, case_id: str | None =
                         "experience_count": len(parsed.get("work_experience") or []),
                         "project_count": len(parsed.get("projects") or []),
                         "research_present": contains_any(all_text, "科研经历") or contains_any(all_text, "RESEARCH"),
+                        "publication_recall": round(
+                            sum(contains_any(all_text, value) for value in (case.get("expected_profile", {}).get("publications") or []))
+                            / max(len(case.get("expected_profile", {}).get("publications") or []), 1),
+                            4,
+                        ) if case.get("expected_profile", {}).get("has_publications") else None,
+                        "patent_recall": round(
+                            sum(contains_any(all_text, value) for value in (case.get("expected_profile", {}).get("patents") or []))
+                            / max(len(case.get("expected_profile", {}).get("patents") or []), 1),
+                            4,
+                        ) if case.get("expected_profile", {}).get("has_patents") else None,
                         "campus_or_leadership_present": contains_any(all_text, "校园") or contains_any(all_text, "LEADERSHIP"),
                         "critical_fact_grounding": round(sum(compact(fact) in compact(all_text) for fact in case["critical_facts"]) / 3, 4),
                         "quality_gate_passed": source_gate.get("passed") is True,

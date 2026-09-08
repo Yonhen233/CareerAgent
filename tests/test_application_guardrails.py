@@ -402,6 +402,50 @@ def test_application_guardrail_recovers_borderline_translated_structured_outcome
     )
 
 
+def test_application_guardrail_chooses_consistent_adjacent_evidence_for_combined_claim():
+    class SimilarityStub:
+        def embed_texts(self, texts):
+            # The first source looks closer lexically, but omits the claim's
+            # coverage outcome. The second source contains both outcomes.
+            vectors = [[1.0, 0.0], [0.99, 0.14], [0.85, 0.526]]
+            return EmbeddingBatch(
+                vectors=vectors[: len(texts)],
+                provider="scope_test",
+                model="controlled",
+                dimensions=2,
+            )
+
+    guardrail = ApplicationPacketGuardrail(embedding_service=SimilarityStub())
+    report = guardrail._recover_multilingual_grounding(
+        {
+            "passed": False,
+            "results": [
+                {
+                    "claim": "该项目提升了组件复用率和 UI 回归覆盖率",
+                    "support_score": 0.1,
+                    "supported": False,
+                }
+            ],
+            "unsupported_claims": [
+                {
+                    "claim": "该项目提升了组件复用率和 UI 回归覆盖率",
+                    "support_score": 0.1,
+                    "supported": False,
+                }
+            ],
+        },
+        support_sources=[
+            "Built reusable React components. Improved component reuse and UI regression coverage."
+        ],
+        grounding=EvidenceGroundingService(),
+        supported_terms=set(),
+        trusted_fact_sources=["Improved component reuse and UI regression coverage."],
+    )
+
+    assert report["passed"] is True
+    assert report["results"][0]["embedding_outcome_semantics_consistent"] is True
+
+
 def test_application_guardrail_does_not_recover_changed_outcome_from_structured_fact():
     import math
 

@@ -8,6 +8,7 @@ from pathlib import Path
 import pymupdf
 from PIL import Image, ImageEnhance, ImageFilter
 from pypdf import PdfReader, PdfWriter
+from reportlab.lib import colors
 from reportlab.lib.colors import HexColor
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.styles import ParagraphStyle
@@ -15,14 +16,18 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
-from reportlab.platypus import Paragraph
+from reportlab.platypus import Paragraph, Table, TableStyle
 
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "evals" / "complex_resume_corpus"
 PDF_DIR = OUTPUT / "pdfs"
 RENDER_DIR = ROOT / "tmp" / "pdfs" / "complex-resume-corpus"
-PAGE_SIZE = (810.0, 1087.0)
+# Use an A4-like page instead of an oversized canvas. The previous 810x1087
+# canvas made a normal one-page resume look artificially sparse and hid layout
+# overflow. Keeping the page close to a real resume also makes wrapping and
+# cross-page tests representative.
+PAGE_SIZE = (595.0, 842.0)
 FONT_PATH = Path(r"C:\Windows\Fonts\msyh.ttc")
 FONT_BOLD_PATH = Path(r"C:\Windows\Fonts\msyhbd.ttc")
 
@@ -44,7 +49,58 @@ CASES = [
     ("compliance_agent", "唐琪", "金融合规 Agent 研究实习生", ["Python", "知识图谱", "RAG", "规则引擎", "审计"], "构建法规条款时效性追踪图谱", "引用可追溯率达到 99.1%", "研究证据约束生成在金融合规审查中的应用", "research_two_page"),
     ("robotics_agent_scan", "吴桐", "机器人 Agent 算法实习生", ["Python", "ROS2", "强化学习", "行为树", "仿真"], "实现行为树与语言规划器的双向校验", "仿真任务成功率达到 84.6%", "构建可恢复的移动机器人任务规划 Agent", "scan_two_column"),
     ("bilingual_agent_mixed", "Emma Zhou", "Bilingual Agent Platform Intern", ["Python", "LangGraph", "TypeScript", "RAG", "Evaluation"], "Built a bilingual tool-result grounding pipeline", "Reduced unsupported claims from 11.8% to 2.1%", "Delivered a Chinese-English research assistant with citation verification", "mixed_text_scan"),
+    ("graph_rag_research", "许安", "Graph RAG 与 Agent 研究实习生", ["Python", "PyTorch", "LangGraph", "Neo4j", "Elasticsearch"], "实现图结构证据扩展与查询级重排", "中文技术问答 Recall@5 提升 12.4 个百分点", "研究长文档 Agent 的多跳检索和可验证引用", "research_two_page"),
+    ("agent_safety_research", "沈妍", "Agent 安全评测研究实习生", ["Python", "Prompt Injection", "Guardrails", "LLM Judge", "pytest"], "构建工具越权和间接注入红队集", "高风险动作拦截率达到 97.8%", "研究工具调用轨迹中的风险识别与人工审批", "research_two_page"),
+    ("multimodal_paper_intern", "郭子涵", "多模态文档 Agent 研究实习生", ["Python", "PyTorch", "OCR", "LayoutLM", "RAG"], "完成表格单元格到答案证据的对齐", "复杂票据字段 F1 达到 91.6%", "构建面向扫描文档的视觉检索与问答系统", "research_two_page"),
+    ("agent_systems_patent", "韩子墨", "Agent 系统工程实习生", ["Python", "FastAPI", "Redis", "PostgreSQL", "OpenTelemetry"], "实现工具回执与 checkpoint 的一致性对账", "故障恢复场景重复副作用下降 83%", "建设可恢复的多工具 Agent 执行平台", "research_two_page"),
+    ("natural_cross_page", "叶知行", "长上下文 Agent 研究实习生", ["Python", "PyTorch", "RAG", "LangGraph", "评测"], "完成跨页证据拼接与来源页码追踪", "长文档问答 Recall@5 提升 9.8 个百分点", "研究跨页语义连续性对 Agent 检索和引用的影响", "natural_cross_page"),
+    ("agent_evaluation_table", "周予安", "Agent 评测工程实习生", ["Python", "RAG", "评测", "SQLite"], "建立按阶段拆分的 Agent 质量看板", "关键事实支持率达到 96.4%", "用可追溯证据定位检索与生成链路的失败", "table_one_page"),
 ]
+
+
+RESEARCH_OUTPUTS = {
+    "graph_rag_research": (
+        [
+            "研究经历：参与可信检索实验室，研究图增强检索如何把实体、关系和来源页组合成可验证上下文；完成三组查询改写、图扩展深度和重排策略的消融实验。",
+            "论文：An Evidence-Centered Graph RAG Pipeline for Long-Context Agents，第一作者，中文技术问答数据集，已投稿至 NLPCC。",
+            "论文：Query Decomposition for Multilingual Retrieval，第二作者，研究中英文混写 Query 的召回偏差，已录用为校内学术会议长文。",
+        ],
+        [
+            "专利：一种基于来源约束的多跳检索结果校验方法，申请号 CN2026XXXXXX，负责候选证据合并和引用一致性校验。",
+        ],
+    ),
+    "agent_safety_research": (
+        [
+            "研究经历：在可信 Agent 小组负责风险轨迹建模，设计直接提示注入、间接网页注入、工具参数越权和审批绕过四类实验协议；每条样例保留攻击目标、工具边界和预期终态。",
+            "论文：Evaluating Tool-Use Safety in Long-Running Language Agents，第一作者，提出基于轨迹的风险分层和发布门禁，已投稿至 COLING Workshop。",
+            "论文：Separating Semantic Repair from Side-Effect Replay，第三作者，讨论结构修复、重试和幂等执行的边界，已完成预印本。",
+        ],
+        [
+            "专利：一种面向 Agent 工具调用的分级审批与审计方法，申请号 CN2026YYYYYY，负责风险等级和回放证据设计。",
+        ],
+    ),
+    "multimodal_paper_intern": (
+        [
+            "研究经历：参与文档智能实验室，研究扫描件、文本框和复杂表格中的阅读顺序恢复；将页面区域、OCR 置信度和表格单元格坐标写入统一证据对象。",
+            "论文：Layout-Aware Evidence Retrieval for Scanned Documents，第一作者，比较 OCR 行排序、区域分块和页面级上下文对检索质量的影响，已投稿至 CCL。",
+            "论文：Cell-Level Grounding for Multimodal Question Answering，第二作者，提出表格单元格到答案 span 的双向校验方法，已完成实验。",
+        ],
+        [
+            "专利：一种复杂版式文档的表格单元格证据定位方法，申请号 CN2026ZZZZZZ，负责坐标归一化和跨页表格关联。",
+        ],
+    ),
+    "agent_systems_patent": (
+        [
+            "研究经历：围绕长任务 Agent 的可靠执行开展研究，复盘工具调用成功但状态保存失败、Worker 崩溃和恢复重复执行等窗口，设计 checkpoint、幂等键与业务对账的联合实验。",
+            "论文：Durable Execution Patterns for Tool-Using Agents，第二作者，比较内存状态、SQLite WAL 和 Redis 队列在故障恢复中的一致性边界，已投稿至软件工程实践会议。",
+            "论文：Observability Signals for Agent Completion Gates，第三作者，分析 no-progress cycle、早停和循环调用的运行信号，已完成内部技术报告。",
+        ],
+        [
+            "专利：一种基于工具回执和状态快照的 Agent 任务恢复方法，申请号 CN2026AAAAAA，负责不确定外部响应的幂等对账流程。",
+            "专利：一种面向长任务智能体的运行轨迹采集与异常定位方法，申请号 CN2026BBBBBB，负责 trace schema 和恢复位置标记。",
+        ],
+    ),
+}
 
 
 def _register_fonts() -> None:
@@ -65,6 +121,14 @@ def _sections(case: tuple) -> tuple[list[tuple[str, str]], list[dict]]:
             ("PROJECTS", f"Bilingual Research Assistant: {fact_b}. The system preserves source spans and rejects answers whose citations cannot be found verbatim. It rewrites long requests into complementary retrieval views, merges candidates with reciprocal-rank fusion and records which query retrieved each passage.\nAgent Replay Console: reconstructed state transitions and tool receipts from checkpoints, while separating business artifacts from conversational memory. Added stale-run recovery, checkpoint history inspection and idempotent artifact reconciliation after process crashes.\nEvaluation Harness: created adversarial cases for prompt injection, early stopping, repeated tool calls, malformed JSON, weak evidence and cross-user context leakage. Reports stage-level failures, pass^k, latency, token cost and regression provenance rather than a single opaque score.\nDocument Intake Pipeline: routed native text pages and scanned pages independently, detected repeated headers, retained page numbers and produced cross-page context only when a sentence or bullet genuinely continued."),
             ("LEADERSHIP & AWARDS", "Maintained an open-source evaluation toolkit, reviewed pull requests and wrote reproducible failure reports. Organized a twelve-week Agent engineering reading group covering retrieval, tool governance, durable execution and evaluation. Received a university innovation scholarship and a regional software design award. English CET-6; comfortable presenting technical design reviews in Chinese and English and writing bilingual engineering documentation."),
         ]
+    elif key == "agent_evaluation_table":
+        sections = [
+            ("个人概况", f"{name}｜{role}｜{key}@example.com｜负责把岗位 Agent 的质量问题拆成可复现样例、证据和门禁。"),
+            ("教育背景", "上海交通大学 软件工程硕士 2025.09-2028.06；研究方向为可靠 Agent 与信息检索。"),
+            ("专业技能", "Python、SQLite、RAG、BM25、Embedding、Recall@K、MRR、nDCG、pytest、OpenTelemetry。"),
+            ("项目经历", f"评测看板：{focus}；{fact_a}。把 PDF 抽取、Chunk 召回、工具轨迹、完成门控和事实引用拆成独立阶段。"),
+            ("评测结果", f"对中文和英文样例做对照实验，{fact_b}；记录 Query、候选证据、模型版本、失败原因和回归链接。"),
+        ]
     else:
         sections = [
             ("个人概况", f"{name}｜{role}｜{key}@example.com｜北京 / 上海 / 深圳 / 远程｜可连续实习 6 个月。关注可验证的 Agent 工作流、检索增强生成、工具治理和工程落地，能够从需求澄清、原型实现推进到评测与运行观测。习惯把模糊需求拆成可检查的目标、证据和完成条件，并对模型输出保持可回溯的事实边界。"),
@@ -75,7 +139,18 @@ def _sections(case: tuple) -> tuple[list[tuple[str, str]], list[dict]]:
             ("项目经历", f"核心项目：{focus}。{fact_b}；系统记录 Query、候选 Chunk、重排分数、工具回执和最终引用，质量门控不通过时明确失败。针对长指令生成互补 Query，将地点和排除条件作为有原文证据的元数据约束，避免把现居地误当求职地点。\n运行回放控制台：从持久化 Checkpoint 重建最小状态，展示计划、工具调用、产物、异常和恢复位置；外发动作只允许在审批后执行一次。增加 stale run 扫描、心跳、业务产物幂等对账和历史 checkpoint 回溯，处理“业务写入成功但图状态尚未保存”的崩溃窗口。\n评测工具箱：覆盖中文、英文和混合语言样例，加入长文档、相似术语、无证据声明、Prompt Injection、循环调用与跨用户上下文污染等 Bad Case。分别报告 PDF 抽取、Chunk 召回、工具轨迹、任务终态、事实引用、延迟和成本，不用单一平均分掩盖关键失败。\n证据审查器：把模型给出的匹配项映射到 JD 和简历原文，要求关键结论具有双向引用；同一要求不能同时出现在匹配和缺口中，替代条件满足后不再把其余选项误报为短板。"),
             ("校园与开源", "担任学院智能系统协会技术负责人，组织十二周 Agent 工程读书会和三次开源工作坊；维护一套简历 RAG 评测脚本，为新成员讲解检索、重排、证据门控和错误分析。参与开源项目 Issue 分类、测试补齐与文档审阅，能够写出可复现的错误步骤、期望行为和回归样例。获校级创新奖学金、软件设计竞赛二等奖，英语 CET-6；曾负责跨专业五人团队的迭代排期和技术评审。还负责整理需求变更、数据许可和模型版本，发布前逐项核对隐私脱敏、回滚预案与监控告警，并把线上反馈转化为可重复执行的验收场景。"),
         ]
-    two_page = _layout in {"dense_two_page", "research_two_page", "mixed_text_scan"}
+        if key in RESEARCH_OUTPUTS:
+            research_items, patent_items = RESEARCH_OUTPUTS[key]
+            sections.extend([
+                ("论文与科研产出", "\n".join(research_items)),
+                ("专利与知识产权", "\n".join(patent_items)),
+            ])
+        if key == "natural_cross_page":
+            sections[4] = (
+                "科研经历",
+                "围绕跨页语义连续性开展实验：将自然段在分页处截断，比较只保留单页 Chunk 与加入有限跨页桥接的差异；在同一候选池中记录来源页码、证据完整率和引用正确率，不把分页符误当作新的语义段落。",
+            )
+    two_page = _layout in {"dense_two_page", "research_two_page", "mixed_text_scan", "natural_cross_page"}
     expectations = [
         {
             "id": "distinctive_implementation",
@@ -110,6 +185,15 @@ def _sections(case: tuple) -> tuple[list[tuple[str, str]], list[dict]]:
             "expected_page_no": 2 if two_page else 1,
         },
     ]
+    if key == "natural_cross_page":
+        expectations.append(
+            {
+                "id": "natural_cross_page_continuation",
+                "query": "跨页的科研自然段如何保持语义连续并支持页码回溯？",
+                "expected_text": "同一候选池中记录来源页码、证据完整率和引用正确率",
+                "expected_page_no": 2,
+            }
+        )
     return sections, expectations
 
 
@@ -174,6 +258,37 @@ def _render_text_pdf(case: tuple, target: Path, *, force_layout: str | None = No
             y = _draw_section(c, title, body, 38, y, width - 76, dense=True)
         _footer(c, 1, 1)
         c.showPage()
+    elif layout == "table_one_page":
+        y = _draw_header(c, name, role)
+        y = _draw_paragraph(c, sections[0][1], 42, y, width - 84, _style(10, color="#36506f", leading=14)) - 8
+        for title, body in sections[1:4]:
+            y = _draw_section(c, title, body, 42, y, width - 84, dense=False)
+        table = Table(
+            [["评测阶段", "指标", "结果", "证据"],
+             ["PDF 抽取", "关键事实召回", "100%", "页码 + 原文 span"],
+             ["RAG 检索", "Recall@5", "96.4%", "Query + Chunk"],
+             ["任务完成", "完成门控通过率", "94.8%", "工具回执 + 终态"]],
+            colWidths=[92, 110, 70, 185],
+        )
+        table.setStyle(TableStyle([
+            ("GRID", (0, 0), (-1, -1), 0.6, colors.HexColor("#9fb4c8")),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e9f1f7")),
+            ("FONTNAME", (0, 0), (-1, -1), "ResumeCN"),
+            ("FONTNAME", (0, 0), (-1, 0), "ResumeCN-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+            ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#172033")),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        _table_width, table_height = table.wrap(width - 84, y - 40)
+        table.drawOn(c, 42, y - table_height)
+        y -= table_height + 16
+        _draw_section(c, sections[4][0], sections[4][1], 42, y, width - 84, dense=False)
+        _footer(c, 1, 1)
+        c.showPage()
     elif layout in {"two_column_one_page", "scan_two_column"}:
         y = _draw_header(c, name, role)
         y = _draw_paragraph(c, sections[0][1], 38, y, width - 76, _style(8.2, color="#36506f", leading=11.0)) - 8
@@ -187,6 +302,30 @@ def _render_text_pdf(case: tuple, target: Path, *, force_layout: str | None = No
             else:
                 right_y = _draw_section(c, title, body, 38 + column + gap, right_y, column, dense=True)
         _footer(c, 1, 1)
+        c.showPage()
+    elif layout == "natural_cross_page":
+        body = sections[4][1]
+        # Start page two in the middle of the sentence so the bridge is required.
+        split_at = body.index("在同一") + 1
+        first_half = body[:split_at]
+        second_half = body[split_at:]
+
+        y = _draw_header(c, name, role)
+        y = _draw_paragraph(c, sections[0][1], 44, y, width - 88, _style(10.2, color="#36506f", leading=14.0)) - 10
+        # Keep enough vertical space so the page really ends with the first
+        # character of the continuation, rather than clipping it at the footer.
+        for title, section_body in sections[1:3]:
+            y = _draw_section(c, title, section_body, 44, y, width - 88, dense=False)
+        y = _draw_section(c, sections[3][0], sections[3][1], 44, y, width - 88, dense=True)
+        _draw_section(c, sections[4][0], first_half, 44, y, width - 88, dense=False)
+        _footer(c, 1, 2)
+        c.showPage()
+
+        y = _draw_header(c, f"{name} | 经历续页", role, compact=True)
+        y = _draw_section(c, "科研经历（续）", second_half, 44, y, width - 88, dense=False)
+        for title, section_body in sections[5:]:
+            y = _draw_section(c, title, section_body, 44, y, width - 88, dense=False)
+        _footer(c, 2, 2)
         c.showPage()
     else:
         groups = [sections[1:4], sections[4:]]
@@ -279,8 +418,12 @@ def main() -> None:
                     "skills": case[3],
                     "minimum_experience_entries": 2,
                     "minimum_project_entries": 4,
-                    "has_research": True,
-                    "has_campus_or_leadership": True,
+                    "has_research": key != "agent_evaluation_table",
+                    "has_publications": key in RESEARCH_OUTPUTS,
+                    "has_patents": key in RESEARCH_OUTPUTS,
+                    "publications": RESEARCH_OUTPUTS.get(key, ([], []))[0][1:] if key in RESEARCH_OUTPUTS else [],
+                    "patents": RESEARCH_OUTPUTS.get(key, ([], []))[1] if key in RESEARCH_OUTPUTS else [],
+                    "has_campus_or_leadership": key != "agent_evaluation_table",
                 },
                 "retrieval_expectations": expectations,
                 "pdf_path": str(output_path.relative_to(ROOT)).replace("\\", "/"),

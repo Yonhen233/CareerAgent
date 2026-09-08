@@ -1,4 +1,7 @@
 import os
+from pathlib import Path
+
+from app.core.config import Settings
 
 from app.services.embedding_service import EmbeddingService, tokenize
 from app.services.reranker import RerankerService
@@ -29,6 +32,41 @@ def test_model_services_set_project_local_hf_cache(monkeypatch):
         "SENTENCE_TRANSFORMERS_HOME"
     ].endswith("data/models")
     assert os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] == "1"
+
+
+def test_embedding_resolves_complete_project_local_snapshot(tmp_path):
+    model_name = "sentence-transformers/example"
+    snapshot = tmp_path / "models--sentence-transformers--example" / "snapshots" / "v1"
+    (snapshot / "1_Pooling").mkdir(parents=True)
+    (snapshot / "config.json").write_text("{}", encoding="utf-8")
+    (snapshot / "modules.json").write_text("[]", encoding="utf-8")
+    (snapshot / "1_Pooling" / "config.json").write_text("{}", encoding="utf-8")
+
+    service = EmbeddingService(
+        settings=Settings(
+            embedding_cache_dir=str(tmp_path),
+            embedding_model_name=model_name,
+        )
+    )
+
+    assert service._resolve_local_model_path() == Path(snapshot)
+
+
+def test_reranker_resolves_complete_project_local_snapshot(tmp_path):
+    model_name = "cross-encoder/example"
+    snapshot = tmp_path / "models--cross-encoder--example" / "snapshots" / "v1"
+    snapshot.mkdir(parents=True)
+    (snapshot / "config.json").write_text("{}", encoding="utf-8")
+    (snapshot / "model.safetensors").write_bytes(b"model")
+
+    service = RerankerService(
+        settings=Settings(
+            embedding_cache_dir=str(tmp_path),
+            reranker_model_name=model_name,
+        )
+    )
+
+    assert service._resolve_local_model_path() == Path(snapshot)
 
 
 def test_reranker_promotes_more_relevant_candidate():

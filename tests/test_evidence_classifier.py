@@ -37,3 +37,28 @@ def test_mixed_project_keeps_delivered_work_and_missing_skill_boundary():
 
     assert classification.evidence_type == "mixed_delivery_disclosure"
     assert classification.polarity == "mixed"
+
+
+def test_retrieval_prior_is_soft_and_explainable():
+    classifier = EvidenceClassifier()
+
+    prior, classification = classifier.retrieval_prior(
+        "Experience: supported FastAPI delivery, tests and monitoring.",
+        chunk_type="experience",
+    )
+    assert classification.evidence_type == "shipped_project"
+    assert prior == 0.05
+
+    weak_prior, weak_classification = classifier.retrieval_prior(
+        "Planned learning: wants to study FastAPI next semester, no implementation yet.",
+        chunk_type="education",
+    )
+    assert weak_classification.evidence_type == "missing_skill_disclosure"
+    assert weak_prior == -0.15
+
+    mixed_prior, mixed_classification = classifier.retrieval_prior(
+        "Built an Agent demo with Python, but did not implement evaluation metrics.",
+        chunk_type="project",
+    )
+    assert mixed_classification.evidence_type == "mixed_delivery_disclosure"
+    assert mixed_prior == -0.05

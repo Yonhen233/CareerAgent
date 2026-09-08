@@ -751,7 +751,10 @@ POST /evaluations/pdf-chunk-strategies
 
 ```http
 POST /evaluations/rag-strategies
+POST /evaluations/rag-strategies?tier=core
 ```
+
+默认 `strong_noise` 运行 12 chunk/题的压力集；`tier=core` 运行 8 chunk/题的常规业务噪声集。两者使用同一检索实现和发布门禁，结果中的 `dataset` 字段会明确标出数据集，避免把常规指标误报为强噪声指标。
 
 运行 Agent 全流程评测：
 

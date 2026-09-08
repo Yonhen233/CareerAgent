@@ -24,6 +24,18 @@ class PlannedLLM:
         )
 
 
+class ProfileAwareLLM:
+    available = True
+
+    async def generate_text(self, **kwargs):
+        assert "LangGraph" in kwargs["user_prompt"]
+        return (
+            '{"retrieval_query":"Agent 应用开发实习",'
+            '"query_variants":["Agent 平台开发实习","RAG 应用工程实习"],'
+            '"locations":[],"excluded_terms":[]}'
+        )
+
+
 def test_profile_only_baseline_uses_delivery_evidence_without_treating_residence_as_constraint(db_session):
     profile = Profile(
         name="候选人",
@@ -63,6 +75,33 @@ def test_llm_intent_requires_verbatim_evidence_for_natural_language_constraints(
     assert intent.locations == ["粤港澳大湾区"]
     assert intent.excluded_terms == ["纯销售"]
     assert "前端" not in intent.excluded_terms
+
+
+def test_explicit_preference_still_uses_profile_evidence_as_a_retrieval_variant(db_session):
+    profile = Profile(
+        name="候选人",
+        source_type="guided",
+        raw_resume_text="实现基于 LangGraph 的 Agent 工作流",
+        target_roles_json=[],
+        structured_profile_json={
+            "skills": ["LangGraph", "Python"],
+            "projects": [{"name": "Agent Runtime", "description": "实现 LangGraph 工作流和 checkpoint 恢复"}],
+        },
+    )
+    db_session.add(profile)
+    db_session.commit()
+
+    intent = asyncio.run(
+        JobSearchIntentService(llm=ProfileAwareLLM()).plan(
+            db_session,
+            preference="找 Agent 应用开发实习",
+            profile=profile,
+            explicit_location=None,
+        )
+    )
+
+    assert intent.retrieval_query == "Agent 应用开发实习"
+    assert any("LangGraph" in item for item in intent.query_variants)
 
 
 def test_job_search_intent_requires_llm_instead_of_using_static_fallback(db_session):

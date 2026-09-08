@@ -167,6 +167,9 @@ def test_full_career_flow_plan_exposes_modern_agent_boundaries():
     assert "resume_tailoring" in active_skill_names_for_task("full_career_flow")
     assert "interview_preparation" in active_skill_names_for_task("full_career_flow")
     assert "context_manager" not in [item["name"] for item in subagents_for_task("full_career_flow")]
+    assert plan["task_plan"]["nodes"][0]["action"] == "search_jobs"
+    assert plan["task_plan"]["nodes"][2]["depends_on"] == ["n2"]
+    assert plan["task_plan"]["nodes"][3]["depends_on"] == ["n3"]
     assert [step["step"] for step in plan["steps"]] == [
         "load_profile",
         "search_jobs",

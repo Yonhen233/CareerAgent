@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+"""Agent 运行可靠性和完成门禁。
+
+该服务检查任务合同、步骤依赖、工具顺序、产物、审批和轨迹完整性。LLM 的
+自然语言“已完成”不具备终态权限，只有满足这些确定性条件的 Completion Gate
+才能把运行标记为成功。
+"""
+
 import fnmatch
 import json
 from collections import Counter

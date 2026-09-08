@@ -299,5 +299,207 @@
     "run_quick_apply": true,
     "expect_quick_apply_blocked": true,
     "expected_resume_keywords": []
+  },
+  {
+    "name": "research_agent_candidate_selects_research_job",
+    "difficulty": "hard",
+    "query": "LLM Agent Research Intern",
+    "profile": {
+      "name": "Chen Yu",
+      "email": "chenyu@example.com",
+      "headline": "LLM Agent Research Intern Candidate",
+      "target_roles": ["LLM Agent Research Intern"],
+      "skills": ["Python", "PyTorch", "Transformers", "RAG", "Evaluation", "Information Retrieval", "Linux"],
+      "projects": [
+        {
+          "name": "AgentBenchLab",
+          "description": "Implemented a benchmark for tool-using agents with retrieval-augmented generation, task decomposition and evidence-grounded evaluation. Reproduced baseline experiments, analyzed failure cases and wrote an ablation report.",
+          "tech_stack": ["Python", "PyTorch", "Transformers", "RAG", "Evaluation"],
+          "impact": "Built 180 manually reviewed test cases and compared retrieval recall, tool success and answer faithfulness across three agent strategies."
+        }
+      ],
+      "research_experience": [
+        "NLP Systems Lab Research Assistant: studied query rewriting and evidence selection for long-context question answering; implemented experiments and summarized limitations in a paper draft using Information Retrieval, Python and Transformers."
+      ]
+    },
+    "jobs": [
+      {
+        "external_id": "agent_research_intern",
+        "title": "LLM Agent Research Intern",
+        "company": "Research AI",
+        "jd_text": "研究大模型 Agent 的任务规划、工具调用和检索增强生成，使用 Python 和 PyTorch 复现实验，建设评测集并分析失败案例。需要具备信息检索、Prompt 设计和实验报告能力。",
+        "structured_jd": {
+          "required_skills": ["Python", "PyTorch", "RAG", "Evaluation", "Information Retrieval", "Agent", "Experiment Analysis"],
+          "keywords": ["LLM", "Agent Research", "Tool Calling", "Benchmark"]
+        }
+      },
+      {
+        "external_id": "data_platform_intern",
+        "title": "Data Platform Intern",
+        "company": "DataWorks",
+        "jd_text": "建设数据仓库和离线 ETL 任务，维护 SQL 作业与数据质量监控。",
+        "structured_jd": {"required_skills": ["SQL", "ETL", "Data Warehouse"], "keywords": ["Data Platform"]}
+      }
+    ],
+    "expected_top_job_external_id": "agent_research_intern",
+    "expected_min_top_score": 65,
+    "expected_max_top_score": 100,
+    "run_tailor": true,
+    "run_quick_apply": true,
+    "expected_resume_keywords": ["Python", "PyTorch", "RAG", "evaluation", "retrieval", "Agent"]
+  },
+  {
+    "name": "agent_platform_candidate_selects_platform_job",
+    "difficulty": "hard",
+    "query": "Agent Platform Engineering Intern",
+    "profile": {
+      "name": "Luo Kai",
+      "email": "luokai@example.com",
+      "headline": "Agent Platform Engineering Intern Candidate",
+      "target_roles": ["Agent Platform Engineering Intern"],
+      "skills": ["Python", "FastAPI", "Redis", "Docker", "LangGraph", "Observability", "PostgreSQL", "API Design"],
+      "projects": [
+        {
+          "name": "ToolMesh",
+          "description": "Designed an internal Agent platform with LangGraph orchestration, typed tool contracts, Redis task queues, idempotency keys and structured run events. Implemented FastAPI endpoints and a retry supervisor for recoverable tool failures.",
+          "tech_stack": ["Python", "FastAPI", "Redis", "Docker", "LangGraph", "PostgreSQL"],
+          "impact": "Reduced duplicate task execution in integration tests and added dashboards for tool latency, failure categories and checkpoint recovery."
+        }
+      ],
+      "work_experience": [
+        {
+          "company": "Cloud Lab",
+          "role": "Backend Intern",
+          "details": "Maintained asynchronous Python APIs, wrote integration tests and investigated timeout and duplicate-message incidents.",
+          "tech_stack": ["Python", "FastAPI", "Redis"]
+        }
+      ]
+    },
+    "jobs": [
+      {
+        "external_id": "agent_platform_intern",
+        "title": "Agent Platform Engineering Intern",
+        "company": "Infra AI",
+        "jd_text": "参与 Agent 平台和工作流引擎开发，使用 Python、FastAPI、Redis 和 LangGraph 实现工具注册、任务队列、幂等执行、Checkpoint 恢复和可观测性。",
+        "structured_jd": {
+          "required_skills": ["Python", "FastAPI", "Redis", "LangGraph", "Docker", "Observability", "API Design"],
+          "keywords": ["Agent Platform", "Checkpoint", "Tool Contract", "Idempotency"]
+        }
+      },
+      {
+        "external_id": "web_backend_intern",
+        "title": "Web Backend Intern",
+        "company": "WebWorks",
+        "jd_text": "开发用户中心和订单接口，使用 Java、MySQL 和消息队列完成常规后端服务。",
+        "structured_jd": {"required_skills": ["Java", "MySQL", "Message Queue"], "keywords": ["Backend"]}
+      }
+    ],
+    "expected_top_job_external_id": "agent_platform_intern",
+    "expected_min_top_score": 65,
+    "expected_max_top_score": 100,
+    "run_tailor": true,
+    "run_quick_apply": true,
+    "expected_resume_keywords": ["Python", "FastAPI", "Redis", "LangGraph", "Checkpoint", "idempotency"]
+  },
+  {
+    "name": "graph_rag_candidate_selects_multimodal_agent_job",
+    "difficulty": "hard",
+    "query": "Graph RAG and Multimodal Agent Intern",
+    "profile": {
+      "name": "He Xin",
+      "email": "hexin@example.com",
+      "headline": "Graph RAG and Multimodal Agent Candidate",
+      "target_roles": ["Graph RAG and Multimodal Agent Intern"],
+      "skills": ["Python", "RAG", "GraphRAG", "Neo4j", "LLM", "Vision-Language Model", "OCR", "Evaluation"],
+      "projects": [
+        {
+          "name": "PaperGraph Assistant",
+          "description": "Built a GraphRAG assistant for scientific papers: extracted entities from PDF and image captions, stored relations in Neo4j, retrieved subgraphs and generated answers with cited evidence.",
+          "tech_stack": ["Python", "RAG", "GraphRAG", "Neo4j", "OCR", "LLM"],
+          "impact": "Evaluated entity linking and citation support on a manually labeled paper set and documented retrieval failures caused by table layouts."
+        }
+      ],
+      "research_experience": [
+        "Multimodal Computing Group Student Researcher: prepared document images for OCR and compared text-only and vision-language retrieval baselines with evaluation reports."
+      ]
+    },
+    "jobs": [
+      {
+        "external_id": "multimodal_agent_intern",
+        "title": "Graph RAG and Multimodal Agent Intern",
+        "company": "Knowledge AI",
+        "jd_text": "研发面向文档和图像的 Agent 应用，使用 Python、GraphRAG、Neo4j、OCR 和视觉语言模型完成知识抽取、检索、工具调用与引用评测。",
+        "structured_jd": {
+          "required_skills": ["Python", "RAG", "GraphRAG", "Neo4j", "OCR", "Vision-Language Model", "Evaluation", "Agent"],
+          "keywords": ["Multimodal", "Knowledge Graph", "Citation", "Document AI"]
+        }
+      },
+      {
+        "external_id": "mobile_engineer_intern",
+        "title": "Mobile Software Intern",
+        "company": "MobileWorks",
+        "jd_text": "开发 Android 应用和图像展示组件，使用 Kotlin、Android SDK 和 SQLite。",
+        "structured_jd": {"required_skills": ["Kotlin", "Android", "SQLite"], "keywords": ["Mobile"]}
+      }
+    ],
+    "expected_top_job_external_id": "multimodal_agent_intern",
+    "expected_min_top_score": 65,
+    "expected_max_top_score": 100,
+    "run_tailor": true,
+    "run_quick_apply": true,
+    "expected_resume_keywords": ["GraphRAG", "Neo4j", "OCR", "multimodal", "RAG", "evaluation"]
+  },
+  {
+    "name": "agent_safety_candidate_selects_evaluation_job",
+    "difficulty": "adversarial",
+    "query": "LLM Agent Safety and Evaluation Intern",
+    "profile": {
+      "name": "Qiao Yue",
+      "email": "qiaoyue@example.com",
+      "headline": "LLM Agent Safety and Evaluation Intern Candidate",
+      "target_roles": ["LLM Agent Safety and Evaluation Intern"],
+      "skills": ["Python", "Prompt Injection", "Guardrails", "Evaluation", "RAG", "Threat Modeling", "Pytest", "FastAPI"],
+      "projects": [
+        {
+          "name": "SafeToolBench",
+          "description": "Created adversarial tests for prompt injection, unauthorized tool calls and unsupported resume claims. Added policy gates, approval checks, audit events and regression reports for an Agent workflow.",
+          "tech_stack": ["Python", "Prompt Injection", "Guardrails", "Evaluation", "Pytest", "FastAPI"],
+          "impact": "Maintained 120 attack cases and tracked blocked-action recall, false-positive rate, artifact grounding and duplicate side effects."
+        }
+      ],
+      "work_experience": [
+        {
+          "company": "Trustworthy AI Lab",
+          "role": "Security Engineering Intern",
+          "details": "Reviewed model tool permissions and wrote pytest regression tests for data exfiltration and prompt injection scenarios.",
+          "tech_stack": ["Python", "Threat Modeling", "Pytest"]
+        }
+      ]
+    },
+    "jobs": [
+      {
+        "external_id": "agent_safety_intern",
+        "title": "LLM Agent Safety and Evaluation Intern",
+        "company": "Trust AI",
+        "jd_text": "参与 LLM Agent 安全评测，设计 Prompt Injection、越权工具调用和幻觉证据测试，使用 Python、Pytest、Guardrails 建立回归集和审计报告。",
+        "structured_jd": {
+          "required_skills": ["Python", "Prompt Injection", "Guardrails", "Evaluation", "Pytest", "Threat Modeling", "Agent"],
+          "keywords": ["LLM Safety", "Tool Permission", "Audit", "Adversarial Testing"]
+        }
+      },
+      {
+        "external_id": "qa_intern",
+        "title": "Software QA Intern",
+        "company": "QualityWorks",
+        "jd_text": "执行 Web 功能测试，维护测试用例并跟踪缺陷。",
+        "structured_jd": {"required_skills": ["Test Cases", "Bug Tracking"], "keywords": ["QA"]}
+      }
+    ],
+    "expected_top_job_external_id": "agent_safety_intern",
+    "expected_min_top_score": 65,
+    "expected_max_top_score": 100,
+    "run_tailor": true,
+    "run_quick_apply": true,
+    "expected_resume_keywords": ["Prompt Injection", "Guardrails", "evaluation", "Pytest", "audit", "tool"]
   }
 ]

@@ -1,7 +1,15 @@
+"""CareerAgent 工具目录和业务工具适配层。
+
+本文件把工具名称、输入输出合同、权限、幂等键和 Trace 绑定在一起。Agent
+只能通过注册后的工具进入业务服务，工具本身不能替模型扩大权限或跳过人工审批。
+"""
+
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar
+from uuid import uuid4
 
+from app.agents.task_graph import GlobalPlanner
 from app.agents.skills import (
     active_skill_names_for_task,
     skill_contracts_for_task,
@@ -9,6 +17,7 @@ from app.agents.skills import (
     validate_tool_permissions,
 )
 from app.agents.subagents import roles_for_task
+from app.models.agent_plan_schemas import IntentEnvelope
 
 
 T = TypeVar("T")
@@ -513,6 +522,8 @@ class AgentPlanner:
             raise ValueError(
                 f"Skill tool permission denied for task {task_type}: {', '.join(permission_violations)}"
             )
+        intent_envelope = self._intent_for_request(request)
+        task_plan = GlobalPlanner().compile(intent_envelope, plan_id=f"plan-{uuid4().hex}")
         return {
             "mode": "plan_execute",
             "orchestration_framework": "langgraph",
@@ -535,10 +546,64 @@ class AgentPlanner:
                 "violations": [],
             },
             "react_loops": react_loops,
+            "intent_envelope": intent_envelope.model_dump(),
+            "task_plan": task_plan.model_dump(),
             "tool_count": len(AGENT_TOOLS),
             "mcp_recommendation": self._mcp_recommendation(),
             "langgraph_decision": self._langgraph_decision(),
         }
+
+    @staticmethod
+    def _intent_for_request(request: Any) -> IntentEnvelope:
+        task_type = str(getattr(request, "task_type", ""))
+        query = getattr(request, "query", None)
+        location = getattr(request, "location", None)
+        limit = getattr(request, "limit", 20)
+        definitions: dict[str, list[dict[str, Any]]] = {
+            "find_jobs_for_profile": [
+                {"goal_id": "g_search", "action": "search_jobs", "parameters": {"query": query, "location": location, "limit": limit}},
+                {"goal_id": "g_match", "action": "match_job", "depends_on": ["g_search"]},
+            ],
+            "tailor_resume_for_job": [
+                {"goal_id": "g_match", "action": "match_job"},
+                {"goal_id": "g_tailor", "action": "tailor_resume", "depends_on": ["g_match"]},
+            ],
+            "quick_apply": [
+                {"goal_id": "g_match", "action": "match_job"},
+                {"goal_id": "g_apply", "action": "quick_apply", "depends_on": ["g_match"]},
+            ],
+            "prepare_interview_for_job": [
+                {"goal_id": "g_match", "action": "match_job"},
+                {"goal_id": "g_interview", "action": "prepare_interview", "depends_on": ["g_match"]},
+            ],
+            "full_career_flow": (
+                [
+                    {"goal_id": "g_match", "action": "match_job"},
+                    {"goal_id": "g_tailor", "action": "tailor_resume", "depends_on": ["g_match"]},
+                    {"goal_id": "g_apply", "action": "quick_apply", "depends_on": ["g_tailor"]},
+                    {"goal_id": "g_interview", "action": "prepare_interview", "depends_on": ["g_match"]},
+                ]
+                if getattr(request, "job_id", None)
+                else [
+                    {"goal_id": "g_search", "action": "search_jobs", "parameters": {"query": query, "location": location, "limit": limit}},
+                    {"goal_id": "g_select", "action": "select_jobs", "depends_on": ["g_search"]},
+                    {"goal_id": "g_tailor", "action": "tailor_resume", "depends_on": ["g_select"]},
+                    {"goal_id": "g_apply", "action": "quick_apply", "depends_on": ["g_tailor"]},
+                    {"goal_id": "g_interview", "action": "prepare_interview", "depends_on": ["g_select"]},
+                ]
+            ),
+        }
+        goals = definitions.get(task_type)
+        if not goals:
+            raise ValueError(f"Unsupported task_type: {task_type}")
+        required_context = ["profile"] if getattr(request, "profile_id", None) else []
+        if getattr(request, "job_id", None):
+            required_context.append("job")
+        return IntentEnvelope(
+            goals=goals,
+            required_context=required_context,
+            confidence=1.0,
+        )
 
     def _step(self, name: str, tool: str, purpose: str) -> dict[str, str]:
         return {"step": name, "tool": tool, "purpose": purpose}

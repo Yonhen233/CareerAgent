@@ -94,24 +94,28 @@ class JobSearchIntentService:
         profile: Profile | None,
         evidence_seed: JobSearchIntent,
     ) -> JobSearchIntent:
-        # When the user states a goal, the resume must not silently change that goal.
-        # Profile evidence is only used here to infer intent in profile-only searches.
-        profile_context = self._profile_context(profile) if not preference.strip() else ""
+        # An explicit preference defines the user's direction, but a profile is
+        # still required context for recall.  A vague non-empty preference must
+        # not accidentally disable profile-based discovery.
+        profile_context = self._profile_context(profile)
         text = await self.llm.generate_text(
             system_prompt=(
                 "You plan retrieval for a job search. Return strict JSON only. "
                 "Separate hard constraints from semantic preferences. Do not treat current residence as a desired "
                 "job location. When no explicit preference exists, infer suitable role families from delivered "
-                "projects and work evidence, not merely from a skill list. Keep queries concise and complementary. "
+                "projects and work evidence, not merely from a skill list. When a preference exists, keep it as "
+                "the primary direction but use grounded profile delivery evidence to improve recall and ranking. "
+                "Keep queries concise and complementary. "
                 "Every natural-language constraint must quote evidence verbatim from the user preference."
             ),
             user_prompt=(
                 "Return this schema: {\"retrieval_query\": string, \"query_variants\": [string], "
                 "\"locations\": [{\"value\": string, \"evidence\": string}], "
                 "\"excluded_terms\": [{\"value\": string, \"evidence\": string}]}. "
-                "Generate 1 primary query and at most 3 total variants. "
-                "Do not put locations or negative constraints into retrieval queries. Preserve the user's role "
-                "direction; semantic expansion is allowed, invented experience is not.\n\n"
+                "Generate 1 primary query and at most 3 total variants. The primary query must preserve the user's "
+                "direction and may include a concise profile capability phrase; at least one variant should reflect "
+                "delivered profile evidence when a profile is available. Do not put locations or negative constraints "
+                "into retrieval queries. Semantic expansion is allowed, invented experience is not.\n\n"
                 f"User preference:\n{preference or '(not provided)'}\n\n"
                 f"Grounded profile evidence:\n{profile_context or '(not provided)'}\n\n"
                 f"Grounded evidence views (input context, not an answer fallback):\n{evidence_seed.as_dict()}"
@@ -129,6 +133,19 @@ class JobSearchIntentService:
         variants = self._unique(
             [primary, *[self._bounded_text(item) for item in payload.get("query_variants") or []]]
         )[:3]
+        if profile:
+            # The LLM may produce three user-facing variants and omit the
+            # profile view. Reserve one bounded slot so profile-only evidence
+            # always participates in both live and corpus retrieval.
+            profile_variant = next(
+                (item for item in self._profile_queries(profile) if item and item.lower() not in {q.lower() for q in variants}),
+                None,
+            )
+            if profile_variant:
+                if len(variants) >= 3:
+                    variants[-1] = profile_variant[:240]
+                else:
+                    variants.append(profile_variant[:240])
         parsed_locations = self._grounded_values(payload.get("locations"), preference)
         exclusions = self._grounded_values(payload.get("excluded_terms"), preference)
         return JobSearchIntent(

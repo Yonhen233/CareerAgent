@@ -13,6 +13,15 @@ POSITIVE_DELIVERY_CUES = [
     "deployed",
     "maintained",
     "delivered",
+    "supported",
+    "contributed",
+    "worked on",
+    "operated",
+    "shipped",
+    "produced",
+    "achieved",
+    "outcomes",
+    "impact",
     "trained",
     "launched",
     "owned",
@@ -22,6 +31,13 @@ POSITIVE_DELIVERY_CUES = [
     "部署",
     "维护",
     "交付",
+    "支持",
+    "参与",
+    "负责",
+    "产出",
+    "取得",
+    "成果",
+    "影响",
 ]
 
 METRIC_CUES = [
@@ -229,6 +245,32 @@ class EvidenceClassifier:
         metadata["evidence_classification"] = classification
         enriched["metadata"] = metadata
         return enriched
+
+    def retrieval_prior(
+        self,
+        text: str,
+        *,
+        chunk_type: str | None = None,
+        source: str | None = None,
+    ) -> tuple[float, EvidenceClassification]:
+        """Return a small, explainable prior for resume-evidence ranking.
+
+        This is deliberately not a relevance decision and must not replace
+        semantic retrieval. It only separates evidence that is useful for a
+        grounded answer from text that explicitly describes learning plans,
+        coursework, or a missing implementation. The magnitude stays small so
+        embedding and reranker scores remain the primary signal.
+        """
+        classification = self.classify(text, chunk_type=chunk_type, source=source)
+        priors = {
+            "missing_skill_disclosure": -0.15,
+            "planned_learning": -0.08,
+            "coursework": -0.08,
+            "mixed_delivery_disclosure": -0.05,
+            "metric_evidence": 0.08,
+            "shipped_project": 0.05,
+        }
+        return priors.get(classification.evidence_type, 0.0), classification
 
     def _has_any(self, text: str, cues: list[str]) -> bool:
         return any(cue in text for cue in cues)
