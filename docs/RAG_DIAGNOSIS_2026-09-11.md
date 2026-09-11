@@ -43,7 +43,7 @@
 
 ## 已修复
 
-`SQLiteVectorIndex._row_vectors` 现在同时校验向量维度、embedding provider、model 和 retrieval text version。即使新旧模型输出维度相同，也会自动重算旧向量，并回写新的 embedding 元数据。新增回归测试覆盖“同维度换模型”的情况。
+`SQLiteVectorIndex._row_vectors` 现在同时校验向量维度、embedding provider、model 和 retrieval text version。即使新旧模型输出维度相同，也会自动重算旧向量，并回写新的 embedding 元数据。查询旧 profile 时会自动执行一次 `resume_facts_v2` 重建；多事实 PDF 页面会作为已选结构化事实的证据视图合并，不再单独占用 Top-K。新增回归测试覆盖“同维度换模型”“历史 profile 迁移”和“多事实页面去重”。
 
 ## 仍需处理
 

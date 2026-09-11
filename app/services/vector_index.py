@@ -5,7 +5,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.entities import JobChunk, ResumeChunk
+from app.models.entities import JobChunk, Profile, ResumeChunk
 from app.services.embedding_service import (
     EmbeddingBatch,
     EmbeddingService,
@@ -15,7 +15,10 @@ from app.services.embedding_service import (
 )
 from app.services.evidence_classifier import EvidenceClassifier
 from app.services.reranker import RerankerService
-from app.services.text_splitter import TextChunk
+from app.services.text_splitter import ResumeTextSplitter, TextChunk
+
+
+PROFILE_INDEX_VERSION = "resume_facts_v2"
 
 
 @dataclass
@@ -68,6 +71,7 @@ class SQLiteVectorIndex:
             text = chunk.text.strip()
             metadata = self._metadata_with_embedding(chunk.metadata or {}, embeddings)
             metadata["embedding_text_version"] = "retrieval_context_v1"
+            metadata["profile_index_version"] = PROFILE_INDEX_VERSION
             row = ResumeChunk(
                 profile_id=profile_id,
                 chunk_uid=chunk.uid,
@@ -93,6 +97,7 @@ class SQLiteVectorIndex:
 
     def query_profile_chunks(self, db: Session, profile_id: int, query_text: str, top_k: int = 8) -> list[RetrievedChunk]:
         rows = db.query(ResumeChunk).filter(ResumeChunk.profile_id == profile_id).all()
+        rows = self._ensure_profile_index_current(db, profile_id, rows)
         ranked = self._query_rows(
             db=db,
             rows=rows,
@@ -120,10 +125,11 @@ class SQLiteVectorIndex:
         if (not self.settings.rag_multi_query_enabled or len(queries) == 1) and not allowed_chunk_types:
             return self.query_profile_chunks(db, profile_id, queries[0], top_k=top_k)
 
-        rows_query = db.query(ResumeChunk).filter(ResumeChunk.profile_id == profile_id)
+        all_rows = db.query(ResumeChunk).filter(ResumeChunk.profile_id == profile_id).all()
+        all_rows = self._ensure_profile_index_current(db, profile_id, all_rows)
+        rows = all_rows
         if allowed_chunk_types:
-            rows_query = rows_query.filter(ResumeChunk.chunk_type.in_(allowed_chunk_types))
-        rows = rows_query.all()
+            rows = [row for row in rows if row.chunk_type in allowed_chunk_types]
         if not self.settings.rag_multi_query_enabled or len(queries) == 1:
             ranked = self._query_rows(
                 db=db,
@@ -192,6 +198,52 @@ class SQLiteVectorIndex:
             top_k=top_k,
         )
 
+    def _ensure_profile_index_current(
+        self,
+        db: Session,
+        profile_id: int,
+        rows: list[ResumeChunk],
+    ) -> list[ResumeChunk]:
+        """Migrate legacy profile chunks before they can pollute retrieval.
+
+        Profiles created before fact-level provenance was introduced have no
+        stable index version and their PDF views cannot be deduplicated.  The
+        source page text is still retained in ``resume_chunks``, so rebuild
+        the profile once from the current structured facts plus those pages.
+        """
+        if not rows or all(
+            (row.metadata_json or {}).get("profile_index_version") == PROFILE_INDEX_VERSION
+            for row in rows
+        ):
+            return rows
+        profile = db.get(Profile, profile_id)
+        if profile is None:
+            return rows
+        if not profile.structured_profile_json:
+            # Do not delete a legacy index when the profile has no structured
+            # source from which it can be reconstructed safely.
+            return rows
+
+        structured = ResumeTextSplitter().split_structured_profile(profile.structured_profile_json or {})
+        legacy_views = [
+            TextChunk(
+                uid=row.chunk_uid,
+                text=row.text,
+                chunk_type=row.chunk_type,
+                source=row.source,
+                metadata=dict(row.metadata_json or {}),
+            )
+            for row in rows
+            if row.source.startswith("profile.pdf_") or row.source == "profile.raw_resume_text"
+        ]
+        chunks = structured + legacy_views
+        if legacy_views:
+            chunks = ResumeTextSplitter().link_pdf_chunks_to_facts(chunks)
+        if not chunks:
+            return rows
+        self.upsert_profile_chunks(db, profile_id, chunks)
+        return db.query(ResumeChunk).filter(ResumeChunk.profile_id == profile_id).all()
+
     def _apply_evidence_quality_prior(self, candidates: list[RetrievedChunk]) -> list[RetrievedChunk]:
         """Soft-rank resume evidence by whether it can support a grounded claim.
 
@@ -222,9 +274,43 @@ class SQLiteVectorIndex:
         """Count one fact once while retaining its distinct source details."""
         output: list[RetrievedChunk] = []
         fact_positions: dict[str, int] = {}
-        for candidate in candidates:
+        direct_candidates = [
+            candidate
+            for candidate in candidates
+            if str((candidate.metadata or {}).get("fact_id") or "").strip()
+        ]
+        ambiguous_views = [
+            candidate
+            for candidate in candidates
+            if not str((candidate.metadata or {}).get("fact_id") or "").strip()
+            and (candidate.metadata or {}).get("fact_links")
+        ]
+        unlinked_candidates = [
+            candidate
+            for candidate in candidates
+            if not str((candidate.metadata or {}).get("fact_id") or "").strip()
+            and not (candidate.metadata or {}).get("fact_links")
+        ]
+
+        # Structured facts and single-fact source views establish the result
+        # set first. A PDF page can mention several facts; processing it after
+        # this pass lets it become supporting evidence instead of consuming a
+        # separate Top-K slot.
+        for candidate in [*direct_candidates, *ambiguous_views, *unlinked_candidates]:
             metadata = candidate.metadata or {}
             fact_id = str(metadata.get("fact_id") or "").strip()
+            if not fact_id and metadata.get("fact_links"):
+                linked_ids = [
+                    str(item.get("fact_id") or "").strip()
+                    for item in metadata.get("fact_links") or []
+                    if isinstance(item, dict)
+                ]
+                matching = [item for item in linked_ids if item in fact_positions]
+                if matching:
+                    best_fact = max(matching, key=lambda item: output[fact_positions[item]].score)
+                    position = fact_positions[best_fact]
+                    output[position] = SQLiteVectorIndex._merge_fact_views(output[position], candidate)
+                    continue
             if fact_id and fact_id in fact_positions:
                 position = fact_positions[fact_id]
                 output[position] = SQLiteVectorIndex._merge_fact_views(output[position], candidate)

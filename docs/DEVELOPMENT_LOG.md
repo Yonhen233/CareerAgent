@@ -5879,3 +5879,9 @@ LLM 单次调用的均值/P95 为：简历解析 `2.41s/3.24s`、JD 解析 `2.52
 真实简历索引检查发现历史 resume chunk 同时存在 hash、SentenceTransformer 和缺少 embedding 元数据的行；旧 profile 的结构化事实和 PDF 页面也没有完整 `fact_id` 关联，导致同一项目的多个视图重复占据 Top-K。`SQLiteVectorIndex._row_vectors` 已修复为同时校验 provider、model、维度和 retrieval text version，避免同维度旧模型向量被错误复用，并新增同维度换模型的回归测试（定向测试 7 passed）。
 
 提供的简历历史 profile 真实查询冷启动约 `12.3s`，模型加载后的 warm P50 `7.8ms`、P95 `11.9ms`。后续需要先完成历史 profile 的可审计 reindex，再用真实脱敏简历/JD 增加 query-conditioned 标注，覆盖 hard negative、相邻能力、否定/计划/课程语气和同一事实多视图。详细诊断见 `docs/RAG_DIAGNOSIS_2026-09-11.md`。
+
+### 本轮 Bug 修复补充
+
+验证提供的历史简历 profile 时发现，单页 PDF 可能同时链接教育经历和多个项目；旧去重逻辑只处理单个 `fact_id`，多事实页面仍会占用独立 Top-K 槽位。现改为先建立结构化事实结果集，再把带多个 `fact_links` 的页面合并为已选事实的 evidence view。历史 profile 查询会在首次访问时自动升级到 `resume_facts_v2`，补齐事实链接和当前 embedding 元数据。真实 profile 由原先 Top-5 中多个重复页面，收敛为两个项目事实和技能事实，项目页面细节保留在 `evidence_view_count` 中。
+
+本次新增回归覆盖同维度换模型、历史 profile 自动迁移、多事实 PDF 页面去重；RAG/vector/matcher 定向测试为 **19 passed**。

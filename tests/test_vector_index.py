@@ -1,6 +1,6 @@
-from app.models.entities import Profile
-from app.services.text_splitter import ResumeTextSplitter
-from app.services.vector_index import RetrievedChunk, SQLiteVectorIndex
+from app.models.entities import Profile, ResumeChunk
+from app.services.text_splitter import ResumeTextSplitter, TextChunk
+from app.services.vector_index import PROFILE_INDEX_VERSION, RetrievedChunk, SQLiteVectorIndex
 
 
 def test_sqlite_vector_index_retrieves_relevant_project(db_session):
@@ -103,3 +103,77 @@ def test_row_vectors_rebuild_when_embedding_model_changes_even_if_dimensions_mat
 
     assert migrated == 1
     assert vectors == [[0.9, 0.1]]
+
+
+def test_query_migrates_legacy_profile_views_and_restores_fact_links(db_session):
+    profile = Profile(
+        name="Legacy",
+        source_type="pdf",
+        raw_resume_text="Built CareerAgent with RAG.",
+        structured_profile_json={
+            "skills": ["RAG"],
+            "projects": [{"name": "CareerAgent", "description": "Built CareerAgent with RAG."}],
+        },
+    )
+    db_session.add(profile)
+    db_session.commit()
+    db_session.refresh(profile)
+    index = SQLiteVectorIndex()
+    index.upsert_profile_chunks(
+        db_session,
+        profile.id,
+        [
+            TextChunk(
+                "structured_project_0",
+                "name: CareerAgent | description: Built CareerAgent with RAG.",
+                "project",
+                "profile.projects",
+                {"field": "projects", "item_index": 0},
+            ),
+            TextChunk(
+                "pdf_page_1_0",
+                "CareerAgent project: Built CareerAgent with RAG.",
+                "raw_text",
+                "profile.pdf_page_text",
+                {},
+            ),
+        ],
+    )
+    for row in db_session.query(ResumeChunk).filter(ResumeChunk.profile_id == profile.id):
+        metadata = dict(row.metadata_json or {})
+        metadata.pop("profile_index_version", None)
+        metadata.pop("fact_id", None)
+        row.metadata_json = metadata
+    db_session.commit()
+
+    hits = index.query_profile_chunks(db_session, profile.id, "CareerAgent RAG", top_k=3)
+
+    rows = db_session.query(ResumeChunk).filter(ResumeChunk.profile_id == profile.id).all()
+    assert rows
+    assert all((row.metadata_json or {}).get("profile_index_version") == PROFILE_INDEX_VERSION for row in rows)
+    raw = next(row for row in rows if row.source == "profile.pdf_page_text")
+    assert raw.metadata_json.get("fact_id") == "projects:0"
+    project_hits = [hit for hit in hits if hit.chunk_type == "project"]
+    assert len(project_hits) == 1
+    assert project_hits[0].metadata.get("evidence_view_count") == 2
+
+
+def test_multi_fact_pdf_view_does_not_consume_another_fact_top_k_slot():
+    candidates = [
+        RetrievedChunk(1, "project_0", "project zero", "project", "profile.projects", 0.90, {"fact_id": "projects:0"}),
+        RetrievedChunk(2, "project_1", "project one", "project", "profile.projects", 0.80, {"fact_id": "projects:1"}),
+        RetrievedChunk(
+            3,
+            "pdf_page_1",
+            "page with both projects",
+            "raw_text",
+            "profile.pdf_page_text",
+            0.95,
+            {"fact_links": [{"fact_id": "projects:0"}, {"fact_id": "projects:1"}]},
+        ),
+    ]
+
+    ranked = SQLiteVectorIndex._deduplicate_fact_views(candidates, top_k=2)
+
+    assert [item.chunk_uid for item in ranked] == ["project_0", "project_1"]
+    assert ranked[0].metadata.get("evidence_view_count") == 2
