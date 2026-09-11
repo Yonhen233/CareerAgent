@@ -13,8 +13,11 @@ from typing import Any
 
 
 def _bootstrap_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run one controlled DeepSeek model comparison slice.")
-    parser.add_argument("--model", required=True, choices=["deepseek-v4-pro", "deepseek-v4-flash"])
+    parser = argparse.ArgumentParser(description="Run one controlled CareerAgent model comparison slice.")
+    # The provider may expose models from several vendors behind one
+    # OpenAI-compatible gateway. Keep this runner model-agnostic; the
+    # availability probe in the multi-model runner decides which IDs to use.
+    parser.add_argument("--model", required=True)
     parser.add_argument("--mode", required=True, choices=["canary", "core", "interview"])
     parser.add_argument("--base-url", default="https://api.deepseek.com")
     parser.add_argument("--output", default=None)
@@ -329,7 +332,9 @@ def _usage_report(db, *, start_log_id: int, benchmark_id: str) -> dict[str, Any]
 
 
 def main() -> int:
-    if not os.getenv("LLM_API_KEY") and not os.getenv("OPENAI_API_KEY"):
+    from app.core.config import get_settings
+
+    if not (os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY") or get_settings().effective_llm_api_key):
         raise RuntimeError("LLM_API_KEY must be provided through the process environment.")
     init_db()
     benchmark_id = f"{ARGS.model}-{ARGS.mode}-{uuid.uuid4().hex[:8]}"
@@ -367,7 +372,7 @@ def main() -> int:
         result["wall_time_ms"] = int((time.perf_counter() - started) * 1000)
         db.close()
 
-    safe_model_name = re.sub(r"[^a-z0-9]+", "_", ARGS.model)
+    safe_model_name = re.sub(r"[^a-z0-9]+", "_", ARGS.model.lower()).strip("_")
     output_path = (
         Path(ARGS.output)
         if ARGS.output

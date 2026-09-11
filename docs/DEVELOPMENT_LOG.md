@@ -5885,3 +5885,26 @@ LLM 单次调用的均值/P95 为：简历解析 `2.41s/3.24s`、JD 解析 `2.52
 验证提供的历史简历 profile 时发现，单页 PDF 可能同时链接教育经历和多个项目；旧去重逻辑只处理单个 `fact_id`，多事实页面仍会占用独立 Top-K 槽位。现改为先建立结构化事实结果集，再把带多个 `fact_links` 的页面合并为已选事实的 evidence view。历史 profile 查询会在首次访问时自动升级到 `resume_facts_v2`，补齐事实链接和当前 embedding 元数据。真实 profile 由原先 Top-5 中多个重复页面，收敛为两个项目事实和技能事实，项目页面细节保留在 `evidence_view_count` 中。
 
 本次新增回归覆盖同维度换模型、历史 profile 自动迁移、多事实 PDF 页面去重；RAG/vector/matcher 定向测试为 **19 passed**。
+
+
+## Career Agent LLM 并行模型选型评测（2026-09-12）
+
+### 本轮目标
+
+在同一个可用聚合 base URL 下并行切换主流模型 ID，用 Career Agent 实际业务切片比较规划、JD 解析、证据匹配、简历定制和面试题库，不用通用榜单分数替代业务指标。每个模型使用独立 SQLite/checkpoint，关闭路由、fallback、thinking 和 Redis，记录调用次数、失败、repair、Token、提供方累计延迟和各套件 wall time。
+
+### 评测结果
+
+有效模型共 5 个：DeepSeek-V4-Flash、DeepSeek-V4-Pro、Qwen3.5-Plus、Kimi-K2.5、GLM-5.2。Flash 的 planner、JD、workflow、tailor、forbidden claim-free 和 interview 门禁均为 `1.0`；JD required skill F1 `0.9643`；总 Token `53,490`；提供方累计延迟 `110.8s`；核心/面试批次 wall time 分别为 `110.3s/46.7s`；repair `1` 次。
+
+Pro 的质量门禁与 Flash 相同，但总 Token `58,334`、提供方累计延迟 `210.1s`、repair `2` 次，没有观察到足以抵消成本的质量收益。Qwen 的 planner `0.75`、workflow `0.6667`；Kimi 的 workflow/tailor 为 `0.6667/0.6667`；GLM-5.2 的 workflow/tailor 为 `0.6667/0.6667`。后三者均在 `mixed_zh_en_agent_observability_role` 的证据约束或简历定制上未通过。
+
+### 选型决策
+
+默认模型选择 **DeepSeek-V4-Flash**；Pro 仅保留为复杂任务候选 fallback，并要求后续独立回归证明质量收益。Qwen、Kimi、GLM-5.2 暂缓接入默认链路，先修复 mixed bilingual tailoring 的 unsupported semantic claim，再扩大工作流样本验证。面试环节不能只看最终 pass rate：Flash 为 3 次调用/0 次 interview repair，Pro 为 5/1，Qwen 为 7/2，Kimi 和 GLM-5.2 为 5/1。
+
+### 网关异常与边界
+
+`GLM-5` 的 smoke probe 虽返回 HTTP 200，但完整业务调用返回 HTTP 404 `Invalid model/no healthy deployments`，按网关部署兼容性失败排除，并改用 `GLM-5.2` 补跑。当前只有一个可用聚合 base URL，因此本轮结论是同网关模型初筛，不代表独立供应商价格、限流和网络可靠性；网关没有计费配置，报告只比较 Token/延迟，不臆测人民币成本。面试评测只有 1 个 case，不能外推总体胜率。
+
+详细报告：`docs/LLM_MODEL_SELECTION_2026-09-12.md`；机器可读汇总：`evals/results/model_selection_20260912/final_comparison.json`。
