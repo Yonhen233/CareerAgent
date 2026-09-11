@@ -21,7 +21,13 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from app.core.config import Settings, get_settings
-from app.core.redis_client import RedisUnavailableError, get_redis_client, redis_key
+from app.core.redis_client import (
+    RedisUnavailableError,
+    get_redis_client,
+    is_redis_transport_error,
+    mark_redis_unavailable,
+    redis_key,
+)
 
 
 _CACHE_SCHEMA_VERSION = 1
@@ -491,8 +497,10 @@ class RerankResultCacheService:
             self._l1.put(key, value)
             _metric("redis_hits")
             return value, "redis"
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             _metric("redis_errors")
+            if is_redis_transport_error(exc):
+                mark_redis_unavailable(exc)
             return None, None
 
     def _put_json(self, key: str, value: dict[str, Any]) -> None:
@@ -507,8 +515,10 @@ class RerankResultCacheService:
                 json.dumps(value, ensure_ascii=False, separators=(",", ":")),
                 ex=max(1, int(getattr(self.settings, "reranker_cache_ttl_seconds", 86400))),
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             _metric("redis_errors")
+            if is_redis_transport_error(exc):
+                mark_redis_unavailable(exc)
 
     def _get_redis(self) -> Any | None:
         if self.redis_client is not None:
@@ -549,8 +559,10 @@ class RerankResultCacheService:
                 px=max(1000, int(float(getattr(self.settings, "reranker_cache_lock_ttl_seconds", 120)) * 1000)),
             )
             return token if acquired else None
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             _metric("redis_errors")
+            if is_redis_transport_error(exc):
+                mark_redis_unavailable(exc)
             return "local-only"
 
     def _wait_for_pair(self, item: CacheCandidate, context: RerankCacheContext) -> tuple[dict[str, Any] | None, str | None]:
@@ -582,8 +594,10 @@ class RerankResultCacheService:
                 )
             elif client.get(lock_key) == token:
                 client.delete(lock_key)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             _metric("redis_errors")
+            if is_redis_transport_error(exc):
+                mark_redis_unavailable(exc)
 
     def _get_local_lock(self, key: str) -> threading.Lock:
         with self._local_locks_guard:

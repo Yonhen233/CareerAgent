@@ -129,7 +129,7 @@ flowchart LR
 - 默认 `ms-marco` cross-encoder 只处理英文 query；中文或中英混合 query 使用多语 embedding 语义重排。真实 bad case 证明英文模型会把“Agent”词频高的评测文档排到中文架构证据前，按语言能力路由比继续使用不匹配模型更可靠。
 - 生成与 verifier 使用每条最多 360 字的完整短语义段。`docs/interview/CAREER_AGENT_PROJECT_EVIDENCE.md` 保存经过代码与架构文档核对的 Agent 位置、数据流、选型和 Trace 事实；它只能证明仓库实现，候选人归属仍需同时引用简历。
 - LLM 生成自然、按回答顺序排列的 claims；服务端只用已验证 claims 组合正文，因此无需 renderer 和 coverage judge 再次调用模型。repair 保留上一轮已验证 claims，只补缺口；单条 unsupported claim 会被剪除并记录 warning，整题是否通过继续由相关性、最短正文和引用门禁决定。
-- 工作流硬限制为 8 次业务调用、100,000 Prompt 字符和 15,000 最大输出 token 预留；JSON repair 最多 1 次，答案定向 repair 最多 2 轮。若 verifier 完整 JSON 漏掉某题，只针对漏项题执行 `missing_retry`，不会重跑已完成批次；repair 与增量复验严格串行，HTTP attempt 另受父级 attempt/token 预算限制。
+- 工作流硬限制为 8 次业务调用、100,000 Prompt 字符和 25,600 最大输出 token 预留；JSON repair 最多 1 次，答案定向 repair 最多 2 轮。预留上限覆盖正常批次与两轮定向 repair，避免低实际用量的修复路径被 15,000 的静态 cap 误阻断。若 verifier 完整 JSON 漏掉某题，只针对漏项题执行 `missing_retry`，不会重跑已完成批次；repair 与增量复验严格串行，HTTP attempt 另受父级 attempt/token 预算限制。
 - 生产链路允许一次定向 JSON 修复，但 completion 截断不能靠语法修补掩盖；单批 verifier 先预留足够输出，修复仍失败时保留 trace 并直接失败。
 - `llm_call_logs` 保存供应商返回的 `prompt_tokens/completion_tokens/total_tokens`；旧日志没有 usage 时保持 0，不做虚构估算。
 - 答案 repair 最多 2 轮，只处理失败题并严格串行执行；第一批失败或预算不足时不再启动无关请求。旧 v1/v2 面试包不会读取时静默升级，必须重新生成 v3。
@@ -331,6 +331,8 @@ RAG 控制面由 `RetrievalQualityService` 提供。SQLite 仍是 chunk、metada
 - 原因是同步 Session 不是线程安全对象，盲目并发写入会造成不稳定错误。
 
 长任务已经通过 Redis 外部优先级队列和独立 worker 执行；API 进程不再用进程内 BackgroundTasks 承载 Agent run。多个 worker 可并发消费不同 run，单个 run 内仍对岗位搜索和 JD 解析做受控并发。SQLite 写入保持顺序事务，run lock、Profile active/rate limit、业务幂等键、heartbeat、stale recovery 和 DLQ 共同处理重复消费与异常恢复。
+
+Redis 连接失败时，事件广播和 reranker 共享缓存采用亚秒级超时并进入短暂 failure cooldown，业务主链路快速降级到 SQLite/本地缓存；队列 worker 仍把 Redis 不可用视为基础设施故障，不会伪装成成功。run/task lock 释放使用 Redis compare-and-delete，避免过期锁被新 worker 获得后又被旧 worker 删除。
 
 ## 崩溃恢复、历史分支与撤回
 

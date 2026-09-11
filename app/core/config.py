@@ -83,7 +83,11 @@ class Settings(BaseSettings):
     interview_rag_answer_repair_attempts: int = 2
     interview_rag_max_llm_calls: int = 8
     interview_rag_max_prompt_chars: int = 100000
-    interview_rag_max_completion_tokens: int = 15000
+    # The verifier and up to two targeted repairs reserve their requested
+    # output caps before the provider call. 15,000 was below the normal
+    # repair-path reservation (and rejected valid low-usage runs), so keep
+    # this aligned with the bounded eight-call workflow.
+    interview_rag_max_completion_tokens: int = 25600
 
     openai_api_key: str | None = None
     openai_base_url: str | None = None
@@ -104,6 +108,10 @@ class Settings(BaseSettings):
     redis_sentinel_urls: str = "redis://localhost:26379"
     redis_sentinel_master_name: str = "mymaster"
     redis_socket_timeout_seconds: float = 15.0
+    # Event fan-out is best-effort and must never add queue-style latency to
+    # the synchronous Agent trace path.
+    redis_event_socket_timeout_seconds: float = Field(default=0.5, ge=0.05, le=10.0)
+    redis_failure_cooldown_seconds: float = Field(default=15.0, ge=0.0, le=600.0)
     redis_queue_name: str = "career_agent:runs"
     redis_high_priority_queue_name: str = "career_agent:runs:high"
     redis_low_priority_queue_name: str = "career_agent:runs:low"

@@ -1,0 +1,474 @@
+{
+  "evaluation_type": "agent_system",
+  "methodology_version": "careeragent-agent-eval-v1",
+  "experiment_id": "agent-system-20260911-215031-32fb575d",
+  "mode": "deterministic",
+  "status": "completed",
+  "suite_count": 5,
+  "dataset_manifest": {
+    "agent_efficiency_cases.json": {
+      "case_count": 0,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "agent_fault_injection_cases.json": {
+      "case_count": 7,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "agent_full_flow_cases.json": {
+      "case_count": 10,
+      "difficulty": {
+        "adversarial": 2,
+        "easy": 2,
+        "hard": 4,
+        "medium": 2
+      },
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "application_packet_cases.json": {
+      "case_count": 27,
+      "difficulty": {
+        "adversarial": 2,
+        "easy": 6,
+        "hard": 10,
+        "medium": 9
+      },
+      "noise_profile": {
+        "automation_boundary": 3,
+        "bilingual_paraphrase": 1,
+        "clean_supported_claims": 2,
+        "data_role": 2,
+        "generic_letter": 2,
+        "grounded_metric": 1,
+        "metric_fabrication": 1,
+        "missing_url": 2,
+        "negative_evidence": 1,
+        "non_agent_role": 2,
+        "old_hardcoded_agent_fallback": 2,
+        "product_role": 2,
+        "semantic_fabrication_without_known_skill": 1,
+        "semantic_outcome_fabrication": 1,
+        "short_outreach": 2,
+        "unsupported_platform_claims": 2
+      },
+      "source_type": {}
+    },
+    "context_runtime_cases.json": {
+      "case_count": 40,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "conversation_task_state_cases.json": {
+      "case_count": 48,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "follow_up_directive_bad_cases.json": {
+      "case_count": 22,
+      "difficulty": {
+        "adversarial": 6,
+        "easy": 3,
+        "hard": 8,
+        "medium": 5
+      },
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "golden_demo_scenarios.json": {
+      "case_count": 3,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "interview_claim_verifier_cases.json": {
+      "case_count": 14,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "interview_prep_cases.json": {
+      "case_count": 9,
+      "difficulty": {
+        "adversarial": 1,
+        "hard": 3,
+        "medium": 5
+      },
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "jd_parser_cases.json": {
+      "case_count": 30,
+      "difficulty": {
+        "adversarial": 4,
+        "easy": 5,
+        "hard": 7,
+        "medium": 14
+      },
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "job_relevance_cases.json": {
+      "case_count": 13,
+      "difficulty": {
+        "easy": 2,
+        "hard": 4,
+        "medium": 7
+      },
+      "noise_profile": {
+        "agent_and_data_noise": 1,
+        "ai_keyword_noise": 1,
+        "analysis_and_ai_noise": 1,
+        "engineering_overmatch_noise": 2,
+        "english_sales_noise": 1,
+        "fulltime_and_product_noise": 1,
+        "intern_and_product_noise": 1,
+        "llm_dev_and_ops_noise": 1,
+        "ops_and_generic_llm_noise": 1,
+        "product_and_sales_noise": 1,
+        "safety_policy_and_ops_noise": 1,
+        "semantic_neighbor_noise": 1
+      },
+      "source_type": {}
+    },
+    "llm_workflow_cases.json": {
+      "case_count": 24,
+      "difficulty": {
+        "adversarial": 3,
+        "easy": 9,
+        "hard": 6,
+        "medium": 6
+      },
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "natural_language_plan_cases.json": {
+      "case_count": 20,
+      "difficulty": {
+        "adversarial": 3,
+        "easy": 4,
+        "hard": 5,
+        "medium": 8
+      },
+      "noise_profile": {
+        "english": 1,
+        "evidence_polarity": 1,
+        "explicit_full_flow": 1,
+        "explicit_ui_override": 2,
+        "high_risk_action": 1,
+        "ids_present": 1,
+        "inline_jd": 1,
+        "inline_jd_and_negation": 1,
+        "mixed_language": 1,
+        "multi_action_with_negation": 1,
+        "multi_stage_no_external_action": 1,
+        "partial_form_and_prompt": 1,
+        "preference_only": 1,
+        "profile_entity_extraction": 1,
+        "profile_id": 1,
+        "repeated_negation": 1,
+        "single_action": 1,
+        "underspecified": 1,
+        "update_not_replace": 1
+      },
+      "source_type": {}
+    },
+    "pdf_chunk_cases.json": {
+      "case_count": 96,
+      "difficulty": {
+        "adversarial": 24,
+        "easy": 24,
+        "hard": 24,
+        "medium": 24
+      },
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "pdf_extraction_bad_cases.json": {
+      "case_count": 22,
+      "difficulty": {
+        "adversarial": 5,
+        "easy": 4,
+        "hard": 7,
+        "medium": 6
+      },
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "profile_query_cases.json": {
+      "case_count": 5,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "prompt_injection_cases.json": {
+      "case_count": 70,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "rag_cases.json": {
+      "case_count": 180,
+      "difficulty": {
+        "adversarial": 45,
+        "easy": 45,
+        "hard": 45,
+        "medium": 45
+      },
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "rag_core_cases.json": {
+      "case_count": 180,
+      "difficulty": {
+        "adversarial": 45,
+        "easy": 45,
+        "hard": 45,
+        "medium": 45
+      },
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "rag_multilingual_calibration.json": {
+      "case_count": 144,
+      "difficulty": {
+        "adversarial": 48,
+        "hard": 96
+      },
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "real_job_source_cases.json": {
+      "case_count": 9,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "real_profile_job_relevance_annotations.json": {
+      "case_count": 0,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "sample_cases.json": {
+      "case_count": 3,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "token_optimization_cases.json": {
+      "case_count": 36,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    }
+  },
+  "suites": {
+    "pdf_chunk": {
+      "evaluation_run_id": 243,
+      "name": "pdf_chunk_strategy_evaluation",
+      "gate_passed": true,
+      "metrics": {
+        "case_count": 96,
+        "selected_strategy": "paragraph_page_900_overlap160",
+        "top3_keyword_hit_rate": 0.9479,
+        "top3_page_hit_rate": 0.8299,
+        "top3_context_hit_rate": 0.776
+      }
+    },
+    "pdf_extraction_bad_cases": {
+      "evaluation_run_id": 244,
+      "name": "pdf_extraction_bad_case_evaluation",
+      "gate_passed": true,
+      "metrics": {
+        "case_count": 22,
+        "pass_rate": 1.0,
+        "critical_case_pass_rate": 1.0,
+        "expected_error_accuracy": 1.0,
+        "bridge_precision": 1.0,
+        "bridge_recall": 1.0,
+        "bridge_false_positive_rate": 0.0
+      }
+    },
+    "rag": {
+      "evaluation_run_id": 245,
+      "name": "rag_strategy_evaluation",
+      "gate_passed": true,
+      "metrics": {
+        "case_count": 180,
+        "selected_strategy": "real_embedding_quality_aware_top20_rerank",
+        "top1_accuracy": 1.0,
+        "avg_top3_recall": 0.6667,
+        "avg_top5_recall": 0.8333,
+        "avg_mrr": 1.0,
+        "avg_ndcg_at_5": 0.8732,
+        "actual_embedding_providers": [
+          "sentence_transformers"
+        ],
+        "actual_reranker_providers": [
+          "cross_encoder"
+        ],
+        "fallback_reasons": []
+      }
+    },
+    "job_relevance": {
+      "evaluation_run_id": 246,
+      "name": "job_relevance_evaluation",
+      "gate_passed": true,
+      "metrics": {
+        "status": "completed",
+        "case_count": 13,
+        "pass_rate": 1.0,
+        "top1_accuracy": 1.0,
+        "avg_top3_recall": 1.0,
+        "avg_top5_recall": 1.0,
+        "avg_mrr": 1.0,
+        "avg_ndcg_at_5": 0.9495
+      }
+    },
+    "prompt_injection": {
+      "evaluation_run_id": 247,
+      "name": "prompt_injection_guard_evaluation",
+      "gate_passed": true,
+      "metrics": {
+        "case_count": 70,
+        "pass_rate": 1.0,
+        "detection_recall": 1.0,
+        "false_positive_rate": 0.0
+      }
+    }
+  },
+  "suite_errors": {},
+  "trajectory": {
+    "trace_count": 0,
+    "step_count": 0,
+    "step_success_rate": 0.0,
+    "tool_call_count": 0,
+    "tool_success_rate": 0.0,
+    "failed_tool_call_count": 0,
+    "tool_latency_ms": {
+      "count": 0,
+      "mean": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "max": 0
+    },
+    "tool_call_breakdown": {},
+    "trajectory_v2_pass_rate": 0.0,
+    "trajectory_v2_failure_breakdown": {
+      "missing_steps": 0,
+      "failed_steps": 0,
+      "unexpected_tools": 0,
+      "order_violations": 0,
+      "argument_violations": 0,
+      "duplicate_violations": 0,
+      "approval_violation": 0,
+      "policy_block_violation": 0,
+      "missing_completion_artifact": 0
+    }
+  },
+  "reliability": {
+    "repetitions": 0,
+    "case_count": 0,
+    "pass_at_1": null,
+    "pass_power_k": null
+  },
+  "performance": {
+    "wall_time_ms": 128437,
+    "llm": {
+      "call_count": 0,
+      "completed_call_count": 0,
+      "failed_call_count": 0,
+      "call_success_rate": 0.0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0,
+      "cache_hit_prompt_tokens": 0,
+      "cache_miss_prompt_tokens": 0,
+      "usage_detail_coverage_rate": 0.0,
+      "latency_ms": {
+        "count": 0,
+        "mean": 0.0,
+        "p50": 0.0,
+        "p95": 0.0,
+        "max": 0
+      },
+      "cost_cny": {
+        "lower_bound": 0.0,
+        "upper_bound": 0.0,
+        "exact": false,
+        "priced_call_count": 0,
+        "cache_detailed_call_count": 0,
+        "currency": "CNY",
+        "pricing_basis": "2026-07-22 DeepSeek V4 Flash/Pro public rates supplied for this project"
+      },
+      "by_model": {},
+      "by_route": {},
+      "by_trace_group": {},
+      "errors": []
+    },
+    "amortized_system_cost_per_successful_workflow_case_cny": {
+      "successful_workflow_cases": 0,
+      "lower_bound": null,
+      "upper_bound": null
+    }
+  },
+  "release_gate": {
+    "passed": true,
+    "checks": [
+      {
+        "suite": "pdf_chunk",
+        "passed": true,
+        "error": null
+      },
+      {
+        "suite": "pdf_extraction_bad_cases",
+        "passed": true,
+        "error": null
+      },
+      {
+        "suite": "rag",
+        "passed": true,
+        "error": null
+      },
+      {
+        "suite": "job_relevance",
+        "passed": true,
+        "error": null
+      },
+      {
+        "suite": "prompt_injection",
+        "passed": true,
+        "error": null
+      }
+    ],
+    "required_suites": [
+      "pdf_chunk",
+      "pdf_extraction_bad_cases",
+      "rag",
+      "job_relevance",
+      "prompt_injection"
+    ]
+  },
+  "interpretation": [
+    "系统不计算掩盖短板的加权总分；任一核心 suite 未过门禁，系统发布门禁即失败。",
+    "外部岗位源属于可用性 smoke，网络波动单独报告，不参与核心模型质量门禁。",
+    "LLM 成本优先使用供应商缓存明细；旧接口未返回缓存拆分时同时给出成本下界和上界。",
+    "合成和可控数据适合回归，不替代真实用户流量、人审校准和线上持续评测。"
+  ],
+  "git_revision": "a22e6246684d134e1f28700f49752297c5da584e",
+  "token_budget": 350000,
+  "suite_wall_time_ms": {
+    "pdf_chunk": 100548,
+    "pdf_extraction_bad_cases": 9319,
+    "rag": 17008,
+    "job_relevance": 339,
+    "prompt_injection": 107
+  },
+  "evaluation_run_id": 248
+}

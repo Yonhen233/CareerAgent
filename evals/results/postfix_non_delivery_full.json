@@ -1,0 +1,983 @@
+{
+  "evaluation_type": "agent_system",
+  "methodology_version": "careeragent-agent-eval-v1",
+  "experiment_id": "agent-system-20260911-215514-99fa1fe4",
+  "mode": "full",
+  "status": "completed_with_suite_errors",
+  "suite_count": 9,
+  "dataset_manifest": {
+    "agent_efficiency_cases.json": {
+      "case_count": 0,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "agent_fault_injection_cases.json": {
+      "case_count": 7,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "agent_full_flow_cases.json": {
+      "case_count": 10,
+      "difficulty": {
+        "adversarial": 2,
+        "easy": 2,
+        "hard": 4,
+        "medium": 2
+      },
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "application_packet_cases.json": {
+      "case_count": 27,
+      "difficulty": {
+        "adversarial": 2,
+        "easy": 6,
+        "hard": 10,
+        "medium": 9
+      },
+      "noise_profile": {
+        "automation_boundary": 3,
+        "bilingual_paraphrase": 1,
+        "clean_supported_claims": 2,
+        "data_role": 2,
+        "generic_letter": 2,
+        "grounded_metric": 1,
+        "metric_fabrication": 1,
+        "missing_url": 2,
+        "negative_evidence": 1,
+        "non_agent_role": 2,
+        "old_hardcoded_agent_fallback": 2,
+        "product_role": 2,
+        "semantic_fabrication_without_known_skill": 1,
+        "semantic_outcome_fabrication": 1,
+        "short_outreach": 2,
+        "unsupported_platform_claims": 2
+      },
+      "source_type": {}
+    },
+    "context_runtime_cases.json": {
+      "case_count": 40,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "conversation_task_state_cases.json": {
+      "case_count": 48,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "follow_up_directive_bad_cases.json": {
+      "case_count": 22,
+      "difficulty": {
+        "adversarial": 6,
+        "easy": 3,
+        "hard": 8,
+        "medium": 5
+      },
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "golden_demo_scenarios.json": {
+      "case_count": 3,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "interview_claim_verifier_cases.json": {
+      "case_count": 14,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "interview_prep_cases.json": {
+      "case_count": 9,
+      "difficulty": {
+        "adversarial": 1,
+        "hard": 3,
+        "medium": 5
+      },
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "jd_parser_cases.json": {
+      "case_count": 30,
+      "difficulty": {
+        "adversarial": 4,
+        "easy": 5,
+        "hard": 7,
+        "medium": 14
+      },
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "job_relevance_cases.json": {
+      "case_count": 13,
+      "difficulty": {
+        "easy": 2,
+        "hard": 4,
+        "medium": 7
+      },
+      "noise_profile": {
+        "agent_and_data_noise": 1,
+        "ai_keyword_noise": 1,
+        "analysis_and_ai_noise": 1,
+        "engineering_overmatch_noise": 2,
+        "english_sales_noise": 1,
+        "fulltime_and_product_noise": 1,
+        "intern_and_product_noise": 1,
+        "llm_dev_and_ops_noise": 1,
+        "ops_and_generic_llm_noise": 1,
+        "product_and_sales_noise": 1,
+        "safety_policy_and_ops_noise": 1,
+        "semantic_neighbor_noise": 1
+      },
+      "source_type": {}
+    },
+    "llm_workflow_cases.json": {
+      "case_count": 24,
+      "difficulty": {
+        "adversarial": 3,
+        "easy": 9,
+        "hard": 6,
+        "medium": 6
+      },
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "natural_language_plan_cases.json": {
+      "case_count": 20,
+      "difficulty": {
+        "adversarial": 3,
+        "easy": 4,
+        "hard": 5,
+        "medium": 8
+      },
+      "noise_profile": {
+        "english": 1,
+        "evidence_polarity": 1,
+        "explicit_full_flow": 1,
+        "explicit_ui_override": 2,
+        "high_risk_action": 1,
+        "ids_present": 1,
+        "inline_jd": 1,
+        "inline_jd_and_negation": 1,
+        "mixed_language": 1,
+        "multi_action_with_negation": 1,
+        "multi_stage_no_external_action": 1,
+        "partial_form_and_prompt": 1,
+        "preference_only": 1,
+        "profile_entity_extraction": 1,
+        "profile_id": 1,
+        "repeated_negation": 1,
+        "single_action": 1,
+        "underspecified": 1,
+        "update_not_replace": 1
+      },
+      "source_type": {}
+    },
+    "pdf_chunk_cases.json": {
+      "case_count": 96,
+      "difficulty": {
+        "adversarial": 24,
+        "easy": 24,
+        "hard": 24,
+        "medium": 24
+      },
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "pdf_extraction_bad_cases.json": {
+      "case_count": 22,
+      "difficulty": {
+        "adversarial": 5,
+        "easy": 4,
+        "hard": 7,
+        "medium": 6
+      },
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "profile_query_cases.json": {
+      "case_count": 5,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "prompt_injection_cases.json": {
+      "case_count": 70,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "rag_cases.json": {
+      "case_count": 180,
+      "difficulty": {
+        "adversarial": 45,
+        "easy": 45,
+        "hard": 45,
+        "medium": 45
+      },
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "rag_core_cases.json": {
+      "case_count": 180,
+      "difficulty": {
+        "adversarial": 45,
+        "easy": 45,
+        "hard": 45,
+        "medium": 45
+      },
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "rag_multilingual_calibration.json": {
+      "case_count": 144,
+      "difficulty": {
+        "adversarial": 48,
+        "hard": 96
+      },
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "real_job_source_cases.json": {
+      "case_count": 9,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "real_profile_job_relevance_annotations.json": {
+      "case_count": 0,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "sample_cases.json": {
+      "case_count": 3,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    },
+    "token_optimization_cases.json": {
+      "case_count": 36,
+      "difficulty": {},
+      "noise_profile": {},
+      "source_type": {}
+    }
+  },
+  "suites": {
+    "pdf_chunk": {
+      "evaluation_run_id": 249,
+      "name": "pdf_chunk_strategy_evaluation",
+      "gate_passed": true,
+      "metrics": {
+        "case_count": 96,
+        "selected_strategy": "paragraph_page_900_overlap160",
+        "top3_keyword_hit_rate": 0.9479,
+        "top3_page_hit_rate": 0.8299,
+        "top3_context_hit_rate": 0.776
+      }
+    },
+    "pdf_extraction_bad_cases": {
+      "evaluation_run_id": 250,
+      "name": "pdf_extraction_bad_case_evaluation",
+      "gate_passed": true,
+      "metrics": {
+        "case_count": 22,
+        "pass_rate": 1.0,
+        "critical_case_pass_rate": 1.0,
+        "expected_error_accuracy": 1.0,
+        "bridge_precision": 1.0,
+        "bridge_recall": 1.0,
+        "bridge_false_positive_rate": 0.0
+      }
+    },
+    "rag": {
+      "evaluation_run_id": 251,
+      "name": "rag_strategy_evaluation",
+      "gate_passed": true,
+      "metrics": {
+        "case_count": 180,
+        "selected_strategy": "real_embedding_quality_aware_top20_rerank",
+        "top1_accuracy": 1.0,
+        "avg_top3_recall": 0.6667,
+        "avg_top5_recall": 0.8333,
+        "avg_mrr": 1.0,
+        "avg_ndcg_at_5": 0.8732,
+        "actual_embedding_providers": [
+          "sentence_transformers"
+        ],
+        "actual_reranker_providers": [
+          "cross_encoder"
+        ],
+        "fallback_reasons": []
+      }
+    },
+    "job_relevance": {
+      "evaluation_run_id": 252,
+      "name": "job_relevance_evaluation",
+      "gate_passed": true,
+      "metrics": {
+        "status": "completed",
+        "case_count": 13,
+        "pass_rate": 1.0,
+        "top1_accuracy": 1.0,
+        "avg_top3_recall": 1.0,
+        "avg_top5_recall": 1.0,
+        "avg_mrr": 1.0,
+        "avg_ndcg_at_5": 0.9495
+      }
+    },
+    "prompt_injection": {
+      "evaluation_run_id": 253,
+      "name": "prompt_injection_guard_evaluation",
+      "gate_passed": true,
+      "metrics": {
+        "case_count": 70,
+        "pass_rate": 1.0,
+        "detection_recall": 1.0,
+        "false_positive_rate": 0.0
+      }
+    },
+    "natural_language_plan": {
+      "evaluation_run_id": 254,
+      "name": "natural_language_plan_evaluation",
+      "gate_passed": true,
+      "metrics": {
+        "status": "completed",
+        "case_count": 20,
+        "pass_rate": 1.0,
+        "completed_rate": 1.0,
+        "avg_action_precision": 1.0,
+        "avg_action_recall": 1.0
+      }
+    },
+    "jd_parser": {
+      "evaluation_run_id": 255,
+      "name": "jd_parser_evaluation",
+      "gate_passed": true,
+      "metrics": {
+        "status": "completed",
+        "case_count": 30,
+        "pass_rate": 1.0,
+        "completed_rate": 1.0,
+        "avg_required_skill_precision": 0.985,
+        "avg_required_skill_recall": 0.9944
+      }
+    },
+    "llm_workflow": {
+      "evaluation_run_id": 256,
+      "name": "llm_workflow_evaluation",
+      "gate_passed": true,
+      "metrics": {
+        "status": "completed",
+        "case_count": 24,
+        "completed_rate": 1.0,
+        "end_to_end_pass_rate": 0.9167,
+        "fit_label_accuracy": 1.0,
+        "fit_score_in_range_rate": 0.9583,
+        "tailor_pass_rate": 0.9412,
+        "forbidden_claim_free_rate": 1.0
+      }
+    },
+    "interview_claim_verifier": {
+      "evaluation_run_id": 257,
+      "name": "interview_claim_verifier_evaluation",
+      "gate_passed": true,
+      "metrics": {
+        "case_count": 14,
+        "accuracy": 1.0,
+        "false_positive_rate": 0.0,
+        "positive_recall": 1.0,
+        "question_answering_accuracy": 1.0,
+        "nonresponsive_answer_false_accept_rate": 0.0,
+        "specificity": 1.0,
+        "strategy_recall": 1.0
+      }
+    }
+  },
+  "suite_errors": {
+    "interview_prep": "LLMBudgetExceededError: LLM budget interview_agentic_rag exceeds max_completion_tokens=15000 before interview_agentic_rag.repair.round2.1#attempt1."
+  },
+  "trajectory": {
+    "trace_count": 0,
+    "step_count": 0,
+    "step_success_rate": 0.0,
+    "tool_call_count": 0,
+    "tool_success_rate": 0.0,
+    "failed_tool_call_count": 0,
+    "tool_latency_ms": {
+      "count": 0,
+      "mean": 0.0,
+      "p50": 0.0,
+      "p95": 0.0,
+      "max": 0
+    },
+    "tool_call_breakdown": {},
+    "trajectory_v2_pass_rate": 0.0,
+    "trajectory_v2_failure_breakdown": {
+      "missing_steps": 0,
+      "failed_steps": 0,
+      "unexpected_tools": 0,
+      "order_violations": 0,
+      "argument_violations": 0,
+      "duplicate_violations": 0,
+      "approval_violation": 0,
+      "policy_block_violation": 0,
+      "missing_completion_artifact": 0
+    }
+  },
+  "reliability": {
+    "repetitions": 1,
+    "case_count": 3,
+    "trial_count": 3,
+    "pass_at_1": 1.0,
+    "pass_power_k": 1.0,
+    "per_case": {
+      "mixed_zh_en_agent_observability_role": [
+        true
+      ],
+      "zh_agent_candidate_strong_rag_platform": [
+        true
+      ],
+      "zh_agent_resume_with_prompt_injection_noise": [
+        true
+      ]
+    },
+    "definition": "pass^k 为同一 case 的 k 次运行全部通过的比例；它衡量一致性，不等同于至少一次成功。"
+  },
+  "performance": {
+    "wall_time_ms": 741034,
+    "llm": {
+      "call_count": 173,
+      "completed_call_count": 172,
+      "failed_call_count": 1,
+      "call_success_rate": 0.9942,
+      "prompt_tokens": 202094,
+      "completion_tokens": 52719,
+      "total_tokens": 254813,
+      "cache_hit_prompt_tokens": 0,
+      "cache_miss_prompt_tokens": 0,
+      "usage_detail_coverage_rate": 0.0,
+      "latency_ms": {
+        "count": 173,
+        "mean": 3170.83,
+        "p50": 2567.0,
+        "p95": 5059.8,
+        "max": 27488
+      },
+      "cost_cny": {
+        "lower_bound": 0.146074,
+        "upper_bound": 0.402386,
+        "exact": false,
+        "priced_call_count": 173,
+        "cache_detailed_call_count": 1,
+        "currency": "CNY",
+        "pricing_basis": "2026-07-22 DeepSeek V4 Flash/Pro public rates supplied for this project"
+      },
+      "by_model": {
+        "DeepSeek-V4-Flash": {
+          "call_count": 165,
+          "completed_call_count": 165,
+          "prompt_tokens": 172891,
+          "completion_tokens": 43607,
+          "total_tokens": 216498,
+          "latency_ms": {
+            "count": 165,
+            "mean": 2699.68,
+            "p50": 2537.0,
+            "p95": 4127.8,
+            "max": 5723
+          },
+          "cost_cny": {
+            "lower_bound": 0.090672,
+            "upper_bound": 0.260105,
+            "exact": false,
+            "priced_call_count": 165,
+            "cache_detailed_call_count": 0,
+            "currency": "CNY",
+            "pricing_basis": "2026-07-22 DeepSeek V4 Flash/Pro public rates supplied for this project"
+          }
+        },
+        "DeepSeek-V4-Pro": {
+          "call_count": 8,
+          "completed_call_count": 7,
+          "prompt_tokens": 29203,
+          "completion_tokens": 9112,
+          "total_tokens": 38315,
+          "latency_ms": {
+            "count": 8,
+            "mean": 12888.38,
+            "p50": 9989.0,
+            "p95": 25731.0,
+            "max": 27488
+          },
+          "cost_cny": {
+            "lower_bound": 0.055402,
+            "upper_bound": 0.142281,
+            "exact": false,
+            "priced_call_count": 8,
+            "cache_detailed_call_count": 1,
+            "currency": "CNY",
+            "pricing_basis": "2026-07-22 DeepSeek V4 Flash/Pro public rates supplied for this project"
+          }
+        }
+      },
+      "by_route": {
+        "flash_economy": {
+          "call_count": 165,
+          "completed_call_count": 165,
+          "prompt_tokens": 172891,
+          "completion_tokens": 43607,
+          "total_tokens": 216498,
+          "latency_ms": {
+            "count": 165,
+            "mean": 2699.68,
+            "p50": 2537.0,
+            "p95": 4127.8,
+            "max": 5723
+          },
+          "cost_cny": {
+            "lower_bound": 0.090672,
+            "upper_bound": 0.260105,
+            "exact": false,
+            "priced_call_count": 165,
+            "cache_detailed_call_count": 0,
+            "currency": "CNY",
+            "pricing_basis": "2026-07-22 DeepSeek V4 Flash/Pro public rates supplied for this project"
+          }
+        },
+        "pro_quality": {
+          "call_count": 8,
+          "completed_call_count": 7,
+          "prompt_tokens": 29203,
+          "completion_tokens": 9112,
+          "total_tokens": 38315,
+          "latency_ms": {
+            "count": 8,
+            "mean": 12888.38,
+            "p50": 9989.0,
+            "p95": 25731.0,
+            "max": 27488
+          },
+          "cost_cny": {
+            "lower_bound": 0.055402,
+            "upper_bound": 0.142281,
+            "exact": false,
+            "priced_call_count": 8,
+            "cache_detailed_call_count": 1,
+            "currency": "CNY",
+            "pricing_basis": "2026-07-22 DeepSeek V4 Flash/Pro public rates supplied for this project"
+          }
+        }
+      },
+      "by_trace_group": {
+        "evaluation.interview_claim_verifier": {
+          "call_count": 2,
+          "completed_call_count": 2,
+          "prompt_tokens": 3641,
+          "completion_tokens": 1751,
+          "total_tokens": 5392,
+          "latency_ms": {
+            "count": 2,
+            "mean": 9851.0,
+            "p50": 9851.0,
+            "p95": 10580.0,
+            "max": 10661
+          },
+          "cost_cny": {
+            "lower_bound": 0.010597,
+            "upper_bound": 0.021429,
+            "exact": false,
+            "priced_call_count": 2,
+            "cache_detailed_call_count": 0,
+            "currency": "CNY",
+            "pricing_basis": "2026-07-22 DeepSeek V4 Flash/Pro public rates supplied for this project"
+          }
+        },
+        "evaluation.llm_judge_suitability": {
+          "call_count": 24,
+          "completed_call_count": 24,
+          "prompt_tokens": 53644,
+          "completion_tokens": 5967,
+          "total_tokens": 59611,
+          "latency_ms": {
+            "count": 24,
+            "mean": 2869.62,
+            "p50": 2763.5,
+            "p95": 3892.95,
+            "max": 4015
+          },
+          "cost_cny": {
+            "lower_bound": 0.013007,
+            "upper_bound": 0.065578,
+            "exact": false,
+            "priced_call_count": 24,
+            "cache_detailed_call_count": 0,
+            "currency": "CNY",
+            "pricing_basis": "2026-07-22 DeepSeek V4 Flash/Pro public rates supplied for this project"
+          }
+        },
+        "interview_agentic_rag.generate": {
+          "call_count": 1,
+          "completed_call_count": 1,
+          "prompt_tokens": 7498,
+          "completion_tokens": 2477,
+          "total_tokens": 9975,
+          "latency_ms": {
+            "count": 1,
+            "mean": 27488.0,
+            "p50": 27488.0,
+            "p95": 27488.0,
+            "max": 27488
+          },
+          "cost_cny": {
+            "lower_bound": 0.015049,
+            "upper_bound": 0.037356,
+            "exact": false,
+            "priced_call_count": 1,
+            "cache_detailed_call_count": 0,
+            "currency": "CNY",
+            "pricing_basis": "2026-07-22 DeepSeek V4 Flash/Pro public rates supplied for this project"
+          }
+        },
+        "interview_agentic_rag.repair": {
+          "call_count": 2,
+          "completed_call_count": 1,
+          "prompt_tokens": 3861,
+          "completion_tokens": 647,
+          "total_tokens": 4508,
+          "latency_ms": {
+            "count": 2,
+            "mean": 4670.5,
+            "p50": 4670.5,
+            "p95": 8852.35,
+            "max": 9317
+          },
+          "cost_cny": {
+            "lower_bound": 0.003979,
+            "upper_bound": 0.015465,
+            "exact": false,
+            "priced_call_count": 2,
+            "cache_detailed_call_count": 1,
+            "currency": "CNY",
+            "pricing_basis": "2026-07-22 DeepSeek V4 Flash/Pro public rates supplied for this project"
+          }
+        },
+        "interview_agentic_rag.verify": {
+          "call_count": 2,
+          "completed_call_count": 2,
+          "prompt_tokens": 12796,
+          "completion_tokens": 3390,
+          "total_tokens": 16186,
+          "latency_ms": {
+            "count": 2,
+            "mean": 15885.5,
+            "p50": 15885.5,
+            "p95": 21809.75,
+            "max": 22468
+          },
+          "cost_cny": {
+            "lower_bound": 0.02066,
+            "upper_bound": 0.058728,
+            "exact": false,
+            "priced_call_count": 2,
+            "cache_detailed_call_count": 0,
+            "currency": "CNY",
+            "pricing_basis": "2026-07-22 DeepSeek V4 Flash/Pro public rates supplied for this project"
+          }
+        },
+        "interview_prep.generate_interviewer_questions": {
+          "call_count": 1,
+          "completed_call_count": 1,
+          "prompt_tokens": 1407,
+          "completion_tokens": 847,
+          "total_tokens": 2254,
+          "latency_ms": {
+            "count": 1,
+            "mean": 14805.0,
+            "p50": 14805.0,
+            "p95": 14805.0,
+            "max": 14805
+          },
+          "cost_cny": {
+            "lower_bound": 0.005117,
+            "upper_bound": 0.009303,
+            "exact": false,
+            "priced_call_count": 1,
+            "cache_detailed_call_count": 0,
+            "currency": "CNY",
+            "pricing_basis": "2026-07-22 DeepSeek V4 Flash/Pro public rates supplied for this project"
+          }
+        },
+        "jd_parser.parse_jd": {
+          "call_count": 54,
+          "completed_call_count": 54,
+          "prompt_tokens": 26948,
+          "completion_tokens": 13613,
+          "total_tokens": 40561,
+          "latency_ms": {
+            "count": 54,
+            "mean": 2517.09,
+            "p50": 2420.0,
+            "p95": 3336.9,
+            "max": 3461
+          },
+          "cost_cny": {
+            "lower_bound": 0.027765,
+            "upper_bound": 0.054174,
+            "exact": false,
+            "priced_call_count": 54,
+            "cache_detailed_call_count": 0,
+            "currency": "CNY",
+            "pricing_basis": "2026-07-22 DeepSeek V4 Flash/Pro public rates supplied for this project"
+          }
+        },
+        "jd_parser.skill_semantics_review": {
+          "call_count": 22,
+          "completed_call_count": 22,
+          "prompt_tokens": 10205,
+          "completion_tokens": 1497,
+          "total_tokens": 11702,
+          "latency_ms": {
+            "count": 22,
+            "mean": 1980.95,
+            "p50": 1922.0,
+            "p95": 2553.0,
+            "max": 2685
+          },
+          "cost_cny": {
+            "lower_bound": 0.003198,
+            "upper_bound": 0.013199,
+            "exact": false,
+            "priced_call_count": 22,
+            "cache_detailed_call_count": 0,
+            "currency": "CNY",
+            "pricing_basis": "2026-07-22 DeepSeek V4 Flash/Pro public rates supplied for this project"
+          }
+        },
+        "natural_language.plan": {
+          "call_count": 20,
+          "completed_call_count": 20,
+          "prompt_tokens": 27236,
+          "completion_tokens": 6456,
+          "total_tokens": 33692,
+          "latency_ms": {
+            "count": 20,
+            "mean": 2825.8,
+            "p50": 2701.0,
+            "p95": 3395.5,
+            "max": 4469
+          },
+          "cost_cny": {
+            "lower_bound": 0.013457,
+            "upper_bound": 0.040148,
+            "exact": false,
+            "priced_call_count": 20,
+            "cache_detailed_call_count": 0,
+            "currency": "CNY",
+            "pricing_basis": "2026-07-22 DeepSeek V4 Flash/Pro public rates supplied for this project"
+          }
+        },
+        "natural_language.repair_plan_contract": {
+          "call_count": 1,
+          "completed_call_count": 1,
+          "prompt_tokens": 1806,
+          "completion_tokens": 872,
+          "total_tokens": 2678,
+          "latency_ms": {
+            "count": 1,
+            "mean": 3753.0,
+            "p50": 3753.0,
+            "p95": 3753.0,
+            "max": 3753
+          },
+          "cost_cny": {
+            "lower_bound": 0.00178,
+            "upper_bound": 0.00355,
+            "exact": false,
+            "priced_call_count": 1,
+            "cache_detailed_call_count": 0,
+            "currency": "CNY",
+            "pricing_basis": "2026-07-22 DeepSeek V4 Flash/Pro public rates supplied for this project"
+          }
+        },
+        "resume_parser.parse_structured_resume": {
+          "call_count": 24,
+          "completed_call_count": 24,
+          "prompt_tokens": 15976,
+          "completion_tokens": 4713,
+          "total_tokens": 20689,
+          "latency_ms": {
+            "count": 24,
+            "mean": 2414.75,
+            "p50": 2364.0,
+            "p95": 3239.9,
+            "max": 3814
+          },
+          "cost_cny": {
+            "lower_bound": 0.009746,
+            "upper_bound": 0.025402,
+            "exact": false,
+            "priced_call_count": 24,
+            "cache_detailed_call_count": 0,
+            "currency": "CNY",
+            "pricing_basis": "2026-07-22 DeepSeek V4 Flash/Pro public rates supplied for this project"
+          }
+        },
+        "resume_tailor.repair_resume": {
+          "call_count": 3,
+          "completed_call_count": 3,
+          "prompt_tokens": 5930,
+          "completion_tokens": 1192,
+          "total_tokens": 7122,
+          "latency_ms": {
+            "count": 3,
+            "mean": 3110.33,
+            "p50": 3413.0,
+            "p95": 3530.9,
+            "max": 3544
+          },
+          "cost_cny": {
+            "lower_bound": 0.002503,
+            "upper_bound": 0.008314,
+            "exact": false,
+            "priced_call_count": 3,
+            "cache_detailed_call_count": 0,
+            "currency": "CNY",
+            "pricing_basis": "2026-07-22 DeepSeek V4 Flash/Pro public rates supplied for this project"
+          }
+        },
+        "resume_tailor.tailor_resume": {
+          "call_count": 17,
+          "completed_call_count": 17,
+          "prompt_tokens": 31146,
+          "completion_tokens": 9297,
+          "total_tokens": 40443,
+          "latency_ms": {
+            "count": 17,
+            "mean": 4089.29,
+            "p50": 4091.0,
+            "p95": 5599.0,
+            "max": 5723
+          },
+          "cost_cny": {
+            "lower_bound": 0.019217,
+            "upper_bound": 0.04974,
+            "exact": false,
+            "priced_call_count": 17,
+            "cache_detailed_call_count": 0,
+            "currency": "CNY",
+            "pricing_basis": "2026-07-22 DeepSeek V4 Flash/Pro public rates supplied for this project"
+          }
+        }
+      },
+      "errors": [
+        {
+          "log_id": 2627,
+          "trace_name": "interview_agentic_rag.repair.round2.1",
+          "model": "DeepSeek-V4-Pro",
+          "status": "budget_exceeded",
+          "error": "LLMBudgetExceededError: LLM budget interview_agentic_rag exceeds max_completion_tokens=15000 before interview_agentic_rag.repair.round2.1#attempt1."
+        }
+      ]
+    },
+    "amortized_system_cost_per_successful_workflow_case_cny": {
+      "successful_workflow_cases": 22,
+      "lower_bound": 0.00664,
+      "upper_bound": 0.01829,
+      "scope": "整轮系统实验总成本除以 llm_workflow 成功 case 数，仅用于实验预算摊销，不代表单个工作流独立成本。"
+    }
+  },
+  "release_gate": {
+    "passed": false,
+    "checks": [
+      {
+        "suite": "pdf_chunk",
+        "passed": true,
+        "error": null
+      },
+      {
+        "suite": "pdf_extraction_bad_cases",
+        "passed": true,
+        "error": null
+      },
+      {
+        "suite": "rag",
+        "passed": true,
+        "error": null
+      },
+      {
+        "suite": "job_relevance",
+        "passed": true,
+        "error": null
+      },
+      {
+        "suite": "prompt_injection",
+        "passed": true,
+        "error": null
+      },
+      {
+        "suite": "natural_language_plan",
+        "passed": true,
+        "error": null
+      },
+      {
+        "suite": "jd_parser",
+        "passed": true,
+        "error": null
+      },
+      {
+        "suite": "llm_workflow",
+        "passed": true,
+        "error": null
+      },
+      {
+        "suite": "interview_claim_verifier",
+        "passed": true,
+        "error": null
+      },
+      {
+        "suite": "interview_prep",
+        "passed": false,
+        "error": "LLMBudgetExceededError: LLM budget interview_agentic_rag exceeds max_completion_tokens=15000 before interview_agentic_rag.repair.round2.1#attempt1."
+      }
+    ],
+    "required_suites": [
+      "pdf_chunk",
+      "pdf_extraction_bad_cases",
+      "rag",
+      "job_relevance",
+      "prompt_injection",
+      "natural_language_plan",
+      "jd_parser",
+      "llm_workflow",
+      "interview_claim_verifier",
+      "interview_prep"
+    ]
+  },
+  "interpretation": [
+    "系统不计算掩盖短板的加权总分；任一核心 suite 未过门禁，系统发布门禁即失败。",
+    "外部岗位源属于可用性 smoke，网络波动单独报告，不参与核心模型质量门禁。",
+    "LLM 成本优先使用供应商缓存明细；旧接口未返回缓存拆分时同时给出成本下界和上界。",
+    "合成和可控数据适合回归，不替代真实用户流量、人审校准和线上持续评测。"
+  ],
+  "git_revision": "a22e6246684d134e1f28700f49752297c5da584e",
+  "token_budget": 350000,
+  "suite_wall_time_ms": {
+    "pdf_chunk": 88098,
+    "pdf_extraction_bad_cases": 9380,
+    "rag": 14547,
+    "job_relevance": 306,
+    "prompt_injection": 105,
+    "natural_language_plan": 61587,
+    "jd_parser": 95229,
+    "llm_workflow": 360707,
+    "interview_claim_verifier": 11186,
+    "interview_prep": 98130
+  },
+  "evaluation_run_id": 258
+}

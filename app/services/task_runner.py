@@ -46,6 +46,18 @@ class RedisRunLock:
         return bool(self.redis_client.set(self.key, self.worker_id, nx=True, ex=self.ttl_seconds))
 
     def release(self) -> bool:
+        # Redis' compare-and-delete script prevents a slow worker from deleting
+        # a lock that has expired and already been acquired by another worker.
+        if hasattr(self.redis_client, "eval"):
+            return bool(
+                self.redis_client.eval(
+                    "if redis.call('get', KEYS[1]) == ARGV[1] then "
+                    "return redis.call('del', KEYS[1]) else return 0 end",
+                    1,
+                    self.key,
+                    self.worker_id,
+                )
+            )
         owner = self.redis_client.get(self.key)
         if owner != self.worker_id:
             return False

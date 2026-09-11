@@ -1,0 +1,79 @@
+{
+  "status": "completed",
+  "results": [
+    {
+      "file": "陈卓-AI-Agent-实习简历-无照片.pdf",
+      "elapsed_ms": 189.49,
+      "text_page_coverage": 1.0,
+      "image_count": 0,
+      "quality_gate_passed": true,
+      "grounding_rate": 1.0,
+      "unsupported_skill_count": 0,
+      "skills": [
+        "Agent",
+        "LangGraph",
+        "LLM",
+        "MCP",
+        "RAG",
+        "Redis",
+        "SQLite"
+      ],
+      "education_count": 2,
+      "project_count": 2,
+      "chunk_count": 14
+    },
+    {
+      "file": "陈卓-AI-Agent-实习简历.pdf",
+      "elapsed_ms": 103.42,
+      "text_page_coverage": 1.0,
+      "image_count": 1,
+      "quality_gate_passed": true,
+      "grounding_rate": 1.0,
+      "unsupported_skill_count": 0,
+      "skills": [
+        "Agent",
+        "LangGraph",
+        "LLM",
+        "MCP",
+        "RAG",
+        "Redis",
+        "SQLite"
+      ],
+      "education_count": 2,
+      "project_count": 2,
+      "chunk_count": 14
+    }
+  ],
+  "real_llm_parse": [
+    {
+      "file": "陈卓-AI-Agent-实习简历-无照片.pdf",
+      "quality_gate_passed": true,
+      "grounding_rate": 0.9811,
+      "skills": [
+        "Agent",
+        "LangGraph",
+        "LLM",
+        "MCP",
+        "RAG",
+        "Redis",
+        "SQLite"
+      ],
+      "rejected_optional_field_count": 3
+    },
+    {
+      "file": "陈卓-AI-Agent-实习简历.pdf",
+      "quality_gate_passed": true,
+      "grounding_rate": 1.0,
+      "skills": [
+        "Agent",
+        "LangGraph",
+        "LLM",
+        "MCP",
+        "RAG",
+        "Redis",
+        "SQLite"
+      ],
+      "rejected_optional_field_count": 3
+    }
+  ]
+}

@@ -435,10 +435,15 @@ Resume:
         return None
 
     def _extract_skills(self, text: str) -> list[str]:
-        lowered = text.lower()
         found = []
         for skill in KNOWN_SKILLS:
-            if skill.lower() in lowered:
+            # Match technical names as tokens.  Substring matching turns
+            # ``ReAct`` into ``React`` and ``SQLite/MySQL`` into ``SQL``.
+            # React is intentionally case-sensitive because ReAct is a
+            # different workflow term and appears frequently in resumes.
+            flags = 0 if skill == "React" else re.IGNORECASE
+            pattern = rf"(?<![A-Za-z0-9]){re.escape(skill)}(?![A-Za-z0-9])"
+            if re.search(pattern, text, flags=flags):
                 found.append(skill)
         return sorted(set(found), key=lambda x: x.lower())
 
@@ -467,6 +472,14 @@ Resume:
         skills = []
         for value in output.get("skills") or []:
             clean = str(value or "").strip()
+            # A model can copy an entire skill paragraph into one taxonomy
+            # item. It is grounded text, but it breaks downstream matching;
+            # keep concise labels and let the deterministic extractor recover
+            # individual known skills from the same paragraph.
+            if len(clean) > 40:
+                if clean:
+                    rejected.append({"field": "skills", "value": clean})
+                continue
             if clean and self.grounding.has_positive_support(clean, grounding_source):
                 skills.append(clean)
             elif clean:

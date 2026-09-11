@@ -50,6 +50,7 @@ async def run(args: argparse.Namespace) -> int:
     from sqlalchemy import func, select
 
     from app.core.database import SessionLocal, init_db
+    from app.core.config import get_settings
     from app.core.llm import llm_trace_context
     from app.models.entities import EvaluationRun, LLMCallLog
     from app.services.agent_system_evaluation import AgentSystemEvaluationReporter
@@ -57,8 +58,8 @@ async def run(args: argparse.Namespace) -> int:
     from app.services.evaluation_service import EvaluationService
     from app.services.interview_claim_evaluation import InterviewClaimVerifierEvaluationService
 
-    if args.mode == "full" and not (os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")):
-        raise RuntimeError("full 模式需要通过进程环境提供 LLM_API_KEY。")
+    if args.mode == "full" and not (get_settings().llm_api_key or os.getenv("OPENAI_API_KEY")):
+        raise RuntimeError("full 模式需要在 .env 或进程环境中配置 LLM_API_KEY。")
     if args.token_budget <= 0:
         raise ValueError("token-budget 必须大于 0。")
     if args.interview_case_limit < 0 or args.interview_case_limit > 9:

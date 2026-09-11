@@ -1195,13 +1195,17 @@ class InterviewAgenticRAGService:
 12. 必须逐项正面回答 question 中的并列要求。问题问“如何”时，至少一条 claim 要给出具体步骤、组件、字段或数据流；
     问题问“为什么/替代方案”时要分别回答理由和替代方案；问题要求画架构时，用“入口 → 编排 → 工具 → 存储/外部系统”
     这样的可口述数据流表达，不能只罗列技术名词或只说明证据不足。
+13. 简历仅提及某技术不等于记录了它的架构位置或选型动机。缺少这些事实时，第一条仅复述可验证经历，
+    其余用“如果让我设计，我会……”分别说明架构位置、理由和替代方案，标为 answer_strategy 并引用技术证据。
+    不得从技术名称推断“我把它用于入口层”等历史事实。
 
 claim_type 只能是：candidate_experience、candidate_skill、candidate_metric、job_requirement、job_responsibility、
 interview_pattern、project_implementation、technical_explanation、answer_strategy。
 
 来源与 claim_type：resume 可用于 candidate_* 和候选人项目的 project_implementation；job 只能用于
 job_requirement/job_responsibility；interview_experience 只能用于 interview_pattern；project_document 用于
-project_implementation/technical_explanation；technical_knowledge 用于 technical_explanation。无法判断时拆分 claim。
+project_implementation/technical_explanation；technical_knowledge 用于 technical_explanation/answer_strategy。
+job 也可支持明确标为未来方案的 answer_strategy。无法判断时拆分 claim。
 
 输出严格 JSON：{"answers":[{"question_id":"...",
 "claims":[{"text":"...","claim_type":"technical_explanation","evidence_ids":["..."]}]}]}。"""

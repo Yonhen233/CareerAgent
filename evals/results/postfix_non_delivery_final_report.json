@@ -1,0 +1,275 @@
+{
+  "status": "completed",
+  "evaluations": {
+    "deterministic_non_delivery": {
+      "source": "evals/results/postfix_deterministic_non_delivery.json",
+      "release_gate": true,
+      "metrics": {
+        "pdf_chunk": {
+          "case_count": 96,
+          "selected_strategy": "paragraph_page_900_overlap160",
+          "top3_keyword_hit_rate": 0.9479,
+          "top3_page_hit_rate": 0.8299,
+          "top3_context_hit_rate": 0.776
+        },
+        "pdf_extraction_bad_cases": {
+          "case_count": 22,
+          "pass_rate": 1.0,
+          "critical_case_pass_rate": 1.0,
+          "expected_error_accuracy": 1.0,
+          "bridge_precision": 1.0,
+          "bridge_recall": 1.0,
+          "bridge_false_positive_rate": 0.0
+        },
+        "rag": {
+          "case_count": 180,
+          "selected_strategy": "real_embedding_quality_aware_top20_rerank",
+          "top1_accuracy": 1.0,
+          "avg_top3_recall": 0.6667,
+          "avg_top5_recall": 0.8333,
+          "avg_mrr": 1.0,
+          "avg_ndcg_at_5": 0.8732,
+          "actual_embedding_providers": [
+            "sentence_transformers"
+          ],
+          "actual_reranker_providers": [
+            "cross_encoder"
+          ],
+          "fallback_reasons": []
+        },
+        "job_relevance": {
+          "status": "completed",
+          "case_count": 13,
+          "pass_rate": 1.0,
+          "top1_accuracy": 1.0,
+          "avg_top3_recall": 1.0,
+          "avg_top5_recall": 1.0,
+          "avg_mrr": 1.0,
+          "avg_ndcg_at_5": 0.9495
+        },
+        "prompt_injection": {
+          "case_count": 70,
+          "pass_rate": 1.0,
+          "detection_recall": 1.0,
+          "false_positive_rate": 0.0
+        },
+        "natural_language_plan": {
+          "status": "completed",
+          "case_count": 20,
+          "pass_rate": 1.0,
+          "completed_rate": 1.0,
+          "avg_action_precision": 1.0,
+          "avg_action_recall": 1.0
+        },
+        "jd_parser": {
+          "status": "completed",
+          "case_count": 30,
+          "pass_rate": 1.0,
+          "completed_rate": 1.0,
+          "avg_required_skill_precision": 0.985,
+          "avg_required_skill_recall": 0.9944
+        },
+        "llm_workflow": {
+          "status": "completed",
+          "case_count": 24,
+          "completed_rate": 1.0,
+          "end_to_end_pass_rate": 0.9167,
+          "fit_label_accuracy": 1.0,
+          "fit_score_in_range_rate": 0.9583,
+          "tailor_pass_rate": 0.9412,
+          "forbidden_claim_free_rate": 1.0
+        },
+        "interview_claim_verifier": {
+          "case_count": 14,
+          "accuracy": 1.0,
+          "false_positive_rate": 0.0,
+          "positive_recall": 1.0,
+          "question_answering_accuracy": 1.0,
+          "nonresponsive_answer_false_accept_rate": 0.0,
+          "specificity": 1.0,
+          "strategy_recall": 1.0
+        }
+      }
+    },
+    "full_non_delivery": {
+      "source": "evals/results/postfix_non_delivery_full.json",
+      "release_gate": true,
+      "suite_errors": {}
+    },
+    "full_interview_prep": {
+      "source": "evals/results/postfix_interview_full_grounding_fix.json",
+      "release_gate": {
+        "passed": true,
+        "checks": [
+          {
+            "suite": "interview_prep",
+            "passed": true,
+            "error": null
+          }
+        ],
+        "required_suites": [
+          "interview_prep"
+        ]
+      },
+      "suite_errors": {},
+      "metrics": {
+        "status": "completed",
+        "case_count": 9,
+        "pass_rate": 1.0,
+        "question_quality_pass_rate": 1.0,
+        "source_backed_pass_rate": 1.0,
+        "avg_question_quality_score": 1.0
+      }
+    },
+    "provided_resume_pdf": {
+      "source": "evals/results/provided_resume_postfix.json",
+      "results": [
+        {
+          "file": "陈卓-AI-Agent-实习简历-无照片.pdf",
+          "elapsed_ms": 189.49,
+          "text_page_coverage": 1.0,
+          "image_count": 0,
+          "quality_gate_passed": true,
+          "grounding_rate": 1.0,
+          "unsupported_skill_count": 0,
+          "skills": [
+            "Agent",
+            "LangGraph",
+            "LLM",
+            "MCP",
+            "RAG",
+            "Redis",
+            "SQLite"
+          ],
+          "education_count": 2,
+          "project_count": 2,
+          "chunk_count": 14
+        },
+        {
+          "file": "陈卓-AI-Agent-实习简历.pdf",
+          "elapsed_ms": 103.42,
+          "text_page_coverage": 1.0,
+          "image_count": 1,
+          "quality_gate_passed": true,
+          "grounding_rate": 1.0,
+          "unsupported_skill_count": 0,
+          "skills": [
+            "Agent",
+            "LangGraph",
+            "LLM",
+            "MCP",
+            "RAG",
+            "Redis",
+            "SQLite"
+          ],
+          "education_count": 2,
+          "project_count": 2,
+          "chunk_count": 14
+        }
+      ]
+    }
+  },
+  "latency": {
+    "pdf_chunk": {
+      "suite_wall_time_ms": 88098
+    },
+    "pdf_extraction_bad_cases": {
+      "suite_wall_time_ms": 9380
+    },
+    "rag": {
+      "suite_wall_time_ms": 14547
+    },
+    "job_relevance": {
+      "suite_wall_time_ms": 306
+    },
+    "prompt_injection": {
+      "suite_wall_time_ms": 105
+    },
+    "natural_language_plan": {
+      "suite_wall_time_ms": 61587
+    },
+    "jd_parser": {
+      "suite_wall_time_ms": 95229
+    },
+    "llm_workflow": {
+      "suite_wall_time_ms": 360707
+    },
+    "interview_claim_verifier": {
+      "suite_wall_time_ms": 11186
+    },
+    "interview_prep": {
+      "suite_wall_time_ms": 696879
+    },
+    "resume_parser.parse_structured_resume": {
+      "count": 24,
+      "mean": 2414.75,
+      "p50": 2364.0,
+      "p95": 3239.9,
+      "max": 3814
+    },
+    "jd_parser.parse_jd": {
+      "count": 54,
+      "mean": 2517.09,
+      "p50": 2420.0,
+      "p95": 3336.9,
+      "max": 3461
+    },
+    "resume_tailor.tailor_resume": {
+      "count": 17,
+      "mean": 4089.29,
+      "p50": 4091.0,
+      "p95": 5599.0,
+      "max": 5723
+    },
+    "resume_tailor.repair_resume": {
+      "count": 3,
+      "mean": 3110.33,
+      "p50": 3413.0,
+      "p95": 3530.9,
+      "max": 3544
+    },
+    "interview_prep.generate_interviewer_questions": {
+      "count": 9,
+      "mean": 14691.67,
+      "p50": 14338.0,
+      "p95": 16556.0,
+      "max": 16678
+    },
+    "interview_agentic_rag.generate": {
+      "count": 9,
+      "mean": 33738.33,
+      "p50": 33651.0,
+      "p95": 37960.2,
+      "max": 38693
+    },
+    "interview_agentic_rag.verify": {
+      "count": 10,
+      "mean": 20657.1,
+      "p50": 22132.0,
+      "p95": 23490.0,
+      "max": 23940
+    },
+    "interview_agentic_rag.repair": {
+      "count": 1,
+      "mean": 6265.0,
+      "p50": 6265.0,
+      "p95": 6265.0,
+      "max": 6265
+    },
+    "combined_suite_wall_time_ms": 1338024
+  },
+  "fixes": [
+    "启发式技能抽取改为 token 边界匹配，区分 ReAct/React 和 SQLite/MySQL/SQL。",
+    "Redis 事件与 reranker cache 增加亚秒超时、失败冷却和快速降级；锁释放使用 compare-and-delete。",
+    "面试题生成/回答明确区分简历事实与假设设计，避免无证据架构事实追问。",
+    "面试 Agentic RAG completion 预留从 15000 调整为 25600，覆盖两轮定向修复。",
+    "评测脚本支持从 .env 读取 LLM_API_KEY。"
+  ],
+  "manual_gpt_assessment": {
+    "bugs_after_fix": "未发现新的阻断性 bug；默认 Redis 不可用快速应用测试通过，完整测试 517/517。",
+    "rag_accuracy": "Top1 1.0，但 Top3 recall 0.6667、Top5 recall 0.8333，说明首位命中稳定，候选集前列仍有召回空间。",
+    "interview_applicability": "9/9 面试案例通过；required skill coverage 平均约 97.8%，evidence signal rate 平均 0.622，18 条 verifier warning 且 1 次 repair，适合内部测评和准备辅助，仍应保留证据边界提示。",
+    "architecture_readiness": "主链路、质量门禁、恢复与可观测性已形成闭环；生产化仍依赖 Redis 高可用、外部模型可用性、真实岗位/面经分布和更高召回率验证.",
+    "provided_resume_pdf": "两份实际 PDF 的确定性回退解析和真实 LLM 解析均通过质量门禁，技能归一为 Agent/LangGraph/LLM/MCP/RAG/Redis/SQLite；真实 LLM 解析的无照片版本 grounding 0.9811，照片版本 1.0，差异为可选字段被拒绝，不影响关键字段。"
+  }
+}

@@ -20,6 +20,31 @@ CareerAgent: Built a FastAPI RAG workflow with SQLite, tool calling, and evaluat
     assert "SQLite" in parsed["skills"]
 
 
+def test_heuristic_skill_matching_does_not_confuse_react_or_sql_substrings():
+    service = ResumeParserService()
+
+    skills = service._extract_skills("熟悉 ReAct 工作流、SQLite 和 MySQL。")
+
+    assert "React" not in skills
+    assert "SQL" not in skills
+    assert "Agent" not in skills
+    assert "SQLite" in skills
+
+    explicit = service._extract_skills("React 与 SQL")
+    assert "React" in explicit
+    assert "SQL" in explicit
+
+
+def test_resume_parser_rejects_grounded_skill_paragraphs_as_taxonomy_items():
+    service = ResumeParserService()
+    parsed, rejected = service._remove_unsupported_taxonomy_fields(
+        "Skills: Python, FastAPI, RAG, SQLite, Redis",
+        {"skills": ["Python", "This is a copied paragraph describing many skills and responsibilities"]},
+    )
+    assert parsed["skills"] == ["Python"]
+    assert rejected == [{"field": "skills", "value": "This is a copied paragraph describing many skills and responsibilities"}]
+
+
 def test_heuristic_resume_parser_keeps_multiple_chinese_education_and_projects_separate():
     service = ResumeParserService()
     text = """

@@ -832,6 +832,8 @@ class InterviewPrepService:
             "\"foundation_questions\":[{\"question\":string,\"follow_ups\":[string,string],"
             "\"skills\":[string],\"risk_level\":\"low|medium|high\"}]}\n"
             "project_questions 生成 5 题，围绕简历项目架构、数据流、日志指标、失败边界和本人贡献。\n"
+            "仅有技术名词不能证明具体架构位置、选型动机、指标或本人贡献。证据未写明的细节，"
+            "必须改为假设设计题，明确允许候选人先说明证据边界，再给出设计方案；不要预设已经实现。\n"
             "foundation_questions 生成 5 题，覆盖 JD 技能原理、工程取舍、能力缺口、求职动机和行为问题。\n"
             "每个字符串少于 60 个中文字符。不要 Markdown，不要额外字段。"
             "如果某技能在 missing_skills 里，问题必须要求候选人诚实说明边界和补齐计划，不能假设已经做过。\n\n"
@@ -1142,7 +1144,10 @@ class InterviewPrepService:
             evidence_item = self._find_evidence_for_skill(evidence, skill)
             questions.append(
                 {
-                    "question": f"你的简历项目里用了 {skill}，请说明它在项目架构中的位置、为什么选它，以及如果不用它有什么替代方案。",
+                    "question": (
+                        f"围绕简历中的 {skill}，先说明可验证的使用经历；"
+                        "对证据未记录的架构位置、选型理由和替代方案，请明确按假设设计作答。"
+                    ),
                     "intent": "从候选人项目技术栈出发做深挖，验证是否真的理解自己写在简历里的技术。",
                     "answer_points": self._technical_answer_points(skill, evidence_item),
                     "evidence_refs": [self._evidence_ref(evidence_item, 1)] if evidence_item else [],

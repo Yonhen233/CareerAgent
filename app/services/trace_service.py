@@ -5,7 +5,13 @@ from typing import Any, TypeVar
 
 from sqlalchemy.orm import Session
 
-from app.core.redis_client import RedisUnavailableError, get_redis_client, redis_key
+from app.core.redis_client import (
+    RedisUnavailableError,
+    get_redis_client,
+    is_redis_transport_error,
+    mark_redis_unavailable,
+    redis_key,
+)
 from app.models.entities import AgentArtifact, AgentEvent, AgentRun, AgentStep
 from app.core.config import get_settings
 from app.services.agent_reliability import AgentExecutionBudgetExceeded
@@ -333,7 +339,12 @@ class TraceService:
 
     def _publish_event(self, event: AgentEvent) -> None:
         try:
-            redis = get_redis_client()
+            settings = get_settings()
+            if not settings.redis_enabled:
+                return
+            redis = get_redis_client(
+                socket_timeout_seconds=settings.redis_event_socket_timeout_seconds,
+            )
             redis.publish(
                 redis_key("career_agent", "events", event.run_id),
                 json.dumps(
@@ -350,3 +361,8 @@ class TraceService:
             )
         except RedisUnavailableError:
             return
+        except Exception as exc:
+            if is_redis_transport_error(exc):
+                mark_redis_unavailable(exc)
+                return
+            raise

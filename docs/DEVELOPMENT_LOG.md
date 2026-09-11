@@ -5816,3 +5816,58 @@ Embedding、Cross-Encoder 和 Redis：
 
 这次扩充的价值不只是增加数量：正向样本覆盖了不同 Agent 技术方向，负向样本验证“检索相关”与“适合投递”被 Fit Gate 正确区分。
 需要注意的是，30 次样本只证明当前评测集上的稳定性，不等价于真实流量 SLO；简历定制 P95 明显高于岗位搜索，是下一阶段效率优化的优先对象。
+
+## 简历解析、Redis 故障韧性与面试 Agentic RAG 评测修复（2026-09-11）
+
+### 本轮目标
+
+本轮针对 CareerAgent 非投递链路做了一次真实回归：使用 `D:\实习\vibe-resume\output\pdf` 中的两份简历验证 PDF 抽取和结构化解析，
+并用真实 LLM、真实 SentenceTransformer Embedding、真实 Cross-Encoder 和本地评测集检查岗位解析、RAG、匹配、简历定制、
+面试题库以及 Claim Verifier。评测记录了每个套件的 wall time 和 LLM 单次调用延迟；投递动作不在本轮范围内。
+
+### 本轮发现的 Bad Case
+
+1. 启发式技能抽取以前使用子串匹配，会把 `ReAct` 识别成 `React`，把 `SQLite/MySQL` 中的 `SQL` 当成独立技能。真实简历中的模型解析还可能把整段技能说明复制成一个技能项，虽然文本有原文支持，却会污染后续匹配和面试题生成。
+2. Redis 默认连接探测使用较长的通用超时。Redis 不可用时，Trace 事件发布会把业务请求拖入连接等待；缓存和事件广播没有共享的失败冷却。
+3. `RedisRunLock.release` 先 `GET` 再 `DELETE`，存在锁过期后被新 worker 获得、旧 worker 又删除新锁的竞态。
+4. 面试题会把“简历出现技术名词”扩展成“候选人已经做过具体架构位置和选型决策”，导致回答生成器只能在事实边界和问题覆盖之间反复 repair。原有面试工作流的 15,000 completion 预留也不足以覆盖两轮定向修复。
+5. 全量评测入口只检查进程环境中的 `LLM_API_KEY`，而项目其他组件已经支持 `.env`，导致从仓库脚本直接启动真实评测时出现配置误报。
+
+### 修复内容
+
+1. `ResumeParserService._extract_skills` 改为技术词 token 边界匹配，并对 `React` 使用精确大小写匹配；结构化解析阶段拒绝超过 40 个字符的技能段落，保留简短技能标签并让确定性抽取恢复单项技能。
+2. Redis 增加事件专用的 `0.5s` socket timeout、共享 failure cooldown 和传输错误识别。Trace 广播和 reranker L2 缓存遇到 Redis 故障时快速降级，不把缓存/广播故障伪装成主链路成功。
+3. worker lock 释放使用 Redis Lua compare-and-delete；没有 `eval` 的测试替身保留安全的兼容路径。
+4. 面试题提示词和 Agentic RAG 回答约束明确区分候选人已交付事实与 `answer_strategy` 假设设计。证据没有记录架构位置、选型理由或替代方案时，题目必须允许先说明证据边界，再回答未来设计。
+5. `INTERVIEW_RAG_MAX_COMPLETION_TOKENS` 调整为 25,600，覆盖正常批次、两轮答案 repair 和增量验证；`.env.example`、架构文档和实现深潜文档同步更新。
+6. 评测入口改为读取 `get_settings().llm_api_key`，从 `.env` 启动时不再错误报告缺少密钥。
+
+### 非投递链路评测结果
+
+使用真实模型调用的全量套件和独立确定性套件均通过发布门禁：
+
+- PDF 分块 96 个案例，Top3 关键词命中率 `0.9479`；PDF 异常抽取 22 个案例，关键案例通过率和 expected error accuracy 均为 `1.0`。
+- RAG 180 个案例，Top1 accuracy `1.0`，Top3 recall `0.6667`，Top5 recall `0.8333`，MRR `1.0`，nDCG@5 `0.8732`；实际使用 SentenceTransformer 和 Cross-Encoder，没有 fallback。
+- 岗位相关性 13 个案例，Top1/Top3/Top5/MRR 均为 `1.0`；Prompt Injection 70 个案例，检测召回率 `1.0`、误报率 `0`。
+- 自然语言规划 20 个案例全部通过；JD 解析 30 个案例，required skill precision `0.985`、recall `0.9944`。
+- LLM 工作流 24 个案例，fit label accuracy `1.0`，端到端通过率 `0.9167`，Tailor 通过率 `0.9412`，forbidden claim free `1.0`。
+- 面试题库真实 LLM 评测 9 个案例全部通过，question quality、source-backed 和质量门禁通过率均为 `1.0`。required skill coverage 平均约 `0.9778`；平均 evidence signal rate `0.6222`，共记录 18 条 verifier warning 和 1 次 repair，因此不能把结构门禁通过直接等同于所有回答都同样适用。
+
+### 两份实际简历验证
+
+两份 PDF 都是 1 页文本型简历，text page coverage `1.0`，教育经历 2 条、项目 2 条、结构化 chunk 14 个；照片版包含 1 张图片，未影响文本抽取。
+确定性回退解析和真实 LLM 解析的质量门禁均通过，技能均归一为 `Agent/LangGraph/LLM/MCP/RAG/Redis/SQLite`。真实 LLM 解析的无照片版 grounding rate 为 `0.9811`，照片版为 `1.0`；被拒绝内容属于可选字段，没有关键字段失败。详细结果保存在 `evals/results/provided_resume_postfix.json`。
+
+### 延迟记录
+
+套件耗时（批量 wall time）如下：PDF 分块 `88.1s`、PDF 异常抽取 `9.4s`、RAG `14.5s`、岗位相关性 `0.3s`、Prompt Injection `0.1s`、自然语言规划 `61.6s`、JD 解析 `95.2s`、LLM 工作流 `360.7s`、Claim Verifier `11.2s`、面试准备 `696.9s/9 cases`。两轮评测套件累计耗时约 `1338.0s`，这是分套件运行时间之和，不是单个用户请求的 SLO。
+
+LLM 单次调用的均值/P95 为：简历解析 `2.41s/3.24s`、JD 解析 `2.52s/3.34s`、简历定制 `4.09s/5.60s`、面试题生成 `14.69s/16.56s`、面试答案生成 `33.74s/37.96s`、Claim 验证 `20.66s/23.49s`。面试 9 个案例共 29 次 LLM 调用，全部成功，整套 wall time `697.7s`。
+
+### 回归验证与剩余风险
+
+本轮完整回归为 **517 passed**；Redis resilience、缓存、简历解析和面试相关定向测试为 **67 passed**。Redis 开启但本地不可用时，`quick_apply` 中断/取消测试在约 3 秒内通过，不再出现之前超过 60 秒的阻塞。
+
+当前架构已经具备主链路、质量门禁、故障降级、恢复锁和可观测性的闭环，但仍有三项生产化工作：第一，RAG Top3 recall 仍低于 Top5，需要继续优化召回候选和来源配额；第二，面试 evidence signal rate 和 verifier warning 需要在真实用户题目上继续收敛；第三，Redis Sentinel/多节点故障切换和真实外部岗位、面经数据尚未做生产规模验证。本轮只评估投递之前的链路，没有把投递动作的外部副作用纳入发布结论。
+
+本轮汇总报告为 `evals/results/postfix_non_delivery_final_report.json`，面试全量结果为 `evals/results/postfix_interview_full_grounding_fix.json`。
