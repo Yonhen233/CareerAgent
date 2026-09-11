@@ -72,3 +72,34 @@ def test_resume_evidence_quality_prior_demotes_explicit_non_delivery():
     assert [item.chunk_uid for item in ranked] == ["delivered", "planned"]
     assert ranked[0].metadata["retrieval"]["evidence_quality_prior"] > 0
     assert ranked[1].metadata["retrieval"]["evidence_quality_prior"] < 0
+
+
+def test_row_vectors_rebuild_when_embedding_model_changes_even_if_dimensions_match():
+    class FakeEmbedding:
+        def embed_texts(self, texts):
+            from app.services.embedding_service import EmbeddingBatch
+
+            return EmbeddingBatch(
+                vectors=[[0.9, 0.1] for _ in texts],
+                provider="sentence_transformers",
+                model="new-model",
+                dimensions=2,
+            )
+
+    class Row:
+        embedding_json = [0.1, 0.9]
+        metadata_json = {
+            "embedding": {"provider": "sentence_transformers", "model": "old-model", "dimensions": 2}
+        }
+        text = "new evidence"
+
+    index = SQLiteVectorIndex()
+    index.embedding_service = FakeEmbedding()
+    vectors, migrated = index._row_vectors(
+        [Row()],
+        expected_dimensions=2,
+        expected_embedding={"provider": "sentence_transformers", "model": "new-model"},
+    )
+
+    assert migrated == 1
+    assert vectors == [[0.9, 0.1]]

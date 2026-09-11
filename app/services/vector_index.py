@@ -366,7 +366,11 @@ class SQLiteVectorIndex:
         expanded_query = expand_query_text(query_text)
         query_embedding = self.embedding_service.embed_text(expanded_query)
         query_vec = query_embedding.vectors[0] if query_embedding.vectors else []
-        row_vectors, migrated = self._row_vectors(rows, expected_dimensions=len(query_vec))
+        row_vectors, migrated = self._row_vectors(
+            rows,
+            expected_dimensions=len(query_vec),
+            expected_embedding=query_embedding.info(),
+        )
         if migrated:
             db.commit()
         query_tokens = set(tokenize(expanded_query))
@@ -420,6 +424,7 @@ class SQLiteVectorIndex:
         rows: list[Any],
         *,
         expected_dimensions: int,
+        expected_embedding: dict[str, Any] | None = None,
     ) -> tuple[list[list[float]], int]:
         vectors: list[list[float] | None] = []
         missing_texts: list[str] = []
@@ -429,7 +434,12 @@ class SQLiteVectorIndex:
             metadata = dict(row.metadata_json or {})
             expected_version = "retrieval_context_v1" if metadata.get("retrieval_context") else None
             version_matches = not expected_version or metadata.get("embedding_text_version") == expected_version
-            if expected_dimensions and len(vector) == expected_dimensions and version_matches:
+            stored_embedding = metadata.get("embedding") or {}
+            provider_matches = not expected_embedding or (
+                stored_embedding.get("provider") == expected_embedding.get("provider")
+                and stored_embedding.get("model") == expected_embedding.get("model")
+            )
+            if expected_dimensions and len(vector) == expected_dimensions and version_matches and provider_matches:
                 vectors.append(vector)
                 continue
             vectors.append(None)

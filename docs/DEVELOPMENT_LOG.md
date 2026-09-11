@@ -5871,3 +5871,11 @@ LLM 单次调用的均值/P95 为：简历解析 `2.41s/3.24s`、JD 解析 `2.52
 当前架构已经具备主链路、质量门禁、故障降级、恢复锁和可观测性的闭环，但仍有三项生产化工作：第一，RAG Top3 recall 仍低于 Top5，需要继续优化召回候选和来源配额；第二，面试 evidence signal rate 和 verifier warning 需要在真实用户题目上继续收敛；第三，Redis Sentinel/多节点故障切换和真实外部岗位、面经数据尚未做生产规模验证。本轮只评估投递之前的链路，没有把投递动作的外部副作用纳入发布结论。
 
 本轮汇总报告为 `evals/results/postfix_non_delivery_final_report.json`，面试全量结果为 `evals/results/postfix_interview_full_grounding_fix.json`。
+
+## RAG 索引一致性与质量诊断（2026-09-11）
+
+针对“RAG 效果很不好”的反馈，对召回、一阶段排序、reranker、证据先验和最终事实去重进行了分层检查。现有 180-case 集虽然 Top1 为 `1.0`、Recall@3 为 `0.6667`、Recall@5 为 `0.8333`，但只有 12 个不同 query 和 115 段不同文本，且每个 case 有 4 个正向 chunk；它可以用于回归，不能作为真实泛化的充分证据。策略消融显示当前质量先验优于单纯增大 reranker 权重，权重从 `0.30` 提到 `0.50/0.70` 时 Recall@5 降至 `0.7917/0.7292`。
+
+真实简历索引检查发现历史 resume chunk 同时存在 hash、SentenceTransformer 和缺少 embedding 元数据的行；旧 profile 的结构化事实和 PDF 页面也没有完整 `fact_id` 关联，导致同一项目的多个视图重复占据 Top-K。`SQLiteVectorIndex._row_vectors` 已修复为同时校验 provider、model、维度和 retrieval text version，避免同维度旧模型向量被错误复用，并新增同维度换模型的回归测试（定向测试 7 passed）。
+
+提供的简历历史 profile 真实查询冷启动约 `12.3s`，模型加载后的 warm P50 `7.8ms`、P95 `11.9ms`。后续需要先完成历史 profile 的可审计 reindex，再用真实脱敏简历/JD 增加 query-conditioned 标注，覆盖 hard negative、相邻能力、否定/计划/课程语气和同一事实多视图。详细诊断见 `docs/RAG_DIAGNOSIS_2026-09-11.md`。
